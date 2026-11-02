@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# Gateway: Go data plane with ONNX Runtime (Linux amd64 only for ORT)
+# Gateway: Go data plane with ONNX Runtime
 
 FROM golang:1.22-bookworm AS builder
 
@@ -10,7 +10,7 @@ RUN go mod download
 COPY . .
 # ORT shared lib path must be available at build time
 ARG ORT_LIB_DIR=/usr/local/lib
-RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 \
+RUN CGO_ENABLED=1 GOOS=linux \
     go build -tags ORT -ldflags="-s -w" \
     -o /out/gateway ./cmd/gateway/
 
@@ -24,8 +24,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Install ORT shared library (CPU, 1.18.x)
 ARG ORT_VERSION=1.18.1
-RUN curl -fsSL \
-    "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-linux-x64-${ORT_VERSION}.tgz" \
+RUN ORT_ARCH=$(uname -m | sed 's/x86_64/x64/') \
+    && curl -fsSL \
+    "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-linux-${ORT_ARCH}-${ORT_VERSION}.tgz" \
     | tar -xz -C /usr/local/lib --strip-components=2 \
     && ldconfig
 
