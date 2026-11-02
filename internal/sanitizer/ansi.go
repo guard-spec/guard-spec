@@ -60,6 +60,6 @@ func CheckMCPDescription(description string) bool {
 	if len(description) > 1500 {
 		return true
 	}
-	_, hadTag, hadBidi := stripDangerousRanges(description)
+	_, hadTag, hadBidi := stripInvisible(description)
 	return hadTag || hadBidi
 }

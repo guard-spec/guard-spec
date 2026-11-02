@@ -1,8 +1,9 @@
-﻿package sanitizer
+package sanitizer
 
 import (
 	"fmt"
 	"html"
+	"regexp"
 	"unicode"
 	"unicode/utf8"
 
@@ -17,6 +18,7 @@ type Report struct {
 	HadTagChars   bool    // Unicode tag block chars (E0000-E007F) were present
 	HadBidi       bool    // bidi control chars were present
 	HadANSI       bool    // ANSI escape sequences were present
+	HadFakeMarker bool    // input contained our datamarking tokens
 	HomoglyphRisk bool    // skeleton analysis found confusable characters
 	AnomalyScore  float32 // 0-1 composite signal
 	BytesRemoved  int
@@ -24,6 +26,9 @@ type Report struct {
 
 // htmlPolicy strips all HTML tags, keeping only text content.
 var htmlPolicy = bluemonday.StrictPolicy()
+
+// maxCleanPasses bounds how many layers of entity encoding we will unwrap.
+const maxCleanPasses = 8
 
 // Sanitize applies the full pipeline and returns cleaned text + report.
 // Order is security-critical — do not reorder steps.
@@ -36,103 +41,120 @@ func Sanitize(input string) (string, Report, error) {
 		return "", report, fmt.Errorf("invalid UTF-8 sequence")
 	}
 
-	// 2. NFKC normalization: decompose ligatures, fullwidth, etc.
-	// Must run before stripping — some targets only appear after decomposition.
-	normalized, _, err := transform.String(norm.NFKC, input)
-	if err != nil {
-		return "", report, fmt.Errorf("NFKC: %w", err)
+	// 2-6. Repeat until stable: decoding an HTML entity can reintroduce anything
+	// an earlier step removed (e.g. &#xFE01; or &lt;script&gt;).
+	stripped := input
+	stable := false
+	for i := 0; i < maxCleanPasses && !stable; i++ {
+		next, err := cleanPass(stripped, &report)
+		if err != nil {
+			return "", report, err
+		}
+		stable = next == stripped
+		stripped = next
 	}
-
-	// 3. Strip Default_Ignorable_Code_Point property.
-	// Covers: Tags block, zero-width chars, variation selectors, WJ, SHY.
-	stripped, _ := stripDefaultIgnorable(normalized)
-
-	// 4. Strip explicit dangerous ranges (defense-in-depth).
-	var hadTag, hadBidi bool
-	stripped, hadTag, hadBidi = stripDangerousRanges(stripped)
-	report.HadTagChars = hadTag
-	report.HadBidi = hadBidi
-
-	// 5. Strip ANSI escape sequences (in ansi.go, same package).
-	var hadANSI bool
-	stripped, hadANSI = stripANSI(stripped)
-	report.HadANSI = hadANSI
-
-	// 6. HTML-strip (strict: no tags survive). Unescape entities bluemonday re-encodes.
-	stripped = html.UnescapeString(htmlPolicy.Sanitize(stripped))
+	if !stable {
+		return "", report, fmt.Errorf("input exceeds %d layers of encoding", maxCleanPasses)
+	}
 
 	// 7. Homoglyph detection — signal only, do not rewrite.
 	report.HomoglyphRisk = checkHomoglyphs(stripped)
+
+	// 8. Remove spoofed markers, then apply spotlighting/datamarking last.
+	// If attacker fakes the marker, cleaning removes it before we add ours.
+	stripped, report.HadFakeMarker = stripMarkers(stripped)
 	report.BytesRemoved = len(input) - len(stripped)
 	report.AnomalyScore = computeAnomaly(report)
-
-	// 8. Apply spotlighting/datamarking last (after cleaning).
-	// If attacker fakes the marker, cleaning removes it before we add ours.
 	output := applyDatamarking(stripped)
 
 	return output, report, nil
 }
 
-// applyDatamarking wraps the text with PUA marker tokens to signal data vs instruction
+// cleanPass runs one round of the transforming steps and accumulates signals.
+func cleanPass(s string, report *Report) (string, error) {
+	// 2. NFKC normalization: decompose ligatures, fullwidth, etc.
+	// Must run before stripping — some targets only appear after decomposition.
+	normalized, _, err := transform.String(norm.NFKC, s)
+	if err != nil {
+		return "", fmt.Errorf("NFKC: %w", err)
+	}
+
+	// 3. Strip Default_Ignorable_Code_Point chars. Must run before ANSI so a
+	// zero-width char cannot split an escape sequence.
+	stripped, hadTag, hadBidi := stripInvisible(normalized)
+	report.HadTagChars = report.HadTagChars || hadTag
+	report.HadBidi = report.HadBidi || hadBidi
+
+	// 4. Strip ANSI escape sequences (in ansi.go, same package).
+	// Must run before step 5, which would remove ESC and leave the payload.
+	stripped, hadANSI := stripANSI(stripped)
+	report.HadANSI = report.HadANSI || hadANSI
+
+	// 5. Strip remaining control chars.
+	stripped = stripControls(stripped)
+
+	// 6. HTML-strip (strict: no tags survive). Unescape entities bluemonday re-encodes.
+	return html.UnescapeString(htmlPolicy.Sanitize(stripped)), nil
+}
+
+// markerPattern matches our datamarking tokens, tolerating case and spacing.
+var markerPattern = regexp.MustCompile(`(?i)\[\s*/?\s*DATA\s*\]`)
+
+// stripMarkers removes marker tokens until none remain, because removing one
+// can join its neighbours into a new one: "[/DA[DATA]TA]".
+func stripMarkers(s string) (string, bool) {
+	found := false
+	for markerPattern.MatchString(s) {
+		found = true
+		s = markerPattern.ReplaceAllString(s, "")
+	}
+	return s, found
+}
+
+// applyDatamarking wraps the text with marker tokens to signal data vs instruction
 // context to the downstream LLM. Reduces ASR from >50% to <2% (arXiv:2403.14720).
-// U+E000 is Private Use Area — safe to use as an application-internal marker.
 func applyDatamarking(s string) string {
 	const open = "[DATA]"
 	const close = "[/DATA]"
 	return open + s + close
 }
 
-// stripDefaultIgnorable removes characters with the Default_Ignorable_Code_Point property.
-func stripDefaultIgnorable(s string) (string, int) {
-	removed := 0
-	t := runes.Remove(runes.Predicate(func(r rune) bool {
-		if unicode.Is(unicode.Other, r) {
-			removed++
-			return true
-		}
-		return false
-	}))
-	result, _, _ := transform.String(t, s)
-	return result, removed
+// flagSequence matches an emoji tag sequence such as the flag of England.
+var flagSequence = regexp.MustCompile(`\x{1F3F4}[\x{E0030}-\x{E0039}\x{E0061}-\x{E007A}]{2,6}\x{E007F}`)
+
+// isIgnorable reports whether r is Default_Ignorable_Code_Point or private use.
+// Format chars cover the Tags block, zero-width chars, bidi controls, WJ, BOM and SHY.
+func isIgnorable(r rune) bool {
+	return unicode.Is(unicode.Other_Default_Ignorable_Code_Point, r) ||
+		unicode.Is(unicode.Variation_Selector, r) ||
+		unicode.Is(unicode.Co, r) ||
+		(unicode.Is(unicode.Cf, r) && !unicode.Is(unicode.Prepended_Concatenation_Mark, r))
 }
 
-// dangerousRanges are Unicode ranges stripped after NFKC normalization.
-var dangerousRanges = &unicode.RangeTable{
-	R32: []unicode.Range32{
-		{Lo: 0xE0000, Hi: 0xE007F, Stride: 1},  // Tags block
-		{Lo: 0xE0100, Hi: 0xE01EF, Stride: 1},  // Variation selectors supplement
-	},
-	R16: []unicode.Range16{
-		{Lo: 0xFE00, Hi: 0xFE0F, Stride: 1},    // Variation selectors
-		{Lo: 0x200B, Hi: 0x200D, Stride: 1},    // ZW space/non-joiner/joiner
-		{Lo: 0x202A, Hi: 0x202E, Stride: 1},    // Bidi embedding/override
-		{Lo: 0x2066, Hi: 0x2069, Stride: 1},    // Bidi isolate
-		{Lo: 0x0000, Hi: 0x001F, Stride: 1},    // C0 controls (tab/LF/CR exempted below)
-		{Lo: 0x007F, Hi: 0x009F, Stride: 1},    // DEL + C1 controls
-		{Lo: 0x2060, Hi: 0x2060, Stride: 1},    // Word joiner
-		{Lo: 0xFEFF, Hi: 0xFEFF, Stride: 1},    // BOM / ZWNBSP
-		{Lo: 0x00AD, Hi: 0x00AD, Stride: 1},    // Soft hyphen
-	},
-}
-
-func stripDangerousRanges(s string) (result string, hadTag bool, hadBidi bool) {
+// stripInvisible removes ignorable chars and reports tag and bidi chars.
+// Valid flag sequences reduce to the base emoji without raising the tag signal.
+func stripInvisible(s string) (result string, hadTag bool, hadBidi bool) {
+	s = flagSequence.ReplaceAllString(s, "\U0001F3F4")
 	t := runes.Remove(runes.Predicate(func(r rune) bool {
-		// Preserve tab (0x09), LF (0x0A), CR (0x0D)
-		if r == '\t' || r == '\n' || r == '\r' {
-			return false
-		}
 		if r >= 0xE0000 && r <= 0xE007F {
 			hadTag = true
-			return true
 		}
 		if (r >= 0x202A && r <= 0x202E) || (r >= 0x2066 && r <= 0x2069) {
 			hadBidi = true
-			return true
 		}
-		return unicode.Is(dangerousRanges, r)
+		return isIgnorable(r)
 	}))
 	result, _, _ = transform.String(t, s)
 	return
+}
+
+// stripControls removes C0/C1 controls, preserving tab, LF and CR.
+func stripControls(s string) string {
+	t := runes.Remove(runes.Predicate(func(r rune) bool {
+		return unicode.IsControl(r) && r != '\t' && r != '\n' && r != '\r'
+	}))
+	result, _, _ := transform.String(t, s)
+	return result
 }
 
 // script is a Unicode script group used for homoglyph detection.
@@ -221,6 +243,9 @@ func computeAnomaly(r Report) float32 {
 		score += 0.2
 	}
 	if r.HomoglyphRisk {
+		score += 0.3
+	}
+	if r.HadFakeMarker {
 		score += 0.3
 	}
 	if score > 1.0 {
