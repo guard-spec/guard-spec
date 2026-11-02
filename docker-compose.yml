@@ -8,7 +8,7 @@ services:
       - "8080:8080"   # proxy API (OpenAI-compatible)
       - "9090:9090"   # Prometheus metrics
     environment:
-      DATABASE_URL: postgres://ps:ps@postgres:5432/promptshield?sslmode=disable
+      DATABASE_URL: postgres://ps_app:ps_app@postgres:5432/promptshield?sslmode=disable
       CLICKHOUSE_URL: clickhouse://clickhouse:9000/promptshield
       MODELS_PATH: /models
       CONTROL_PLANE_URL: http://control-plane:8081
@@ -34,8 +34,11 @@ services:
     ports:
       - "18081:8081"
     environment:
-      DATABASE_URL: postgres://ps:ps@postgres:5432/promptshield?sslmode=disable
-      JWT_SECRET: change-me-in-production
+      DATABASE_URL: postgres://ps_app:ps_app@postgres:5432/promptshield?sslmode=disable
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@localhost}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-change-on-first-login}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
       LOG_LEVEL: info
     depends_on:
       migrate:
