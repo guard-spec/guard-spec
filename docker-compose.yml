@@ -18,9 +18,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      clickhouse:
-        condition: service_started
-      model-init:
+      migrate:
         condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
@@ -40,10 +38,25 @@ services:
       JWT_SECRET: change-me-in-production
       LOG_LEVEL: info
     depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  migrate:
+    image: migrate/migrate:v4.17.1
+    command:
+      - -path=/migrations
+      - -database=postgres://ps:ps@postgres:5432/promptshield?sslmode=disable
+      - up
+    volumes:
+      - ./migrations:/migrations:ro
+    depends_on:
       postgres:
         condition: service_healthy
+    restart: "no"
 
+  # web/ is not in the repository yet: docker compose --profile ui up
   ui:
+    profiles: [ui]
     image: promptshield/ui:latest
     build:
       context: ./web
@@ -68,20 +81,23 @@ services:
       timeout: 3s
       retries: 5
 
+  # Not used by the services yet: docker compose --profile analytics up
   clickhouse:
+    profiles: [analytics]
     image: clickhouse/clickhouse-server:24-alpine
     volumes:
       - chdata:/var/lib/clickhouse
     ports:
       - "8123:8123"   # HTTP interface (optional, for debugging)
 
+  # The gateway does not load models yet: docker compose --profile models up model-init
   model-init:
+    profiles: [models]
     image: promptshield/model-init:latest
     build:
       context: .
       dockerfile: build/model-init.Dockerfile
     command:
-      - download
       - --models
       - qwen3guard-gen-0.6b,protectai-deberta-v3-xsmall-pi
       - --output
