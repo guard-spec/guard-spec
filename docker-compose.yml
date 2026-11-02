@@ -1,0 +1,98 @@
+services:
+  gateway:
+    image: promptshield/gateway:latest
+    build:
+      context: .
+      dockerfile: build/gateway.Dockerfile
+    ports:
+      - "8080:8080"   # proxy API (OpenAI-compatible)
+      - "9090:9090"   # Prometheus metrics
+    environment:
+      DATABASE_URL: postgres://ps:ps@postgres:5432/promptshield?sslmode=disable
+      CLICKHOUSE_URL: clickhouse://clickhouse:9000/promptshield
+      MODELS_PATH: /models
+      CONTROL_PLANE_URL: http://control-plane:8081
+      LOG_LEVEL: info
+    volumes:
+      - models:/models
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_started
+      model-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  control-plane:
+    image: promptshield/control-plane:latest
+    build:
+      context: .
+      dockerfile: build/control-plane.Dockerfile
+    ports:
+      - "18081:8081"
+    environment:
+      DATABASE_URL: postgres://ps:ps@postgres:5432/promptshield?sslmode=disable
+      JWT_SECRET: change-me-in-production
+      LOG_LEVEL: info
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  ui:
+    image: promptshield/ui:latest
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:18081
+      NEXT_PUBLIC_GATEWAY_URL: http://localhost:8080
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: promptshield
+      POSTGRES_USER: ps
+      POSTGRES_PASSWORD: ps
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ps -d promptshield"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24-alpine
+    volumes:
+      - chdata:/var/lib/clickhouse
+    ports:
+      - "8123:8123"   # HTTP interface (optional, for debugging)
+
+  model-init:
+    image: promptshield/model-init:latest
+    build:
+      context: .
+      dockerfile: build/model-init.Dockerfile
+    command:
+      - download
+      - --models
+      - qwen3guard-gen-0.6b,protectai-deberta-v3-xsmall-pi
+      - --output
+      - /models
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}   # optional for public models
+    volumes:
+      - models:/models
+    restart: "no"
+
+volumes:
+  models:
+  pgdata:
+  chdata:
