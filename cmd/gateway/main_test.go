@@ -8,9 +8,21 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/promptshield/promptshield/internal/inference"
 	"github.com/promptshield/promptshield/internal/policy"
+	"github.com/promptshield/promptshield/internal/tenant"
 )
+
+var devOrg = uuid.MustParse("00000000-0000-0000-0000-000000000001")
+
+// testLookup accepts only the key "test".
+func testLookup(_ context.Context, keyHash string) (uuid.UUID, uuid.UUID, error) {
+	if keyHash != tenant.HashKey("test") {
+		return uuid.Nil, uuid.Nil, errors.New("unknown key")
+	}
+	return devOrg, uuid.Nil, nil
+}
 
 type failingBackend struct{}
 
@@ -28,7 +40,7 @@ func post(t *testing.T, runner *inference.Runner, path, body string) (int, strin
 	req := httptest.NewRequest("POST", path, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-api-key", "test")
-	resp, err := newApp(runner, engine, nil).Test(req, -1)
+	resp, err := newApp(runner, engine, nil, testLookup).Test(req, -1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +122,7 @@ func TestScanBlocksAnomaly(t *testing.T) {
 	req := httptest.NewRequest("POST", "/guardrail/scan", strings.NewReader(`{"text":"hi󠁁"}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-api-key", "test")
-	resp, err := newApp(runner, engine, nil).Test(req, -1)
+	resp, err := newApp(runner, engine, nil, testLookup).Test(req, -1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,5 +135,27 @@ func TestScanBlocksAnomaly(t *testing.T) {
 	}
 	if !out.Blocked {
 		t.Error("expected blocked=true")
+	}
+}
+
+func TestRejectsUnknownKey(t *testing.T) {
+	runner, err := inference.NewRunner("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine, err := policy.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest("POST", "/guardrail/sanitize", strings.NewReader(`{"text":"x"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-api-key", "unknown")
+	resp, err := newApp(runner, engine, nil, testLookup).Test(req, -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 401 {
+		t.Errorf("status = %d, want 401", resp.StatusCode)
 	}
 }

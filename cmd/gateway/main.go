@@ -13,6 +13,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/promptshield/promptshield/internal/inference"
 	"github.com/promptshield/promptshield/internal/policy"
@@ -48,18 +49,17 @@ func main() {
 		os.Exit(1)
 	}
 
-	var db *pgxpool.Pool
-	if cfg.DatabaseURL != "" {
-		db, err = pgxpool.New(context.Background(), cfg.DatabaseURL)
-		if err != nil || db.Ping(context.Background()) != nil {
-			slog.Warn("gateway DB unavailable — request logging disabled", "err", err)
-			db = nil
-		} else {
-			slog.Info("gateway DB connected — request logging enabled")
-		}
+	db, err := pgxpool.New(context.Background(), cfg.DatabaseURL)
+	if err == nil {
+		err = db.Ping(context.Background())
 	}
+	if err != nil {
+		slog.Error("db connect", "err", err)
+		os.Exit(1)
+	}
+	defer db.Close()
 
-	app := newApp(runner, engine, db)
+	app := newApp(runner, engine, db, dbKeyLookup(db))
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -77,7 +77,7 @@ func main() {
 }
 
 // newApp builds the Fiber app with all gateway routes.
-func newApp(runner *inference.Runner, engine *policy.Engine, db *pgxpool.Pool) *fiber.App {
+func newApp(runner *inference.Runner, engine *policy.Engine, db *pgxpool.Pool, lookup tenant.LookupFn) *fiber.App {
 	app := fiber.New(fiber.Config{
 		ServerHeader: "promptshield",
 	})
@@ -90,8 +90,7 @@ func newApp(runner *inference.Runner, engine *policy.Engine, db *pgxpool.Pool) *
 	})
 
 	// All proxy routes require a valid API key.
-	// During development, any non-empty key is accepted (stub lookup).
-	app.Use(tenant.Middleware(stubKeyLookup))
+	app.Use(tenant.Middleware(lookup))
 
 	// OpenAI-compatible proxy
 	app.Post("/v1/chat/completions", chatHandler(runner, engine))
@@ -188,22 +187,25 @@ func logRequest(db *pgxpool.Pool, orgID, projID uuid.UUID, action, injectionLabe
 	if injectionLabel != "" && injectionLabel != "BENIGN" {
 		label = &injectionLabel
 	}
-	_, err := db.Exec(ctx,
-		`INSERT INTO requests
-		 (org_id, project_id, action, injection_label, injection_score, toxicity_score,
-		  anomaly_score, had_tag_chars, had_bidi, latency_ms)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-		orgID,
-		nullUUID(projID),
-		action,
-		label,
-		scores.Injection.Confidence,
-		scores.Toxicity.Confidence,
-		report.AnomalyScore,
-		report.HadTagChars,
-		report.HadBidi,
-		latencyMs,
-	)
+	err := tenant.WithOrg(ctx, db, orgID, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx,
+			`INSERT INTO requests
+			 (org_id, project_id, action, injection_label, injection_score, toxicity_score,
+			  anomaly_score, had_tag_chars, had_bidi, latency_ms)
+			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+			orgID,
+			nullUUID(projID),
+			action,
+			label,
+			scores.Injection.Confidence,
+			scores.Toxicity.Confidence,
+			report.AnomalyScore,
+			report.HadTagChars,
+			report.HadBidi,
+			latencyMs,
+		)
+		return err
+	})
 	if err != nil {
 		slog.Warn("request log write failed", "err", err)
 	}
@@ -382,7 +384,7 @@ func chatHandler(runner *inference.Runner, eng *policy.Engine) fiber.Handler {
 		// No upstream configured — return stub response for development
 		if upstreamURL == "" || upstreamKey == "" {
 			return c.Status(200).JSON(fiber.Map{
-				"id":      "chatcmpl-stub",
+				"id":     "chatcmpl-stub",
 				"object": "chat.completion",
 				"model":  body["model"],
 				"choices": []fiber.Map{{
@@ -441,14 +443,19 @@ func getenv(key, fallback string) string {
 	return fallback
 }
 
-// stubKeyLookup accepts any non-empty key during development.
-// Replace with a real Postgres lookup before production.
-func stubKeyLookup(_ context.Context, keyHash string) (uuid.UUID, uuid.UUID, error) {
-	if keyHash == "" {
-		return uuid.Nil, uuid.Nil, nil
+// dbKeyLookup resolves an API key hash to its org and project.
+func dbKeyLookup(db *pgxpool.Pool) tenant.LookupFn {
+	return func(ctx context.Context, keyHash string) (uuid.UUID, uuid.UUID, error) {
+		var orgID uuid.UUID
+		var projectID *uuid.UUID
+		err := db.QueryRow(ctx, `SELECT org_id, project_id FROM lookup_api_key($1)`, keyHash).
+			Scan(&orgID, &projectID)
+		if err != nil {
+			return uuid.Nil, uuid.Nil, err
+		}
+		if projectID == nil {
+			return orgID, uuid.Nil, nil
+		}
+		return orgID, *projectID, nil
 	}
-	// Return a deterministic dev org ID so multi-tenant code can run
-	devOrg := uuid.MustParse("00000000-0000-0000-0000-000000000001")
-	return devOrg, uuid.Nil, nil
 }
-
