@@ -1,0 +1,40 @@
+# dev override: build from source, mount code for quick iteration
+# Usage: docker compose -f docker-compose.yml -f docker-compose.override.yml up
+
+services:
+  gateway:
+    build:
+      context: .
+      dockerfile: build/gateway.Dockerfile
+    volumes:
+      - .:/src:ro          # source read-only (rebuild required for Go changes)
+      - models:/models
+    environment:
+      LOG_LEVEL: debug
+      UPSTREAM_LLM_URL: ""  # leave empty to use stub responses
+
+  control-plane:
+    build:
+      context: .
+      dockerfile: build/control-plane.Dockerfile
+    environment:
+      LOG_LEVEL: debug
+
+  ui:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+      target: dev          # use dev stage (next dev with hot reload)
+    volumes:
+      - ./web:/app         # mount source for hot reload
+      - /app/node_modules  # exclude node_modules from mount
+    environment:
+      NEXT_TELEMETRY_DISABLED: "1"
+
+  postgres:
+    ports:
+      - "5432:5432"        # expose for local DB tools (TablePlus, etc.)
+
+  clickhouse:
+    ports:
+      - "8123:8123"

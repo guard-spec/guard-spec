@@ -1,0 +1,14 @@
+-- Rollback 001_init
+DROP TABLE IF EXISTS requests;
+DROP TABLE IF EXISTS api_keys;
+DROP TABLE IF EXISTS budgets;
+DROP TABLE IF EXISTS project_memberships;
+DROP TABLE IF EXISTS org_memberships;
+DROP TABLE IF EXISTS policies;
+DROP TABLE IF EXISTS projects;
+DROP TABLE IF EXISTS users;
+DROP TABLE IF EXISTS organizations;
+DROP TYPE IF EXISTS project_role;
+DROP TYPE IF EXISTS org_role;
+DROP EXTENSION IF EXISTS "pg_trgm";
+DROP EXTENSION IF EXISTS "pgcrypto";

@@ -1,0 +1,12 @@
+# models directory — contents are gitignored
+# Model weights are downloaded at runtime by cmd/model-init/download.py
+# This prevents 2-8GB binary files from entering git history
+
+*.onnx
+*.bin
+*.safetensors
+tokenizer.json
+tokenizer_config.json
+config.json
+special_tokens_map.json
+vocab.txt
