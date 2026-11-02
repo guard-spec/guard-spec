@@ -1,7 +1,7 @@
 # Build output
 bin/
-gateway
-control-plane
+/gateway
+/control-plane
 *.log
 
 # Local environment
