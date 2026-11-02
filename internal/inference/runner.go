@@ -12,10 +12,16 @@ package inference
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"unicode/utf8"
 
 	"golang.org/x/sync/errgroup"
 )
+
+// ErrInputTooLong means the text needs more windows than we are willing to scan.
+// Callers must reject the request: skipping the tail would let padding hide a payload.
+var ErrInputTooLong = errors.New("input too long to scan")
 
 // Score is the result from a single model.
 type Score struct {
@@ -64,9 +70,24 @@ func NewRunner(modelsDir string) (*Runner, error) {
 	}, nil
 }
 
+// NewRunnerWith builds a Runner around an injection backend.
+func NewRunnerWith(injection ModelBackend) *Runner {
+	return &Runner{
+		injection: injection,
+		pii:       &stubBackend{label: "O", score: 0.0},
+		toxicity:  &stubBackend{label: "non-toxic", score: 0.0},
+		topic:     &stubBackend{label: "unknown", score: 0.0},
+	}
+}
+
 // Scan runs all 4 models concurrently and returns aggregated scores.
 // Chunking with sliding window is applied before each model call.
 func (r *Runner) Scan(ctx context.Context, text string) (Scores, error) {
+	chunks, err := chunkText(text, 512, 448)
+	if err != nil {
+		return Scores{}, err
+	}
+
 	var (
 		injScores []Score
 		toxScores []Score
@@ -76,7 +97,6 @@ func (r *Runner) Scan(ctx context.Context, text string) (Scores, error) {
 	g, gctx := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
-		chunks := chunkText(text, 512, 448)
 		scores, err := runChunked(gctx, r.injection, chunks)
 		if err != nil {
 			return fmt.Errorf("injection model: %w", err)
@@ -86,7 +106,6 @@ func (r *Runner) Scan(ctx context.Context, text string) (Scores, error) {
 	})
 
 	g.Go(func() error {
-		chunks := chunkText(text, 512, 448)
 		scores, err := runChunked(gctx, r.toxicity, chunks)
 		if err != nil {
 			return fmt.Errorf("toxicity model: %w", err)
@@ -96,7 +115,6 @@ func (r *Runner) Scan(ctx context.Context, text string) (Scores, error) {
 	})
 
 	g.Go(func() error {
-		chunks := chunkText(text, 512, 448)
 		scores, err := runChunked(gctx, r.topic, chunks)
 		if err != nil {
 			return fmt.Errorf("topic model: %w", err)
@@ -117,9 +135,9 @@ func (r *Runner) Scan(ctx context.Context, text string) (Scores, error) {
 }
 
 // chunkText splits text into overlapping windows for safe classification.
-// window=512 tokens, stride=448 (64-token overlap). Returns at most 16 chunks
-// to prevent CPU exhaustion DoS.
-func chunkText(text string, windowSize, stride int) []string {
+// window=512 tokens, stride=448 (64-token overlap). Refuses text that needs more
+// than 16 chunks to prevent CPU exhaustion DoS.
+func chunkText(text string, windowSize, stride int) ([]string, error) {
 	// TODO: use daulet/tokenizers (cgo) for proper tokenization
 	// For now: character-based approximation (1 token ~= 4 chars)
 	const charsPerToken = 4
@@ -128,21 +146,28 @@ func chunkText(text string, windowSize, stride int) []string {
 	strideChars := stride * charsPerToken
 
 	if len(text) <= winChars {
-		return []string{text}
+		return []string{text}, nil
 	}
 
 	var chunks []string
-	for start := 0; start < len(text) && len(chunks) < maxChunks; start += strideChars {
-		end := start + winChars
-		if end > len(text) {
-			end = len(text)
+	for start := 0; ; start = runeStart(text, start+strideChars) {
+		if len(chunks) == maxChunks {
+			return nil, ErrInputTooLong
 		}
+		end := runeStart(text, min(start+winChars, len(text)))
 		chunks = append(chunks, text[start:end])
 		if end == len(text) {
-			break
+			return chunks, nil
 		}
 	}
-	return chunks
+}
+
+// runeStart moves i back to the nearest rune boundary.
+func runeStart(s string, i int) int {
+	for i > 0 && i < len(s) && !utf8.RuneStart(s[i]) {
+		i--
+	}
+	return i
 }
 
 func runChunked(ctx context.Context, m ModelBackend, chunks []string) ([]Score, error) {
