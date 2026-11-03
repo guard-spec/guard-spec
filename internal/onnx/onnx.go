@@ -44,7 +44,7 @@ const (
 const (
 	// EnvMaxConcurrency bounds concurrent model runs process-wide (default: NumCPU).
 	EnvMaxConcurrency = "INFERENCE_MAX_CONCURRENCY"
-	// EnvIntraOpThreads sets ONNX Runtime intra-op threads per session (default: ORT's choice).
+	// EnvIntraOpThreads sets ONNX Runtime intra-op threads per session (default: min(4, NumCPU) on Linux, ORT's choice elsewhere; 0 = ORT's choice).
 	EnvIntraOpThreads = "INFERENCE_INTRA_OP_THREADS"
 	// EnvLibraryPath is the path of libonnxruntime.{so,dylib}.
 	EnvLibraryPath = "ONNXRUNTIME_LIB"
@@ -73,7 +73,7 @@ type Options struct {
 	MaxChunks int
 	// Limiter bounds concurrent runs. Default: DefaultLimiter(), shared by all models.
 	Limiter *Limiter
-	// IntraOpThreads for ONNX Runtime. Default: $INFERENCE_INTRA_OP_THREADS, else ORT's default.
+	// IntraOpThreads for ONNX Runtime. Default: $INFERENCE_INTRA_OP_THREADS, else see EnvIntraOpThreads.
 	IntraOpThreads int
 }
 
@@ -141,11 +141,19 @@ func intraOpThreads(o Options) int {
 	if o.IntraOpThreads > 0 {
 		return o.IntraOpThreads
 	}
-	if n, err := strconv.Atoi(os.Getenv(EnvIntraOpThreads)); err == nil && n > 0 {
-		return n
+	if n, err := strconv.Atoi(os.Getenv(EnvIntraOpThreads)); err == nil && n >= 0 {
+		return n // 0: let ORT decide
+	}
+	if runtime.GOOS == "linux" {
+		// Measured in a linux/arm64 container on a 14-CPU host: ORT's default
+		// (one spinning thread per core) was 3-7x slower than 4 threads, both
+		// alone and with 4 concurrent calls. On macOS the ORT default was best.
+		return min(defaultLinuxIntraOpThreads, runtime.NumCPU())
 	}
 	return 0
 }
+
+const defaultLinuxIntraOpThreads = 4
 
 // ---------------------------------------------------------------------------
 // Backend seams (real implementation in backend_ort.go, stub otherwise)

@@ -123,7 +123,7 @@ services:
     build:
       context: .
       dockerfile: build/gateway.Dockerfile
-    entrypoint: ["./models", "pull", "-manifest", "models/manifest.yaml", "-dir", "/models"]
+    entrypoint: ["./models", "pull", "-manifest", "manifest.yaml", "-dir", "/models"]
     user: "0:0"   # the named volume is owned by root
     environment:
       HF_TOKEN: ${HF_TOKEN:-}   # needed for gated repos (protectai small v2)

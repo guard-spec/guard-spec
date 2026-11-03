@@ -32,16 +32,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # ONNX Runtime CPU shared library (MIT), loaded by internal/onnx via dlopen.
-COPY --from=builder /opt/onnx/lib/libonnxruntime.so* /usr/local/lib/
+COPY --from=builder /opt/onnx/lib/libonnxruntime.so /usr/local/lib/
 COPY --from=builder /opt/onnx/LICENSE.onnxruntime /usr/share/doc/onnxruntime/LICENSE
-RUN ldconfig
 ENV ONNXRUNTIME_LIB=/usr/local/lib/libonnxruntime.so \
     MODELS_PATH=/models
 
 WORKDIR /app
 COPY --from=builder /out/gateway /out/onnxbench /out/models ./
 COPY --from=builder /src/migrations ./migrations
-COPY --from=builder /src/models/manifest.yaml ./models/manifest.yaml
+COPY --from=builder /src/models/manifest.yaml ./manifest.yaml
 
 EXPOSE 8080 9090
 HEALTHCHECK --interval=10s --timeout=3s CMD curl -f http://localhost:8080/health || exit 1
