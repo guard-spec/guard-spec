@@ -7,11 +7,11 @@ import (
 	"os"
 	"testing"
 
+	"github.com/giaplee/guard-spec/internal/ratelimit"
+	"github.com/giaplee/guard-spec/internal/tenant"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/promptshield/promptshield/internal/ratelimit"
-	"github.com/promptshield/promptshield/internal/tenant"
 )
 
 // Requires the compose stack. Connects as the application role.
@@ -19,7 +19,7 @@ func TestKeyLimitsFromDatabase(t *testing.T) {
 	ctx := context.Background()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
-		url = "postgres://ps_app:ps_app@localhost:5432/promptshield?sslmode=disable"
+		url = "postgres://guardspec_app:guardspec_app@localhost:5432/guardspec?sslmode=disable"
 	}
 	db, err := pgxpool.New(ctx, url)
 	if err != nil {
@@ -40,10 +40,10 @@ func TestKeyLimitsFromDatabase(t *testing.T) {
 	}
 	err = tenant.WithOrg(ctx, db, org, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `INSERT INTO api_keys (key_hash, key_prefix, org_id, rpm_limit, tpm_limit)
-			VALUES ($1,'ps_x',$2,5,0)`, limited, org); err != nil {
+			VALUES ($1,'gs_x',$2,5,0)`, limited, org); err != nil {
 			return err
 		}
-		_, err := tx.Exec(ctx, `INSERT INTO api_keys (key_hash, key_prefix, org_id) VALUES ($1,'ps_y',$2)`, inherits, org)
+		_, err := tx.Exec(ctx, `INSERT INTO api_keys (key_hash, key_prefix, org_id) VALUES ($1,'gs_y',$2)`, inherits, org)
 		return err
 	})
 	if err != nil {

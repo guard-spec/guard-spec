@@ -12,8 +12,8 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/giaplee/guard-spec/internal/metrics"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/promptshield/promptshield/internal/metrics"
 )
 
 // LockKey is the advisory lock that serializes runs across replicas.

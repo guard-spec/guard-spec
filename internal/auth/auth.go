@@ -5,12 +5,12 @@ import (
 	"errors"
 	"time"
 
+	"github.com/giaplee/guard-spec/internal/tenant"
 	"github.com/gofiber/fiber/v2"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/promptshield/promptshield/internal/tenant"
 	"golang.org/x/crypto/bcrypt"
 )
 

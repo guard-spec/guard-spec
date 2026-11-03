@@ -11,13 +11,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/giaplee/guard-spec/internal/auth"
+	"github.com/giaplee/guard-spec/internal/policy"
+	"github.com/giaplee/guard-spec/internal/tenant"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/promptshield/promptshield/internal/auth"
-	"github.com/promptshield/promptshield/internal/policy"
-	"github.com/promptshield/promptshield/internal/tenant"
 )
 
 var testSecret = []byte("integration-test-secret-0123456789abcdef")
@@ -31,7 +31,7 @@ type cpHarness struct {
 func newCPHarness(t *testing.T) *cpHarness {
 	t.Helper()
 	ctx := context.Background()
-	db, err := pgxpool.New(ctx, envOr("TEST_DATABASE_URL", "postgres://ps_app:ps_app@localhost:5432/promptshield?sslmode=disable"))
+	db, err := pgxpool.New(ctx, envOr("TEST_DATABASE_URL", "postgres://guardspec_app:guardspec_app@localhost:5432/guardspec?sslmode=disable"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +156,7 @@ func TestInvites(t *testing.T) {
 	if code, _ := h.do("POST", "/v1/invites/accept", "", `{"token":"`+token+`","password":"short"}`); code != http.StatusBadRequest {
 		t.Errorf("short password: %d, want 400", code)
 	}
-	if code, _ := h.do("POST", "/v1/invites/accept", "", `{"token":"psinv_nope","password":"long-enough-password"}`); code != http.StatusNotFound {
+	if code, _ := h.do("POST", "/v1/invites/accept", "", `{"token":"gsinv_nope","password":"long-enough-password"}`); code != http.StatusNotFound {
 		t.Errorf("unknown token: %d, want 404", code)
 	}
 	code, acc := h.do("POST", "/v1/invites/accept", "", `{"token":"`+token+`","password":"long-enough-password"}`)

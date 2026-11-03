@@ -18,22 +18,22 @@ import (
 	"syscall"
 	"time"
 
+	appconfig "github.com/giaplee/guard-spec/internal/config"
+	"github.com/giaplee/guard-spec/internal/indirect"
+	"github.com/giaplee/guard-spec/internal/inference"
+	"github.com/giaplee/guard-spec/internal/inference/ml"
+	"github.com/giaplee/guard-spec/internal/metrics"
+	"github.com/giaplee/guard-spec/internal/outputguard"
+	"github.com/giaplee/guard-spec/internal/policy"
+	"github.com/giaplee/guard-spec/internal/proxy"
+	"github.com/giaplee/guard-spec/internal/sanitizer"
+	"github.com/giaplee/guard-spec/internal/tenant"
+	"github.com/giaplee/guard-spec/internal/tracing"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	appconfig "github.com/promptshield/promptshield/internal/config"
-	"github.com/promptshield/promptshield/internal/indirect"
-	"github.com/promptshield/promptshield/internal/inference"
-	"github.com/promptshield/promptshield/internal/inference/ml"
-	"github.com/promptshield/promptshield/internal/metrics"
-	"github.com/promptshield/promptshield/internal/outputguard"
-	"github.com/promptshield/promptshield/internal/policy"
-	"github.com/promptshield/promptshield/internal/proxy"
-	"github.com/promptshield/promptshield/internal/sanitizer"
-	"github.com/promptshield/promptshield/internal/tenant"
-	"github.com/promptshield/promptshield/internal/tracing"
 )
 
 const (
@@ -190,7 +190,7 @@ type gateway struct {
 // newApp builds the Fiber app with all gateway routes.
 func newApp(gw gateway, lookup tenant.LookupFn) *fiber.App {
 	app := fiber.New(fiber.Config{
-		ServerHeader: "promptshield",
+		ServerHeader: "guard-spec",
 	})
 
 	app.Use(observe()) // metrics and the request span; first, so it sees every response

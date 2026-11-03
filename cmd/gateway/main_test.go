@@ -8,11 +8,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/giaplee/guard-spec/internal/inference"
+	"github.com/giaplee/guard-spec/internal/outputguard"
+	"github.com/giaplee/guard-spec/internal/policy"
+	"github.com/giaplee/guard-spec/internal/tenant"
 	"github.com/google/uuid"
-	"github.com/promptshield/promptshield/internal/inference"
-	"github.com/promptshield/promptshield/internal/outputguard"
-	"github.com/promptshield/promptshield/internal/policy"
-	"github.com/promptshield/promptshield/internal/tenant"
 )
 
 var devOrg = uuid.MustParse("00000000-0000-0000-0000-000000000001")

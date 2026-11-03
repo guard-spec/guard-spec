@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/promptshield/promptshield/internal/indirect"
-	"github.com/promptshield/promptshield/internal/inference/rules"
+	"github.com/giaplee/guard-spec/internal/indirect"
+	"github.com/giaplee/guard-spec/internal/inference/rules"
 )
 
 func decodeJSON(t *testing.T, s string) map[string]any {

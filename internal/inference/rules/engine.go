@@ -36,7 +36,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/promptshield/promptshield/internal/inference/skeleton"
+	"github.com/giaplee/guard-spec/internal/inference/skeleton"
 )
 
 // Categories reported by the engine (the eval set uses the same names).

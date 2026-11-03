@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/giaplee/guard-spec/internal/indirect"
+	"github.com/giaplee/guard-spec/internal/inference/rules"
+	"github.com/giaplee/guard-spec/internal/policy"
 	"github.com/google/uuid"
-	"github.com/promptshield/promptshield/internal/indirect"
-	"github.com/promptshield/promptshield/internal/inference/rules"
-	"github.com/promptshield/promptshield/internal/policy"
 )
 
 func TestLoadScanConfig(t *testing.T) {

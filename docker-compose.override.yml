@@ -8,8 +8,9 @@
 #   docker compose -f docker-compose.yml up -d
 # with real secrets in .env (see .env.example).
 #
-# The database passwords match earlier versions of this file, so an existing
-# local volume keeps working. Values set in .env or the shell take precedence.
+# The superuser password matches earlier versions of this file, so an existing
+# local volume keeps working; the db-roles service sets the application role's
+# password on every start. Values set in .env or the shell take precedence.
 
 services:
   gateway:
@@ -22,7 +23,7 @@ services:
     environment:
       LOG_LEVEL: debug
       GUARD_ENV: ${GUARD_ENV:-dev}
-      PGPASSWORD: ${PS_APP_PASSWORD:-ps_app}
+      PGPASSWORD: ${GUARDSPEC_APP_PASSWORD:-${PS_APP_PASSWORD:-guardspec_app}}
 
   control-plane:
     build:
@@ -31,7 +32,7 @@ services:
     environment:
       LOG_LEVEL: debug
       GUARD_ENV: ${GUARD_ENV:-dev}
-      PGPASSWORD: ${PS_APP_PASSWORD:-ps_app}
+      PGPASSWORD: ${GUARDSPEC_APP_PASSWORD:-${PS_APP_PASSWORD:-guardspec_app}}
       JWT_SECRET: ${JWT_SECRET:-dev-only-insecure-jwt-secret-do-not-deploy}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-change-on-first-login}
 
@@ -43,7 +44,7 @@ services:
     environment:
       GUARD_ENV: ${GUARD_ENV:-dev}
       PGPASSWORD: ${POSTGRES_PASSWORD:-ps}
-      PS_APP_PASSWORD: ${PS_APP_PASSWORD:-ps_app}
+      GUARDSPEC_APP_PASSWORD: ${GUARDSPEC_APP_PASSWORD:-${PS_APP_PASSWORD:-guardspec_app}}
 
   ui:
     build:

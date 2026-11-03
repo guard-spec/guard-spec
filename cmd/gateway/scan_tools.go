@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/giaplee/guard-spec/internal/indirect"
 	"github.com/gofiber/fiber/v2"
-	"github.com/promptshield/promptshield/internal/indirect"
 )
 
 // maxScanTools bounds the tools of one /guardrail/scan/tools request.

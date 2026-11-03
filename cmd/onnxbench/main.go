@@ -20,7 +20,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/promptshield/promptshield/internal/onnx"
+	"github.com/giaplee/guard-spec/internal/onnx"
 )
 
 const corpus = `Large language models follow instructions written in natural language, which makes them useful

@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/promptshield/promptshield/internal/inference/skeleton"
+	"github.com/giaplee/guard-spec/internal/inference/skeleton"
 )
 
 // Rules are written in skeleton form: lowercase, no diacritics, đ as d.

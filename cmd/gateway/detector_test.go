@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
+	appconfig "github.com/giaplee/guard-spec/internal/config"
+	"github.com/giaplee/guard-spec/internal/inference/ml"
 	"github.com/google/uuid"
-	appconfig "github.com/promptshield/promptshield/internal/config"
-	"github.com/promptshield/promptshield/internal/inference/ml"
 )
 
 func TestBuildDetectorWithoutModels(t *testing.T) {
