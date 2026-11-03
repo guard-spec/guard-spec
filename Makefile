@@ -1,14 +1,14 @@
-.PHONY: build test lint vuln fuzz docker-build docker-up models-download
+.PHONY: build test lint vuln fuzz docker-build docker-up docker-down migrate-up migrate-down
 
 GO      := go
-GOFLAGS := -tags ORT
 
+# L1-only binaries (no cgo). For the model layers see onnx-deps / test-onnx below.
 build:
-	$(GO) build $(GOFLAGS) ./cmd/gateway/...
-	$(GO) build $(GOFLAGS) ./cmd/control-plane/...
+	$(GO) build -o bin/gateway ./cmd/gateway
+	$(GO) build -o bin/control-plane ./cmd/control-plane
 
 test:
-	$(GO) test $(GOFLAGS) ./...
+	$(GO) test -race ./...
 
 lint:
 	golangci-lint run ./...
@@ -40,7 +40,6 @@ fuzz:
 docker-build:
 	docker build -f build/gateway.Dockerfile    -t guard-spec-gateway:latest .
 	docker build -f build/control-plane.Dockerfile -t guard-spec-control-plane:latest .
-	docker build -f build/ui.Dockerfile         -t guard-spec-ui:latest ./web
 
 docker-up:
 	docker compose up -d
@@ -48,18 +47,11 @@ docker-up:
 docker-down:
 	docker compose down
 
-models-download:
-	python cmd/model-init/download.py --models qwen3guard-0.6b,deberta-v3-xsmall-pi
-
 migrate-up:
 	migrate -path migrations -database "$(DATABASE_URL)" up
 
 migrate-down:
 	migrate -path migrations -database "$(DATABASE_URL)" down 1
-
-generate:
-	$(GO) generate ./...
-	protoc --go_out=. --go-grpc_out=. api/proto/*.proto
 
 # --- in-process ONNX (internal/onnx, docs/adr/0001-onnx-runtime.md) ---
 ONNX_DIR  := $(CURDIR)/.onnx
@@ -92,4 +84,4 @@ calibrate: onnx-deps
 	$(ONNX_ENV) $(GO) run -tags onnx ./cmd/calibrate fit -write
 
 onnxbench: onnx-deps
-	$(ONNX_ENV) $(GO) run -tags onnx ./cmd/onnxbench -model models/local/guardspec-classifier-v0
+	$(ONNX_ENV) $(GO) run -tags onnx ./cmd/onnxbench -model models/local/guardspec-classifier-v1

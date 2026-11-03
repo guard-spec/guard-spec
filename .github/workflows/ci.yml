@@ -100,8 +100,15 @@ jobs:
             -database "postgres://ps:${PGPASSWORD}@localhost:5432/guardspec?sslmode=disable" up
       - name: Set the application role password
         run: sh deploy/postgres/set-app-password.sh
+      # Audit rows first: requests references organizations and projects
+      # without ON DELETE CASCADE, which once broke the down step of 002.
       - name: Migrations roll back and forward
         run: |
+          psql -v ON_ERROR_STOP=1 -q <<'SQL'
+          INSERT INTO projects (id, org_id, name, slug) VALUES ('00000000-0000-0000-0000-0000000000aa', '00000000-0000-0000-0000-000000000001', 'ci', 'ci');
+          INSERT INTO requests (org_id, action) VALUES ('00000000-0000-0000-0000-000000000001', 'allow');
+          INSERT INTO requests (org_id, project_id, action) VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-0000000000aa', 'block');
+          SQL
           go run -tags postgres github.com/golang-migrate/migrate/v4/cmd/migrate@v4.20.1 \
             -path migrations \
             -database "postgres://ps:${PGPASSWORD}@localhost:5432/guardspec?sslmode=disable" down -all

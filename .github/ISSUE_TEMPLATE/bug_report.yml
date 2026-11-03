@@ -1,0 +1,61 @@
+name: Bug report
+description: Something does not work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Security problems (a guardrail bypass, cross-tenant access, a leak) must not be reported here.**
+        Use private reporting instead: see SECURITY.md.
+        A text that is wrongly blocked or allowed goes in the "False positive / false negative" template.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: Commands or requests (curl) that show the problem. Remove API keys, tokens and personal data.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant gateway or control-plane log lines.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: v0.1.0 or a commit SHA
+    validations:
+      required: true
+  - type: dropdown
+    id: deploy
+    attributes:
+      label: How do you run it
+      options:
+        - docker compose (dev override)
+        - docker compose (production)
+        - Helm
+        - Release binary or image
+        - Built from source
+    validations:
+      required: true
+  - type: input
+    id: layers
+    attributes:
+      label: Detector layers
+      description: DETECTOR_LAYERS and whether the model files are present (the gateway logs which layers loaded).
+      placeholder: l1 only / l1,l2,l3 with guardspec-classifier-v1
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      placeholder: OS, CPU architecture, Docker version, upstream (Ollama, vLLM, OpenAI...)

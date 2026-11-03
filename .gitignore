@@ -34,3 +34,6 @@ train/.cache/
 train/.venv/
 train/runs/
 models/local/
+
+# GoReleaser output
+/dist/
