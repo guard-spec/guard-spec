@@ -204,8 +204,9 @@ func classify(err error) *Error {
 }
 
 // statusError maps an upstream failure. A 4xx is about the request, so its
-// message is useful to the client. A 5xx is about the upstream, and an auth
-// failure is about the gateway's own credentials: neither is passed on.
+// status and message are useful to the client. A 5xx is about the upstream, and
+// an auth failure is about the gateway's own credentials: both become a 502, so a
+// client never sees an upstream 500 or 503 as if the gateway itself had failed.
 func statusError(resp *http.Response, body io.Reader) *Error {
 	status := resp.StatusCode
 	switch {
@@ -220,7 +221,7 @@ func statusError(resp *http.Response, body io.Reader) *Error {
 			RetryAfter: resp.Header.Get("Retry-After")}
 	case status >= 500 && status <= 599:
 		slog.Warn("upstream error", "status", status)
-		return &Error{Status: status, Code: "upstream_error", Message: "upstream error",
+		return &Error{Status: http.StatusBadGateway, Code: "upstream_error", Message: "upstream error",
 			RetryAfter: resp.Header.Get("Retry-After")}
 	default:
 		return &Error{Status: http.StatusBadGateway, Code: "upstream_error",
