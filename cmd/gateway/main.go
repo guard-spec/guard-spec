@@ -963,7 +963,7 @@ func (gw gateway) evaluatePolicies(entry requestEntry, vars *policy.Vars) (polic
 // policyVars builds the rule inputs. request.tokens is an estimate from the body
 // size (the same 4 bytes per token as the chunker) because nothing tokenizes yet.
 func policyVars(entry requestEntry, body map[string]any, bodyBytes int) *policy.Vars {
-	return &policy.Vars{
+	vars := &policy.Vars{
 		RequestModel:       entry.Model,
 		RequestTenantID:    entry.OrgID.String(),
 		RequestTokens:      bodyBytes / 4,
@@ -974,6 +974,11 @@ func policyVars(entry requestEntry, body map[string]any, bodyBytes int) *policy.
 		AnomalyHasBidi:     entry.Report.HadBidi,
 		AnomalyScore:       entry.Report.AnomalyScore,
 	}
+	vars.ScoreL1, vars.ScoreL2, vars.ScoreL3 = vars.InjectionScore, -1, -1
+	if d := entry.Scores.Injection.Detail; d != nil {
+		vars.ScoreL1, vars.ScoreL2, vars.ScoreL3, vars.InjectionCat = d.L1, d.L2, d.L3, d.Category
+	}
+	return vars
 }
 
 func hasToolMessage(raw any) bool {

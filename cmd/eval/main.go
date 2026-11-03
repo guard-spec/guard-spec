@@ -1,6 +1,6 @@
 // Command eval scores a prompt-injection detector on the EN/VI eval set.
 //
-//	go run ./cmd/eval [-data eval/data] [-detector regex] [-json out.json]
+//	go run ./cmd/eval [-data eval/data] [-detector fusion|l1|regex] [-json out.json]
 //	go run ./cmd/eval -baseline eval/baseline.json [-max-regression 0.02]
 //
 // Every row goes through the gateway's input path (sanitizer, then detector).
@@ -26,7 +26,7 @@ func main() {
 
 func run() int {
 	dataDir := flag.String("data", "eval/data", "directory with *.jsonl eval files")
-	detName := flag.String("detector", "regex", "detector: "+strings.Join(evalset.DetectorNames(), ", "))
+	detName := flag.String("detector", evalset.DefaultDetector, "detector: "+strings.Join(evalset.DetectorNames(), ", "))
 	jsonOut := flag.String("json", "", "write the report as JSON to this file")
 	baseline := flag.String("baseline", "", "baseline report to compare against")
 	maxReg := flag.Float64("max-regression", 0.02, "largest allowed drop (TPR, AUC) or rise (FPR) versus the baseline")
