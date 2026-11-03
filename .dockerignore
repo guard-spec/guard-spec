@@ -1,5 +1,8 @@
 .git
 .claude
 bin
+# model weights stay out of the build context; only the manifest goes in
 models
+!models/manifest.yaml
+.onnx
 *.log

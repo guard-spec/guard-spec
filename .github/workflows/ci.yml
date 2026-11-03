@@ -28,6 +28,28 @@ jobs:
       - run: go vet -tags integration ./...
       - run: go test -race ./...
 
+  onnx:
+    name: Build and test with -tags onnx (cgo)
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: "1"
+      CGO_LDFLAGS: -L${{ github.workspace }}/.onnx/lib
+      ONNXRUNTIME_LIB: ${{ github.workspace }}/.onnx/lib/libonnxruntime.so
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      # ONNX Runtime + libtokenizers.a, pinned by SHA-256 in build/onnx-deps.sh.
+      - run: make onnx-deps
+      - run: go build -tags onnx ./...
+      - run: go vet -tags onnx ./...
+      # Models are not downloaded in CI: the model tests skip, the unit tests
+      # and the runtime/tokenizer load test run against the real libraries.
+      - run: go test -race -tags onnx ./internal/onnx/ ./cmd/...
+
   integration:
     name: Integration tests (Postgres)
     runs-on: ubuntu-latest
