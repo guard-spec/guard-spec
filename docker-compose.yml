@@ -1,3 +1,8 @@
+# Secrets have no defaults here. Production: copy .env.example to .env, fill it
+# in, and run `docker compose -f docker-compose.yml up -d` (so that the dev
+# override is not loaded). The services refuse to start with missing, default
+# or weak secrets unless GUARD_ENV=dev, which docker-compose.override.yml sets.
+
 services:
   gateway:
     image: promptshield/gateway:latest
@@ -5,10 +10,15 @@ services:
       context: .
       dockerfile: build/gateway.Dockerfile
     ports:
-      - "8080:8080"   # proxy API (OpenAI-compatible)
-      - "9090:9090"   # Prometheus metrics
+      - "${GATEWAY_PORT:-8080}:8080"   # proxy API (OpenAI-compatible)
+      - "${METRICS_PORT:-9090}:9090"   # Prometheus metrics
     environment:
-      DATABASE_URL: postgres://ps_app:ps_app@postgres:5432/promptshield?sslmode=disable
+      GUARD_ENV: ${GUARD_ENV:-}
+      # The password comes from PGPASSWORD so that it is never part of a URL here.
+      DATABASE_URL: postgres://ps_app@postgres:5432/promptshield?sslmode=disable
+      PGPASSWORD: ${PS_APP_PASSWORD:-}
+      # Audit rows keep hashes and lengths only; true also stores the content.
+      AUDIT_STORE_CONTENT: ${AUDIT_STORE_CONTENT:-false}
       CLICKHOUSE_URL: clickhouse://clickhouse:9000/promptshield
       MODELS_PATH: /models
       CONTROL_PLANE_URL: http://control-plane:8081
@@ -25,7 +35,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      migrate:
+      db-roles:
         condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
@@ -39,29 +49,53 @@ services:
       context: .
       dockerfile: build/control-plane.Dockerfile
     ports:
-      - "18081:8081"
+      - "${CONTROL_PLANE_PORT:-18081}:8081"
     environment:
-      DATABASE_URL: postgres://ps_app:ps_app@postgres:5432/promptshield?sslmode=disable
-      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      GUARD_ENV: ${GUARD_ENV:-}
+      DATABASE_URL: postgres://ps_app@postgres:5432/promptshield?sslmode=disable
+      PGPASSWORD: ${PS_APP_PASSWORD:-}
+      JWT_SECRET: ${JWT_SECRET:-}
+      # The first owner is created only when both are set.
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@localhost}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-change-on-first-login}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
       LOG_LEVEL: info
     depends_on:
-      migrate:
+      db-roles:
         condition: service_completed_successfully
 
   migrate:
     image: migrate/migrate:v4.17.1
     command:
       - -path=/migrations
-      - -database=postgres://ps:ps@postgres:5432/promptshield?sslmode=disable
+      - -database=postgres://ps@postgres:5432/promptshield?sslmode=disable
       - up
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:-}
     volumes:
       - ./migrations:/migrations:ro
     depends_on:
       postgres:
         condition: service_healthy
+    restart: "no"
+
+  # Sets the ps_app password from PS_APP_PASSWORD after migrating, and refuses
+  # default or weak database passwords unless GUARD_ENV=dev.
+  db-roles:
+    image: postgres:17-alpine
+    entrypoint: ["/bin/sh", "/set-app-password.sh"]
+    environment:
+      GUARD_ENV: ${GUARD_ENV:-}
+      PGHOST: postgres
+      PGUSER: ps
+      PGDATABASE: promptshield
+      PGPASSWORD: ${POSTGRES_PASSWORD:-}
+      PS_APP_PASSWORD: ${PS_APP_PASSWORD:-}
+    volumes:
+      - ./deploy/postgres/set-app-password.sh:/set-app-password.sh:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
     restart: "no"
 
   # web/ is not in the repository yet: docker compose --profile ui up
@@ -82,7 +116,8 @@ services:
     environment:
       POSTGRES_DB: promptshield
       POSTGRES_USER: ps
-      POSTGRES_PASSWORD: ps
+      # Required on first start; the image refuses an empty one.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:

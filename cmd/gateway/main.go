@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -21,6 +22,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	appconfig "github.com/promptshield/promptshield/internal/config"
 	"github.com/promptshield/promptshield/internal/inference"
 	"github.com/promptshield/promptshield/internal/policy"
 	"github.com/promptshield/promptshield/internal/proxy"
@@ -96,7 +98,7 @@ func main() {
 	base, cancelUpstream := context.WithCancel(context.Background())
 	defer cancelUpstream()
 
-	audit := newAuditLog(func(e requestEntry) { logRequest(db, e) })
+	audit := newAuditLog(func(e requestEntry) { logRequest(db, cfg.AuditStoreContent, e) })
 	app := newApp(gateway{
 		runner:   runner,
 		engine:   engine,
@@ -244,13 +246,16 @@ type requestEntry struct {
 	Scores    inference.Scores
 	Report    sanitizer.Report
 	LatencyMs int
+	Request   string // body as received; hashed, stored only if enabled
+	Response  string // buffered upstream body; empty when streamed
 }
 
 // newEntry starts a row for the caller. Handlers must copy what they need from
 // c before going async, because fiber reuses it once the handler returns.
 func newEntry(c *fiber.Ctx) requestEntry {
 	orgID, _ := tenant.OrgID(c)
-	return requestEntry{OrgID: orgID, ProjectID: tenant.ProjectID(c), Action: actionBlock}
+	return requestEntry{OrgID: orgID, ProjectID: tenant.ProjectID(c), Action: actionBlock,
+		Request: string(c.Body())}
 }
 
 // auditLog writes rows without delaying the response, and tracks them so that
@@ -274,7 +279,7 @@ func (a *auditLog) record(e requestEntry) {
 
 func (a *auditLog) wait() { a.wg.Wait() }
 
-func logRequest(db *pgxpool.Pool, e requestEntry) {
+func logRequest(db *pgxpool.Pool, storeContent bool, e requestEntry) {
 	if e.OrgID == uuid.Nil {
 		slog.Warn("request log skipped: no org")
 		return
@@ -288,12 +293,9 @@ func logRequest(db *pgxpool.Pool, e requestEntry) {
 	if e.Model != "" {
 		model = &e.Model
 	}
+	req, resp := digest(e.Request), digest(e.Response)
 	err := tenant.WithOrg(ctx, db, e.OrgID, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx,
-			`INSERT INTO requests
-			 (org_id, project_id, model, action, rule_id, injection_label, injection_score,
-			  toxicity_score, anomaly_score, had_tag_chars, had_bidi, latency_ms)
-			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+		_, err := tx.Exec(ctx, auditInsert,
 			e.OrgID,
 			nullUUID(e.ProjectID),
 			model,
@@ -306,6 +308,9 @@ func logRequest(db *pgxpool.Pool, e requestEntry) {
 			e.Report.HadTagChars,
 			e.Report.HadBidi,
 			e.LatencyMs,
+			storeContent,
+			req.SHA256, req.Bytes, req.Content,
+			resp.SHA256, resp.Bytes, resp.Content,
 		)
 		return err
 	})
@@ -631,6 +636,7 @@ func chatHandler(gw gateway, upstreamPath string) fiber.Handler {
 			if err != nil {
 				return upstreamError(c, err)
 			}
+			entry.Response = string(data)
 			c.Set(fiber.HeaderContentType, resp.ContentType)
 			return c.Status(resp.Status).Send(data)
 		}
@@ -789,6 +795,9 @@ type config struct {
 	UpstreamURL     string
 	UpstreamKey     string
 	UpstreamTimeout time.Duration
+	// AuditStoreContent stores request and response content in audit rows for
+	// every org. Off by default; an org can opt in on its own (decision D6).
+	AuditStoreContent bool
 }
 
 func loadConfig() (config, error) {
@@ -799,14 +808,26 @@ func loadConfig() (config, error) {
 	if timeout <= 0 {
 		return config{}, errors.New("UPSTREAM_LLM_TIMEOUT must be positive")
 	}
-	return config{
-		ListenAddr:      getenv("LISTEN_ADDR", ":8080"),
-		ModelsPath:      getenv("MODELS_PATH", "./models"),
-		DatabaseURL:     getenv("DATABASE_URL", ""),
-		UpstreamURL:     os.Getenv("UPSTREAM_LLM_URL"),
-		UpstreamKey:     os.Getenv("UPSTREAM_LLM_KEY"),
-		UpstreamTimeout: timeout,
-	}, nil
+	storeContent, err := strconv.ParseBool(getenv("AUDIT_STORE_CONTENT", "false"))
+	if err != nil {
+		return config{}, fmt.Errorf("AUDIT_STORE_CONTENT must be true or false: %w", err)
+	}
+	cfg := config{
+		ListenAddr:        getenv("LISTEN_ADDR", ":8080"),
+		ModelsPath:        getenv("MODELS_PATH", "./models"),
+		DatabaseURL:       getenv("DATABASE_URL", ""),
+		UpstreamURL:       os.Getenv("UPSTREAM_LLM_URL"),
+		UpstreamKey:       os.Getenv("UPSTREAM_LLM_KEY"),
+		UpstreamTimeout:   timeout,
+		AuditStoreContent: storeContent,
+	}
+	// Refuse a default or weak database password unless GUARD_ENV=dev.
+	var secrets appconfig.Checker
+	secrets.DatabaseURL("DATABASE_URL", cfg.DatabaseURL)
+	if err := secrets.Err(); err != nil {
+		return config{}, err
+	}
+	return cfg, nil
 }
 
 func getenv(key, fallback string) string {
