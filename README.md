@@ -102,7 +102,145 @@ There are no per-org settings yet, so these variables apply to every org:
 | `OUTPUT_CANARY` | `off` | `block` or `redact` injects a canary and acts when it leaks |
 | `OUTPUT_REASONING` | `guard` | `drop` removes reasoning fields instead |
 
+## Operations
+
+### Metrics
+
+Both services serve Prometheus metrics at `/metrics` on a listen address of
+their own, so the endpoint is not reachable through the API port. Keep that
+port on the internal network.
+
+| Variable | Service | Default | Purpose |
+| --- | --- | --- | --- |
+| `METRICS_ADDR` | gateway | `:9090` | Metrics listener; `off` disables it |
+| `METRICS_ADDR` | control plane | `:9091` | Metrics listener; `off` disables it |
+| `METRICS_TENANT_LABELS` | gateway | `false` | `true` adds `guardspec_gateway_tenant_requests_total{org_id,decision}`, one series per org |
+
+Gateway metrics (prefix `guardspec_gateway_`):
+
+| Metric | Labels |
+| --- | --- |
+| `requests_total`, `request_duration_seconds` | `route`, `status`, `decision` (`allow`, `block`, `error`, `output_leak`; `none` when the request ended before the guard ran, such as a bad API key or a rate limit) |
+| `detector_duration_seconds`, `detector_errors_total` | `layer` (`l1`, `l2`, `l3`), per chunk |
+| `upstream_duration_seconds` (to the response headers) | `path`, `outcome` (`ok`, `error`) |
+| `upstream_errors_total` | `path`, `code` (`upstream_timeout`, `upstream_unavailable`, `upstream_error`, `upstream_auth_failed`) |
+| `policy_eval_errors_total` | `stage` (`load`, `eval`) |
+| `output_guard_actions_total` | `kind` (`image`, `link`, `url`, `canary`, `email`, `phone`, `cccd`, `card`, `ipv4`) |
+| `ratelimit_rejections_total` | `limit` (`requests`, `tokens`) |
+
+For a stream, `request_duration_seconds` runs until the stream ends. The
+control plane exports `guardspec_control_plane_requests_total` and
+`guardspec_control_plane_request_duration_seconds` by route pattern, method
+and status, and `guardspec_audit_retention_runs_total{result}` and
+`guardspec_audit_retention_deleted_rows_total`. Labels take values from fixed
+sets only: unknown routes become `other`, and route patterns such as
+`/v1/organizations/:orgId/invites` never carry an ID. API key IDs are never a
+label, and org IDs only with `METRICS_TENANT_LABELS=true`.
+
+### Tracing
+
+OpenTelemetry tracing is off unless `OTEL_EXPORTER_OTLP_ENDPOINT` (or
+`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`) is set. Spans go to that endpoint over
+OTLP/HTTP (port 4318 on a collector); OTLP/gRPC is not supported. The other
+standard `OTEL_EXPORTER_OTLP_*` variables (headers, timeout, TLS) apply. The
+gateway continues a W3C `traceparent` sent by the client and creates a server
+span per request with children `sanitize`, `detect`, `policy`, `upstream`,
+`output_guard` (whole responses) and `output_guard.stream` (streams).
+
+`OTEL_PROPAGATE_UPSTREAM=true` sends `traceparent` to the upstream LLM. It is
+off by default, because it tells the upstream the trace ID. The client's own
+headers never reach the upstream either way.
+
+### Rate limits
+
+The gateway limits each API key with two token buckets: requests per minute
+and, optionally, tokens per minute. Tokens are estimated from the request body
+size, 4 bytes per token. A key's own `rpm_limit` and `tpm_limit` win; a key
+without one (NULL) gets the defaults below, and `0` means unlimited. A request
+over the limit gets 429 with `Retry-After` (seconds) and
+`{"error":{"message":"...","type":"requests","code":"rate_limit_exceeded"}}`
+(`type` is `tokens` when the token limit refused it). It writes no audit row.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `RATE_LIMIT_RPM` | `0` | Requests per minute for keys without their own limit; `0` = unlimited |
+| `RATE_LIMIT_TPM` | `0` | Estimated tokens per minute for keys without their own limit; `0` = unlimited |
+
+The buckets are kept in memory **per gateway replica**: with N replicas behind
+a load balancer a key can make up to N times its limit, and a restart refills
+them. A key's limits are cached for 30 seconds, so a change applies within that
+time. Set limits when creating a key, or change them later:
+
+```bash
+POST  /v1/organizations/{id}/api-keys           {"alias":"bot","rpm_limit":600,"tpm_limit":200000}
+PATCH /v1/organizations/{id}/api-keys/{prefix}  {"rpm_limit":null}   # back to RATE_LIMIT_RPM
+```
+
+### Inviting users
+
+Admins invite people to their organization. No email is sent: the response
+carries a one-time token that the admin passes on. Only its SHA-256 is stored.
+
+```bash
+POST   /v1/orgs/{id}/invites           {"email":"a@example.com","role":"member","ttl_hours":72}  # admin
+GET    /v1/orgs/{id}/invites                                                                     # admin
+DELETE /v1/orgs/{id}/invites/{inviteId}                                                          # admin, pending only
+POST   /v1/invites/accept              {"token":"psinv_...","password":"...","display_name":"A"} # no login
+```
+
+The same routes exist under `/v1/organizations/{id}/invites`. `role` defaults
+to `member`, and nobody can invite with a role above their own (an admin cannot
+create owners). `ttl_hours` defaults to 72, at most 720. Accepting creates the
+user with the given password (12 to 72 bytes) and returns a session token. If
+an account with that email already exists, the password must be that
+account's, and the membership is added to it. A token works once; revoked,
+expired and used tokens get 404. Accepting is rate limited like login.
+
+### Projects and policy scope
+
+A project groups API keys inside an organization. A key created with a
+`project_id` belongs to that project, and a policy created with a `project_id`
+applies only to that project's keys. The gateway evaluates the project's
+policies first, then the org-wide ones (`project_id` null), so a project adds
+rules on top of the org's.
+
+```bash
+POST /v1/organizations/{id}/projects                {"name":"Support bot","slug":"support"}  # admin
+GET  /v1/organizations/{id}/projects                                                       # viewer
+POST /v1/organizations/{id}/policies                {"name":"...","project_id":"...","rules":[...]}
+PUT  /v1/organizations/{id}/policies/{policyId}     {"project_id":null}   # make it org-wide again
+```
+
+A `project_id` from another organization is refused with 400.
+
+### Audit retention
+
+The control plane deletes audit rows (`requests`) older than
+`AUDIT_RETENTION_DAYS`, in batches, once at start and then every
+`AUDIT_RETENTION_INTERVAL`. Every replica runs the job, and a Postgres advisory
+lock lets one of them work at a time; the others skip that round.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `AUDIT_RETENTION_DAYS` | `90` | Age in days after which rows are deleted; `0` keeps them forever |
+| `AUDIT_RETENTION_INTERVAL` | `1h` | Time between runs, at least `1m` |
+| `AUDIT_RETENTION_BATCH` | `5000` | Rows per delete, 1 to 100000 |
+
+### Kubernetes
+
+There is no Helm chart in this repository yet. When deploying to Kubernetes,
+take the secrets (`POSTGRES_PASSWORD`, `PS_APP_PASSWORD`, `JWT_SECRET`,
+`ADMIN_PASSWORD`) from Secrets, expose the metrics ports (9090, 9091) only to
+the cluster, probe `/health` (gateway 8080, control plane 8081), and run as a
+non-root user with a read-only root filesystem: neither service writes to disk.
+
 ## Upgrade notes
+
+**Migration 007.** Adds the `invites` table, the `claim_invite` and
+`purge_audit_rows` functions, an index on `requests (created_at)` and checks
+that `api_keys.rpm_limit` and `tpm_limit` are not negative. After upgrading,
+the control plane starts deleting audit rows older than 90 days; set
+`AUDIT_RETENTION_DAYS=0` before upgrading to keep them all.
 
 **Removed policy fields.** `toxicity.score`, `pii.entities` and `topic.categories` are no longer rule fields, because no detector produced them: they were always 0 or empty. The control plane refuses new rules that name them. Stored rules that name them still evaluate them as 0 or empty, as before, so an upgrade does not make the gateway fail closed with 503 for those orgs. The gateway logs a warning when it compiles one. Before or after upgrading, list the policies that need editing:
 
