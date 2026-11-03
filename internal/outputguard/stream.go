@@ -279,6 +279,17 @@ func mdURLOpen(buf string, i int) (int, bool) {
 	for i < len(buf) && (buf[i] == ' ' || buf[i] == '\t') {
 		i++
 	}
+	if i < len(buf) && buf[i] == '<' {
+		// <...> may hold spaces; it ends at ">" and cannot span lines.
+		end := strings.IndexAny(buf[i:], ">\n")
+		if end < 0 {
+			return start, true
+		}
+		if buf[i+end] == '\n' {
+			return start, false
+		}
+		i += end + 1
+	}
 	depth := 0
 	for ; i < len(buf); i++ {
 		c := buf[i]
@@ -346,19 +357,33 @@ func (st *Stream) openTag(buf string, final bool) openSpan {
 // openRefDef finds a "[label]: url" line that has not ended yet.
 func (st *Stream) openRefDef(buf string) openSpan {
 	lineStart := strings.LastIndexByte(buf, '\n') + 1
-	if lineStart == 0 && st.ctx != "" && !strings.HasSuffix(st.ctx, "\n") {
-		return openSpan{start: -1} // buf starts mid-line
+	atLineStart := func(i int) bool {
+		return i > 0 || st.ctx == "" || strings.HasSuffix(st.ctx, "\n")
 	}
-	line := strings.TrimLeft(buf[lineStart:], " \t")
-	if !strings.HasPrefix(line, "[") {
+	start := -1
+	if atLineStart(lineStart) && isRefLabel(buf[lineStart:]) {
+		start = lineStart
+	} else if lineStart > 0 {
+		// The label may end the previous line, with the URL on this one.
+		prevStart := strings.LastIndexByte(buf[:lineStart-1], '\n') + 1
+		prev := buf[prevStart : lineStart-1]
+		if atLineStart(prevStart) && isRefLabel(prev) &&
+			strings.TrimRight(prev[strings.Index(prev, "]:")+2:], " \t") == "" {
+			start = prevStart
+		}
+	}
+	if start < 0 {
 		return openSpan{start: -1}
 	}
-	k := strings.Index(line, "]:")
-	if k < 0 {
-		return openSpan{start: -1}
-	}
-	force := len(buf)-lineStart > maxOpen
-	return openSpan{start: lineStart, force: force, kind: KindLink, until: dropLine}
+	force := len(buf)-start > maxOpen
+	return openSpan{start: start, force: force, kind: KindLink, until: dropLine}
+}
+
+// isRefLabel reports whether line starts like a reference definition,
+// "[label]:", possibly inside a blockquote.
+func isRefLabel(line string) bool {
+	line = strings.TrimLeft(line, " \t>")
+	return strings.HasPrefix(line, "[") && strings.Contains(line, "]:")
 }
 
 // openBareURL finds a URL that runs to the end of buf: it may still turn out

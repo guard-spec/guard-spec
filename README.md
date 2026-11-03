@@ -35,7 +35,7 @@ The gateway stubs responses until it has an upstream. Set these in `.env` or the
 
 Refused requests return HTTP 400 with `{"error":{"message":"...","type":"invalid_request_error","code":"content_filter"}}`. If policies cannot be loaded or evaluated the gateway returns 503 and sends nothing upstream. Evaluation is bounded: a policy holds at most 200 rules (the control plane refuses more), each rule has a CEL cost limit, all rules of one request share a total cost budget, and evaluation stops when the policy timeout expires. Any of these limits fails closed with 503.
 
-An upstream 4xx is passed to the client with its status and message (a 429 keeps its `Retry-After`). Any upstream 5xx becomes 502 with code `upstream_error`, and its body is not passed on; an upstream that does not answer in time gives 504 with code `upstream_timeout`. If the client hangs up before the upstream answers, the upstream request is cancelled at once rather than at the timeout.
+An upstream 4xx is passed to the client with its status and message (a 429 keeps its `Retry-After`). Any upstream 5xx becomes 502 with code `upstream_error`, and its body is not passed on; an upstream that does not answer in time gives 504 with code `upstream_timeout`. If the client hangs up before the upstream answers, the upstream request is cancelled at once rather than at the timeout. A client that only half-closes its side (`shutdown(SHUT_WR)`) sends the same FIN as one that left, and the gateway cannot tell them apart without writing to the connection, so by default it cancels too. Set `CLIENT_HALF_CLOSE=wait` to serve such clients: the gateway then cancels only on a connection reset, and otherwise relies on the upstream timeout.
 
 Policy rules run in order. The first matching `allow` or `block` rule decides. A matching `log` rule is recorded (its id goes in the audit row when no later rule decides) and evaluation continues with the next rule.
 
@@ -51,6 +51,10 @@ What it does:
 - **Personal data.** It replaces each match with `[REDACTED:<type>]`: `email`, `phone` (Vietnamese numbers in the +84, 84 and 0 forms, mobile and landline), `cccd` (12 digits starting with 0), `card` (13 to 19 digits that pass the Luhn check) and, when enabled, `ipv4`.
 - **Canary.** When enabled, the gateway puts a random token for each request in the system prompt (appended to a leading system message, or as a new one; legacy completions have no system prompt and get none). If the model repeats it, the response is refused with 400 `content_filter`, or in a stream an error event that ends it, or the token is redacted. Either way the row's action is `output_leak`.
 - **Reasoning.** The `reasoning` and `reasoning_content` fields that Ollama and vLLM send are guarded like the answer, or dropped.
+- **Refusals and tool calls.** `refusal` is guarded like the answer. Tool-call arguments (`tool_calls[].function.arguments`, and the older `function_call`) are parsed as JSON and each string is guarded on its own, so they stay valid JSON. In a stream, each call's arguments are held whole and sent when its choice finishes. A canary in tool-call arguments refuses the response even in `redact` mode, because a program reads them, not a person.
+- **Content parts.** Text parts are guarded. A part that is not text (an image, say) cannot be checked: a whole response gets 502, and a stream ends with an error event.
+
+An `<img>` tag is kept only if every `src` and `srcset` URL is on the allowlist.
 
 The audit row counts what was removed per type in `pii_entities`, as `output:email=2`. It never stores the content.
 

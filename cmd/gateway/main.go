@@ -116,6 +116,8 @@ func main() {
 		upstream: upstream,
 		output:   output,
 		base:     base,
+
+		waitOnHalfClose: cfg.WaitOnHalfClose,
 	}, dbKeyLookup(db))
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -146,7 +148,13 @@ type gateway struct {
 	audit    *auditLog
 	upstream *proxy.Proxy
 	output   *outputguard.Guard // nil: responses are passed on unchanged
-	base     context.Context    // parent of upstream calls; a fiber ctx dies with the handler
+	// base is the parent of upstream calls and scans: a fiber ctx dies with the
+	// handler, and fasthttp's RequestCtx.Done races with server shutdown.
+	base context.Context
+
+	// waitOnHalfClose keeps the upstream running when the client sends FIN, for
+	// clients that half-close and still wait for the answer. See watchClose.
+	waitOnHalfClose bool
 }
 
 // newApp builds the Fiber app with all gateway routes.
@@ -218,7 +226,7 @@ func scanHandler(gw gateway) fiber.Handler {
 			return c.Status(422).JSON(fiber.Map{"error": err.Error()})
 		}
 
-		scores, err := gw.runner.Scan(c.Context(), cleaned)
+		scores, err := gw.runner.Scan(gw.base, cleaned)
 		if err != nil {
 			return scanError(c, err)
 		}
@@ -634,7 +642,7 @@ func chatHandler(gw gateway, upstreamPath string) fiber.Handler {
 
 		// Run injection classifier on all untrusted text combined
 		if text := strings.Join(guard.texts, " "); text != "" {
-			scores, err := gw.runner.Scan(c.Context(), text)
+			scores, err := gw.runner.Scan(gw.base, text)
 			if err != nil {
 				return scanError(c, err)
 			}
@@ -718,7 +726,7 @@ func chatHandler(gw gateway, upstreamPath string) fiber.Handler {
 		// upstream is still thinking does not hold the upstream until its timeout.
 		ctx, cancel := context.WithCancel(gw.base)
 		conn := c.Context().Conn()
-		stopWatch := watchClose(conn, cancel)
+		stopWatch := watchClose(conn, cancel, !gw.waitOnHalfClose)
 		handedOff := false // the stream writer owns cancel once it is set up
 		defer func() {
 			if !handedOff {
@@ -745,6 +753,11 @@ func chatHandler(gw gateway, upstreamPath string) fiber.Handler {
 				counts := outputguard.Counts{}
 				data, err = scan.Response(data, counts)
 				entry.Output = counts
+				if errors.Is(err, outputguard.ErrToolCanary) {
+					entry.Action = actionOutputLeak
+					slog.Warn("canary leaked in tool-call arguments", "org", entry.OrgID)
+					return blockResponse(c, outputLeakMessage)
+				}
 				if err != nil {
 					entry.Action = actionError
 					slog.Warn("upstream response could not be checked", "err", err)
@@ -778,7 +791,7 @@ func chatHandler(gw gateway, upstreamPath string) fiber.Handler {
 			defer release()
 			defer cancel()
 			defer resp.Close()
-			stop := watchClose(conn, cancel)
+			stop := watchClose(conn, cancel, !gw.waitOnHalfClose)
 			outcome := relay(w, resp, events)
 			stop()
 			switch outcome {
@@ -857,15 +870,28 @@ func relay(w *bufio.Writer, resp *proxy.Response, events *outputguard.EventStrea
 		}
 		return true
 	}
-	blocked := func() bool {
-		if events == nil || !events.Blocked() {
-			return false
+	// guardStopped ends the stream with an error event when the output guard
+	// blocked it (a leaked canary) or met a chunk it cannot check.
+	guardStopped := func() (relayOutcome, bool) {
+		var event []byte
+		var outcome relayOutcome
+		switch {
+		case events == nil:
+			return 0, false
+		case events.Blocked():
+			slog.Warn("canary leaked in output; stream stopped")
+			event, _ = json.Marshal(errorBody(outputLeakMessage, "invalid_request_error", "content_filter"))
+			outcome = relayBlocked
+		case events.Failed():
+			slog.Warn("upstream stream chunk could not be checked; stream stopped")
+			event, _ = json.Marshal(errorBody("upstream response could not be checked", "server_error", "upstream_error"))
+			outcome = relayUpstreamFailed
+		default:
+			return 0, false
 		}
-		slog.Warn("canary leaked in output; stream stopped")
-		event, _ := json.Marshal(errorBody(outputLeakMessage, "invalid_request_error", "content_filter"))
-		_, _ = fmt.Fprintf(w, "data: %s\n\n", event)
+		_, _ = fmt.Fprintf(w, "\n\ndata: %s\n\n", event)
 		_ = w.Flush()
-		return true
+		return outcome, true
 	}
 	buf := make([]byte, 32*1024)
 	for {
@@ -878,16 +904,16 @@ func relay(w *bufio.Writer, resp *proxy.Response, events *outputguard.EventStrea
 			if !send(out) {
 				return relayClientGone
 			}
-			if blocked() {
-				return relayBlocked
+			if outcome, stopped := guardStopped(); stopped {
+				return outcome
 			}
 		}
 		if errors.Is(err, io.EOF) {
 			if events != nil && !send(events.Close()) {
 				return relayClientGone
 			}
-			if blocked() {
-				return relayBlocked
+			if outcome, stopped := guardStopped(); stopped {
+				return outcome
 			}
 			return relayDone
 		}
@@ -900,8 +926,8 @@ func relay(w *bufio.Writer, resp *proxy.Response, events *outputguard.EventStrea
 				if !send(events.Close()) {
 					return relayClientGone
 				}
-				if blocked() {
-					return relayBlocked
+				if outcome, stopped := guardStopped(); stopped {
+					return outcome
 				}
 			}
 			// The blank line ends any event the upstream left half-written, so the
@@ -1010,6 +1036,8 @@ type config struct {
 	// Output is the output guard's configuration; nil turns the guard off.
 	// There are no per-org settings yet, so it applies to every org.
 	Output *outputguard.Config
+	// WaitOnHalfClose is CLIENT_HALF_CLOSE=wait.
+	WaitOnHalfClose bool
 }
 
 func loadConfig() (config, error) {
@@ -1024,6 +1052,14 @@ func loadConfig() (config, error) {
 	if err != nil {
 		return config{}, err
 	}
+	var waitOnHalfClose bool
+	switch strings.ToLower(getenv("CLIENT_HALF_CLOSE", "cancel")) {
+	case "cancel":
+	case "wait":
+		waitOnHalfClose = true
+	default:
+		return config{}, errors.New("CLIENT_HALF_CLOSE must be cancel or wait")
+	}
 	return config{
 		ListenAddr:      getenv("LISTEN_ADDR", ":8080"),
 		ModelsPath:      getenv("MODELS_PATH", "./models"),
@@ -1032,6 +1068,7 @@ func loadConfig() (config, error) {
 		UpstreamKey:     os.Getenv("UPSTREAM_LLM_KEY"),
 		UpstreamTimeout: timeout,
 		Output:          output,
+		WaitOnHalfClose: waitOnHalfClose,
 	}, nil
 }
 

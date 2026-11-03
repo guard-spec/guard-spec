@@ -19,7 +19,15 @@ import (
 // bytes are waiting it stops, as it cannot tell more. stop must be called before
 // fasthttp uses the connection again; it returns once the watcher let go.
 // Connections that are not plain sockets (TLS) are not watched.
-func watchClose(conn net.Conn, cancel func()) (stop func()) {
+//
+// A reset always cancels. End of stream (the client's FIN) cancels only when
+// cancelOnEOF is set. A client that closed and one that only half-closed
+// (shutdown(SHUT_WR)) and still waits for the answer send the same FIN, and the
+// gateway cannot tell them apart without writing to the socket, which HTTP does
+// not allow before the response. HTTP clients close fully, so cancelling is the
+// default; CLIENT_HALF_CLOSE=wait serves half-closing clients instead, and the
+// watcher then stops at the FIN and leaves the rest to the upstream timeout.
+func watchClose(conn net.Conn, cancel func(), cancelOnEOF bool) (stop func()) {
 	sc, ok := conn.(syscall.Conn)
 	if !ok {
 		return func() {}
@@ -42,8 +50,10 @@ func watchClose(conn net.Conn, cancel func()) (stop func()) {
 			switch {
 			case errors.Is(err, syscall.EAGAIN) || errors.Is(err, syscall.EINTR):
 				return false // nothing yet: wait for the socket to become readable
-			case err != nil || n == 0:
-				closed = true // reset, or an orderly close
+			case err != nil:
+				closed = true // reset
+			case n == 0:
+				closed = cancelOnEOF // FIN: closed, or only half-closed
 			}
 			return true
 		})
