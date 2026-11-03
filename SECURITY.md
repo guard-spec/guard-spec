@@ -72,7 +72,7 @@ Release container images are signed with cosign (keyless, through GitHub
 Actions OIDC) and come with an SPDX SBOM. To verify an image:
 
 ```bash
-cosign verify ghcr.io/giaplee/promptshield-gateway:<version> \
+cosign verify ghcr.io/giaplee/guard-spec-gateway:<version> \
   --certificate-identity-regexp '^https://github.com/giaplee/guard-spec/' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```

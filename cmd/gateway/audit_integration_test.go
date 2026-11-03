@@ -9,10 +9,10 @@ import (
 	"os"
 	"testing"
 
+	"github.com/giaplee/guard-spec/internal/tenant"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/promptshield/promptshield/internal/tenant"
 )
 
 // Requires the compose stack with migration 006. Connects as the application role.
@@ -20,7 +20,7 @@ func TestAuditPrivacy(t *testing.T) {
 	ctx := context.Background()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
-		url = "postgres://ps_app:ps_app@localhost:5432/promptshield?sslmode=disable"
+		url = "postgres://guardspec_app:guardspec_app@localhost:5432/guardspec?sslmode=disable"
 	}
 	db, err := pgxpool.New(ctx, url)
 	if err != nil {

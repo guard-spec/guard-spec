@@ -1,0 +1,63 @@
+Guard Spec
+Copyright 2026 The Guard Spec Authors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+Guard Spec was formerly named PromptShield.
+
+The licenses of the Go modules compiled into the binaries are listed in
+THIRD_PARTY_LICENSES.md (regenerate with `make licenses`).
+
+------------------------------------------------------------------------------
+Bundled native libraries (gateway image and builds with -tags onnx)
+------------------------------------------------------------------------------
+
+ONNX Runtime 1.31.1
+  Copyright (c) Microsoft Corporation
+  MIT License. https://github.com/microsoft/onnxruntime
+  The license ships in the gateway image at /usr/share/doc/onnxruntime/LICENSE.
+
+Hugging Face tokenizers (libtokenizers.a, linked statically)
+  The HuggingFace Inc. team. Apache License 2.0.
+  https://github.com/huggingface/tokenizers
+  Built and wrapped by github.com/daulet/tokenizers 1.27.0 (Daulet
+  Zhanguzin, MIT License).
+
+------------------------------------------------------------------------------
+Bundled datasets (eval/ and train/data/)
+------------------------------------------------------------------------------
+
+Rows of the following datasets are redistributed in the evaluation set
+(eval/, see eval/LICENSES.md) and the training data (train/data/, see
+train/DATA_LICENSES.md). Each row keeps its source and license fields.
+
+deepset/prompt-injections
+  deepset GmbH. Apache License 2.0 (the card also lists CC-BY-4.0).
+  https://huggingface.co/datasets/deepset/prompt-injections
+
+Lakera/gandalf_ignore_instructions
+  Lakera AI. MIT License.
+  https://huggingface.co/datasets/Lakera/gandalf_ignore_instructions
+
+jackhhao/jailbreak-classification
+  Jack Hao. Apache License 2.0. Its prompts derive from
+  verazuo/jailbreak_llms (MIT), OpenOrca (MIT) and GPTeacher (MIT).
+  https://huggingface.co/datasets/jackhhao/jailbreak-classification
+
+OpenAssistant/oasst2
+  The OpenAssistant contributors. Apache License 2.0.
+  https://huggingface.co/datasets/OpenAssistant/oasst2
+
+Vietnamese translations of the deepset and Lakera rows are derivative works
+under the same licenses as their sources.
+
+------------------------------------------------------------------------------
+Models (not bundled; downloaded by `cmd/models pull`, see models/manifest.yaml)
+------------------------------------------------------------------------------
+
+intfloat/multilingual-e5-small (MIT). It is also the base model of the
+guardspec-classifier models, which carry its MIT notice.
+  https://huggingface.co/intfloat/multilingual-e5-small
+
+protectai/deberta-v3-small-prompt-injection-v2 and
+protectai/deberta-v3-base-prompt-injection-v2 (Apache License 2.0), optional
+comparison baselines.

@@ -10,18 +10,18 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/giaplee/guard-spec/internal/tenant"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/promptshield/promptshield/internal/tenant"
 )
 
 // Requires migration 009. Runs the handlers as the application role, so row
 // level security applies; the org comes from the route like after RequireRole.
 func TestExemplarCRUD(t *testing.T) {
 	ctx := context.Background()
-	db, err := pgxpool.New(ctx, envOr("TEST_DATABASE_URL", "postgres://ps_app:ps_app@localhost:5432/promptshield?sslmode=disable"))
+	db, err := pgxpool.New(ctx, envOr("TEST_DATABASE_URL", "postgres://guardspec_app:guardspec_app@localhost:5432/guardspec?sslmode=disable"))
 	if err != nil {
 		t.Fatal(err)
 	}

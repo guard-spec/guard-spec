@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/giaplee/guard-spec/internal/metrics"
+	"github.com/giaplee/guard-spec/internal/retention"
 	"github.com/gofiber/fiber/v2"
-	"github.com/promptshield/promptshield/internal/metrics"
-	"github.com/promptshield/promptshield/internal/retention"
 )
 
 // opsConfig is the metrics and audit retention configuration.

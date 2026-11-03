@@ -33,8 +33,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/promptshield/promptshield/internal/inference/rules"
-	"github.com/promptshield/promptshield/internal/metrics"
+	"github.com/giaplee/guard-spec/internal/inference/rules"
+	"github.com/giaplee/guard-spec/internal/metrics"
 )
 
 // Layer slots.

@@ -21,7 +21,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const instrumentation = "github.com/promptshield/promptshield"
+const instrumentation = "github.com/giaplee/guard-spec"
 
 // Enabled reports whether the environment asks for tracing.
 func Enabled() bool {

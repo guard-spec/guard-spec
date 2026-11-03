@@ -128,7 +128,7 @@ LONG = "a " * 15000 + ATTACK
 
 def psql(sql):
     subprocess.run(["docker", "compose", "-p", "agent-spec", "exec", "-T", "postgres",
-                    "psql", "-U", "ps", "-d", "promptshield", "-v", "ON_ERROR_STOP=1", "-c", sql],
+                    "psql", "-U", "ps", "-d", "guardspec", "-v", "ON_ERROR_STOP=1", "-c", sql],
                    check=True, capture_output=True, cwd=os.path.join(os.path.dirname(__file__), "..", ".."))
 
 

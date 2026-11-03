@@ -22,7 +22,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/promptshield/promptshield/internal/evalset"
+	"github.com/giaplee/guard-spec/internal/evalset"
 )
 
 func main() {

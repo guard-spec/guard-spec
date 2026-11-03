@@ -8,7 +8,7 @@ import (
 func TestConfigCheck(t *testing.T) {
 	t.Setenv("PGPASSWORD", "")
 	t.Setenv("PGPASSFILE", "/nonexistent")
-	const db = "postgres://ps_app:Zq8vN3kL0pR7xW2m@localhost:5432/promptshield"
+	const db = "postgres://guardspec_app:Zq8vN3kL0pR7xW2m@localhost:5432/guardspec"
 	const jwt = "9c1e7a3f5b2d4e6a8c0b1d3f5e7a9c2b"
 	good := appConfig{DatabaseURL: db, JWTSecret: jwt, AdminEmail: "a@example.com", AdminPassword: "a long admin passphrase"}
 
@@ -24,7 +24,7 @@ func TestConfigCheck(t *testing.T) {
 		{"default admin", func(c *appConfig) { c.AdminPassword = "change-on-first-login" }, "set ADMIN_PASSWORD"},
 		{"no admin bootstrap", func(c *appConfig) { c.AdminEmail, c.AdminPassword = "", "" }, ""},
 		{"default db", func(c *appConfig) {
-			c.DatabaseURL = "postgres://ps_app:ps_app@localhost:5432/promptshield"
+			c.DatabaseURL = "postgres://guardspec_app:guardspec_app@localhost:5432/guardspec"
 		}, "database password"},
 	}
 	for _, tc := range cases {
@@ -48,7 +48,7 @@ func TestConfigCheck(t *testing.T) {
 	t.Run("dev accepts defaults", func(t *testing.T) {
 		t.Setenv("GUARD_ENV", "dev")
 		cfg := appConfig{
-			DatabaseURL:   "postgres://ps_app:ps_app@localhost:5432/promptshield",
+			DatabaseURL:   "postgres://guardspec_app:guardspec_app@localhost:5432/guardspec",
 			JWTSecret:     "change-me-in-production",
 			AdminEmail:    "admin@localhost",
 			AdminPassword: "change-on-first-login",

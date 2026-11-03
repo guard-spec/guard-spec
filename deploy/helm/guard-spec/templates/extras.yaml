@@ -40,8 +40,8 @@ spec:
 ---
 {{- end }}
 {{- if .Values.dbRoles.enabled }}
-# Sets the ps_app password from PS_APP_PASSWORD, like the compose db-roles
-# service. Run the migrations before installing.
+# Sets the guardspec_app password from GUARDSPEC_APP_PASSWORD, like the compose
+# db-roles service. Run the migrations (010 renames ps_app) before installing.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -73,9 +73,12 @@ spec:
             - -ec
             # The password goes in as a psql variable, quoted by psql.
             - |
-              echo "ALTER ROLE ps_app WITH PASSWORD :'app_password';" |
-                psql -v ON_ERROR_STOP=1 -q -v app_password="$PS_APP_PASSWORD"
-              echo "ps_app password set"
+              {{- if eq .Values.appPasswordKey "PS_APP_PASSWORD" }}
+              echo "warning: appPasswordKey PS_APP_PASSWORD is deprecated and will be removed in the next release; rename the Secret key to GUARDSPEC_APP_PASSWORD" >&2
+              {{- end }}
+              echo "ALTER ROLE guardspec_app WITH PASSWORD :'app_password';" |
+                psql -v ON_ERROR_STOP=1 -q -v app_password="$GUARDSPEC_APP_PASSWORD"
+              echo "guardspec_app password set"
           env:
             - {name: PGHOST, value: {{ .Values.externalDatabase.host | quote }}}
             - {name: PGPORT, value: {{ .Values.externalDatabase.port | quote }}}
@@ -85,9 +88,9 @@ spec:
             - name: PGPASSWORD
               valueFrom:
                 secretKeyRef: {name: {{ .Values.existingSecret }}, key: POSTGRES_PASSWORD}
-            - name: PS_APP_PASSWORD
+            - name: GUARDSPEC_APP_PASSWORD
               valueFrom:
-                secretKeyRef: {name: {{ .Values.existingSecret }}, key: PS_APP_PASSWORD}
+                secretKeyRef: {name: {{ .Values.existingSecret }}, key: {{ .Values.appPasswordKey | default "GUARDSPEC_APP_PASSWORD" }}}
           resources:
             requests: {cpu: 10m, memory: 16Mi}
             limits: {memory: 64Mi}

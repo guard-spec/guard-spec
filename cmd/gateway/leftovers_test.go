@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/promptshield/promptshield/internal/policy"
-	"github.com/promptshield/promptshield/internal/proxy"
+	"github.com/giaplee/guard-spec/internal/policy"
+	"github.com/giaplee/guard-spec/internal/proxy"
 )
 
 func TestUpstreamFailuresAuditedAsError(t *testing.T) {

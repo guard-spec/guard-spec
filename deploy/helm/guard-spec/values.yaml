@@ -8,28 +8,35 @@ guardEnv: ""
 # Secrets. The chart never stores them in values by default: create a Secret
 # with these keys and name it here.
 #   POSTGRES_PASSWORD  superuser, used only by the optional dbRoles job
-#   PS_APP_PASSWORD    application role ps_app (both services)
+#   GUARDSPEC_APP_PASSWORD  application role guardspec_app (both services);
+#                           the key name is appPasswordKey
 #   JWT_SECRET         control plane signing key, at least 32 bytes
 #   ADMIN_PASSWORD     first owner (optional; with controlPlane.adminEmail)
 # kubectl create secret generic guard-spec-secrets \
-#   --from-literal=POSTGRES_PASSWORD=... --from-literal=PS_APP_PASSWORD=... \
+#   --from-literal=POSTGRES_PASSWORD=... --from-literal=GUARDSPEC_APP_PASSWORD=... \
 #   --from-literal=JWT_SECRET=... --from-literal=ADMIN_PASSWORD=...
 existingSecret: guard-spec-secrets
+# Key of the application role password in existingSecret. Secrets made for
+# PromptShield (the former name) use PS_APP_PASSWORD: set that here to keep
+# them for one release (deprecated; the dbRoles job logs a warning).
+appPasswordKey: GUARDSPEC_APP_PASSWORD
 
-# External Postgres. URLs carry no password: PS_APP_PASSWORD reaches the
-# services as PGPASSWORD. Use sslmode=require or stronger outside a test cluster.
+# External Postgres. URLs carry no password: GUARDSPEC_APP_PASSWORD reaches
+# the services as PGPASSWORD. Use sslmode=require or stronger outside a test cluster.
 externalDatabase:
-  # Application role (ps_app), used by the gateway and the control plane.
-  url: postgres://ps_app@postgres:5432/promptshield?sslmode=require
+  # Application role (guardspec_app), used by the gateway and the control plane.
+  # The default database name was promptshield before the rename; an existing
+  # database keeps its name, so set it here and in database below.
+  url: postgres://guardspec_app@postgres:5432/guardspec?sslmode=require
   # libpq settings for the optional dbRoles job, which connects as the owner.
   host: postgres
   port: 5432
-  database: promptshield
+  database: guardspec
   ownerUser: ps
   sslmode: require
 
-# Optional hook job that sets the ps_app password from PS_APP_PASSWORD, as the
-# compose db-roles service does. Run the migrations first.
+# Optional hook job that sets the guardspec_app password from
+# GUARDSPEC_APP_PASSWORD, as the compose db-roles service does. Run the migrations first.
 dbRoles:
   enabled: false
   image:
@@ -57,7 +64,7 @@ securityContext:
 gateway:
   replicaCount: 2
   image:
-    repository: ghcr.io/giaplee/promptshield-gateway
+    repository: ghcr.io/giaplee/guard-spec-gateway
     tag: ""  # defaults to the chart appVersion
     pullPolicy: IfNotPresent
   service:
@@ -88,7 +95,7 @@ gateway:
 controlPlane:
   replicaCount: 1
   image:
-    repository: ghcr.io/giaplee/promptshield-control-plane
+    repository: ghcr.io/giaplee/guard-spec-control-plane
     tag: ""
     pullPolicy: IfNotPresent
   service:

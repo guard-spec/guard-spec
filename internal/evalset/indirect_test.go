@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/promptshield/promptshield/internal/inference"
+	"github.com/giaplee/guard-spec/internal/inference"
 )
 
 func TestToolDefinition(t *testing.T) {

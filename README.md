@@ -1,10 +1,12 @@
-# PromptShield
+# Guard Spec
+
+> Formerly PromptShield. See [Upgrading from PromptShield](#upgrading-from-promptshield).
 
 Open-source LLM guardrail backend service. Detects and blocks prompt injection attacks via documents, context, and chat messages.
 
 ## Market Context
 
-LLM Guard (Protect AI) was archived 2026-07-09. Rebuff was archived 2025-05-16. PromptShield fills the gap with a containerized, multi-tenant, Apache-2.0 backend service + admin UI.
+LLM Guard (Protect AI) was archived 2026-07-09. Rebuff was archived 2025-05-16. Guard Spec fills the gap with a containerized, multi-tenant, Apache-2.0 backend service + admin UI.
 
 ## Architecture
 
@@ -37,13 +39,14 @@ error names the variable to set:
 | Variable | Used by | Requirement |
 | --- | --- | --- |
 | `POSTGRES_PASSWORD` | postgres, migrations | at least 12 characters, not a default |
-| `PS_APP_PASSWORD` | gateway, control plane (role `ps_app`) | at least 12 characters, not a default; applied by the `db-roles` service on every start |
+| `GUARDSPEC_APP_PASSWORD` | gateway, control plane (role `guardspec_app`) | at least 12 characters, not a default; applied by the `db-roles` service on every start |
 | `JWT_SECRET` | control plane | at least 32 bytes, not a default |
 | `ADMIN_PASSWORD` | control plane, with `ADMIN_EMAIL` | at least 12 characters, not a default; the first owner is created only when both are set |
 
-Migration 004 no longer contains a password for `ps_app`, and migration 005
-clears the one earlier versions set. Outside compose, set it yourself after
-migrating: `PS_APP_PASSWORD=... sh deploy/postgres/set-app-password.sh` with
+Migration 004 no longer contains a password for the application role (named
+`ps_app` until migration 010), and migration 005 clears the one earlier
+versions set. Outside compose, set it yourself after
+migrating: `GUARDSPEC_APP_PASSWORD=... sh deploy/postgres/set-app-password.sh` with
 superuser credentials in `PGHOST`, `PGUSER`, `PGDATABASE` and `PGPASSWORD`.
 
 ## Audit privacy
@@ -185,7 +188,7 @@ carries a one-time token that the admin passes on. Only its SHA-256 is stored.
 POST   /v1/orgs/{id}/invites           {"email":"a@example.com","role":"member","ttl_hours":72}  # admin
 GET    /v1/orgs/{id}/invites                                                                     # admin
 DELETE /v1/orgs/{id}/invites/{inviteId}                                                          # admin, pending only
-POST   /v1/invites/accept              {"token":"psinv_...","password":"...","display_name":"A"} # no login
+POST   /v1/invites/accept              {"token":"gsinv_...","password":"...","display_name":"A"} # no login
 ```
 
 The same routes exist under `/v1/organizations/{id}/invites`. `role` defaults
@@ -233,16 +236,16 @@ control plane against an external Postgres; Postgres is not bundled.
 
 ```bash
 kubectl create secret generic guard-spec-secrets \
-  --from-literal=POSTGRES_PASSWORD=... --from-literal=PS_APP_PASSWORD=... \
+  --from-literal=POSTGRES_PASSWORD=... --from-literal=GUARDSPEC_APP_PASSWORD=... \
   --from-literal=JWT_SECRET=... --from-literal=ADMIN_PASSWORD=...
-# migrate first, as the owner role: migrate -path migrations -database "postgres://ps:...@host/promptshield" up
+# migrate first, as the owner role: migrate -path migrations -database "postgres://ps:...@host/guardspec" up
 helm install gs deploy/helm/guard-spec \
-  --set externalDatabase.url='postgres://ps_app@db.example:5432/promptshield?sslmode=require' \
+  --set externalDatabase.url='postgres://guardspec_app@db.example:5432/guardspec?sslmode=require' \
   --set externalDatabase.host=db.example --set dbRoles.enabled=true \
   --set controlPlane.adminEmail=admin@example.com
 ```
 
-- **Secrets** come from `existingSecret`. `PS_APP_PASSWORD` reaches both services as `PGPASSWORD`, so URLs carry no password. `POSTGRES_PASSWORD` is used only by the optional `dbRoles` hook job, which sets the `ps_app` password like the compose `db-roles` service. The chart does not run the migrations.
+- **Secrets** come from `existingSecret`. `GUARDSPEC_APP_PASSWORD` (the key is `appPasswordKey`) reaches both services as `PGPASSWORD`, so URLs carry no password. `POSTGRES_PASSWORD` is used only by the optional `dbRoles` hook job, which sets the `guardspec_app` password like the compose `db-roles` service. The chart does not run the migrations.
 - **Metrics** are served on separate ClusterIP Services (`*-metrics`, ports 9090 and 9091), so exposing an API Service never exposes `/metrics`. `serviceMonitor.enabled=true` adds a Prometheus Operator ServiceMonitor for both.
 - **Models** come from a PVC (`models.existingClaim`, or one the chart creates), mounted read-only at `/models` in the gateway.
 - **Security:** pods run as non-root (UID 65532) with a read-only root filesystem, no capabilities and the RuntimeDefault seccomp profile. The gateway gets an emptyDir at `/tmp`. Probes use `/health`; the gateway has a startup probe for model loading.
@@ -355,6 +358,57 @@ Checks MCP tool definitions (the `tools/list` result) before an agent loads them
 
 ## Upgrade notes
 
+### Upgrading from PromptShield
+
+The project was renamed from PromptShield to Guard Spec (the old name was too
+close to Microsoft's Prompt Shields). Nothing changes in the API paths or the
+request and response bodies. What does change:
+
+| What | Before | Now | What to do |
+|---|---|---|---|
+| Go module | `github.com/promptshield/promptshield` | `github.com/giaplee/guard-spec` | Update imports, if you import packages |
+| Images | `ghcr.io/giaplee/promptshield-gateway`, `-control-plane` | `ghcr.io/giaplee/guard-spec-gateway`, `-control-plane` | Update image references; local builds are tagged `guard-spec-gateway:latest` and so on |
+| Application role | `ps_app` | `guardspec_app` | Migration 010 renames it; see below |
+| Role password variable | `PS_APP_PASSWORD` | `GUARDSPEC_APP_PASSWORD` | Rename it in `.env` or your Secret. The old name is still read for one release, with a warning from `db-roles` / `set-app-password.sh` (Helm: `appPasswordKey: PS_APP_PASSWORD`) |
+| Default database | `promptshield` | `guardspec` | Fresh installs only; an existing database keeps its name (see below) |
+| Compose project | the checkout's directory name | `guard-spec` | Set `COMPOSE_PROJECT_NAME` to keep an existing stack's volumes (see below) |
+| `Server` header | `promptshield`, `promptshield-cp` | `guard-spec`, `guard-spec-cp` | Update anything that matches on it |
+| New API keys | `ps_...` | `gs_...` | Nothing: existing `ps_` keys keep working |
+| New invite tokens | `psinv_...` | `gsinv_...` | Nothing: pending `psinv_` invites stay valid |
+
+Metrics were already named `guardspec_*`, and no environment variable other
+than `PS_APP_PASSWORD` changed.
+
+**Role rename (migration 010).** `ALTER ROLE ps_app RENAME TO guardspec_app`,
+guarded: it runs only when `ps_app` exists, creates `guardspec_app` with the
+same grants when neither role exists, and stops with an error when both exist.
+Grants and row-level security follow the role, since the policies name no role.
+A SCRAM password (the default since PostgreSQL 14) survives the rename; an MD5
+one is cleared by PostgreSQL, and `db-roles` (or the Helm `dbRoles` job, or
+`set-app-password.sh`) sets it again. Order of an upgrade outside compose:
+
+1. Run the migrations as the owner role (`migrate ... up`).
+2. Set the password: `GUARDSPEC_APP_PASSWORD=... sh deploy/postgres/set-app-password.sh`.
+3. Change the user in `DATABASE_URL` from `ps_app` to `guardspec_app` and restart the services.
+
+Services still connecting as `ps_app` fail to log in after step 1, so do
+steps 1 to 3 in one maintenance window. The down migration renames the role
+back.
+
+**Database name.** The default database is now `guardspec`, but only a new
+database gets it; nothing renames an existing one. To keep a `promptshield`
+database, set `POSTGRES_DB=promptshield` in `.env` (compose), or keep
+`promptshield` in `externalDatabase.url` and `externalDatabase.database`
+(Helm). To rename it instead, stop the services and run
+`ALTER DATABASE promptshield RENAME TO guardspec;` from another database as
+the owner.
+
+**Compose project name.** `docker-compose.yml` now sets `name: guard-spec`.
+Before, the project was named after the checkout directory, and so were its
+volumes (`<dir>_pgdata`). To keep using them, set
+`COMPOSE_PROJECT_NAME=<dir>` in `.env` (or pass `-p <dir>`), together with
+`POSTGRES_DB=promptshield`.
+
 **Migration 007.** Adds the `invites` table, the `claim_invite` and
 `purge_audit_rows` functions, an index on `requests (created_at)` and checks
 that `api_keys.rpm_limit` and `tpm_limit` are not negative. After upgrading,
@@ -368,11 +422,11 @@ the control plane starts deleting audit rows older than 90 days; set
 **Removed policy fields.** `toxicity.score`, `pii.entities` and `topic.categories` are no longer rule fields, because no detector produced them: they were always 0 or empty. The control plane refuses new rules that name them. Stored rules that name them still evaluate them as 0 or empty, as before, so an upgrade does not make the gateway fail closed with 503 for those orgs. The gateway logs a warning when it compiles one. Before or after upgrading, list the policies that need editing:
 
 ```bash
-DATABASE_URL=postgres://ps:ps@localhost:5432/promptshield?sslmode=disable \
+DATABASE_URL=postgres://ps:ps@localhost:5432/guardspec?sslmode=disable \
   go run ./cmd/control-plane -check-policies
 ```
 
-It checks every stored policy, enabled or not, against the rules for new policies (removed fields, actions the gateway cannot enforce, conditions that do not compile) and prints one `FAIL` line for each problem. It exits 0 when all pass, 1 when any fails, and 2 when it cannot read the policies. Run it as a role that bypasses row-level security, such as the table owner (`ps` in the compose stack); `ps_app` sees no policies outside an org scope. With the compose stack you can also run it from the image: `docker compose run --rm -e DATABASE_URL=postgres://ps:ps@postgres:5432/promptshield?sslmode=disable control-plane -check-policies`.
+It checks every stored policy, enabled or not, against the rules for new policies (removed fields, actions the gateway cannot enforce, conditions that do not compile) and prints one `FAIL` line for each problem. It exits 0 when all pass, 1 when any fails, and 2 when it cannot read the policies. Run it as a role that bypasses row-level security, such as the table owner (`ps` in the compose stack); `guardspec_app` sees no policies outside an org scope. With the compose stack you can also run it from the image: `docker compose run --rm -e DATABASE_URL=postgres://ps:ps@postgres:5432/guardspec?sslmode=disable control-plane -check-policies`.
 
 **Log rules.** A `log` rule used to stop evaluation and allow the request. It now records its match and lets later rules decide, so a `block` after a `log` rule now blocks.
 
@@ -420,7 +474,11 @@ docker compose up -d gateway
 
 ## License
 
-Apache-2.0. See [NOTICE](NOTICE) for dependency licenses.
+Apache-2.0, see [LICENSE](LICENSE). Copyright 2026 The Guard Spec Authors.
+[NOTICE](NOTICE) lists the bundled native libraries, datasets and models and
+their licenses; [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) lists the Go
+modules (`make licenses` regenerates it, `make licenses-check` fails on GPL,
+AGPL, LGPL or unknown licenses and runs in CI).
 
 **Blocked model families (not included):**
 - Llama Guard / Prompt Guard: Llama Community License

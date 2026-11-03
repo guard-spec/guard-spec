@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/promptshield/promptshield/internal/inference"
-	"github.com/promptshield/promptshield/internal/inference/rules"
-	"github.com/promptshield/promptshield/internal/sanitizer"
+	"github.com/giaplee/guard-spec/internal/inference"
+	"github.com/giaplee/guard-spec/internal/inference/rules"
+	"github.com/giaplee/guard-spec/internal/sanitizer"
 )
 
 func TestParseRoles(t *testing.T) {

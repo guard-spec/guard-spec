@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/promptshield/promptshield/internal/evalset"
+	"github.com/giaplee/guard-spec/internal/evalset"
 )
 
 // TestCLIToolPath scores the set through the untrusted-content path and

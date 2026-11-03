@@ -2,10 +2,19 @@
 # in, and run `docker compose -f docker-compose.yml up -d` (so that the dev
 # override is not loaded). The services refuse to start with missing, default
 # or weak secrets unless GUARD_ENV=dev, which docker-compose.override.yml sets.
+#
+# Upgrading from PromptShield (the former name): the project name, the default
+# database name and the application role changed. To keep an existing stack's
+# volumes, set COMPOSE_PROJECT_NAME to the old project name (the directory name
+# by default) and POSTGRES_DB=promptshield in .env; migration 010 renames the
+# role ps_app to guardspec_app. See README, "Upgrading from PromptShield".
+
+# Default project name; -p or COMPOSE_PROJECT_NAME override it.
+name: guard-spec
 
 services:
   gateway:
-    image: promptshield/gateway:latest
+    image: guard-spec-gateway:latest
     build:
       context: .
       dockerfile: build/gateway.Dockerfile
@@ -15,11 +24,11 @@ services:
     environment:
       GUARD_ENV: ${GUARD_ENV:-}
       # The password comes from PGPASSWORD so that it is never part of a URL here.
-      DATABASE_URL: postgres://ps_app@postgres:5432/promptshield?sslmode=disable
-      PGPASSWORD: ${PS_APP_PASSWORD:-}
+      DATABASE_URL: postgres://guardspec_app@postgres:5432/${POSTGRES_DB:-guardspec}?sslmode=disable
+      PGPASSWORD: ${GUARDSPEC_APP_PASSWORD:-${PS_APP_PASSWORD:-}}
       # Audit rows keep hashes and lengths only; true also stores the content.
       AUDIT_STORE_CONTENT: ${AUDIT_STORE_CONTENT:-false}
-      CLICKHOUSE_URL: clickhouse://clickhouse:9000/promptshield
+      CLICKHOUSE_URL: clickhouse://clickhouse:9000/guardspec
       # Detection layers (internal/inference/ml). L1 rules always load; L2 (our
       # classifier) and L3 (e5 embeddings) load from ./models, mounted read-only
       # below. Missing models: the gateway warns and runs L1 only, unless
@@ -70,7 +79,7 @@ services:
       retries: 3
 
   control-plane:
-    image: promptshield/control-plane:latest
+    image: guard-spec-control-plane:latest
     build:
       context: .
       dockerfile: build/control-plane.Dockerfile
@@ -79,8 +88,8 @@ services:
       - "${CONTROL_PLANE_METRICS_PORT:-9091}:9091"   # Prometheus metrics
     environment:
       GUARD_ENV: ${GUARD_ENV:-}
-      DATABASE_URL: postgres://ps_app@postgres:5432/promptshield?sslmode=disable
-      PGPASSWORD: ${PS_APP_PASSWORD:-}
+      DATABASE_URL: postgres://guardspec_app@postgres:5432/${POSTGRES_DB:-guardspec}?sslmode=disable
+      PGPASSWORD: ${GUARDSPEC_APP_PASSWORD:-${PS_APP_PASSWORD:-}}
       JWT_SECRET: ${JWT_SECRET:-}
       # The first owner is created only when both are set.
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@localhost}
@@ -98,7 +107,7 @@ services:
     image: migrate/migrate:v4.17.1@sha256:de154de4b7f9d0d751aacb1ec6023f5fc96f874eb88b65d050f761a33376aa4b
     command:
       - -path=/migrations
-      - -database=postgres://ps@postgres:5432/promptshield?sslmode=disable
+      - -database=postgres://ps@postgres:5432/${POSTGRES_DB:-guardspec}?sslmode=disable
       - up
     environment:
       PGPASSWORD: ${POSTGRES_PASSWORD:-}
@@ -109,8 +118,9 @@ services:
         condition: service_healthy
     restart: "no"
 
-  # Sets the ps_app password from PS_APP_PASSWORD after migrating, and refuses
-  # default or weak database passwords unless GUARD_ENV=dev.
+  # Sets the guardspec_app password from GUARDSPEC_APP_PASSWORD after migrating,
+  # and refuses default or weak database passwords unless GUARD_ENV=dev.
+  # PS_APP_PASSWORD, the old name, is still read for one release, with a warning.
   db-roles:
     image: postgres:17-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b
     entrypoint: ["/bin/sh", "/set-app-password.sh"]
@@ -118,9 +128,10 @@ services:
       GUARD_ENV: ${GUARD_ENV:-}
       PGHOST: postgres
       PGUSER: ps
-      PGDATABASE: promptshield
+      PGDATABASE: ${POSTGRES_DB:-guardspec}
       PGPASSWORD: ${POSTGRES_PASSWORD:-}
-      PS_APP_PASSWORD: ${PS_APP_PASSWORD:-}
+      GUARDSPEC_APP_PASSWORD: ${GUARDSPEC_APP_PASSWORD:-}
+      PS_APP_PASSWORD: ${PS_APP_PASSWORD:-}   # deprecated
     volumes:
       - ./deploy/postgres/set-app-password.sh:/set-app-password.sh:ro
     depends_on:
@@ -131,7 +142,7 @@ services:
   # web/ is not in the repository yet: docker compose --profile ui up
   ui:
     profiles: [ui]
-    image: promptshield/ui:latest
+    image: guard-spec-ui:latest
     build:
       context: ./web
       dockerfile: Dockerfile
@@ -144,14 +155,14 @@ services:
   postgres:
     image: postgres:17-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b
     environment:
-      POSTGRES_DB: promptshield
+      POSTGRES_DB: ${POSTGRES_DB:-guardspec}   # fresh volumes only
       POSTGRES_USER: ps
       # Required on first start; the image refuses an empty one.
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ps -d promptshield"]
+      test: ["CMD-SHELL", "pg_isready -U ps -d ${POSTGRES_DB:-guardspec}"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -168,7 +179,7 @@ services:
   # The gateway does not load models yet: docker compose --profile models up model-init
   model-init:
     profiles: [models]
-    image: promptshield/model-init:latest
+    image: guard-spec-model-init:latest
     build:
       context: .
       dockerfile: build/model-init.Dockerfile
@@ -189,7 +200,7 @@ services:
   # into ./models/local/ yourself.
   models-pull:
     profiles: [models]
-    image: promptshield/gateway:latest
+    image: guard-spec-gateway:latest
     build:
       context: .
       dockerfile: build/gateway.Dockerfile
