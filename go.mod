@@ -1,4 +1,4 @@
-module github.com/promptshield/promptshield
+module github.com/giaplee/guard-spec
 
 go 1.26.0
 

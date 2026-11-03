@@ -10,7 +10,7 @@
 # Validate locally with: goreleaser check
 version: 2
 
-project_name: promptshield
+project_name: guard-spec
 
 before:
   hooks:
@@ -45,6 +45,7 @@ archives:
     files:
       - LICENSE*
       - NOTICE*
+      - THIRD_PARTY_LICENSES.md
       - README.md
       - SECURITY.md
       - migrations/*
@@ -82,14 +83,14 @@ dockers_v2:
     ids: [gateway]
     dockerfile: build/release.Dockerfile
     images:
-      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/promptshield-gateway"
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/guard-spec-gateway"
     tags:
       - "{{ .Version }}"
       - "{{ if not .Prerelease }}latest{{ end }}"
     platforms: [linux/amd64, linux/arm64]
     build_args:
       BINARY: gateway
-    extra_files: [migrations]
+    extra_files: [migrations, LICENSE, NOTICE, THIRD_PARTY_LICENSES.md]
     # Attach an SPDX SBOM and SLSA provenance to the image (BuildKit attestations).
     sbom: true
     labels:
@@ -102,14 +103,14 @@ dockers_v2:
     ids: [control-plane]
     dockerfile: build/release.Dockerfile
     images:
-      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/promptshield-control-plane"
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/guard-spec-control-plane"
     tags:
       - "{{ .Version }}"
       - "{{ if not .Prerelease }}latest{{ end }}"
     platforms: [linux/amd64, linux/arm64]
     build_args:
       BINARY: control-plane
-    extra_files: [migrations]
+    extra_files: [migrations, LICENSE, NOTICE, THIRD_PARTY_LICENSES.md]
     sbom: true
     labels:
       org.opencontainers.image.source: "{{ .GitURL }}"

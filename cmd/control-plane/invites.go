@@ -8,19 +8,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/giaplee/guard-spec/internal/auth"
+	"github.com/giaplee/guard-spec/internal/tenant"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/promptshield/promptshield/internal/auth"
-	"github.com/promptshield/promptshield/internal/tenant"
 )
 
 const (
 	defaultInviteTTL = 72 * time.Hour
 	maxInviteTTL     = 30 * 24 * time.Hour
-	invitePrefix     = "psinv_"
+	invitePrefix     = "gsinv_"
 	minPasswordLen   = 12
 	maxPasswordLen   = 72 // bcrypt ignores anything longer
 )

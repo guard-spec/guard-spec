@@ -14,8 +14,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/promptshield/promptshield/internal/inference/fusion"
-	"github.com/promptshield/promptshield/internal/onnx"
+	"github.com/giaplee/guard-spec/internal/inference/fusion"
+	"github.com/giaplee/guard-spec/internal/onnx"
 )
 
 type fakeClassifier struct {

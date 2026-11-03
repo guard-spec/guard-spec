@@ -17,7 +17,7 @@ func TestRowLevelSecurity(t *testing.T) {
 	ctx := context.Background()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
-		url = "postgres://ps_app:ps_app@localhost:5432/promptshield?sslmode=disable"
+		url = "postgres://guardspec_app:guardspec_app@localhost:5432/guardspec?sslmode=disable"
 	}
 	db, err := pgxpool.New(ctx, url)
 	if err != nil {

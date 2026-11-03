@@ -8,18 +8,18 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/giaplee/guard-spec/internal/tenant"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/promptshield/promptshield/internal/tenant"
 )
 
 // Requires the compose stack. The policy is written as the application role and
 // checked as the owner role, the way an operator runs the pre-flight.
 func TestPolicyCheckAgainstDatabase(t *testing.T) {
 	ctx := context.Background()
-	appURL := envOr("TEST_DATABASE_URL", "postgres://ps_app:ps_app@localhost:5432/promptshield?sslmode=disable")
-	ownerURL := envOr("TEST_OWNER_DATABASE_URL", "postgres://ps:ps@localhost:5432/promptshield?sslmode=disable")
+	appURL := envOr("TEST_DATABASE_URL", "postgres://guardspec_app:guardspec_app@localhost:5432/guardspec?sslmode=disable")
+	ownerURL := envOr("TEST_OWNER_DATABASE_URL", "postgres://ps:ps@localhost:5432/guardspec?sslmode=disable")
 
 	db, err := pgxpool.New(ctx, appURL)
 	if err != nil {

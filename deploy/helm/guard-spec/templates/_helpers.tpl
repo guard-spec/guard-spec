@@ -43,5 +43,5 @@ app.kubernetes.io/component: {{ .component }}
   valueFrom:
     secretKeyRef:
       name: {{ required "existingSecret is required" .Values.existingSecret }}
-      key: PS_APP_PASSWORD
+      key: {{ .Values.appPasswordKey | default "GUARDSPEC_APP_PASSWORD" }}
 {{- end -}}

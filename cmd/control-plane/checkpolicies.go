@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/giaplee/guard-spec/internal/policy"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/promptshield/promptshield/internal/policy"
 )
 
 // storedPolicy is one row of the policies table, as the pre-flight reads it.
@@ -25,7 +25,7 @@ type storedPolicy struct {
 // 0 when all pass, 1 when any fails, 2 when the policies could not be read.
 //
 // policies is under RLS, so this must connect as a role that sees every org,
-// such as the table owner (ps in the compose stack); ps_app sees none.
+// such as the table owner (ps in the compose stack); guardspec_app sees none.
 func runPolicyCheck(ctx context.Context, databaseURL string, out io.Writer) int {
 	db, err := pgxpool.New(ctx, databaseURL)
 	if err != nil {

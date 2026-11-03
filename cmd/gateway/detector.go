@@ -7,13 +7,13 @@ import (
 	"log/slog"
 	"strings"
 
+	appconfig "github.com/giaplee/guard-spec/internal/config"
+	"github.com/giaplee/guard-spec/internal/inference/ml"
+	"github.com/giaplee/guard-spec/internal/onnx"
+	"github.com/giaplee/guard-spec/internal/tenant"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	appconfig "github.com/promptshield/promptshield/internal/config"
-	"github.com/promptshield/promptshield/internal/inference/ml"
-	"github.com/promptshield/promptshield/internal/onnx"
-	"github.com/promptshield/promptshield/internal/tenant"
 )
 
 // maxOrgExemplars bounds what the gateway loads and embeds for one org; the

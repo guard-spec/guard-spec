@@ -18,6 +18,7 @@ FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c
 WORKDIR /app
 COPY --from=builder /out/control-plane .
 COPY --from=builder /src/migrations ./migrations
+COPY --from=builder /src/LICENSE /src/NOTICE /src/THIRD_PARTY_LICENSES.md /usr/share/doc/guard-spec/
 
 EXPOSE 8081 9091
 HEALTHCHECK --interval=10s --timeout=3s CMD ["/app/control-plane", "health"]

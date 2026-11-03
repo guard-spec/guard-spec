@@ -7,11 +7,11 @@ import (
 	"os"
 	"testing"
 
+	"github.com/giaplee/guard-spec/internal/inference/ml"
+	"github.com/giaplee/guard-spec/internal/tenant"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/promptshield/promptshield/internal/inference/ml"
-	"github.com/promptshield/promptshield/internal/tenant"
 )
 
 // Requires migration 009. Reads as the application role, so the store is
@@ -20,7 +20,7 @@ func TestDBExemplarStore(t *testing.T) {
 	ctx := context.Background()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
-		url = "postgres://ps_app:ps_app@localhost:5432/promptshield?sslmode=disable"
+		url = "postgres://guardspec_app:guardspec_app@localhost:5432/guardspec?sslmode=disable"
 	}
 	db, err := pgxpool.New(ctx, url)
 	if err != nil {

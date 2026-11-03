@@ -1,4 +1,7 @@
-# PromptShield — Open-Source LLM Guardrail Backend Service
+# Guard Spec — Open-Source LLM Guardrail Backend Service
+
+> Formerly PromptShield; renamed to avoid confusion with Microsoft's Prompt Shields.
+
 ## Research-Backed Architecture Design
 **Date:** 2026-09-22  
 **Status:** Draft v1.0 — for review before implementation
@@ -438,23 +441,23 @@ span.SetAttributes(
 ```yaml
 services:
   gateway:
-    image: promptshield/gateway:latest
+    image: guard-spec-gateway:latest
     ports: ["8080:8080", "9090:9090"]   # proxy + metrics
     environment:
-      DATABASE_URL: postgres://ps:ps@postgres:5432/promptshield
+      DATABASE_URL: postgres://ps:ps@postgres:5432/guardspec
       CLICKHOUSE_URL: clickhouse://clickhouse:9000
       MODELS_PATH: /models
     volumes: ["models:/models"]
     depends_on: [postgres, clickhouse, model-init]
 
   control-plane:
-    image: promptshield/control-plane:latest
+    image: guard-spec-control-plane:latest
     ports: ["8081:8081"]
     environment:
-      DATABASE_URL: postgres://ps:ps@postgres:5432/promptshield
+      DATABASE_URL: postgres://ps:ps@postgres:5432/guardspec
 
   ui:
-    image: promptshield/ui:latest
+    image: guard-spec-ui:latest
     ports: ["3000:3000"]
     environment:
       NEXT_PUBLIC_API_URL: http://control-plane:8081
@@ -462,7 +465,7 @@ services:
   postgres:
     image: postgres:17-alpine
     environment:
-      POSTGRES_DB: promptshield
+      POSTGRES_DB: guardspec
       POSTGRES_USER: ps
       POSTGRES_PASSWORD: ps
     volumes: ["pgdata:/var/lib/postgresql/data"]
@@ -472,7 +475,7 @@ services:
     volumes: ["chdata:/var/lib/clickhouse"]
 
   model-init:
-    image: promptshield/model-init:latest
+    image: guard-spec-model-init:latest
     command: ["download", "--models", "qwen3guard-0.6b,deberta-v3-xsmall-pi"]
     volumes: ["models:/models"]
     restart: "no"
@@ -490,12 +493,12 @@ volumes:
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: promptshield-gateway
+  name: guard-spec-gateway
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: promptshield-gateway
+    name: guard-spec-gateway
   minReplicas: 2
   maxReplicas: 20
   metrics:
@@ -598,7 +601,7 @@ pi_sanitation/
 
 ## 8. Competitive Positioning
 
-| Product | Status | Gap vs PromptShield |
+| Product | Status | Gap vs Guard Spec |
 |---|---|---|
 | LLM Guard (Protect AI) | Archived 2026-07-09 | No maintenance |
 | Rebuff | Archived 2025-05-16 | No maintenance |

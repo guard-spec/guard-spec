@@ -14,6 +14,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/giaplee/guard-spec/internal/auth"
+	"github.com/giaplee/guard-spec/internal/config"
+	"github.com/giaplee/guard-spec/internal/metrics"
+	"github.com/giaplee/guard-spec/internal/policy"
+	"github.com/giaplee/guard-spec/internal/retention"
+	"github.com/giaplee/guard-spec/internal/tenant"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/limiter"
@@ -21,12 +27,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/promptshield/promptshield/internal/auth"
-	"github.com/promptshield/promptshield/internal/config"
-	"github.com/promptshield/promptshield/internal/metrics"
-	"github.com/promptshield/promptshield/internal/policy"
-	"github.com/promptshield/promptshield/internal/retention"
-	"github.com/promptshield/promptshield/internal/tenant"
 )
 
 // defaultOrgID is the organization seeded by migration 002.
@@ -113,7 +113,7 @@ func main() {
 // newApp builds the Fiber app with all control plane routes.
 func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins string) *fiber.App {
 	app := fiber.New(fiber.Config{
-		ServerHeader: "promptshield-cp",
+		ServerHeader: "guard-spec-cp",
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 30 * time.Second,
 	})
@@ -389,14 +389,15 @@ func createAPIKey(db *pgxpool.Pool) fiber.Handler {
 			}
 		}
 
-		// Generate random key: ps_<32 hex chars>
+		// Generate random key: gs_<32 hex chars>. Keys made before the rename
+		// start with ps_; they keep working, since only the hash is looked up.
 		buf := make([]byte, 16)
 		if _, err := rand.Read(buf); err != nil {
 			return c.Status(500).JSON(fiber.Map{"error": "key gen failed"})
 		}
-		raw := "ps_" + hex.EncodeToString(buf)
+		raw := "gs_" + hex.EncodeToString(buf)
 		hash := tenant.HashKey(raw)
-		prefix := raw[:11] // "ps_" + 8 chars
+		prefix := raw[:11] // "gs_" + 8 chars
 
 		err := tenant.WithOrg(c.Context(), db, id, func(tx pgx.Tx) error {
 			if err := checkProject(c.Context(), tx, id, req.ProjectID); err != nil {
@@ -709,7 +710,7 @@ func loadConfig() appConfig {
 func (cfg appConfig) check() error {
 	if cfg.DatabaseURL == "" {
 		return errors.New("DATABASE_URL is not set; set DATABASE_URL to the application role's connection string, " +
-			"such as postgres://ps_app@host:5432/promptshield (password in the URL or PGPASSWORD)")
+			"such as postgres://guardspec_app@host:5432/guardspec (password in the URL or PGPASSWORD)")
 	}
 	if cfg.JWTSecret == "" {
 		// Even dev mode needs a key to sign with.

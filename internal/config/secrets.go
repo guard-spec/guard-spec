@@ -41,11 +41,14 @@ var knownDefaults = map[string]bool{
 	"admin":                   true,
 	"postgres":                true,
 	"ps":                      true,
-	"ps_app":                  true,
-	"promptshield":            true,
-	"guardspec":               true,
-	"test":                    true,
-	"dev":                     true,
+	"guardspec_app":           true,
+	// Defaults of releases from before the rename to Guard Spec (formerly
+	// PromptShield), still refused.
+	"ps_app":       true,
+	"promptshield": true,
+	"guardspec":    true,
+	"test":         true,
+	"dev":          true,
 }
 
 // DevMode reports whether GUARD_ENV=dev is set.
@@ -109,11 +112,11 @@ func (c *Checker) DatabaseURL(name, url string) {
 	switch {
 	case IsKnownDefault(cfg.Password):
 		c.addf("the database password in %s (or PGPASSWORD) is a known default value; "+
-			"set PS_APP_PASSWORD (compose) or the password in %s to a unique value of at least %d characters",
+			"set GUARDSPEC_APP_PASSWORD (compose) or the password in %s to a unique value of at least %d characters",
 			name, name, MinPasswordLen)
 	case len(cfg.Password) < MinPasswordLen:
 		c.addf("the database password in %s (or PGPASSWORD) is too short; "+
-			"set PS_APP_PASSWORD (compose) or the password in %s to a unique value of at least %d characters",
+			"set GUARDSPEC_APP_PASSWORD (compose) or the password in %s to a unique value of at least %d characters",
 			name, name, MinPasswordLen)
 	}
 }

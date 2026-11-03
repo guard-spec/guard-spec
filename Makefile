@@ -16,6 +16,20 @@ lint:
 vuln:
 	$(GO) run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
+# Third-party Go licenses, including the cgo modules of the onnx build. v1 of
+# go-licenses fails on the standard library of current Go releases, hence v2.
+GO_LICENSES     := github.com/google/go-licenses/v2@v2.0.1
+LICENSES_ENV    := GOFLAGS=-tags=onnx CGO_ENABLED=1
+# GPL, AGPL and LGPL are "forbidden" or "restricted" in go-licenses' classes.
+LICENSES_DENIED := forbidden,restricted,unknown
+
+.PHONY: licenses licenses-check
+licenses:           ## write THIRD_PARTY_LICENSES.md
+	$(LICENSES_ENV) $(GO) run $(GO_LICENSES) report ./... --ignore github.com/giaplee/guard-spec --template build/licenses.md.tpl > THIRD_PARTY_LICENSES.md
+
+licenses-check:     ## fail on GPL/AGPL/LGPL or unknown licenses
+	$(LICENSES_ENV) $(GO) run $(GO_LICENSES) check ./... --disallowed_types=$(LICENSES_DENIED)
+
 FUZZTIME ?= 30s
 fuzz:
 	$(GO) test ./internal/sanitizer/ -run NONE -fuzz FuzzSanitize -fuzztime $(FUZZTIME)
@@ -24,9 +38,9 @@ fuzz:
 	$(GO) test ./cmd/gateway/ -run NONE -fuzz FuzzChatRequest -fuzztime $(FUZZTIME)
 
 docker-build:
-	docker build -f build/gateway.Dockerfile    -t promptshield/gateway:latest .
-	docker build -f build/control-plane.Dockerfile -t promptshield/control-plane:latest .
-	docker build -f build/ui.Dockerfile         -t promptshield/ui:latest ./web
+	docker build -f build/gateway.Dockerfile    -t guard-spec-gateway:latest .
+	docker build -f build/control-plane.Dockerfile -t guard-spec-control-plane:latest .
+	docker build -f build/ui.Dockerfile         -t guard-spec-ui:latest ./web
 
 docker-up:
 	docker compose up -d

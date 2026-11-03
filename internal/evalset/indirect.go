@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/promptshield/promptshield/internal/indirect"
-	"github.com/promptshield/promptshield/internal/inference"
-	"github.com/promptshield/promptshield/internal/sanitizer"
+	"github.com/giaplee/guard-spec/internal/indirect"
+	"github.com/giaplee/guard-spec/internal/inference"
+	"github.com/giaplee/guard-spec/internal/sanitizer"
 )
 
 // Input paths of cmd/eval -path.

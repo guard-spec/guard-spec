@@ -7,12 +7,12 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/giaplee/guard-spec/internal/auth"
+	"github.com/giaplee/guard-spec/internal/tenant"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/promptshield/promptshield/internal/auth"
-	"github.com/promptshield/promptshield/internal/tenant"
 )
 
 // Limits on an organization's L3 exemplars (org_exemplars, migration 009).

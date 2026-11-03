@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/promptshield/promptshield/internal/inference/fusion"
+	"github.com/giaplee/guard-spec/internal/inference/fusion"
 )
 
 // Calibrations below are fitted by `go run -tags onnx ./cmd/calibrate fit` on

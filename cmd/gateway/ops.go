@@ -7,9 +7,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/promptshield/promptshield/internal/metrics"
-	"github.com/promptshield/promptshield/internal/ratelimit"
-	"github.com/promptshield/promptshield/internal/tracing"
+	"github.com/giaplee/guard-spec/internal/metrics"
+	"github.com/giaplee/guard-spec/internal/ratelimit"
+	"github.com/giaplee/guard-spec/internal/tracing"
 )
 
 // opsConfig is the observability and rate limit configuration.
