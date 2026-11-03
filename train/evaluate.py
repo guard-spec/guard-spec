@@ -20,7 +20,7 @@ Category groups use every benign row of the same language as negatives;
 variant groups use benign rows of the same variant when there are any.
 
 Also reports CPU latency of the INT8 model with onnxruntime (batch 1, 128 and
-256 tokens) and writes reports/eval_report.{json,md}.
+256 tokens) and writes reports/eval_report_<version>.{json,md}.
 """
 
 from __future__ import annotations
@@ -218,9 +218,11 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--skip-compare", action="store_true")
     ap.add_argument("--skip-latency", action="store_true")
+    ap.add_argument("--tag", default=None, help="report suffix; default: config name's version (v0, v1, ...)")
     args = ap.parse_args()
     cfg = load_config()
     model_dir = (ROOT / cfg["export"]["out_dir"]).resolve()
+    tag = args.tag or cfg["name"].rsplit("-", 1)[-1]
     rows = load_eval()
     texts = [r["text"] for r in rows]
 
@@ -241,7 +243,7 @@ def main():
             machine=f"{platform.machine()} {platform.processor()} {platform.platform()}",
             default_threads=latency(ours, model_dir, None), one_thread=latency(ours, model_dir, 1), note="model only, batch 1")
     REPORTS.mkdir(exist_ok=True)
-    (REPORTS / "eval_report.json").write_text(json.dumps(report, indent=2, default=str) + "\n", encoding="utf-8")
+    (REPORTS / f"eval_report_{tag}.json").write_text(json.dumps(report, indent=2, default=str) + "\n", encoding="utf-8")
 
     # Markdown -------------------------------------------------------------------------
     om = report["ours"]["metrics"]
@@ -264,7 +266,7 @@ def main():
     md += "| group | n | head fires | top-1 |\n|---|---|---|---|\n"
     for k, v in report["ours"]["category_heads"].items():
         md += f"| {k} | {v['n']} | {v['head_fires']:.3f} | {v['top1']:.3f} |\n"
-    (REPORTS / "eval_report.md").write_text(md, encoding="utf-8")
+    (REPORTS / f"eval_report_{tag}.md").write_text(md, encoding="utf-8")
     print(md)
 
 
