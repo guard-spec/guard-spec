@@ -25,3 +25,9 @@ test_body.json
 
 # Eval set raw downloads (rebuilt by eval/build/build.py)
 eval/.cache/
+
+# Classifier training (task N6): caches, venv, local model output
+train/.cache/
+train/.venv/
+train/runs/
+models/local/
