@@ -109,7 +109,7 @@ func main() {
 		slog.Error("load detector", "err", err)
 		os.Exit(1)
 	}
-	defer detector.Close()
+	defer func() { _ = detector.Close() }()
 	runner := inference.NewRunnerWith(inference.FusedBackend{F: detector.Fuser})
 
 	base, cancelUpstream := context.WithCancel(context.Background())

@@ -24,14 +24,14 @@ type trainRow struct {
 	Group   string   `json:"group"`
 }
 
-func (r trainRow) attack() bool { return !(len(r.Labels) == 1 && r.Labels[0] == "benign") }
+func (r trainRow) attack() bool { return len(r.Labels) != 1 || r.Labels[0] != "benign" }
 
 func readTrain(path string) ([]trainRow, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	var rows []trainRow
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 1<<20), 1<<22)
