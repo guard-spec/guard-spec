@@ -58,7 +58,7 @@ same three splits, built in as `ml.BuiltinCalibrations`): Platt A 0.9364,
 B −0.5280; out-of-fold logreg(L1,L2,L3) AUC 0.995, TPR@0.85 0.926 at benign
 FPR 0.5%.
 
-**Eval set results: pending** (see the pull request).
+**Eval set results (fused L1+L2+L3 with v2): TBD (pending measurement).**
 
 Reproduce v2:
 
