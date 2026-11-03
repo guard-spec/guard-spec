@@ -1,0 +1,198 @@
+{
+  "config": {
+    "name": "guardspec-classifier-v0",
+    "seed": 20261105,
+    "base_model": "intfloat/multilingual-e5-small",
+    "base_revision": "614241f622f53c4eeff9890bdc4f31cfecc418b3",
+    "labels": [
+      "benign",
+      "direct_injection",
+      "indirect_injection",
+      "jailbreak",
+      "prompt_extraction",
+      "data_exfiltration",
+      "tool_poisoning",
+      "obfuscation"
+    ],
+    "data": {
+      "train": "data/train.jsonl",
+      "val": "data/val.jsonl"
+    },
+    "train": {
+      "max_len": 256,
+      "batch_size": 32,
+      "epochs": 5,
+      "lr": 5e-05,
+      "weight_decay": 0.01,
+      "warmup_ratio": 0.06,
+      "grad_clip": 1.0,
+      "early_stopping_patience": 1,
+      "device": "mps"
+    },
+    "calibration": {
+      "target_benign_fpr": 0.01
+    },
+    "export": {
+      "opset": 17,
+      "out_dir": "../models/local/guardspec-classifier-v0",
+      "run_dir": "runs/guardspec-classifier-v0"
+    },
+    "compare": {
+      "model": "protectai/deberta-v3-base-prompt-injection-v2",
+      "revision": "90c9989b1a342275dd0d1a95aad283c04e075671",
+      "max_len": 512
+    }
+  },
+  "device": "mps",
+  "n_train": 15850,
+  "n_val": 2228,
+  "epochs": [
+    {
+      "epoch": 1,
+      "train_loss": 0.3462085278494464,
+      "val_loss": 0.16920625082011498,
+      "seconds": 206.496169090271,
+      "1-p_benign": {
+        "auc": 0.9948635308253096,
+        "tpr_at_fpr1": 0.903305785123967,
+        "fpr": 0.010805500982318271,
+        "threshold": 0.8027601242065431
+      },
+      "max_attack": {
+        "auc": 0.991535826202731,
+        "tpr_at_fpr1": 0.5760330578512397,
+        "fpr": 0.010805500982318271,
+        "threshold": 0.4423834681510926
+      },
+      "per_label_auc": {
+        "benign": 0.9948635308253098,
+        "direct_injection": 0.9853540615019128,
+        "indirect_injection": 0.9602170516447786,
+        "jailbreak": 0.9664778894709519,
+        "prompt_extraction": 0.9256299575724036,
+        "data_exfiltration": 0.9906113663405606,
+        "tool_poisoning": 0.975145923554886,
+        "obfuscation": 0.9732010186770964
+      },
+      "macro_auc": 0.9714375999484874
+    },
+    {
+      "epoch": 2,
+      "train_loss": 0.12820440584102705,
+      "val_loss": 0.0910813530816745,
+      "seconds": 252.62797594070435,
+      "1-p_benign": {
+        "auc": 0.9951476724739807,
+        "tpr_at_fpr1": 0.8991735537190083,
+        "fpr": 0.010805500982318271,
+        "threshold": 0.867194950580597
+      },
+      "max_attack": {
+        "auc": 0.9950007306499538,
+        "tpr_at_fpr1": 0.9008264462809917,
+        "fpr": 0.010805500982318271,
+        "threshold": 0.7186062335968019
+      },
+      "per_label_auc": {
+        "benign": 0.9951476724739807,
+        "direct_injection": 0.9947553620052134,
+        "indirect_injection": 0.9876947764030236,
+        "jailbreak": 0.9881825475482562,
+        "prompt_extraction": 0.9886183361003505,
+        "data_exfiltration": 0.9983970121628768,
+        "tool_poisoning": 0.9736814577710831,
+        "obfuscation": 0.9401830865592117
+      },
+      "macro_auc": 0.9833325313779995
+    },
+    {
+      "epoch": 3,
+      "train_loss": 0.06602343413302855,
+      "val_loss": 0.05141992814992713,
+      "seconds": 212.34227299690247,
+      "1-p_benign": {
+        "auc": 0.9954715939534657,
+        "tpr_at_fpr1": 0.9173553719008265,
+        "fpr": 0.010805500982318271,
+        "threshold": 0.9251831769943238
+      },
+      "max_attack": {
+        "auc": 0.9951744629722841,
+        "tpr_at_fpr1": 0.9148760330578513,
+        "fpr": 0.010805500982318271,
+        "threshold": 0.843339502811432
+      },
+      "per_label_auc": {
+        "benign": 0.9954715939534657,
+        "direct_injection": 0.9958090588117817,
+        "indirect_injection": 0.9999978886026772,
+        "jailbreak": 0.9910354429184954,
+        "prompt_extraction": 0.9958550083010516,
+        "data_exfiltration": 0.999099352194606,
+        "tool_poisoning": 1.0,
+        "obfuscation": 0.9864162891164312
+      },
+      "macro_auc": 0.9954605792373136
+    },
+    {
+      "epoch": 4,
+      "train_loss": 0.04253432966933976,
+      "val_loss": 0.03996974500598423,
+      "seconds": 250.17598700523376,
+      "1-p_benign": {
+        "auc": 0.9966146552144052,
+        "tpr_at_fpr1": 0.9892561983471074,
+        "fpr": 0.010805500982318271,
+        "threshold": 0.843476951122284
+      },
+      "max_attack": {
+        "auc": 0.9968849956972836,
+        "tpr_at_fpr1": 0.9760330578512396,
+        "fpr": 0.010805500982318271,
+        "threshold": 0.7884740233421327
+      },
+      "per_label_auc": {
+        "benign": 0.9966146552144052,
+        "direct_injection": 0.9972025616606381,
+        "indirect_injection": 0.9999978886026772,
+        "jailbreak": 0.9925763367785171,
+        "prompt_extraction": 0.995834716841911,
+        "data_exfiltration": 0.9992728714965627,
+        "tool_poisoning": 1.0,
+        "obfuscation": 0.991659480053606
+      },
+      "macro_auc": 0.9966448138310398
+    },
+    {
+      "epoch": 5,
+      "train_loss": 0.03306868129913064,
+      "val_loss": 0.0361265208960061,
+      "seconds": 284.8368890285492,
+      "1-p_benign": {
+        "auc": 0.9969848511909594,
+        "tpr_at_fpr1": 0.9917355371900827,
+        "fpr": 0.010805500982318271,
+        "threshold": 0.8758527040481568
+      },
+      "max_attack": {
+        "auc": 0.9968720063647729,
+        "tpr_at_fpr1": 0.9884297520661157,
+        "fpr": 0.010805500982318271,
+        "threshold": 0.7713029980659486
+      },
+      "per_label_auc": {
+        "benign": 0.9969848511909594,
+        "direct_injection": 0.9974097241162435,
+        "indirect_injection": 1.0,
+        "jailbreak": 0.99312379064609,
+        "prompt_extraction": 0.9958328721638073,
+        "data_exfiltration": 0.999537281861449,
+        "tool_poisoning": 1.0,
+        "obfuscation": 0.9958823743759793
+      },
+      "macro_auc": 0.9973463617943161
+    }
+  ],
+  "best_epoch": 5,
+  "train_seconds": 1206.9698269367218
+}
