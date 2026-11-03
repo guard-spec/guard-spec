@@ -53,6 +53,7 @@ jobs:
       PGPASSWORD: ci-superuser-password
       PS_APP_PASSWORD: ci-app-password-0123456789
       TEST_DATABASE_URL: postgres://ps_app:ci-app-password-0123456789@localhost:5432/promptshield?sslmode=disable
+      TEST_OWNER_DATABASE_URL: postgres://ps:ci-superuser-password@localhost:5432/promptshield?sslmode=disable
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
