@@ -149,6 +149,8 @@ func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins 
 
 	authed.Get("/organizations/:orgId", viewer, getOrg(db))
 	authed.Patch("/organizations/:orgId", admin, updateOrgSettings(db))
+	authed.Get("/organizations/:orgId/guard-settings", viewer, getGuardSettings(db))
+	authed.Put("/organizations/:orgId/guard-settings", admin, putGuardSettings(db))
 
 	authed.Get("/organizations/:orgId/api-keys", admin, listAPIKeys(db))
 	authed.Post("/organizations/:orgId/api-keys", admin, createAPIKey(db))

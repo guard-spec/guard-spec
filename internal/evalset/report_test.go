@@ -32,13 +32,13 @@ func TestRunAndReport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The detector sees sanitized text (HTML stripped, datamarked), and the
+	// The detector sees sanitized text (HTML stripped), and the
 	// invalid-UTF-8 row is rejected before reaching it.
 	if len(det.seen) != 6 {
 		t.Fatalf("detector called %d times, want 6", len(det.seen))
 	}
 	for _, s := range det.seen {
-		if strings.Contains(s, "<b>") || !strings.HasPrefix(s, "[DATA]") {
+		if strings.Contains(s, "<b>") {
 			t.Fatalf("detector got unsanitized text %q", s)
 		}
 	}

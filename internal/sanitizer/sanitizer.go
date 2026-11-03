@@ -60,13 +60,14 @@ func Sanitize(input string) (string, Report, error) {
 	// 7. Homoglyph detection — signal only, do not rewrite.
 	report.HomoglyphRisk = checkHomoglyphs(stripped)
 
-	// 8. Apply spotlighting/datamarking last. Spoofed markers were removed in
-	// every cleaning pass, so the text holds none of ours.
+	// 8. Spotlighting is no longer applied here: the gateway marks untrusted
+	// content itself when SPOTLIGHT is set (package indirect). Spoofed markers,
+	// ours or the old [DATA] tokens, were removed in every cleaning pass, so
+	// the text holds none of them.
 	report.BytesRemoved = len(input) - len(stripped)
 	report.AnomalyScore = computeAnomaly(report)
-	output := applyDatamarking(stripped)
 
-	return output, report, nil
+	return stripped, report, nil
 }
 
 // cleanPass runs one round of the transforming steps and accumulates signals.
@@ -103,8 +104,11 @@ func cleanPass(s string, report *Report) (string, error) {
 	return stripped, nil
 }
 
-// markerPattern matches our datamarking tokens, tolerating case and spacing.
-var markerPattern = regexp.MustCompile(`(?i)\[\s*/?\s*DATA\s*\]`)
+// markerPattern matches our marker tokens, tolerating case and spacing: the
+// legacy [DATA] and [/DATA], and the spotlighting boundary tags
+// <<untrusted-…>> and <</untrusted-…>> (package indirect). Text from a client
+// must never carry one, or it could close the data block it sits in.
+var markerPattern = regexp.MustCompile(`(?i)\[\s*/?\s*DATA\s*\]|<<\s*/?\s*untrusted-[0-9a-z]*\s*>>`)
 
 // stripMarkers removes marker tokens until none remain, because removing one
 // can join its neighbours into a new one: "[/DA[DATA]TA]".
@@ -115,14 +119,6 @@ func stripMarkers(s string) (string, bool) {
 		s = markerPattern.ReplaceAllString(s, "")
 	}
 	return s, found
-}
-
-// applyDatamarking wraps the text with marker tokens to signal data vs instruction
-// context to the downstream LLM. Reduces ASR from >50% to <2% (arXiv:2403.14720).
-func applyDatamarking(s string) string {
-	const open = "[DATA]"
-	const close = "[/DATA]"
-	return open + s + close
 }
 
 // flagSequence matches an emoji tag sequence such as the flag of England.
