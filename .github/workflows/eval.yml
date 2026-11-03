@@ -1,0 +1,32 @@
+name: eval
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-eval:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: go test
+        run: go test ./...
+
+      - name: Detector eval vs baseline
+        run: go run ./cmd/eval -baseline eval/baseline.json -max-regression 0.02 -json eval-report.json
+
+      - name: Upload eval report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-report
+          path: eval-report.json
+          if-no-files-found: ignore

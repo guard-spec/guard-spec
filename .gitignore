@@ -22,3 +22,6 @@ test_body.json
 
 # OS
 .DS_Store
+
+# Eval set raw downloads (rebuilt by eval/build/build.py)
+eval/.cache/
