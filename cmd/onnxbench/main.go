@@ -67,7 +67,7 @@ func main() {
 	default:
 		fatal(fmt.Errorf("unknown -kind %q", *kind))
 	}
-	defer m.Close()
+	defer func() { _ = m.Close() }()
 
 	fmt.Printf("model=%s kind=%s ort=%s os/arch=%s/%s cpus=%d %s=%d %s=%q -intra=%d\n\n",
 		*modelDir, *kind, ver, runtime.GOOS, runtime.GOARCH, runtime.NumCPU(),

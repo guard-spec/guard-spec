@@ -32,7 +32,7 @@ func TestPullVerifiesDigests(t *testing.T) {
 	good := []byte("hello model")
 	s256 := sha256.Sum256(good)
 	h := sha1.New() //nolint:gosec
-	fmt.Fprintf(h, "blob %d\x00", len(good))
+	_, _ = fmt.Fprintf(h, "blob %d\x00", len(good))
 	h.Write(good)
 	gitSHA := hex.EncodeToString(h.Sum(nil))
 
@@ -69,7 +69,9 @@ func TestPullVerifiesDigests(t *testing.T) {
 	}
 
 	// Without the token the gated file is refused.
-	os.Remove(filepath.Join(dir, "m", "config.json"))
+	if err := os.Remove(filepath.Join(dir, "m", "config.json")); err != nil {
+		t.Fatal(err)
+	}
 	if err := (&Puller{BaseURL: srv.URL}).Pull(context.Background(), &mod, dir); err == nil {
 		t.Fatal("want 401 error")
 	}

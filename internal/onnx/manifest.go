@@ -186,7 +186,7 @@ func (p *Puller) download(ctx context.Context, m *ManifestModel, f ManifestFile,
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 		if m.Gated {
 			return "", fmt.Errorf("HTTP %d: %s is gated; accept its terms on huggingface.co and set HF_TOKEN", resp.StatusCode, m.Repo)
@@ -201,7 +201,7 @@ func (p *Puller) download(ctx context.Context, m *ManifestModel, f ManifestFile,
 	if err != nil {
 		return "", err
 	}
-	defer os.Remove(tmp.Name()) // no-op after a successful rename
+	defer func() { _ = os.Remove(tmp.Name()) }() // no-op after a successful rename
 	d := newDigester(f)
 	n, err := io.Copy(io.MultiWriter(tmp, d), resp.Body)
 	if cerr := tmp.Close(); err == nil {
@@ -229,7 +229,7 @@ func VerifyFile(path string, f ManifestFile) error {
 	if err != nil {
 		return err
 	}
-	defer fh.Close()
+	defer func() { _ = fh.Close() }()
 	d := newDigester(f)
 	n, err := io.Copy(d, fh)
 	if err != nil {

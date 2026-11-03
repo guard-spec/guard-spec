@@ -146,24 +146,6 @@ func DefaultLimiter() *Limiter {
 	return defaultLimiter
 }
 
-func intraOpThreads(o Options) int {
-	if o.IntraOpThreads > 0 {
-		return o.IntraOpThreads
-	}
-	if n, err := strconv.Atoi(os.Getenv(EnvIntraOpThreads)); err == nil && n >= 0 {
-		return n // 0: let ORT decide
-	}
-	if runtime.GOOS == "linux" {
-		// Measured in a linux/arm64 container on a 14-CPU host: ORT's default
-		// (one spinning thread per core) was 3-7x slower than 4 threads, both
-		// alone and with 4 concurrent calls. On macOS the ORT default was best.
-		return min(defaultLinuxIntraOpThreads, runtime.NumCPU())
-	}
-	return 0
-}
-
-const defaultLinuxIntraOpThreads = 4
-
 // ---------------------------------------------------------------------------
 // Backend seams (real implementation in backend_ort.go, stub otherwise)
 
