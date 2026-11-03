@@ -117,6 +117,19 @@ func RequireRole(db *pgxpool.Pool, min Role) fiber.Handler {
 			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "forbidden"})
 		}
 		c.Locals("org_id", orgID)
+		c.Locals("org_role", role)
 		return c.Next()
 	}
+}
+
+// CallerRole returns the caller's role in the org checked by RequireRole.
+func CallerRole(c *fiber.Ctx) Role {
+	v, _ := c.Locals("org_role").(Role)
+	return v
+}
+
+// ParseRole returns the role named s, or false for an unknown name.
+func ParseRole(s string) (Role, bool) {
+	r := Role(s)
+	return r, roleRank[r] > 0
 }

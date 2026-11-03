@@ -1,0 +1,132 @@
+{{- $name := printf "%s-gateway" (include "guard-spec.fullname" .) -}}
+{{- $sel := dict "root" . "component" "gateway" -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "guard-spec.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway
+spec:
+  replicas: {{ .Values.gateway.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "guard-spec.selector" $sel | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "guard-spec.labels" . | nindent 8 }}
+        app.kubernetes.io/component: gateway
+    spec:
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: gateway
+          image: {{ include "guard-spec.image" (dict "root" . "image" .Values.gateway.image) }}
+          imagePullPolicy: {{ .Values.gateway.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: metrics
+              containerPort: {{ .Values.gateway.metricsPort }}
+          env:
+            {{- include "guard-spec.commonEnv" . | nindent 12 }}
+            - name: LISTEN_ADDR
+              value: ":8080"
+            - name: METRICS_ADDR
+              value: {{ printf ":%v" .Values.gateway.metricsPort | quote }}
+            - name: MODELS_PATH
+              value: /models
+            {{- range $k, $v := .Values.gateway.env }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+          {{- with .Values.gateway.extraEnvFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: models
+              mountPath: /models
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          startupProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 10
+            timeoutSeconds: 3
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 5
+            timeoutSeconds: 3
+          resources:
+            {{- toYaml .Values.gateway.resources | nindent 12 }}
+      volumes:
+        - name: models
+          {{- if or .Values.models.existingClaim .Values.models.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "guard-spec.modelsClaim" . }}
+            readOnly: true
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.gateway.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.gateway.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.gateway.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "guard-spec.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway
+spec:
+  type: {{ .Values.gateway.service.type }}
+  selector:
+    {{- include "guard-spec.selector" $sel | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.gateway.service.port }}
+      targetPort: http
+---
+# Metrics have their own ClusterIP Service, so exposing the API Service (for
+# example as a LoadBalancer) never exposes /metrics.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}-metrics
+  labels:
+    {{- include "guard-spec.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway
+    guard-spec.io/metrics: "true"
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "guard-spec.selector" $sel | nindent 4 }}
+  ports:
+    - name: metrics
+      port: {{ .Values.gateway.metricsPort }}
+      targetPort: metrics

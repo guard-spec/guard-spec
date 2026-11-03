@@ -57,8 +57,15 @@ func Middleware(lookup LookupFn) fiber.Handler {
 
 		c.Locals("org_id", orgID)
 		c.Locals("project_id", projID)
+		c.Locals("api_key_hash", hash)
 		return c.Next()
 	}
+}
+
+// KeyHash returns the hash of the request's API key, or "" before Middleware.
+func KeyHash(c *fiber.Ctx) string {
+	v, _ := c.Locals("api_key_hash").(string)
+	return v
 }
 
 func extractKey(c *fiber.Ctx) string {

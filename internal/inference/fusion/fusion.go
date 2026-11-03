@@ -26,8 +26,10 @@ import (
 	"context"
 	"log/slog"
 	"math"
+	"time"
 
 	"github.com/promptshield/promptshield/internal/inference/rules"
+	"github.com/promptshield/promptshield/internal/metrics"
 )
 
 // Layer slots.
@@ -37,6 +39,9 @@ const (
 	L3
 	numLayers
 )
+
+// layerNames are the metric labels of the slots.
+var layerNames = [numLayers]string{"l1", "l2", "l3"}
 
 // Missing is the per-layer score of a layer that did not run.
 const Missing = -1.0
@@ -108,8 +113,11 @@ func (f *Fuser) Score(ctx context.Context, text string) Result {
 		if l == nil {
 			continue
 		}
+		start := time.Now()
 		lr, err := l.Score(ctx, text)
+		metrics.DetectorDuration.WithLabelValues(layerNames[slot]).Observe(time.Since(start).Seconds())
 		if err != nil {
+			metrics.DetectorErrors.WithLabelValues(layerNames[slot]).Inc()
 			slog.Warn("detection layer failed; fusing the others", "layer", slot+1, "err", err)
 			continue
 		}

@@ -1,0 +1,11 @@
+Guard Spec is installed.
+
+Before the services can start, the database must be migrated (migrations/ in
+the repository) and the ps_app role must have the password in
+{{ .Values.existingSecret }}/PS_APP_PASSWORD{{ if not .Values.dbRoles.enabled }} (set dbRoles.enabled=true to do this from the chart){{ end }}.
+
+Gateway (OpenAI-compatible):  {{ include "guard-spec.fullname" . }}-gateway:{{ .Values.gateway.service.port }}
+Control plane API:            {{ include "guard-spec.fullname" . }}-control-plane:{{ .Values.controlPlane.service.port }}
+Metrics (cluster only):       {{ include "guard-spec.fullname" . }}-gateway-metrics:{{ .Values.gateway.metricsPort }}, {{ include "guard-spec.fullname" . }}-control-plane-metrics:{{ .Values.controlPlane.metricsPort }}
+
+Rate limits are counted per gateway replica ({{ .Values.gateway.replicaCount }} now).
