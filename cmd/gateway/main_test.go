@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/promptshield/promptshield/internal/inference"
+	"github.com/promptshield/promptshield/internal/outputguard"
 	"github.com/promptshield/promptshield/internal/policy"
 	"github.com/promptshield/promptshield/internal/tenant"
 )
@@ -46,6 +47,7 @@ func testGateway(t *testing.T, runner *inference.Runner) gateway {
 		engine:   engine,
 		policies: noPolicies,
 		audit:    newAuditLog(func(requestEntry) {}),
+		output:   outputguard.New(defaultOutputConfig()),
 		base:     context.Background(),
 	}
 }

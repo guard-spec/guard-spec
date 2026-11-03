@@ -17,6 +17,8 @@ import (
 	"unicode/utf8"
 
 	"golang.org/x/sync/errgroup"
+
+	"github.com/promptshield/promptshield/internal/inference/fusion"
 )
 
 // ErrInputTooLong means the text needs more windows than we are willing to scan.
@@ -27,19 +29,20 @@ var ErrInputTooLong = errors.New("input too long to scan")
 type Score struct {
 	Label      string
 	Confidence float32
+	Detail     *Detail // fused injection detail; nil for other backends
 }
 
 // Scores holds all model outputs for a single request.
 type Scores struct {
-	Injection  Score
-	PII        []PIIEntity
-	Toxicity   Score
-	Topic      []Score
+	Injection Score
+	PII       []PIIEntity
+	Toxicity  Score
+	Topic     []Score
 }
 
 // PIIEntity is a detected PII span.
 type PIIEntity struct {
-	Type  string  // SSN, CREDIT_CARD, EMAIL, PHONE, etc.
+	Type  string // SSN, CREDIT_CARD, EMAIL, PHONE, etc.
 	Start int
 	End   int
 	Score float32
@@ -61,9 +64,10 @@ type ModelBackend interface {
 // NewRunner loads models from the given directory.
 func NewRunner(modelsDir string) (*Runner, error) {
 	// TODO: load models via hugot (requires ORT shared lib on Linux)
-	// For Windows development: heuristic injection backend + stubs for other signals
+	// Injection: fusion over the L1 v2 rules (L2/L3 plug into the Fuser).
+	// The legacy regex detector stays available through NewRegexRunner.
 	return &Runner{
-		injection: &heuristicInjectionBackend{},
+		injection: FusedBackend{F: fusion.New()},
 		pii:       &stubBackend{label: "O", score: 0.0},
 		toxicity:  &stubBackend{label: "non-toxic", score: 0.0},
 		topic:     &stubBackend{label: "unknown", score: 0.0},
@@ -128,7 +132,7 @@ func (r *Runner) Scan(ctx context.Context, text string) (Scores, error) {
 	}
 
 	return Scores{
-		Injection: maxScore(injScores),  // max(), not mean() — attacker hides in tail
+		Injection: maxScore(injScores), // max(), not mean() — attacker hides in tail
 		Toxicity:  maxScore(toxScores),
 		Topic:     topScores,
 	}, nil
