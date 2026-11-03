@@ -58,6 +58,9 @@ func main() {
 			if mod.Gated {
 				gated = " (gated: needs HF_TOKEN)"
 			}
+			if mod.Optional {
+				gated += " (optional)"
+			}
 			fmt.Printf("%-36s %-10s %8.1f MB  %-11s %s@%s%s\n", mod.Name, mod.Kind, float64(size)/1e6, mod.License, mod.Repo, mod.Revision[:12], gated)
 		}
 	case "pull":
@@ -69,6 +72,10 @@ func main() {
 		}
 		failed := false
 		for _, mod := range selected {
+			if mod.Optional && !explicit {
+				fmt.Printf("%s: skipped, optional (pull it with -models %s)\n", mod.Name, mod.Name)
+				continue
+			}
 			if mod.Gated && token == "" && !explicit {
 				fmt.Printf("%s: skipped, %s is gated (accept its terms on huggingface.co and set HF_TOKEN)\n", mod.Name, mod.Repo)
 				continue

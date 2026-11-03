@@ -30,7 +30,7 @@ the model and score how likely it is that the text tries to override the system 
 so the classifier runs in process and long inputs are split into overlapping windows of tokens.`
 
 func main() {
-	modelDir := flag.String("model", "models/cache/protectai-deberta-v3-base-pi-v2", "model directory")
+	modelDir := flag.String("model", "models/local/guardspec-classifier-v0", "model directory")
 	kind := flag.String("kind", "classifier", "classifier or embedder")
 	lengths := flag.String("lengths", "64,256,512", "input lengths in tokens, special tokens included")
 	concs := flag.String("conc", "1,4", "concurrency levels")

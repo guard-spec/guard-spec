@@ -1,0 +1,115 @@
+{
+  "model": "guardspec-classifier-v0",
+  "labels": [
+    "benign",
+    "direct_injection",
+    "indirect_injection",
+    "jailbreak",
+    "prompt_extraction",
+    "data_exfiltration",
+    "tool_poisoning",
+    "obfuscation"
+  ],
+  "output": "logits; apply sigmoid per label (multi-label head)",
+  "max_len": 256,
+  "risk_score": "1-p_benign",
+  "risk_score_doc": "risk = 1 - sigmoid(logit_benign)",
+  "risk_threshold": 0.7298248708248138,
+  "risk_threshold_target_benign_fpr": 0.01,
+  "risk_threshold_review": 0.014466315507888794,
+  "risk_threshold_review_target_benign_fpr": 0.05,
+  "validation": {
+    "n": 2228,
+    "n_attack": 1210,
+    "choice": {
+      "1-p_benign": {
+        "val_auc_int8": 0.9971301693484226,
+        "val_auc_fp32": 0.9969848511909594,
+        "val_tpr_at_fpr": 0.9925619834710744,
+        "val_fpr": 0.009823182711198428,
+        "threshold": 0.7298248708248138
+      },
+      "max_attack": {
+        "val_auc_int8": 0.9970790238516618,
+        "val_auc_fp32": 0.9968720063647729,
+        "val_tpr_at_fpr": 0.9917355371900827,
+        "val_fpr": 0.009823182711198428,
+        "threshold": 0.6248310804367065
+      }
+    },
+    "by_lang_at_threshold": {
+      "en": {
+        "tpr": 0.984070796460177,
+        "benign_fpr": 0.008,
+        "auc": 0.9965451327433628
+      },
+      "vi": {
+        "tpr": 1.0,
+        "benign_fpr": 0.01272264631043257,
+        "auc": 0.9979841016233703
+      }
+    }
+  },
+  "label_thresholds": {
+    "direct_injection": 0.7387994527816772,
+    "indirect_injection": 0.36310049891471863,
+    "jailbreak": 0.22113607823848724,
+    "prompt_extraction": 0.5041401386260986,
+    "data_exfiltration": 0.46245235204696655,
+    "tool_poisoning": 0.7374029755592346,
+    "obfuscation": 0.26757004857063293
+  },
+  "label_threshold_method": "max F1 on the validation split, one-vs-rest",
+  "label_validation": {
+    "direct_injection": {
+      "threshold": 0.7387994527816772,
+      "val_f1": 0.9721448467966572,
+      "val_precision": 0.9721448467966574,
+      "val_recall": 0.9721448467966574,
+      "val_auc": 0.9969670820348421
+    },
+    "indirect_injection": {
+      "threshold": 0.36310049891471863,
+      "val_f1": 1.0,
+      "val_precision": 1.0,
+      "val_recall": 1.0,
+      "val_auc": 1.0
+    },
+    "jailbreak": {
+      "threshold": 0.22113607823848724,
+      "val_f1": 0.9598108747044918,
+      "val_precision": 0.9530516431924883,
+      "val_recall": 0.9666666666666667,
+      "val_auc": 0.9932299778186795
+    },
+    "prompt_extraction": {
+      "threshold": 0.5041401386260986,
+      "val_f1": 0.9608540925266903,
+      "val_precision": 0.9507042253521126,
+      "val_recall": 0.9712230215827338,
+      "val_auc": 0.9956871425936175
+    },
+    "data_exfiltration": {
+      "threshold": 0.46245235204696655,
+      "val_f1": 0.9959016393442623,
+      "val_precision": 0.9959016393442623,
+      "val_recall": 0.9959016393442623,
+      "val_auc": 0.9993327769698572
+    },
+    "tool_poisoning": {
+      "threshold": 0.7374029755592346,
+      "val_f1": 1.0,
+      "val_precision": 1.0,
+      "val_recall": 1.0,
+      "val_auc": 1.0
+    },
+    "obfuscation": {
+      "threshold": 0.26757004857063293,
+      "val_f1": 0.9565217391304347,
+      "val_precision": 0.9734513274336283,
+      "val_recall": 0.9401709401709402,
+      "val_auc": 0.9946636867527441
+    }
+  },
+  "calibrated_on": "validation split (train/data/val.jsonl), INT8 model"
+}

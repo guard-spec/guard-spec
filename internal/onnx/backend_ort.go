@@ -86,7 +86,7 @@ func newBackend(dir string, kind modelKind, o Options) (tokenizer, session, erro
 	if err != nil {
 		return nil, nil, err
 	}
-	sess, err := newORTSession(filepath.Join(dir, ModelFile), kind, o)
+	sess, err := newORTSession(ResolveModelFile(dir, o), kind, o)
 	if err != nil {
 		_ = tok.Close()
 		return nil, nil, err
