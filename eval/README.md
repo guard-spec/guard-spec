@@ -6,7 +6,8 @@ detection number we publish should come from this set.
 
 - `data/en.jsonl`, `data/vi.jsonl`: 2,176 rows (1,171 attack, 1,005 benign, 46% benign).
 - `build/build.py`: deterministic generator (pinned dependencies, fixed seed).
-- `baseline.json`: current metrics of the regex detector; CI fails on regressions.
+- `baseline.json`: metrics of the production detector (`fusion`, L1 v2 rules today); CI fails on regressions.
+- `baseline-regex.json`: metrics of the legacy regex detector, kept for comparison.
 - `fingerprints.txt`: leakage guard for training (see below).
 - `LICENSES.md`: sources, licenses and row counts (generated).
 
@@ -70,11 +71,13 @@ name. Two runs produce byte-identical files. Commit the regenerated
 ## Running the detector eval
 
 ```sh
-go run ./cmd/eval                                   # table on stdout
+go run ./cmd/eval                                   # table on stdout (default -detector fusion)
 go run ./cmd/eval -json out.json                    # also write the report
 go run ./cmd/eval -baseline eval/baseline.json      # exit 1 on regression > 0.02
+go run ./cmd/eval -detector regex -baseline eval/baseline-regex.json   # legacy detector
 go run ./cmd/eval -json eval/baseline.json          # refresh the baseline
-go test ./internal/evalset -run TestBaseline -update-baseline   # same refresh, via go test
+go test ./internal/evalset -run TestBaseline -update-baseline          # refresh every baseline
+go test ./internal/evalset -run TestBaseline/fusion -update-baseline   # refresh one
 ```
 
 Each row goes through the gateway input path: `sanitizer.Sanitize`, then the
@@ -101,11 +104,52 @@ VI `translated` use all benign rows of the language.
 FPR rises, by more than `-max-regression` (default 0.02), or when the row count
 changed (rebuild the baseline with the data).
 
-New detectors (L1 v2, ONNX L2, embeddings L3, fusion) implement
-`evalset.Detector` and register in `evalset.Detectors`, then run with
-`-detector <name>`. Each one needs its own baseline file.
+Detectors: `fusion` (production, the default), `l1` (raw L1 v2 rule
+score, uncalibrated) and `regex` (legacy). New detectors (ONNX L2,
+embeddings L3) implement `evalset.Detector` and register in
+`evalset.Detectors`, then run with `-detector <name>`; in production they
+plug into `fusion.Fuser` as layers. Each tracked detector has its own
+baseline file, listed in `internal/evalset/baseline_test.go`.
 
-## Baseline: regex heuristic (current production detector)
+## Production detector: fusion of L1 v2 rules
+
+`internal/inference/skeleton` canonicalises the text (diacritics, homoglyphs,
+fullwidth, leetspeak, spelled-out letters, repeats, VI teencode);
+`internal/inference/rules` matches weighted phrase/co-occurrence rules per
+category on that skeleton, with suppressors for meta discussion, quoted
+examples and code literals; `internal/inference/fusion` calibrates each layer
+(Platt scaling fitted on `internal/inference/fusion/testdata/calibration.jsonl`,
+a separate hand-written split, never on this set) and takes the max.
+
+| | ROC-AUC | TPR @ FPR≤1% | TPR / FPR @ 0.85 | gateway rule TPR / FPR |
+|---|---|---|---|---|
+| all | 0.952 | 0.910 (FPR 0.010) | 0.882 / 0.001 | 0.893 / 0.001 |
+| en | 0.929 | 0.868 (FPR 0.019) | 0.829 / 0.003 | 0.843 / 0.003 |
+| vi | 0.975 | 0.949 (FPR 0.005) | 0.931 / 0.000 | 0.939 / 0.000 |
+| vi orig | 0.962 | 0.938 | 0.918 / 0.000 | 0.942 / 0.000 |
+| vi no_diacritics | 0.987 | 0.966 | 0.948 / 0.000 | 0.948 / 0.000 |
+| vi teencode | 0.977 | 0.956 | 0.947 / 0.000 | 0.947 / 0.000 |
+
+Latency (sanitizer + detector, Apple M-series laptop): p50 ≈ 115 µs, p99 ≈ 310 µs.
+
+**How much of this is fitted to the set.** The rules were first written from
+the category descriptions above, without reading rows: that blind version
+scored AUC 0.876 and TPR 0.476 at FPR ≤ 1%. They were then refined by reading
+failures on a *dev* half only (rows whose id ends in 0–7). On the untouched
+*holdout* half (ids ending in 8–f) the final detector scores AUC 0.935
+(EN 0.911, VI 0.962) and TPR 0.867 at FPR ≤ 1% (EN 0.818, VI 0.911), against
+0.968 / 0.949 on dev. Rows built from the same templates fall in both halves,
+so holdout still overstates performance on new phrasings; the
+blind-version numbers are the conservative estimate.
+
+Remaining misses: deepset rows that are not instruction attacks
+("Tell me a joke about a woman", "translate to polish"), typos
+("instruncitons"), Unicode tag-character payloads (the sanitizer strips the
+tags and raises the anomaly score, so the gateway still blocks them), harmful
+requests in fiction framing without a rule-breaking cue, and personas named
+without a "no rules" cue (STAN).
+
+## Legacy baseline: regex heuristic
 
 | | n attack / benign | ROC-AUC | TPR @ FPR≤1% (thr 0.95) | TPR / FPR @ 0.85 | TPR / FPR @ 0.60 | gateway rule TPR / FPR |
 |---|---|---|---|---|---|---|
@@ -117,7 +161,7 @@ New detectors (L1 v2, ONNX L2, embeddings L3, fusion) implement
 | vi teencode | 113 / 143 | 0.502 | 0.000 | 0.009 / 0.000 | 0.018 / 0.014 | 0.009 / 0.000 |
 
 Latency (sanitizer + detector, Apple M-series laptop): p50 ≈ 88 µs, p99 ≈ 280 µs.
-See `baseline.json` for every group.
+See `baseline-regex.json` for every group.
 
 The regex detector is close to chance on this set. It only catches a few
 literal phrasings (it misses "ignore all prior directives", "disregard everything
