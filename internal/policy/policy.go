@@ -3,7 +3,10 @@ package policy
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -42,6 +45,7 @@ type Rule struct {
 
 // Decision is the result of policy evaluation.
 type Decision struct {
+	Matched     bool
 	Action      Action
 	RuleID      uuid.UUID
 	RuleName    string
@@ -59,14 +63,16 @@ type Vars struct {
 	RequestTokens   int
 	IsMCPResponse   bool
 
+	InjectionLabel string
+
 	AnomalyHasTagChars bool
 	AnomalyHasBidi     bool
 	AnomalyScore       float32
 
 	// Set these before calling Evaluate when the rule may reference them.
-	InjectionScore float64
-	ToxicityScore  float64
-	PIIEntities    []string
+	InjectionScore  float64
+	ToxicityScore   float64
+	PIIEntities     []string
 	TopicCategories []string
 }
 
@@ -77,20 +83,49 @@ func (v *Vars) toActivation() map[string]any {
 		"request.tenant_id":     v.RequestTenantID,
 		"request.tokens":        int64(v.RequestTokens),
 		"injection.score":       v.InjectionScore,
+		"injection.label":       v.InjectionLabel,
 		"pii.entities":          v.PIIEntities,
 		"toxicity.score":        v.ToxicityScore,
 		"topic.categories":      v.TopicCategories,
+		"anomaly.score":         float64(v.AnomalyScore),
 		"anomaly.has_tag_chars": v.AnomalyHasTagChars,
 		"anomaly.has_bidi":      v.AnomalyHasBidi,
 		"mcp.is_tool_response":  v.IsMCPResponse,
 	}
 }
 
+// costLimit bounds one rule's evaluation. A rule the builder can express costs
+// far less, so reaching it means something is wrong and the request fails closed.
+const costLimit = 100_000
+
+// interruptCheckFrequency is how many loop iterations pass between ctx checks.
+const interruptCheckFrequency = 100
+
+// listOfStrings is the type of the list fields.
+var listOfStrings = cel.ListType(cel.StringType)
+
+// fieldTypes lists the variables a rule can reference.
+var fieldTypes = map[string]*cel.Type{
+	"request.model":         cel.StringType,
+	"request.tenant_id":     cel.StringType,
+	"request.tokens":        cel.IntType,
+	"injection.score":       cel.DoubleType,
+	"injection.label":       cel.StringType,
+	"pii.entities":          listOfStrings,
+	"toxicity.score":        cel.DoubleType,
+	"topic.categories":      listOfStrings,
+	"anomaly.score":         cel.DoubleType,
+	"anomaly.has_tag_chars": cel.BoolType,
+	"anomaly.has_bidi":      cel.BoolType,
+	"mcp.is_tool_response":  cel.BoolType,
+}
+
 // Engine compiles and caches CEL programs per (policy_id, version).
 type Engine struct {
-	env   *cel.Env
-	mu    sync.RWMutex
-	cache map[cacheKey]*compiledPolicy
+	env       *cel.Env
+	costLimit uint64
+	mu        sync.RWMutex
+	cache     map[cacheKey]*compiledPolicy
 }
 
 type cacheKey struct {
@@ -112,42 +147,70 @@ type compiledRule struct {
 
 // New creates an Engine with the standard CEL variable environment.
 func New() (*Engine, error) {
-	env, err := cel.NewEnv(
-		cel.Variable("request.model", cel.StringType),
-		cel.Variable("request.tenant_id", cel.StringType),
-		cel.Variable("request.tokens", cel.IntType),
-		cel.Variable("injection.score", cel.DoubleType),
-		cel.Variable("pii.entities", cel.ListType(cel.StringType)),
-		cel.Variable("toxicity.score", cel.DoubleType),
-		cel.Variable("topic.categories", cel.ListType(cel.StringType)),
-		cel.Variable("anomaly.has_tag_chars", cel.BoolType),
-		cel.Variable("anomaly.has_bidi", cel.BoolType),
-		cel.Variable("mcp.is_tool_response", cel.BoolType),
-	)
+	return NewWithCostLimit(costLimit)
+}
+
+// NewWithCostLimit is New with a different bound on one rule's evaluation.
+func NewWithCostLimit(limit uint64) (*Engine, error) {
+	opts := make([]cel.EnvOption, 0, len(fieldTypes))
+	for name, typ := range fieldTypes {
+		opts = append(opts, cel.Variable(name, typ))
+	}
+	env, err := cel.NewEnv(opts...)
 	if err != nil {
 		return nil, fmt.Errorf("cel env: %w", err)
 	}
 	return &Engine{
-		env:   env,
-		cache: make(map[cacheKey]*compiledPolicy),
+		env:       env,
+		costLimit: limit,
+		cache:     make(map[cacheKey]*compiledPolicy),
 	}, nil
 }
 
 // Evaluate runs the policy against vars and returns the first matching decision.
+// On error the decision is empty: the caller must fail closed, not treat it as allow.
 func (e *Engine) Evaluate(ctx context.Context, p *Policy, v *Vars) (Decision, error) {
 	compiled, err := e.getOrCompile(p)
 	if err != nil {
-		return DefaultAllow, err
+		return Decision{}, err
 	}
+	return compiled.evaluate(ctx, v)
+}
 
+// EvaluateAll runs policies in order; the first match across them wins. Every
+// policy is compiled first, so a broken one fails even when an earlier rule matches.
+func (e *Engine) EvaluateAll(ctx context.Context, policies []Policy, v *Vars) (Decision, error) {
+	compiled := make([]*compiledPolicy, 0, len(policies))
+	for i := range policies {
+		cp, err := e.getOrCompile(&policies[i])
+		if err != nil {
+			return Decision{}, fmt.Errorf("policy %s: %w", policies[i].ID, err)
+		}
+		compiled = append(compiled, cp)
+	}
+	for _, cp := range compiled {
+		decision, err := cp.evaluate(ctx, v)
+		if err != nil || decision.Matched {
+			return decision, err
+		}
+	}
+	return DefaultAllow, nil
+}
+
+func (cp *compiledPolicy) evaluate(ctx context.Context, v *Vars) (Decision, error) {
 	activation := v.toActivation()
-	for _, rule := range compiled.rules {
+	for _, rule := range cp.rules {
 		out, _, err := rule.program.ContextEval(ctx, activation)
 		if err != nil {
-			continue // treat eval error as no-match
+			return Decision{}, fmt.Errorf("rule %s: %w", rule.id, err)
 		}
-		if matched, ok := out.Value().(bool); ok && matched {
+		matched, ok := out.Value().(bool)
+		if !ok {
+			return Decision{}, fmt.Errorf("rule %s: result is not a bool", rule.id)
+		}
+		if matched {
 			return Decision{
+				Matched:     true,
 				Action:      rule.action,
 				RuleID:      rule.id,
 				RuleName:    rule.name,
@@ -161,14 +224,46 @@ func (e *Engine) Evaluate(ctx context.Context, p *Policy, v *Vars) (Decision, er
 // ValidateCEL compiles a CEL expression and returns the compiled form or an error.
 // Used by the control plane before persisting a rule.
 func (e *Engine) ValidateCEL(expr string) error {
-	ast, issues := e.env.Compile(expr)
-	if issues.Err() != nil {
-		return issues.Err()
+	_, err := e.compileExpr(expr)
+	return err
+}
+
+// ValidateRules checks a rule list before it is saved and returns it with every
+// rule carrying an ID, so that audit rows can name the rule that matched.
+func (e *Engine) ValidateRules(raw json.RawMessage) ([]Rule, error) {
+	var rules []Rule
+	if err := json.Unmarshal(raw, &rules); err != nil {
+		return nil, err
 	}
-	if ast.OutputType() != cel.BoolType {
-		return fmt.Errorf("expression must return bool, got %s", ast.OutputType())
+	if rules == nil {
+		return nil, errors.New("rules must be a list")
 	}
-	return nil
+	seen := make(map[uuid.UUID]bool, len(rules))
+	for i := range rules {
+		rule := &rules[i]
+		switch rule.Action {
+		case ActionAllow, ActionBlock, ActionLog:
+		case ActionRedact, ActionRoute:
+			return nil, fmt.Errorf("rule %q: action %q is not implemented by the gateway", rule.Name, rule.Action)
+		default:
+			return nil, fmt.Errorf("rule %q: unknown action %q", rule.Name, rule.Action)
+		}
+		celExpr, err := JSONASTToCEL(rule.Condition)
+		if err != nil {
+			return nil, fmt.Errorf("rule %q: %w", rule.Name, err)
+		}
+		if err := e.ValidateCEL(celExpr); err != nil {
+			return nil, fmt.Errorf("rule %q: %w", rule.Name, err)
+		}
+		if rule.ID == uuid.Nil {
+			rule.ID = uuid.New()
+		}
+		if seen[rule.ID] {
+			return nil, fmt.Errorf("rule %q: duplicate id %s", rule.Name, rule.ID)
+		}
+		seen[rule.ID] = true
+	}
+	return rules, nil
 }
 
 func (e *Engine) getOrCompile(p *Policy) (*compiledPolicy, error) {
@@ -200,14 +295,9 @@ func (e *Engine) compile(p *Policy) (*compiledPolicy, error) {
 			return nil, fmt.Errorf("rule %s: ast->cel: %w", rule.ID, err)
 		}
 
-		ast, issues := e.env.Compile(celExpr)
-		if issues.Err() != nil {
-			return nil, fmt.Errorf("rule %s: %w", rule.ID, issues.Err())
-		}
-
-		prg, err := e.env.Program(ast, cel.EvalOptions(cel.OptOptimize))
+		prg, err := e.compileExpr(celExpr)
 		if err != nil {
-			return nil, fmt.Errorf("rule %s: program: %w", rule.ID, err)
+			return nil, fmt.Errorf("rule %s: %w", rule.ID, err)
 		}
 
 		cp.rules = append(cp.rules, compiledRule{
@@ -221,17 +311,39 @@ func (e *Engine) compile(p *Policy) (*compiledPolicy, error) {
 	return cp, nil
 }
 
+func (e *Engine) compileExpr(expr string) (cel.Program, error) {
+	ast, issues := e.env.Compile(expr)
+	if issues.Err() != nil {
+		return nil, issues.Err()
+	}
+	if !ast.OutputType().IsExactType(cel.BoolType) {
+		return nil, fmt.Errorf("expression must return bool, got %s", ast.OutputType())
+	}
+	prg, err := e.env.Program(ast,
+		cel.EvalOptions(cel.OptOptimize),
+		cel.CostLimit(e.costLimit),
+		cel.InterruptCheckFrequency(interruptCheckFrequency))
+	if err != nil {
+		return nil, fmt.Errorf("program: %w", err)
+	}
+	return prg, nil
+}
+
 // queryBuilderNode is the react-querybuilder JSON wire format.
 type queryBuilderNode struct {
-	Combinator string             `json:"combinator"` // "and" | "or"
-	Rules      []json.RawMessage  `json:"rules"`
-	Field      string             `json:"field"`
-	Operator   string             `json:"operator"`
-	Value      any                `json:"value"`
+	Combinator  string            `json:"combinator"` // "and" | "or"
+	Not         bool              `json:"not"`
+	Rules       []json.RawMessage `json:"rules"`
+	Field       string            `json:"field"`
+	Operator    string            `json:"operator"`
+	Value       any               `json:"value"`
+	ValueSource string            `json:"valueSource"`
+	Disabled    bool              `json:"disabled"`
 }
 
 // JSONASTToCEL converts the react-querybuilder JSON AST to a CEL expression string.
-// Server-side only — never trust client-supplied CEL strings.
+// Server-side only — never trust client-supplied CEL strings. Fields come from
+// fieldTypes and values are typed literals, so no client text is parsed as CEL.
 func JSONASTToCEL(raw json.RawMessage) (string, error) {
 	var node queryBuilderNode
 	if err := json.Unmarshal(raw, &node); err != nil {
@@ -241,8 +353,24 @@ func JSONASTToCEL(raw json.RawMessage) (string, error) {
 }
 
 func nodeToCEL(node queryBuilderNode) (string, error) {
+	if node.Disabled {
+		return "", errors.New("disabled conditions are not supported")
+	}
+
 	// Group node (has combinator + rules)
 	if node.Combinator != "" {
+		op := ""
+		switch strings.ToLower(node.Combinator) {
+		case "and":
+			op = " && "
+		case "or":
+			op = " || "
+		default:
+			return "", fmt.Errorf("unknown combinator: %s", node.Combinator)
+		}
+		if len(node.Rules) == 0 {
+			return "", errors.New("empty condition group")
+		}
 		parts := make([]string, 0, len(node.Rules))
 		for _, raw := range node.Rules {
 			var child queryBuilderNode
@@ -255,53 +383,156 @@ func nodeToCEL(node queryBuilderNode) (string, error) {
 			}
 			parts = append(parts, "("+expr+")")
 		}
-		op := " && "
-		if strings.EqualFold(node.Combinator, "or") {
-			op = " || "
+		expr := strings.Join(parts, op)
+		if node.Not {
+			expr = "!(" + expr + ")"
 		}
-		return strings.Join(parts, op), nil
+		return expr, nil
 	}
 
-	// Leaf node (has field + operator + value)
+	return leafToCEL(node)
+}
+
+// leafToCEL handles a node with field + operator + value. The value is coerced
+// to the field's type: the builder often sends numbers as strings, and CEL
+// refuses to compare a double with an int.
+func leafToCEL(node queryBuilderNode) (string, error) {
 	field := node.Field
 	if field == "" {
-		return "true", nil
+		return "", errors.New("condition has no field")
 	}
+	typ, ok := fieldTypes[field]
+	if !ok {
+		return "", fmt.Errorf("unknown field: %s", field)
+	}
+	if node.ValueSource != "" && node.ValueSource != "value" {
+		return "", fmt.Errorf("unsupported value source: %s", node.ValueSource)
+	}
+	isList := typ == listOfStrings
+	isNumber := typ == cel.DoubleType || typ == cel.IntType
 
+	unsupported := fmt.Errorf("operator %s is not valid for field %s", node.Operator, field)
 	switch node.Operator {
-	case "=", "==":
-		return fmt.Sprintf("%s == %s", field, celValue(node.Value)), nil
-	case "!=":
-		return fmt.Sprintf("%s != %s", field, celValue(node.Value)), nil
-	case ">":
-		return fmt.Sprintf("%s > %s", field, celValue(node.Value)), nil
-	case ">=":
-		return fmt.Sprintf("%s >= %s", field, celValue(node.Value)), nil
-	case "<":
-		return fmt.Sprintf("%s < %s", field, celValue(node.Value)), nil
-	case "<=":
-		return fmt.Sprintf("%s <= %s", field, celValue(node.Value)), nil
+	case "=", "==", "!=":
+		if isList {
+			return "", unsupported
+		}
+		lit, err := celValue(typ, node.Value)
+		if err != nil {
+			return "", fmt.Errorf("%s: %w", field, err)
+		}
+		op := "=="
+		if node.Operator == "!=" {
+			op = "!="
+		}
+		return fmt.Sprintf("%s %s %s", field, op, lit), nil
+	case ">", ">=", "<", "<=":
+		if !isNumber {
+			return "", unsupported
+		}
+		lit, err := celValue(typ, node.Value)
+		if err != nil {
+			return "", fmt.Errorf("%s: %w", field, err)
+		}
+		return fmt.Sprintf("%s %s %s", field, node.Operator, lit), nil
 	case "contains":
-		return fmt.Sprintf("%s.contains(%s)", field, celValue(node.Value)), nil
+		if typ != cel.StringType && !isList {
+			return "", unsupported
+		}
+		lit, err := celValue(cel.StringType, node.Value)
+		if err != nil {
+			return "", fmt.Errorf("%s: %w", field, err)
+		}
+		if isList {
+			return fmt.Sprintf("%s in %s", lit, field), nil
+		}
+		return fmt.Sprintf("%s.contains(%s)", field, lit), nil
 	case "in":
-		return fmt.Sprintf("%s in %s", celValue(node.Value), field), nil
+		switch {
+		case isList:
+			lit, err := celValue(cel.StringType, node.Value)
+			if err != nil {
+				return "", fmt.Errorf("%s: %w", field, err)
+			}
+			return fmt.Sprintf("%s in %s", lit, field), nil
+		case typ == cel.StringType:
+			lit, err := celStringList(node.Value)
+			if err != nil {
+				return "", fmt.Errorf("%s: %w", field, err)
+			}
+			return fmt.Sprintf("%s in %s", field, lit), nil
+		default:
+			return "", unsupported
+		}
 	default:
 		return "", fmt.Errorf("unknown operator: %s", node.Operator)
 	}
 }
 
-func celValue(v any) string {
+// celValue renders v as a CEL literal of type typ.
+func celValue(typ *cel.Type, v any) (string, error) {
+	switch typ {
+	case cel.StringType:
+		if s, ok := v.(string); ok {
+			return strconv.Quote(s), nil
+		}
+	case cel.BoolType:
+		switch val := v.(type) {
+		case bool:
+			return strconv.FormatBool(val), nil
+		case string:
+			if val == "true" || val == "false" {
+				return val, nil
+			}
+		}
+	case cel.DoubleType, cel.IntType:
+		f, ok := v.(float64)
+		if s, isString := v.(string); isString {
+			parsed, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+			f, ok = parsed, err == nil
+		}
+		if !ok || math.IsNaN(f) || math.IsInf(f, 0) {
+			break
+		}
+		if typ == cel.DoubleType {
+			lit := strconv.FormatFloat(f, 'f', -1, 64)
+			if !strings.Contains(lit, ".") {
+				lit += ".0"
+			}
+			return lit, nil
+		}
+		if f == math.Trunc(f) && math.Abs(f) < 1<<53 {
+			return strconv.FormatInt(int64(f), 10), nil
+		}
+	}
+	return "", fmt.Errorf("invalid value %v for type %s", v, typ)
+}
+
+// celStringList renders a list value, or the comma-separated form the builder uses.
+func celStringList(v any) (string, error) {
+	var items []string
 	switch val := v.(type) {
 	case string:
-		return fmt.Sprintf("%q", val)
-	case float64:
-		return fmt.Sprintf("%g", val)
-	case bool:
-		if val {
-			return "true"
+		for _, item := range strings.Split(val, ",") {
+			if item = strings.TrimSpace(item); item != "" {
+				items = append(items, item)
+			}
 		}
-		return "false"
-	default:
-		return fmt.Sprintf("%v", val)
+	case []any:
+		for _, item := range val {
+			s, ok := item.(string)
+			if !ok {
+				return "", fmt.Errorf("invalid list item %v", item)
+			}
+			items = append(items, s)
+		}
 	}
+	if len(items) == 0 {
+		return "", errors.New("value must be a non-empty list")
+	}
+	quoted := make([]string, len(items))
+	for i, item := range items {
+		quoted[i] = strconv.Quote(item)
+	}
+	return "[" + strings.Join(quoted, ", ") + "]", nil
 }

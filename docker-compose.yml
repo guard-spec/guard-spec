@@ -13,6 +13,13 @@ services:
       MODELS_PATH: /models
       CONTROL_PLANE_URL: http://control-plane:8081
       LOG_LEVEL: info
+      # Base URL of an OpenAI-compatible API, such as http://host.docker.internal:11434/v1.
+      # Leave empty for stub responses.
+      UPSTREAM_LLM_URL: ${UPSTREAM_LLM_URL:-}
+      UPSTREAM_LLM_KEY: ${UPSTREAM_LLM_KEY:-}
+      UPSTREAM_LLM_TIMEOUT: ${UPSTREAM_LLM_TIMEOUT:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - models:/models
     depends_on:
