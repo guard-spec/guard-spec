@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/promptshield/promptshield/internal/inference"
+	"github.com/promptshield/promptshield/internal/inference/fusion"
+	"github.com/promptshield/promptshield/internal/inference/rules"
 	"github.com/promptshield/promptshield/internal/sanitizer"
 )
 
@@ -18,14 +20,29 @@ type Detector interface {
 	Score(ctx context.Context, sanitized string) (float64, error)
 }
 
+// DefaultDetector is the gateway's production detector.
+const DefaultDetector = "fusion"
+
 // Detectors maps a -detector flag value to a constructor.
 var Detectors = map[string]func() (Detector, error){
+	// regex is the legacy L1 v1 detector, kept for comparison.
 	"regex": func() (Detector, error) {
+		return RunnerDetector{Runner: inference.NewRegexRunner()}, nil
+	},
+	// fusion is the production detector: calibrated fusion of the layers
+	// that exist (today L1 v2 rules), exactly as inference.NewRunner builds it.
+	"fusion": func() (Detector, error) {
 		r, err := inference.NewRunner("")
 		if err != nil {
 			return nil, err
 		}
 		return RunnerDetector{Runner: r}, nil
+	},
+	// l1 is the raw, uncalibrated L1 v2 rule score.
+	"l1": func() (Detector, error) {
+		f := fusion.New()
+		f.Set(fusion.L1, fusion.RulesLayer{E: rules.New()}, fusion.Identity)
+		return RunnerDetector{Runner: inference.NewRunnerWith(inference.FusedBackend{F: f})}, nil
 	},
 }
 

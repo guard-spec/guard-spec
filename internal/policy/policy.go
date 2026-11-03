@@ -74,6 +74,10 @@ type Vars struct {
 	AnomalyScore       float32
 
 	InjectionScore float64
+	ScoreL1        float64 // per-layer calibrated injection scores; -1 when the layer did not run
+	ScoreL2        float64
+	ScoreL3        float64
+	InjectionCat   string // top injection category, "" when nothing matched
 }
 
 // toActivation converts Vars to the map cel.Program.ContextEval expects.
@@ -86,6 +90,10 @@ func (v *Vars) toActivation() map[string]any {
 		"request.tokens":        int64(v.RequestTokens),
 		"injection.score":       v.InjectionScore,
 		"injection.label":       v.InjectionLabel,
+		"injection.category":    v.InjectionCat,
+		"scores.l1":             v.ScoreL1,
+		"scores.l2":             v.ScoreL2,
+		"scores.l3":             v.ScoreL3,
 		"anomaly.score":         float64(v.AnomalyScore),
 		"anomaly.has_tag_chars": v.AnomalyHasTagChars,
 		"anomaly.has_bidi":      v.AnomalyHasBidi,
@@ -125,6 +133,10 @@ var fieldTypes = map[string]*cel.Type{
 	"request.tokens":        cel.IntType,
 	"injection.score":       cel.DoubleType,
 	"injection.label":       cel.StringType,
+	"injection.category":    cel.StringType,
+	"scores.l1":             cel.DoubleType,
+	"scores.l2":             cel.DoubleType,
+	"scores.l3":             cel.DoubleType,
 	"anomaly.score":         cel.DoubleType,
 	"anomaly.has_tag_chars": cel.BoolType,
 	"anomaly.has_bidi":      cel.BoolType,
