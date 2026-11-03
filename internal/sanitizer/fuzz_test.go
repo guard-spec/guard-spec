@@ -34,7 +34,7 @@ func FuzzSanitize(f *testing.F) {
 		"&[DATA]lt;b>",
 		"\x1b[31mred\x1b[0m",
 		"\x1b]52;c;ZXZpbA==\x07",
-		"a​b‮c⁦d",
+		"a\u200bb\u202ec\u2066d",
 		"\U000E0041\U000E0042 tag smuggling",
 		"\U0001F3F4\U000E0067\U000E0062\U000E0065\U000E006E\U000E0067\U000E007F",
 		"ﬁ ｆｕｌｌ ｗｉｄｔｈ",
