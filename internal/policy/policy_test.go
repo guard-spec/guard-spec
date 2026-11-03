@@ -30,7 +30,6 @@ func TestConditionsThatCompileAlsoEvaluate(t *testing.T) {
 		RequestModel:   "gpt-4o",
 		RequestTokens:  2000000,
 		InjectionScore: 0.75,
-		PIIEntities:    []string{"EMAIL"},
 	}
 	tests := []struct {
 		name      string
@@ -46,8 +45,6 @@ func TestConditionsThatCompileAlsoEvaluate(t *testing.T) {
 		{"string contains", `{"field":"request.model","operator":"contains","value":"gpt"}`, true},
 		{"string in list", `{"field":"request.model","operator":"in","value":["a","gpt-4o"]}`, true},
 		{"string in comma list", `{"field":"request.model","operator":"in","value":"a, gpt-4o"}`, true},
-		{"list contains", `{"field":"pii.entities","operator":"contains","value":"EMAIL"}`, true},
-		{"list in", `{"field":"pii.entities","operator":"in","value":"SSN"}`, false},
 		{"bool", `{"field":"anomaly.has_bidi","operator":"=","value":false}`, true},
 		{"bool as string", `{"field":"anomaly.has_bidi","operator":"!=","value":"true"}`, true},
 		{"quote cannot escape the literal", `{"field":"request.model","operator":"=","value":"x\" || true || \"y"}`, false},
@@ -89,7 +86,9 @@ func TestConditionsRefused(t *testing.T) {
 		{"fraction for an int", `{"field":"request.tokens","operator":">","value":1.5}`},
 		{"number for a string", `{"field":"request.model","operator":"=","value":5}`},
 		{"null value", `{"field":"request.model","operator":"=","value":null}`},
-		{"equality on a list", `{"field":"pii.entities","operator":"=","value":"EMAIL"}`},
+		{"removed toxicity", `{"field":"toxicity.score","operator":">","value":0.5}`},
+		{"removed pii", `{"field":"pii.entities","operator":"contains","value":"EMAIL"}`},
+		{"removed topic", `{"field":"topic.categories","operator":"contains","value":"x"}`},
 		{"in on a number", `{"field":"injection.score","operator":"in","value":"1"}`},
 		{"empty in", `{"field":"request.model","operator":"in","value":""}`},
 		{"field as value source", `{"field":"request.model","operator":"=","value":"request.tenant_id","valueSource":"field"}`},

@@ -353,7 +353,8 @@ func TestStreamFailureMidLineStartsNewEvent(t *testing.T) {
 		w.(http.Flusher).Flush()
 		panic(http.ErrAbortHandler)
 	})
-	h := startGateway(t, up.URL, nil)
+	// Without the output guard the partial line is relayed as it came.
+	h := startGateway(t, up.URL, func(gw *gateway) { gw.output = nil })
 	resp, body := h.post(t, "/v1/chat/completions", clean, nil)
 	if resp.StatusCode != 200 {
 		t.Fatalf("status = %d", resp.StatusCode)
@@ -361,7 +362,16 @@ func TestStreamFailureMidLineStartsNewEvent(t *testing.T) {
 	if !strings.Contains(body, "par\n\ndata: {\"error\":") {
 		t.Errorf("error event not separated from the partial line: %q", body)
 	}
-	h.oneRow(t)
+	if row := h.oneRow(t); row.Action != "error" {
+		t.Errorf("row = %+v", row)
+	}
+
+	// The output guard cannot check a half-written event, so it is dropped.
+	h = startGateway(t, up.URL, nil)
+	_, body = h.post(t, "/v1/chat/completions", clean, nil)
+	if strings.Contains(body, "par") || !strings.Contains(body, `data: {"error":`) {
+		t.Errorf("guarded: %q", body)
+	}
 }
 
 func TestBlockedRequestNeverReachesUpstream(t *testing.T) {
@@ -445,7 +455,7 @@ func TestUpstreamDown(t *testing.T) {
 	if strings.Contains(body, ln.Addr().String()) || strings.Contains(body, "refused") {
 		t.Errorf("internals leaked: %s", body)
 	}
-	if row := h.oneRow(t); row.Action != "allow" {
+	if row := h.oneRow(t); row.Action != "error" {
 		t.Errorf("row = %+v", row)
 	}
 }

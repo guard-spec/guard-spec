@@ -41,7 +41,7 @@ func FuzzJSONASTToCEL(f *testing.F) {
 		cond, _ := json.Marshal(json.RawMessage(raw))
 		p := &Policy{Rules: []Rule{{Name: "fuzz", Action: ActionBlock, Condition: cond}}}
 		// Evaluation may fail (for example a cost limit), but must not panic.
-		_, _ = eng.Evaluate(context.Background(), p, &Vars{PIIEntities: []string{}, TopicCategories: []string{}})
+		_, _ = eng.Evaluate(context.Background(), p, &Vars{ScoreL1: -1, ScoreL2: -1, ScoreL3: -1})
 	})
 }
 

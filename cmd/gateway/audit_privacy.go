@@ -28,17 +28,18 @@ func digest(body string) auditDigest {
 	return auditDigest{SHA256: &h, Bytes: &n, Content: &content}
 }
 
-// auditInsert writes one requests row. Content is stored only when the gateway
-// enables it for everyone ($13) or the row's organization has opted in.
+// auditInsert writes one requests row. pii_entities ($13) holds the output
+// guard counts. Content is stored only when the gateway enables it for every
+// org ($14) or the row's organization has opted in.
 const auditInsert = `
 INSERT INTO requests
 	(org_id, project_id, model, action, rule_id, injection_label, injection_score,
-	 toxicity_score, anomaly_score, had_tag_chars, had_bidi, latency_ms,
+	 toxicity_score, anomaly_score, had_tag_chars, had_bidi, latency_ms, pii_entities,
 	 request_sha256, request_bytes, request_content,
 	 response_sha256, response_bytes, response_content)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,
-	$14, $15, CASE WHEN ` + storeContent + ` THEN $16::text END,
-	$17, $18, CASE WHEN ` + storeContent + ` THEN $19::text END)`
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,
+	$15, $16, CASE WHEN ` + storeContent + ` THEN $17::text END,
+	$18, $19, CASE WHEN ` + storeContent + ` THEN $20::text END)`
 
-const storeContent = `($13::bool OR COALESCE(
+const storeContent = `($14::bool OR COALESCE(
 	(SELECT o.audit_store_content FROM organizations o WHERE o.id = $1), false))`

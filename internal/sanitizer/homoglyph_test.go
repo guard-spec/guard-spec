@@ -16,15 +16,15 @@ func TestCheckHomoglyphs(t *testing.T) {
 		{"empty", "", false},
 		{"punctuation", "!@#$%", false},
 		{"mixed scripts separated by space", "hello привет", false}, // different words — fine
-		{"CJK passthrough", "你好 world", false},                     // CJK = scriptOther, not flagged
+		{"CJK passthrough", "你好 world", false},                      // CJK = scriptOther, not flagged
 
 		// ── Homoglyph attacks ────────────────────────────────────────────────
 		// Cyrillic 'а' (U+0430) inside an otherwise Latin word
-		{"cyrillic-a in latin word", "hеllo", true},   // 'е' U+0435 = Cyrillic
-		{"cyrillic-o in latin word", "wоrd", true},    // 'о' U+043E = Cyrillic
-		{"latin+cyrillic token", "pаssword", true},    // 'а' U+0430 = Cyrillic
-		{"greek-o in latin word", "passωord", true},   // 'ω' U+03C9 = Greek
-		{"armenian char in latin", "heլլո", true}, // Armenian letters
+		{"cyrillic-a in latin word", "hеllo", true}, // 'е' U+0435 = Cyrillic
+		{"cyrillic-o in latin word", "wоrd", true},  // 'о' U+043E = Cyrillic
+		{"latin+cyrillic token", "pаssword", true},  // 'а' U+0430 = Cyrillic
+		{"greek-o in latin word", "passωord", true}, // 'ω' U+03C9 = Greek
+		{"armenian char in latin", "heլլո", true},   // Armenian letters
 
 		// ── Edge cases ───────────────────────────────────────────────────────
 		{"multi-word, only last is attack", "clean кttack", true}, // 'А' U+0410 Cyrillic at start
