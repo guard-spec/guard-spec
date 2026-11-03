@@ -721,6 +721,10 @@ func policyVars(entry requestEntry, body map[string]any, bodyBytes int) *policy.
 		PIIEntities:        []string{},
 		TopicCategories:    []string{},
 	}
+	vars.ScoreL1, vars.ScoreL2, vars.ScoreL3 = vars.InjectionScore, -1, -1
+	if d := entry.Scores.Injection.Detail; d != nil {
+		vars.ScoreL1, vars.ScoreL2, vars.ScoreL3, vars.InjectionCat = d.L1, d.L2, d.L3, d.Category
+	}
 	for _, entity := range entry.Scores.PII {
 		vars.PIIEntities = append(vars.PIIEntities, entity.Type)
 	}

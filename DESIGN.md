@@ -278,7 +278,11 @@ func compileToCEL(rule Rule, env *cel.Env) (cel.Program, error) {
 request.model          string
 request.tenant_id      string
 request.tokens         int
-injection.score        float   (lazy: triggers ONNX inference)
+injection.score        float   (lazy: fused, calibrated score of all layers)
+injection.category     string  (top category: direct_injection, jailbreak, ... or "")
+scores.l1              float   (L1 rules, calibrated)
+scores.l2              float   (L2 classifier; -1 until it exists or when it fails)
+scores.l3              float   (L3 embeddings; -1 until it exists or when it fails)
 pii.entities           list    (lazy)
 toxicity.score         float   (lazy)
 topic.categories       list    (lazy)

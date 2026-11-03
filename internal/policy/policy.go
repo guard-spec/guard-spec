@@ -71,6 +71,10 @@ type Vars struct {
 
 	// Set these before calling Evaluate when the rule may reference them.
 	InjectionScore  float64
+	ScoreL1         float64 // per-layer calibrated injection scores; -1 when the layer did not run
+	ScoreL2         float64
+	ScoreL3         float64
+	InjectionCat    string // top injection category, "" when nothing matched
 	ToxicityScore   float64
 	PIIEntities     []string
 	TopicCategories []string
@@ -84,6 +88,10 @@ func (v *Vars) toActivation() map[string]any {
 		"request.tokens":        int64(v.RequestTokens),
 		"injection.score":       v.InjectionScore,
 		"injection.label":       v.InjectionLabel,
+		"injection.category":    v.InjectionCat,
+		"scores.l1":             v.ScoreL1,
+		"scores.l2":             v.ScoreL2,
+		"scores.l3":             v.ScoreL3,
 		"pii.entities":          v.PIIEntities,
 		"toxicity.score":        v.ToxicityScore,
 		"topic.categories":      v.TopicCategories,
@@ -123,6 +131,10 @@ var fieldTypes = map[string]*cel.Type{
 	"request.tokens":        cel.IntType,
 	"injection.score":       cel.DoubleType,
 	"injection.label":       cel.StringType,
+	"injection.category":    cel.StringType,
+	"scores.l1":             cel.DoubleType,
+	"scores.l2":             cel.DoubleType,
+	"scores.l3":             cel.DoubleType,
 	"pii.entities":          listOfStrings,
 	"toxicity.score":        cel.DoubleType,
 	"topic.categories":      listOfStrings,

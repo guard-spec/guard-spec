@@ -10,17 +10,23 @@ import (
 	"testing"
 )
 
-var updateBaseline = flag.Bool("update-baseline", false, "rewrite eval/baseline.json from the current detector")
+var updateBaseline = flag.Bool("update-baseline", false, "rewrite the baseline files from the current detectors")
 
-const (
-	dataDir      = "../../eval/data"
-	baselinePath = "../../eval/baseline.json"
-)
+const dataDir = "../../eval/data"
 
-// TestBaseline scores the committed eval set with the regex detector and
-// fails on a regression of more than 0.02 versus eval/baseline.json, the
-// same check as `go run ./cmd/eval -baseline eval/baseline.json`.
-// Refresh with: go test ./internal/evalset -run TestBaseline -update-baseline
+// baselines maps each tracked detector to its committed baseline.
+// eval/baseline.json belongs to the production detector (DefaultDetector),
+// so `go run ./cmd/eval -baseline eval/baseline.json` checks what ships.
+var baselines = map[string]string{
+	DefaultDetector: "../../eval/baseline.json",
+	"regex":         "../../eval/baseline-regex.json",
+}
+
+// TestBaseline scores the committed eval set with each tracked detector and
+// fails on a regression of more than 0.02 versus its baseline, the same
+// check as `go run ./cmd/eval -detector <name> -baseline <file>`.
+// Refresh all:  go test ./internal/evalset -run TestBaseline -update-baseline
+// Refresh one:  go test ./internal/evalset -run TestBaseline/fusion -update-baseline
 func TestBaseline(t *testing.T) {
 	rows, err := Load(dataDir)
 	if err != nil {
@@ -29,38 +35,45 @@ func TestBaseline(t *testing.T) {
 		}
 		t.Fatal(err)
 	}
-	det, err := Detectors["regex"]()
-	if err != nil {
-		t.Fatal(err)
-	}
-	res, err := Run(context.Background(), rows, det)
-	if err != nil {
-		t.Fatal(err)
-	}
-	rep := BuildReport("regex", res)
-	var sb strings.Builder
-	rep.WriteTable(&sb)
-	t.Log("\n" + sb.String())
+	for name, path := range baselines {
+		t.Run(name, func(t *testing.T) {
+			det, err := Detectors[name]()
+			if err != nil {
+				t.Fatal(err)
+			}
+			res, err := Run(context.Background(), rows, det)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rep := BuildReport(name, res)
+			var sb strings.Builder
+			rep.WriteTable(&sb)
+			t.Log("\n" + sb.String())
 
-	if *updateBaseline {
-		b, err := MarshalReport(rep)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(baselinePath, b, 0o644); err != nil {
-			t.Fatal(err)
-		}
-		return
-	}
-	b, err := os.ReadFile(baselinePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var base Report
-	if err := json.Unmarshal(b, &base); err != nil {
-		t.Fatal(err)
-	}
-	if regs := Compare(base, rep, 0.02); len(regs) > 0 {
-		t.Fatalf("regressions versus %s:\n  %s", baselinePath, strings.Join(regs, "\n  "))
+			if *updateBaseline {
+				b, err := MarshalReport(rep)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, b, 0o644); err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+			b, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var base Report
+			if err := json.Unmarshal(b, &base); err != nil {
+				t.Fatal(err)
+			}
+			if base.Detector != name {
+				t.Fatalf("%s holds a baseline for %q, not %q", path, base.Detector, name)
+			}
+			if regs := Compare(base, rep, 0.02); len(regs) > 0 {
+				t.Fatalf("regressions versus %s:\n  %s", path, strings.Join(regs, "\n  "))
+			}
+		})
 	}
 }
