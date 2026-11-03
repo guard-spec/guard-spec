@@ -1,0 +1,206 @@
+{
+  "config": {
+    "name": "guardspec-classifier-v2",
+    "seed": 20261105,
+    "base_model": "intfloat/multilingual-e5-small",
+    "base_revision": "614241f622f53c4eeff9890bdc4f31cfecc418b3",
+    "labels": [
+      "benign",
+      "direct_injection",
+      "indirect_injection",
+      "jailbreak",
+      "prompt_extraction",
+      "data_exfiltration",
+      "tool_poisoning",
+      "obfuscation"
+    ],
+    "data": {
+      "train": "data/train.jsonl",
+      "val": [
+        "data/val.jsonl",
+        "data/val_hard.jsonl",
+        "data/val_vi_variants.jsonl"
+      ]
+    },
+    "train": {
+      "max_len": 256,
+      "batch_size": 32,
+      "epochs": 5,
+      "lr": 5e-05,
+      "weight_decay": 0.01,
+      "warmup_ratio": 0.06,
+      "grad_clip": 1.0,
+      "early_stopping_patience": 1,
+      "device": "mps",
+      "augment": {
+        "vi_no_diacritics": 0.15,
+        "vi_teencode": 0.15
+      }
+    },
+    "calibration": {
+      "target_benign_fpr": 0.01
+    },
+    "export": {
+      "opset": 17,
+      "out_dir": "../models/local/guardspec-classifier-v2",
+      "run_dir": "runs/guardspec-classifier-v2"
+    },
+    "compare": {
+      "model": "protectai/deberta-v3-base-prompt-injection-v2",
+      "revision": "90c9989b1a342275dd0d1a95aad283c04e075671",
+      "max_len": 512
+    }
+  },
+  "device": "mps",
+  "n_train": 23404,
+  "n_val": 5885,
+  "epochs": [
+    {
+      "epoch": 1,
+      "train_loss": 0.2854518053615517,
+      "val_loss": 0.11844325615069375,
+      "seconds": 287.0137047767639,
+      "1-p_benign": {
+        "auc": 0.9838840647008744,
+        "tpr_at_fpr1": 0.5821917808219178,
+        "fpr": 0.009943502824858758,
+        "threshold": 0.8860682845115662
+      },
+      "max_attack": {
+        "auc": 0.9659902484327838,
+        "tpr_at_fpr1": 0.42945205479452053,
+        "fpr": 0.009943502824858758,
+        "threshold": 0.5759792029857635
+      },
+      "per_label_auc": {
+        "benign": 0.9838840647008745,
+        "direct_injection": 0.9794101807069341,
+        "indirect_injection": 0.9824104033773997,
+        "jailbreak": 0.9485775743559055,
+        "prompt_extraction": 0.927046105950592,
+        "data_exfiltration": 0.990756329917169,
+        "tool_poisoning": 0.9883238797027845,
+        "obfuscation": 0.9277392964275974
+      },
+      "macro_auc": 0.9660184793924071
+    },
+    {
+      "epoch": 2,
+      "train_loss": 0.09721719078169982,
+      "val_loss": 0.05441093434695987,
+      "seconds": 299.6926050186157,
+      "1-p_benign": {
+        "auc": 0.993618063617367,
+        "tpr_at_fpr1": 0.9424657534246575,
+        "fpr": 0.009943502824858758,
+        "threshold": 0.6742368638515472
+      },
+      "max_attack": {
+        "auc": 0.9899490751489822,
+        "tpr_at_fpr1": 0.9034246575342466,
+        "fpr": 0.009943502824858758,
+        "threshold": 0.5176815390586853
+      },
+      "per_label_auc": {
+        "benign": 0.9936180636173669,
+        "direct_injection": 0.9906694980518878,
+        "indirect_injection": 0.9926578533789405,
+        "jailbreak": 0.9765247206094031,
+        "prompt_extraction": 0.9775710693547153,
+        "data_exfiltration": 0.993952434511875,
+        "tool_poisoning": 0.9942396313364056,
+        "obfuscation": 0.9787546586673939
+      },
+      "macro_auc": 0.9872484911909984
+    },
+    {
+      "epoch": 3,
+      "train_loss": 0.04844808997968059,
+      "val_loss": 0.035408440356347756,
+      "seconds": 290.0463857650757,
+      "1-p_benign": {
+        "auc": 0.9948357712251373,
+        "tpr_at_fpr1": 0.9698630136986301,
+        "fpr": 0.009943502824858758,
+        "threshold": 0.8182104825973511
+      },
+      "max_attack": {
+        "auc": 0.993690503830973,
+        "tpr_at_fpr1": 0.9541095890410959,
+        "fpr": 0.009943502824858758,
+        "threshold": 0.6860234141349792
+      },
+      "per_label_auc": {
+        "benign": 0.9948357712251372,
+        "direct_injection": 0.9950801611819543,
+        "indirect_injection": 0.993871991618132,
+        "jailbreak": 0.989630336454745,
+        "prompt_extraction": 0.984527791831218,
+        "data_exfiltration": 0.9964109317256171,
+        "tool_poisoning": 0.9997970222463618,
+        "obfuscation": 0.9882556131260795
+      },
+      "macro_auc": 0.9928012024261557
+    },
+    {
+      "epoch": 4,
+      "train_loss": 0.029116745433220487,
+      "val_loss": 0.03537163902058273,
+      "seconds": 293.66740894317627,
+      "1-p_benign": {
+        "auc": 0.9926799783298506,
+        "tpr_at_fpr1": 0.7931506849315069,
+        "fpr": 0.009943502824858758,
+        "threshold": 0.967256098985672
+      },
+      "max_attack": {
+        "auc": 0.9903510564197818,
+        "tpr_at_fpr1": 0.8726027397260274,
+        "fpr": 0.009943502824858758,
+        "threshold": 0.891974925994873
+      },
+      "per_label_auc": {
+        "benign": 0.9926800557232414,
+        "direct_injection": 0.9954893437115706,
+        "indirect_injection": 0.9931552186373301,
+        "jailbreak": 0.9903500401632407,
+        "prompt_extraction": 0.9868513738151513,
+        "data_exfiltration": 0.993883156470569,
+        "tool_poisoning": 0.9999986001534232,
+        "obfuscation": 0.9897936551222616
+      },
+      "macro_auc": 0.9927751804745985
+    },
+    {
+      "epoch": 5,
+      "train_loss": 0.021608317316041577,
+      "val_loss": 0.031927773380492235,
+      "seconds": 293.49077677726746,
+      "1-p_benign": {
+        "auc": 0.9946964631220494,
+        "tpr_at_fpr1": 0.9205479452054794,
+        "fpr": 0.009943502824858758,
+        "threshold": 0.9354723393917084
+      },
+      "max_attack": {
+        "auc": 0.9918709078244717,
+        "tpr_at_fpr1": 0.928082191780822,
+        "fpr": 0.009943502824858758,
+        "threshold": 0.8501079380512238
+      },
+      "per_label_auc": {
+        "benign": 0.9946964631220493,
+        "direct_injection": 0.9952415536480838,
+        "indirect_injection": 0.9937826261132169,
+        "jailbreak": 0.9901808963141466,
+        "prompt_extraction": 0.989162011052656,
+        "data_exfiltration": 0.9954992559887665,
+        "tool_poisoning": 0.9999636039890029,
+        "obfuscation": 0.99110444505045
+      },
+      "macro_auc": 0.9937038569097965
+    }
+  ],
+  "best_epoch": 5,
+  "train_seconds": 1464.50954413414
+}

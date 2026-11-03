@@ -1,7 +1,10 @@
-# Data card: Guard Spec classifier training data v1
+# Data card: Guard Spec classifier training data v2
 
 Copyright The Guard Spec Authors. Project-written rows are licensed
 Apache-2.0. Source rows keep their own licenses (`DATA_LICENSES.md`).
+
+v2 (2026-11-04) builds on v1; the v1 sections below still describe the
+base. What changed is in [v2 changes](#v2-changes).
 
 ## Purpose
 
@@ -11,11 +14,12 @@ and none of its rows appear here (see the leakage section).
 
 ## Files
 
-| file | rows | content |
+| file | rows (v2) | content |
 |---|---|---|
-| `data/train.jsonl` | 17,833 | training split |
-| `data/val.jsonl` | 2,511 | in-distribution validation split (group hash), for early stopping and calibration |
-| `data/val_hard.jsonl` | 747 | v1 hard validation split from template set B of `gen_hardneg.py`, which training never sees (711 benign, 36 attack); also used for early stopping and calibration |
+| `data/train.jsonl` | 23,404 | training split (v1: 17,833) |
+| `data/val.jsonl` | 3,648 | in-distribution validation split (group hash), for early stopping and calibration (v1: 2,511) |
+| `data/val_hard.jsonl` | 829 | hard validation split from template set B of `gen_hardneg.py`, which training never sees (784 benign, 45 attack; v1: 747); also used for early stopping and calibration |
+| `data/val_vi_variants.jsonl` | 1,408 | **v2**: Vietnamese variant validation split from template set B of `gen_vi_v2.py` and held-out teencode spellings (1,337 benign, 71 attack); also used for early stopping and calibration |
 | `data/stats.json` | - | counts per label, language, variant and source, plus the leakage report |
 | `data/pilot_labels.jsonl` | 200 | manual pilot labels (`LABELING.md`) |
 
@@ -28,7 +32,7 @@ Schema (one JSON object per line):
 | `labels` | non-empty list of labels: `["benign"]` or one or more attack labels |
 | `lang` | `en` or `vi` |
 | `variant` | `orig`, `no_diacritics`, `teencode`, `leet`, `partial_diacritics` (v1: some lines stripped) |
-| `source` | `guard-spec`, `guard-spec:hardneg` (v1 train), `guard-spec:hardneg-val` (v1 hard validation) or `<hf dataset>:<split>` |
+| `source` | `guard-spec`, `guard-spec:hardneg` (v1 train), `guard-spec:hardneg-val` (v1 hard validation), `guard-spec:v2` (v2 train), `guard-spec:v2-val` (`val_vi_variants`) or `<hf dataset>:<split>` |
 | `license` | the row's license |
 | `group` | template or source-row id. Every variant of one base text shares a group. |
 
@@ -38,7 +42,90 @@ Rebuild it with `cd train && uv run python data/build_data.py`. The build:
 - needs `eval/fingerprints.txt` and `eval/data/*.jsonl` for the leakage guard;
 - is byte-identical between runs (checked with md5 on all three outputs).
 
+## v2 changes
+
+### Cause of the v1 Vietnamese false positives (validation splits only)
+
+Measured with `uv run python variant_report.py --model ../models/local/guardspec-classifier-v1`
+on validation data only:
+
+- v1's own `val` split showed no problem (benign FPR 0.0% for every
+  Vietnamese variant at v1's threshold 0.877), and `val_hard` only a hint:
+  orig 0.0%, no-diacritics 2.3%, teencode 3.7% (129 / 129 / 81 benign rows).
+- On the new `val_vi_variants` split (everyday benign text with words such as
+  "bỏ qua", "quên", "hướng dẫn", "hệ thống", "quản trị", "mật khẩu", "lệnh"),
+  v1 blocks **13.1%** of benign `orig` rows, **23.5%** without diacritics and
+  **27.2%** in teencode (328 / 328 / 681 benign rows). On the v2 `val`
+  split, which now holds v2 generator rows too, v1's Vietnamese benign FPR
+  is 4.5% `orig`, 11.4% no-diacritics, 16.7% teencode.
+- **The variant counts were balanced, the vocabulary was not.** In v1
+  training rows (teencode / no-diacritics), the words that carry the topic of
+  admin and system talk appeared almost only in attacks: `lenh` 0:29 and
+  0:78 benign:attack, `qt` (quy tắc) 1:45, `ct` (chỉ thị) 3:20, `ng`
+  (người) 7:168, `rep` (trả lời) 30:121, `moi` (mọi) 24:177 and 161:558,
+  `he thong` 51:165, `mat khau` 24:71. v1's teencode table also mapped
+  "mật khẩu" to `mk`, which real chat uses for "mình", and wrote every word
+  one way, so other spellings were unseen.
+
+### Data fixes
+
+- **`data/gen_vi_v2.py`**, new generator, template set A for training and
+  set B for `val_vi_variants`, with different frames and vocabulary:
+  everyday benign Vietnamese in eight domains (chat, shopping, school, work,
+  family, tech support, banking FAQ, admin talk; set B adds health) that use
+  the admin vocabulary in ordinary senses, plus minimal pairs on the same
+  vocabulary (an attack and a benign sentence from one frame, one group).
+- **`common.teencode_v2`**: randomized chat spelling with several spellings
+  per word (`không` → `ko`/`k`/`hông`/`hok`/`kh`/`khum`, `mình` →
+  `mk`/`mik`/`mh`, `mật khẩu` → `mk`/`pass`/`pw`, ...), random rates, `qu`→`w`,
+  `ph`→`f`, `gi`→`j`, emoticon tails. Table A is used for training; table B
+  adds spellings training never sees (`hem`, `zị`, `mềnh`, `bợn`, ...) and is
+  used only for `val_vi_variants`.
+- **Second teencode copy**: every Vietnamese base (v1 attacks, v1 benign,
+  hard negatives, v2 rows) gets a `teencode_v2` copy with probability 0.5,
+  the same for benign and attack bases.
+- **oasst2 Vietnamese** (Apache-2.0): every prompt gets a `teencode_v2`
+  copy, and the first two sentences of multi-sentence prompts become extra
+  bases with their own no-diacritics and teencode copies. English oasst2
+  rows go from 3,200 to 3,800.
+- **Every variant has the same benign:attack ratio**, 1.5, in the training
+  split (`balance_variants`, `TARGET_RATIO`): attack rows are never dropped;
+  a cell with surplus benign rows loses benign rows at random (minimal pairs
+  and L3 exemplar rows are kept); a cell short of benign rows gets
+  transforms of benign `orig` rows (EN leet +162, VI partial diacritics +75).
+  Before: VI `orig` 0.84, no-diacritics 0.89, teencode 0.95, leet 0.71;
+  EN `orig` 1.40, leet 0.70.
+
+  | train split, v2 | benign | attack | ratio |
+  |---|---|---|---|
+  | EN orig / leet | 5,454 / 303 | 3,636 / 202 | 1.50 / 1.50 |
+  | VI orig / no-diacritics / teencode | 2,673 / 2,523 / 2,464 | 1,782 / 1,682 / 1,643 | 1.50 / 1.50 / 1.50 |
+  | VI leet / partial diacritics | 477 / 148 | 318 / 99 | 1.50 / 1.49 |
+
+  Benign Vietnamese teencode rows in training: 786 (v1) → 2,464; benign
+  no-diacritics: 1,491 → 2,523.
+- **Training-time augmentation** (`train.augment` in `config.yaml`): every
+  epoch, each Vietnamese `orig` training row is rewritten without diacritics
+  with probability 0.15, or in `teencode_v2` (table A) with probability 0.15,
+  whatever its label. Validation rows are never augmented.
+
+### Leakage
+
+The same guard runs on every new row, including the transforms added by
+`balance_variants` and the `val_vi_variants` split: 0 fingerprint matches and
+0 rows above Jaccard 0.8. The highest character 5-gram Jaccard of any v2 row
+(new generator rows and teencode copies) with any eval text is 0.46 in
+`train`, 0.42 in `val` and 0.51 in `val_vi_variants`. The v2 generator was
+written without reading eval rows.
+
 ## Composition, v1 (train + val; `val_hard` listed separately)
+
+v2 totals (train + val): EN 10,977 rows (4,390 attack), VI 16,075 rows
+(6,316 attack); EN benign 6,587, VI benign 9,759. VI variants: `orig`
+5,143 · `no_diacritics` 4,892 · `teencode` 4,840 · `leet` 933 ·
+`partial_diacritics` 267. Sources: project 12,972 · v2 generator 4,785 ·
+hard negatives 2,011 · oasst2 5,197 · jailbreak-classification 1,022 ·
+Gandalf 776 · deepset 289.
 
 Rows can carry more than one attack label, so label counts add up to more
 than the row count.

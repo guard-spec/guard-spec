@@ -29,6 +29,7 @@ const (
 	EnvCascadeHigh   = "DETECTOR_CASCADE_HIGH" // default DefaultCascade.High
 	EnvRequireML     = "DETECTOR_REQUIRE_ML"   // true: refuse to start without the ML layers (outside dev)
 	EnvFusion        = "DETECTOR_FUSION"       // logreg (default) or max
+	L2DefaultV2      = "local/guardspec-classifier-v2"
 	L2DefaultV1      = "local/guardspec-classifier-v1"
 	L2DefaultV0      = "local/guardspec-classifier-v0"
 	L3DefaultSubdir  = "cache/multilingual-e5-small"
@@ -47,8 +48,8 @@ var DefaultCascade = fusion.Cascade{Low: 0.03, High: 0.965}
 // Config selects and locates the detection layers.
 type Config struct {
 	ModelDir string
-	// L2Dir is the classifier directory. Empty: ModelDir/local/guardspec-classifier-v1,
-	// falling back to ...-v0.
+	// L2Dir is the classifier directory. Empty: the first of L2Defaults
+	// (ModelDir/local/guardspec-classifier-v2, then -v1, then -v0) that exists.
 	L2Dir string
 	// L3Dir is the embedding model directory. Empty: ModelDir/cache/multilingual-e5-small.
 	L3Dir   string
@@ -224,15 +225,13 @@ func Build(ctx context.Context, cfg Config, tenants TenantStore) (*Stack, error)
 func (s *Stack) loadL2(cfg Config, threads int) error {
 	dir := cfg.L2Dir
 	if dir == "" {
-		for _, sub := range []string{L2DefaultV1, L2DefaultV0} {
-			d := filepath.Join(cfg.ModelDir, sub)
-			if _, err := os.Stat(filepath.Join(d, onnx.ConfigFile)); err == nil {
-				dir = d
-				break
-			}
-		}
+		dir = DefaultL2Dir(cfg.ModelDir)
 		if dir == "" {
-			return fmt.Errorf("no classifier in %s or %s", filepath.Join(cfg.ModelDir, L2DefaultV1), filepath.Join(cfg.ModelDir, L2DefaultV0))
+			var tried []string
+			for _, sub := range L2Defaults {
+				tried = append(tried, filepath.Join(cfg.ModelDir, sub))
+			}
+			return fmt.Errorf("no classifier in %s", strings.Join(tried, ", "))
 		}
 	}
 	c, err := onnx.NewClassifier(dir, onnx.Options{IntraOpThreads: threads})
@@ -294,6 +293,21 @@ func (s *Stack) loadL3(ctx context.Context, cfg Config, tenants TenantStore, thr
 	a, b := ix.Len()
 	slog.Info("L3 embeddings loaded", "dir", dir, "attack_exemplars", a, "benign_exemplars", b, "per_org", tc != nil)
 	return nil
+}
+
+// L2Defaults are the classifier directories under MODEL_DIR, newest first.
+var L2Defaults = []string{L2DefaultV2, L2DefaultV1, L2DefaultV0}
+
+// DefaultL2Dir is the first of L2Defaults under modelDir that holds a
+// classifier, or "" when none does.
+func DefaultL2Dir(modelDir string) string {
+	for _, sub := range L2Defaults {
+		d := filepath.Join(modelDir, sub)
+		if _, err := os.Stat(filepath.Join(d, onnx.ConfigFile)); err == nil {
+			return d
+		}
+	}
+	return ""
 }
 
 // modelName is the "model" field of dir/thresholds.json, else the dir name.

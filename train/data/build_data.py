@@ -41,14 +41,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gen_en  # noqa: E402
 import gen_hardneg  # noqa: E402
 import gen_vi  # noqa: E402
+import gen_vi_v2  # noqa: E402
 from common import (LABELS, fingerprint, leet, normalize_for_fingerprint, rng, shingles,  # noqa: E402
-                    strip_diacritics, teencode_vi)
+                    strip_diacritics, teencode_v2, teencode_vi)
 
 DATA = Path(__file__).resolve().parent
 TRAIN_ROOT = DATA.parent
 REPO = TRAIN_ROOT.parent
 CACHE = TRAIN_ROOT / ".cache" / "hf"
 EVAL = REPO / "eval"
+EXEMPLARS = REPO / "internal" / "inference" / "ml" / "exemplars" / "default.jsonl"
 
 VAL_PCT = 12
 JACCARD_MAX = 0.8
@@ -71,7 +73,10 @@ OASST2 = dict(key="OpenAssistant/oasst2", license="Apache-2.0",
               file="2023-11-05_oasst2_prompts.messages.jsonl.gz")
 PROJECT, PROJECT_LICENSE = "guard-spec", "Apache-2.0"
 
-OASST_EN_N = 3200
+OASST_EN_N = 3800  # v1: 3200. v2 takes more so that English `orig` reaches TARGET_RATIO without dropping attacks.
+# v2: benign-to-attack ratio that every (language, variant) cell of the training split is brought to
+# (balance_variants). It is about the overall ratio of the v2 training split before balancing.
+TARGET_RATIO = 1.5
 
 
 def fetch(src) -> Path:
@@ -222,6 +227,9 @@ def load_sources(c: Collector, counts):
 # v1: identical variant rates for benign and attack rows, so that "no diacritics", "teencode",
 # "leet" or "partly stripped diacritics" carry no information about the label.
 VI_TEEN, VI_LEET, VI_PARTIAL, EN_LEET = 0.5, 0.2, 0.35, 0.08
+# v2: a second teencode copy with the randomized v2 spelling (common.teencode_v2, table A), same rate
+# for benign and attack bases.
+VI_TEEN2 = 0.5
 
 
 def partial_diacritics(text: str, key: str) -> str:
@@ -232,8 +240,10 @@ def partial_diacritics(text: str, key: str) -> str:
     return "\n".join(ln if i == keep or r.random() < 0.3 else strip_diacritics(ln) for i, ln in enumerate(lines))
 
 
-def add_vi_variants(c, bases, section, source=PROJECT, license_=PROJECT_LICENSE, teen=VI_TEEN, leet_frac=VI_LEET):
+def add_vi_variants(c, bases, section, source=PROJECT, license_=PROJECT_LICENSE, teen=VI_TEEN, leet_frac=VI_LEET,
+                    teen2=VI_TEEN2):
     r_t, r_l, r_p = rng(section + ".teen"), rng(section + ".leet"), rng(section + ".partial")
+    r_t2 = rng(section + ".teen2")
     for b in bases:
         text, labels, g = b["text"], b["labels"], b["group"]
         c.add(text, labels, "vi", "orig", source, license_, g)
@@ -245,6 +255,8 @@ def add_vi_variants(c, bases, section, source=PROJECT, license_=PROJECT_LICENSE,
             c.add(strip_diacritics(text), labels, "vi", "no_diacritics", source, license_, g)
         if r_t.random() < teen:
             c.add(teencode_vi(text, g), labels, "vi", "teencode", source, license_, g)
+        if r_t2.random() < teen2:
+            c.add(teencode_v2(text, g, "A"), labels, "vi", "teencode", source, license_, g)
         if r_l.random() < leet_frac:
             lab = labels if labels == ["benign"] else labels + ["obfuscation"]
             c.add(leet(text, g), lab, "vi", "leet", source, license_, g)
@@ -277,9 +289,77 @@ def build(c: Collector, counts):
         c.add(b["text"], b["labels"], "vi", "orig", PROJECT, PROJECT_LICENSE, b["group"])
     add_vi_variants(c, gen_vi.hard_benign(), "vi.benign")
     oasst_bases = [dict(text=t, labels=["benign"], group=f"oasst.{mid}") for mid, t in sorted(vi_oasst)]
+    # v2: every oasst2 Vietnamese prompt also gets a v2 teencode copy, and single sentences of
+    # multi-sentence prompts become extra bases (same group, so they land in the same split).
+    oasst_bases += oasst_sentences(oasst_bases)
     add_vi_variants(c, oasst_bases, "vi.oasst", source=OASST2["key"] + ":prompts", license_=OASST2["license"],
-                    leet_frac=0.0)
+                    leet_frac=0.0, teen2=1.0)
     add_hardneg(c, "train")
+    add_vi_variants(c, gen_vi_v2.generate("train"), "v2.vi.train", source=PROJECT + ":v2")
+
+
+RE_SENT = re.compile(r"(?<=[.!?])\s+")
+
+
+def oasst_sentences(bases, max_per=2):
+    out = []
+    for b in bases:
+        sents = [s.strip() for s in RE_SENT.split(b["text"]) if 20 <= len(s.strip()) <= 300]
+        if len(sents) < 2:
+            continue
+        out += [dict(text=s, labels=["benign"], group=b["group"]) for s in sents[:max_per]]
+    return out
+
+
+def balance_variants(rows, target, counts, section="balance"):
+    """Bring every (lang, variant) cell to benign:attack == target (v2).
+
+    Attack rows are never dropped. A cell with too many benign rows loses benign rows at random
+    (minimal-pair rows are kept, so the pairs stay intact, and so are the L3 exemplar rows of
+    internal/inference/ml/exemplars, which must stay training rows); a cell with too few gets benign
+    transforms of the same language's `orig` benign rows of the split (leet, no diacritics,
+    v2 teencode, partly stripped diacritics), which keep their base row's group.
+    """
+    r = rng(section)
+    keep_ids = {json.loads(ln)["id"] for ln in EXEMPLARS.read_text(encoding="utf-8").splitlines() if ln.strip()}
+    cells = collections.defaultdict(lambda: ([], []))
+    for x in rows:
+        cells[(x["lang"], x["variant"])][x["labels"] != ["benign"]].append(x)
+    texts = {x["text"] for x in rows}
+    drop, added = set(), []
+    transforms = {
+        "leet": lambda t, g: leet(t, g + ".bal"),
+        "no_diacritics": lambda t, g: strip_diacritics(t),
+        "teencode": lambda t, g: teencode_v2(t, g + ".bal", "A"),
+        "partial_diacritics": lambda t, g: partial_diacritics(t, g + ".bal") if "\n" in t else t,
+    }
+    for (lang, variant), (ben, atk) in sorted(cells.items()):
+        want = round(target * len(atk))
+        if len(ben) > want:
+            pool = sorted((x for x in ben if ".pair." not in x["group"] and x["id"] not in keep_ids),
+                          key=lambda x: x["text"])
+            r.shuffle(pool)
+            k = min(len(ben) - want, len(pool))
+            drop.update(id(x) for x in pool[:k])
+            counts[f"balance:{lang}/{variant}:benign_dropped"] += k
+        elif len(ben) < want:
+            fn = transforms.get(variant)
+            n = 0
+            if fn is not None:
+                src = sorted(cells[(lang, "orig")][0], key=lambda x: x["text"])
+                r.shuffle(src)
+                for x in src:
+                    if n >= want - len(ben):
+                        break
+                    t = unicodedata.normalize("NFC", fn(x["text"], x["group"])).strip()
+                    if t == x["text"] or t in texts:
+                        continue
+                    texts.add(t)
+                    added.append(dict(x, text=t, variant=variant))
+                    n += 1
+            counts[f"balance:{lang}/{variant}:benign_added"] += n
+            counts[f"balance:{lang}/{variant}:benign_short"] += want - len(ben) - n
+    return [x for x in rows if id(x) not in drop], added
 
 
 def add_hardneg(c, split):
@@ -393,10 +473,17 @@ def main():
     rows.sort(key=lambda r: (r["lang"], r["group"], r["variant"], r["text"]))
     for r in rows:
         r["id"] = f"{r['lang']}-{hashlib.sha256(r['text'].encode('utf-8')).hexdigest()[:12]}"
-    split = {"train": [], "val": [], "val_hard": []}
+    split = {"train": [], "val": [], "val_hard": [], "val_vi_variants": []}
     for r in rows:
         h = int(hashlib.sha256(f"split:{r['group']}".encode()).hexdigest(), 16) % 100
         split["val" if h < VAL_PCT else "train"].append(r)
+    # v2: every (language, variant) cell of the training split gets the same benign:attack ratio.
+    # Rows added here are transforms of training rows; they get the leakage check below.
+    kept, added = balance_variants(split["train"], TARGET_RATIO, counts)
+    split["train"] = kept + leakage_filter(added, counts)
+    split["train"].sort(key=lambda r: (r["lang"], r["group"], r["variant"], r["text"]))
+    for r in split["train"]:
+        r["id"] = f"{r['lang']}-{hashlib.sha256(r['text'].encode('utf-8')).hexdigest()[:12]}"
 
     # Hard validation split: v1 generators with template set B, never used for training.
     hv = Collector()
@@ -411,6 +498,28 @@ def main():
     for r in hrows:
         r["id"] = f"{r['lang']}-{hashlib.sha256(r['text'].encode('utf-8')).hexdigest()[:12]}"
     split["val_hard"] = hrows
+
+    # v2: Vietnamese variant validation split from gen_vi_v2 template set B. Every base gets an
+    # orig, a no-diacritics and two teencode copies; teencode uses table B, whose extra spellings
+    # training never sees. Used for early stopping and calibration together with val and val_hard.
+    vv = Collector()
+    src = PROJECT + ":v2-val"
+    for b in gen_vi_v2.generate("val"):
+        g = b["group"]
+        vv.add(b["text"], b["labels"], "vi", "orig", src, PROJECT_LICENSE, g)
+        vv.add(strip_diacritics(b["text"]), b["labels"], "vi", "no_diacritics", src, PROJECT_LICENSE, g)
+        for k in range(2):
+            vv.add(teencode_v2(b["text"], f"{g}.{k}", "B"), b["labels"], "vi", "teencode", src, PROJECT_LICENSE, g)
+    vcounts = collections.Counter()
+    vrows = leakage_filter(dedupe(vv.rows, vcounts), vcounts)
+    seen = train_texts | {r["text"] for r in split["train"]} | {r["text"] for r in hrows}
+    vrows = [r for r in vrows if r["text"] not in seen]
+    for k, v in vcounts.items():
+        counts[f"val_vi_variants:{k}"] += v
+    vrows.sort(key=lambda r: (r["lang"], r["group"], r["variant"], r["text"]))
+    for r in vrows:
+        r["id"] = f"{r['lang']}-{hashlib.sha256(r['text'].encode('utf-8')).hexdigest()[:12]}"
+    split["val_vi_variants"] = vrows
     for name, rs in split.items():
         with open(DATA / f"{name}.jsonl", "w", encoding="utf-8", newline="\n") as f:
             for r in rs:

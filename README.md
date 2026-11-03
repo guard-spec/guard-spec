@@ -122,7 +122,7 @@ What each stage does:
   attack category run on it, with suppressors for meta discussion, quoted
   examples and code literals. L1 always runs and needs no model files.
 - **L2 classifier** (`internal/inference/ml`, `internal/onnx`). Our own
-  `guardspec-classifier-v1`: `intfloat/multilingual-e5-small` fine-tuned on
+  `guardspec-classifier-v2`: `intfloat/multilingual-e5-small` fine-tuned on
   `train/` with an 8-label sigmoid head, INT8 ONNX, run in-process with ONNX
   Runtime. Risk is 1 − p(benign). Long input is scored in 256-token windows
   with a 64-token overlap; the worst window counts.
@@ -263,7 +263,7 @@ For Kubernetes see [Operations: Kubernetes](#kubernetes).
 | Layer | Files | Where it comes from |
 |---|---|---|
 | L1 | none | built into the binary |
-| L2 | `models/local/guardspec-classifier-v1/` (`model_int8.onnx`, `tokenizer.json`, `config.json`, `thresholds.json`) | **not published yet**: build it with `train/`, or copy the files in |
+| L2 | `models/local/guardspec-classifier-v2/` (falls back to `-v1`, then `-v0`) (`model_int8.onnx`, `tokenizer.json`, `config.json`, `thresholds.json`) | **not published yet**: build it with `train/`, or copy the files in |
 | L3 | `models/cache/multilingual-e5-small/` (`model.onnx`, `tokenizer.json`, `config.json`) | pulled from Hugging Face, pinned by commit and SHA-256 in `models/manifest.yaml` |
 
 The model layers need a gateway built with `-tags onnx` (cgo, ONNX Runtime).
@@ -294,13 +294,13 @@ Hugging Face is on the [roadmap](ROADMAP.md)). Two ways to get it:
    uv sync
    uv run python data/build_data.py
    uv run python train.py
-   uv run python export.py      # writes ../models/local/guardspec-classifier-v1
+   uv run python export.py      # writes ../models/local/guardspec-classifier-v2
    ```
 
    MPS training is not bit-reproducible, so your weights and numbers can
    differ slightly from ours.
-2. Copy an existing `guardspec-classifier-v1` directory (from a teammate or
-   an earlier build) to `models/local/guardspec-classifier-v1`.
+2. Copy an existing `guardspec-classifier-v2` directory (from a teammate or
+   an earlier build) to `models/local/guardspec-classifier-v2`.
 
 Then restart the gateway (`docker compose up -d gateway`); the log line
 `L3 embeddings loaded` and the absence of `L2:` warnings confirm the layers
@@ -340,7 +340,7 @@ in a second table.
 | `OUTPUT_CANARY` | `off` | `block` or `redact` injects a canary and acts when it leaks |
 | `OUTPUT_REASONING` | `guard` | `drop` removes `reasoning` / `reasoning_content` instead of guarding them |
 | `MODEL_DIR` | `./models` (`/models` in the image) | Root of the model files. `MODELS_PATH` is the older name |
-| `L2_MODEL_DIR` | `$MODEL_DIR/local/guardspec-classifier-v1`, else `-v0` | Classifier directory |
+| `L2_MODEL_DIR` | `$MODEL_DIR/local/guardspec-classifier-v2`, else `-v1`, else `-v0` | Classifier directory |
 | `L3_MODEL_DIR` | `$MODEL_DIR/cache/multilingual-e5-small` | Embedding model directory |
 | `DETECTOR_LAYERS` | `l1,l2,l3` | Layers to run |
 | `DETECTOR_FUSION` | `logreg` | `logreg` or `max` of the calibrated layers |
