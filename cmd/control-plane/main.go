@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"flag"
 	"log/slog"
 	"net/http"
 	"os"
@@ -40,7 +41,15 @@ func main() {
 		os.Exit(0)
 	}
 
+	checkOnly := flag.Bool("check-policies", false,
+		"validate every stored policy, list the failures and exit (1 if any fail); "+
+			"DATABASE_URL must name a role that bypasses row-level security")
+	flag.Parse()
+
 	cfg := loadConfig()
+	if *checkOnly {
+		os.Exit(runPolicyCheck(context.Background(), cfg.DatabaseURL, os.Stdout))
+	}
 	if cfg.JWTSecret == "" {
 		slog.Error("JWT_SECRET is required")
 		os.Exit(1)

@@ -643,7 +643,7 @@
         <span class="step-title">CEL Policy Engine</span>
         <span class="layer-chip" style="--lc:var(--c-policy)">Policy</span>
       </div>
-      <div class="step-desc">Structured policy rules (configured in the Rules page) are evaluated using the Common Expression Language. Each rule has typed conditions on ML signal fields combined with AND/OR logic, plus an action. Rules evaluate in order — first match wins, evaluation stops. The Rules page UI provides a query-builder interface to author these conditions without writing CEL by hand.</div>
+      <div class="step-desc">Structured policy rules (configured in the Rules page) are evaluated using the Common Expression Language. Each rule has typed conditions on ML signal fields combined with AND/OR logic, plus an action. Rules evaluate in order — the first matching allow or block rule wins and evaluation stops; a matching log rule is recorded and evaluation continues with the next rule. The Rules page UI provides a query-builder interface to author these conditions without writing CEL by hand.</div>
       <div class="decisions">
         <div class="dec"><span class="dec-cond">policies cannot be loaded, compiled or evaluated</span><span class="dec-arrow">→</span><span class="dec-block">HTTP 503, nothing sent upstream</span></div>
       </div>
@@ -651,7 +651,6 @@
         <span class="sig">injection.score</span>
         <span class="sig">injection.label</span>
         <span class="sig">anomaly.score</span>
-        <span class="sig">toxicity.score</span>
         <span class="sig">anomaly.has_tag_chars</span>
         <span class="sig">anomaly.has_bidi</span>
         <span class="sig">request.model</span>
@@ -690,13 +689,14 @@
         <span class="step-title">Action Execution</span>
         <span class="layer-chip" style="--lc:var(--c-action)">Gateway</span>
       </div>
-      <div class="step-desc">The resolved action is executed and every outcome gets one audit row. ALLOW and LOG forward the sanitized request to the upstream LLM. REDACT and ROUTE are not implemented: the control plane refuses them, and a stored rule that matches with one fails closed.</div>
+      <div class="step-desc">The resolved action is executed and every outcome gets one audit row. ALLOW forwards the sanitized request to the upstream LLM; a request that only matched LOG rules is allowed. REDACT and ROUTE are not implemented: the control plane refuses them, and a stored rule that matches with one fails closed. If the client hangs up while the upstream is still working, the upstream request is cancelled at once. The answer then passes the <strong>output guard</strong> before it reaches the client: markdown and HTML images, links to hosts not on the allowlist and image URLs carrying a query are removed; email, Vietnamese phone, CCCD and card numbers (and optionally IPv4) become <code>[REDACTED:type]</code>; a per-request canary token placed in the system prompt is blocked or redacted if the model repeats it. Whole responses are rewritten in <code>choices[].message.content</code>; streams keep a 256-character window per choice so a pattern split across chunks is still caught.</div>
       <div class="signals">
         <span class="sig">BLOCK → HTTP 400 content_filter</span>
         <span class="sig">ALLOW → forward to upstream</span>
-        <span class="sig">LOG → audit + allow through</span>
+        <span class="sig">LOG → audit, next rule decides</span>
         <span class="sig">REDACT → not implemented, HTTP 503</span>
         <span class="sig">ROUTE → not implemented, HTTP 503</span>
+        <span class="sig">output: images, links, PII, canary</span>
       </div>
     </div>
   </div>
@@ -711,9 +711,10 @@
         <span class="step-title">Audit Log</span>
         <span class="layer-chip" style="--lc:var(--c-storage)">Storage</span>
       </div>
-      <div class="step-desc">Every request and its full signal set is persisted to PostgreSQL regardless of outcome. The Control Plane API exposes this data to the Dashboard's live request feed (polled every 5 s).</div>
+      <div class="step-desc">Every request and its full signal set is persisted to PostgreSQL regardless of outcome. <code>action</code> is allow, block, error (the upstream failed) or output_leak (the canary appeared in the answer). What the output guard removed is counted per type in <code>pii_entities</code> as <code>output:&lt;type&gt;=&lt;n&gt;</code>, never with the content. Rows still in flight at shutdown are waited for. The Control Plane API exposes this data to the Dashboard's live request feed (polled every 5 s).</div>
       <div class="signals">
         <span class="sig">action</span>
+        <span class="sig">pii_entities (output counts)</span>
         <span class="sig">injection_score</span>
         <span class="sig">injection_label</span>
         <span class="sig">toxicity_score</span>
@@ -754,11 +755,11 @@
         </div>
         <div class="attr-row">
           <div class="attr-k">Fields available</div>
-          <div class="attr-v"><code>injection.score</code>, <code>anomaly.score</code>, <code>toxicity.score</code>, <code>injection.label</code>, <code>anomaly.has_bidi</code>, <code>anomaly.has_tag_chars</code>, <code>request.model</code>, <code>request.tokens</code>, <code>request.tenant_id</code>, <code>mcp.is_tool_response</code>, <code>pii.entities</code>, <code>topic.categories</code></div>
+          <div class="attr-v"><code>injection.score</code>, <code>anomaly.score</code>, <code>injection.label</code>, <code>anomaly.has_bidi</code>, <code>anomaly.has_tag_chars</code>, <code>request.model</code>, <code>request.tokens</code>, <code>request.tenant_id</code>, <code>mcp.is_tool_response</code>. <code>toxicity.score</code>, <code>pii.entities</code> and <code>topic.categories</code> were removed: no detector produced them. New rules naming them are refused; stored ones still evaluate them as zero or empty.</div>
         </div>
         <div class="attr-row">
           <div class="attr-k">Evaluation</div>
-          <div class="attr-v">CEL engine, first-match-wins, evaluated in the order rules are listed</div>
+          <div class="attr-v">CEL engine, evaluated in the order rules are listed; the first matching allow or block wins, log rules record a match and let evaluation go on</div>
         </div>
         <div class="attr-row">
           <div class="attr-k">Storage</div>
