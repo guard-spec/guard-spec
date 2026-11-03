@@ -1,4 +1,4 @@
-.PHONY: build test lint docker-build docker-up models-download
+.PHONY: build test lint vuln fuzz docker-build docker-up models-download
 
 GO      := go
 GOFLAGS := -tags ORT
@@ -12,6 +12,16 @@ test:
 
 lint:
 	golangci-lint run ./...
+
+vuln:
+	$(GO) run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+FUZZTIME ?= 30s
+fuzz:
+	$(GO) test ./internal/sanitizer/ -run NONE -fuzz FuzzSanitize -fuzztime $(FUZZTIME)
+	$(GO) test ./internal/policy/ -run NONE -fuzz FuzzJSONASTToCEL -fuzztime $(FUZZTIME)
+	$(GO) test ./internal/policy/ -run NONE -fuzz FuzzValidateRules -fuzztime $(FUZZTIME)
+	$(GO) test ./cmd/gateway/ -run NONE -fuzz FuzzChatRequest -fuzztime $(FUZZTIME)
 
 docker-build:
 	docker build -f build/gateway.Dockerfile    -t promptshield/gateway:latest .

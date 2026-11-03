@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # Gateway: Go data plane with ONNX Runtime
 
-FROM golang:1.22-bookworm AS builder
+FROM golang:1.26.10-bookworm@sha256:23ce71337b726608afb1bc00986e630a05034a87a87ea1fc2cd1ae5cf33387eb AS builder
 
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -15,7 +15,7 @@ RUN CGO_ENABLED=1 GOOS=linux \
     -o /out/gateway ./cmd/gateway/
 
 # --- runtime image ---
-FROM debian:bookworm-slim
+FROM debian:bookworm-slim@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3
 
 # ORT runtime dependency
 RUN apt-get update && apt-get install -y --no-install-recommends \

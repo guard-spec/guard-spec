@@ -1,5 +1,15 @@
-# dev override: build from source, mount code for quick iteration
-# Usage: docker compose -f docker-compose.yml -f docker-compose.override.yml up
+# LOCAL DEVELOPMENT ONLY. `docker compose up` loads this file automatically.
+#
+# It turns on GUARD_ENV=dev and fills in the well-known throwaway credentials
+# below, so the stack starts without any setup. The services accept them only
+# because of GUARD_ENV=dev; without it they refuse to start.
+#
+# Never deploy with this file. In production run
+#   docker compose -f docker-compose.yml up -d
+# with real secrets in .env (see .env.example).
+#
+# The database passwords match earlier versions of this file, so an existing
+# local volume keeps working. Values set in .env or the shell take precedence.
 
 services:
   gateway:
@@ -11,6 +21,8 @@ services:
       - models:/models
     environment:
       LOG_LEVEL: debug
+      GUARD_ENV: ${GUARD_ENV:-dev}
+      PGPASSWORD: ${PS_APP_PASSWORD:-ps_app}
 
   control-plane:
     build:
@@ -18,6 +30,20 @@ services:
       dockerfile: build/control-plane.Dockerfile
     environment:
       LOG_LEVEL: debug
+      GUARD_ENV: ${GUARD_ENV:-dev}
+      PGPASSWORD: ${PS_APP_PASSWORD:-ps_app}
+      JWT_SECRET: ${JWT_SECRET:-dev-only-insecure-jwt-secret-do-not-deploy}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-change-on-first-login}
+
+  migrate:
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:-ps}
+
+  db-roles:
+    environment:
+      GUARD_ENV: ${GUARD_ENV:-dev}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-ps}
+      PS_APP_PASSWORD: ${PS_APP_PASSWORD:-ps_app}
 
   ui:
     build:
@@ -31,8 +57,10 @@ services:
       NEXT_TELEMETRY_DISABLED: "1"
 
   postgres:
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ps}
     ports:
-      - "5432:5432"        # expose for local DB tools (TablePlus, etc.)
+      - "${POSTGRES_PORT:-5432}:5432"   # expose for local DB tools (TablePlus, etc.)
 
   clickhouse:
     ports:
