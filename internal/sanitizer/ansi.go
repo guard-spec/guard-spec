@@ -48,18 +48,37 @@ var mcpPoisonSignals = []string{
 	"Before using this tool",
 }
 
+// MCP signal names returned by MCPSignals besides the matched phrases.
+const (
+	MCPSignalLong      = "long_description" // longer than mcpMaxDescription bytes
+	MCPSignalInvisible = "invisible_chars"  // Unicode tag or bidi control characters
+)
+
+// mcpMaxDescription is the length above which a description is suspicious.
+const mcpMaxDescription = 1500
+
 // CheckMCPDescription returns true if a tool description shows signs of poisoning.
 func CheckMCPDescription(description string) bool {
+	return len(MCPSignals(description)) > 0
+}
+
+// MCPSignals lists the poisoning signals found in a raw (unsanitized) tool
+// description: the matched phrases of mcpPoisonSignals, lowercased, then
+// MCPSignalLong and MCPSignalInvisible. It is empty for a clean description.
+func MCPSignals(description string) []string {
+	var found []string
 	lower := strings.ToLower(description)
 	for _, signal := range mcpPoisonSignals {
-		if strings.Contains(lower, strings.ToLower(signal)) {
-			return true
+		if l := strings.ToLower(signal); strings.Contains(lower, l) {
+			found = append(found, l)
 		}
 	}
 	// Structural signals
-	if len(description) > 1500 {
-		return true
+	if len(description) > mcpMaxDescription {
+		found = append(found, MCPSignalLong)
 	}
-	_, hadTag, hadBidi := stripInvisible(description)
-	return hadTag || hadBidi
+	if _, hadTag, hadBidi := stripInvisible(description); hadTag || hadBidi {
+		found = append(found, MCPSignalInvisible)
+	}
+	return found
 }

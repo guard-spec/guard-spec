@@ -109,7 +109,8 @@
 POST /v1/chat/completions    <- intercept (input guard + output guard)
 POST /v1/completions         <- intercept
 POST /v1/embeddings          <- pass-through with injection scan
-POST /guardrail/scan         <- direct scan endpoint (no LLM call)
+POST /guardrail/scan         <- direct scan endpoint (no LLM call); optional documents[]
+POST /guardrail/scan/tools   <- MCP tool definitions: poisoning scan
 POST /guardrail/sanitize     <- sanitize only, return cleaned text
 GET  /guardrail/models       <- list loaded models and health
 ```
@@ -210,11 +211,11 @@ func Sanitize(input string) (cleaned string, report SanitizeReport) {
     report.HomoglyphRisk = checkHomoglyphs(stripped)
     report.HadTagChars = (input != stripped)
     
-    // 8. Apply spotlighting/datamarking LAST (after cleaning)
-    //    Use PUA marker U+E000 — must clean first or attacker fakes it
-    marked = applyDatamarking(stripped, markerToken)
+    // 8. Spotlighting is not applied here. The gateway marks tool results
+    //    after cleaning (SPOTLIGHT=delimit|datamark, package indirect); the
+    //    cleaning passes strip spoofed markers so an attacker cannot fake one.
     
-    return marked, report
+    return stripped, report
 }
 ```
 
@@ -283,6 +284,9 @@ injection.category     string  (top category: direct_injection, jailbreak, ... o
 scores.l1              float   (L1 rules, calibrated)
 scores.l2              float   (L2 classifier; -1 until it exists or when it fails)
 scores.l3              float   (L3 embeddings; -1 until it exists or when it fails)
+injection.source_role  string  (where the strongest finding came from: user, system, assistant, tool, tool_description)
+indirect.score         float   (largest score over tool results and tool descriptions; 0 when none)
+indirect.source        string  (tool, document or tool_description; "" when none)
 pii.entities           list    (lazy)
 toxicity.score         float   (lazy)
 topic.categories       list    (lazy)

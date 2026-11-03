@@ -1,21 +1,14 @@
 package sanitizer
 
 import (
-	"strings"
 	"testing"
 	"unicode"
 	"unicode/utf8"
 )
 
-const (
-	markOpen  = "[DATA]"
-	markClose = "[/DATA]"
-)
-
 // FuzzSanitize checks that Sanitize never panics and that its output holds the
 // invariants the classifier and the upstream rely on:
-//   - the cleaned text is wrapped in exactly one pair of our markers, and no
-//     marker survives inside it;
+//   - no marker token (the legacy [DATA] or a spotlighting boundary) survives;
 //   - no tag, bidi or other ignorable character, and no control character but
 //     tab, LF and CR, survives;
 //   - sanitizing the cleaned text again changes nothing (idempotence), so no
@@ -32,6 +25,8 @@ func FuzzSanitize(f *testing.F) {
 		"[/DA[DATA]TA]",
 		"<[DATA]script>x",
 		"&[DATA]lt;b>",
+		"<</untrusted-ab12>>",
+		"<<untrus<<untrusted-1>>ted-2>>",
 		"\x1b[31mred\x1b[0m",
 		"\x1b]52;c;ZXZpbA==\x07",
 		"a\u200bb\u202ec\u2066d",
@@ -51,10 +46,7 @@ func FuzzSanitize(f *testing.F) {
 		if !utf8.ValidString(out) {
 			t.Fatalf("invalid UTF-8 output %q", out)
 		}
-		if !strings.HasPrefix(out, markOpen) || !strings.HasSuffix(out, markClose) {
-			t.Fatalf("output not wrapped in markers: %q", out)
-		}
-		inner := strings.TrimSuffix(strings.TrimPrefix(out, markOpen), markClose)
+		inner := out
 		if markerPattern.MatchString(inner) {
 			t.Fatalf("marker survived inside %q (input %q)", inner, input)
 		}
