@@ -258,6 +258,36 @@ with superuser credentials in `PGHOST`, `PGUSER`, `PGDATABASE` and
 
 For Kubernetes see [Operations: Kubernetes](#kubernetes).
 
+### Install from a release
+
+Each `v*` tag publishes, through `.github/workflows/release.yml`:
+
+| Artifact | Detection layers | Notes |
+|---|---|---|
+| `ghcr.io/giaplee/guard-spec-gateway:<version>` (and `latest`), linux/amd64 + linux/arm64 | **L1 + L2 + L3** when models are mounted | Built from `build/gateway.Dockerfile` with `-tags onnx`; ships `libonnxruntime`. Without models it runs L1 only. |
+| `guard-spec_<version>_linux_<arch>_onnx.tar.gz` | L1 + L2 + L3 when models are present | The same gateway binary plus `lib/libonnxruntime.so` and `models`. Needs glibc 2.36 or newer (Debian 12, Ubuntu 22.10+); set `ONNXRUNTIME_LIB` and `MODEL_DIR`. |
+| `guard-spec_<version>_<os>_<arch>.tar.gz` (linux, darwin) | **L1 only** | Static binaries (`CGO_ENABLED=0`), no ONNX Runtime. |
+| `ghcr.io/giaplee/guard-spec-control-plane:<version>` | n/a | Static, no cgo. |
+
+Models are never baked into images or archives. Mount them read-only at
+`/models` (`/models/local/guardspec-classifier-v1`,
+`/models/cache/multilingual-e5-small`, see [Models](#models)):
+
+```bash
+docker run -d -p 8080:8080 \
+  -e DATABASE_URL=postgres://guardspec_app@db:5432/guardspec -e PGPASSWORD=... \
+  -v "$PWD/models:/models:ro" \
+  ghcr.io/giaplee/guard-spec-gateway:<version>
+curl -s localhost:8080/readyz
+# {"detector":{"layers":["l1","l2","l3"],"degraded":false,"onnx":true,...},"status":"ready",...}
+```
+
+With an empty `/models` the gateway logs a warning per missing layer, keeps
+running on L1, and `/readyz` shows `"layers":["l1"]`, `"degraded":true` and
+the reason. The image's `HEALTHCHECK` uses `/readyz`. Every image has a
+BuildKit SPDX SBOM and SLSA provenance and is signed with cosign (keyless);
+see [SECURITY.md](SECURITY.md#verifying-releases).
+
 ## Models
 
 | Layer | Files | Where it comes from |
@@ -267,9 +297,12 @@ For Kubernetes see [Operations: Kubernetes](#kubernetes).
 | L3 | `models/cache/multilingual-e5-small/` (`model.onnx`, `tokenizer.json`, `config.json`) | pulled from Hugging Face, pinned by commit and SHA-256 in `models/manifest.yaml` |
 
 The model layers need a gateway built with `-tags onnx` (cgo, ONNX Runtime).
-The image that `docker compose` builds from `build/gateway.Dockerfile` is,
-and ships `libonnxruntime`. The release images and archives made by
-GoReleaser are static builds **without** `-tags onnx`: they run L1 only.
+The image that `docker compose` builds from `build/gateway.Dockerfile` is, and
+so are the release gateway images and the `_onnx` linux tarballs: they run
+L1 + L2 + L3 when the models are mounted. The plain release archives are
+static builds **without** `-tags onnx` and run L1 only (see
+[Install from a release](#install-from-a-release)). `GET /readyz` lists the
+active layers.
 
 **L1 only.** This is what you get without model files. The gateway logs a
 warning per missing layer and keeps running. `DETECTOR_LAYERS=l1` silences
@@ -392,12 +425,13 @@ manifest).
 
 ### Gateway (port 8080)
 
-Every route except `/health` needs an API key, as `Authorization: Bearer gs_...`
+Every route except `/health` and `/readyz` needs an API key, as `Authorization: Bearer gs_...`
 or `x-api-key: gs_...`.
 
 | Method and path | Purpose |
 |---|---|
 | `GET /health` | Liveness, no key |
+| `GET /readyz` | Readiness, no key; `detector.layers` lists the active layers (`l1`, `l2`, `l3`), `detector.degraded` and `detector.problems` say why a requested layer is missing, `detector.onnx` whether the binary has `-tags onnx` |
 | `POST /v1/chat/completions` | OpenAI-compatible chat, guarded in and out, streaming supported |
 | `POST /v1/completions` | Legacy completions, guarded the same way |
 | `POST /guardrail/scan` | Score `text` and/or `documents[]` without calling a model |
@@ -826,8 +860,9 @@ helm install gs deploy/helm/guard-spec \
   exposing an API Service never exposes `/metrics`. `serviceMonitor.enabled=true`
   adds a Prometheus Operator ServiceMonitor.
 - **Models** come from a PVC mounted read-only at `/models` in the gateway.
-  The model layers need a gateway image built with `-tags onnx`
-  (`build/gateway.Dockerfile`); the release images are L1 only.
+  The release gateway image is built with `-tags onnx` and runs L1 + L2 + L3
+  when the models are there; with an empty PVC it runs L1 only. The readiness
+  probe uses `/readyz`, which lists the active layers.
 - **Security:** pods run as non-root with a read-only root filesystem, no
   capabilities and the RuntimeDefault seccomp profile.
 - **Rate limits** are per replica, so `gateway.replicaCount` multiplies the

@@ -132,6 +132,7 @@ func main() {
 	slog.Info("scan config", "roles", cfg.Scan.Roles.String(), "spotlight", cfg.Scan.Spotlight,
 		"indirect_threshold", cfg.Scan.IndirectThreshold)
 	app := newApp(gateway{
+		detector: newDetectorStatus(detector),
 		runner:   runner,
 		engine:   engine,
 		policies: dbPolicyLoader(db),
@@ -185,6 +186,9 @@ type gateway struct {
 
 	scan     *scanConfig    // nil: defaultScanConfig
 	settings settingsLoader // per-org overrides; nil: none
+
+	// detector is what /readyz reports: the active detection layers.
+	detector detectorStatus
 }
 
 // newApp builds the Fiber app with all gateway routes.
@@ -199,6 +203,11 @@ func newApp(gw gateway, lookup tenant.LookupFn) *fiber.App {
 	// Health check — no auth required
 	app.Get("/health", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{"status": "ok", "version": "0.1.0"})
+	})
+	// Readiness — no auth required. Reports which detection layers run, so a
+	// release image started without /models shows it runs L1 only.
+	app.Get("/readyz", func(c *fiber.Ctx) error {
+		return c.JSON(fiber.Map{"status": "ready", "version": "0.1.0", "detector": gw.detector})
 	})
 
 	// All proxy routes require a valid API key.
