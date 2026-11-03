@@ -1,0 +1,94 @@
+{{- if and (not .Values.models.existingClaim) .Values.models.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "guard-spec.modelsClaim" . }}
+  labels:
+    {{- include "guard-spec.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  accessModes:
+    {{- toYaml .Values.models.persistence.accessModes | nindent 4 }}
+  {{- with .Values.models.persistence.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.models.persistence.size }}
+---
+{{- end }}
+{{- if .Values.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "guard-spec.fullname" . }}
+  labels:
+    {{- include "guard-spec.labels" . | nindent 4 }}
+    {{- with .Values.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      guard-spec.io/metrics: "true"
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: {{ .Values.serviceMonitor.interval }}
+---
+{{- end }}
+{{- if .Values.dbRoles.enabled }}
+# Sets the ps_app password from PS_APP_PASSWORD, like the compose db-roles
+# service. Run the migrations before installing.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "guard-spec.fullname" . }}-db-roles
+  labels:
+    {{- include "guard-spec.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70  # postgres user in the alpine image
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: db-roles
+          image: {{ printf "%s:%s" .Values.dbRoles.image.repository .Values.dbRoles.image.tag }}
+          imagePullPolicy: {{ .Values.dbRoles.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          command:
+            - sh
+            - -ec
+            # The password goes in as a psql variable, quoted by psql.
+            - |
+              echo "ALTER ROLE ps_app WITH PASSWORD :'app_password';" |
+                psql -v ON_ERROR_STOP=1 -q -v app_password="$PS_APP_PASSWORD"
+              echo "ps_app password set"
+          env:
+            - {name: PGHOST, value: {{ .Values.externalDatabase.host | quote }}}
+            - {name: PGPORT, value: {{ .Values.externalDatabase.port | quote }}}
+            - {name: PGDATABASE, value: {{ .Values.externalDatabase.database | quote }}}
+            - {name: PGUSER, value: {{ .Values.externalDatabase.ownerUser | quote }}}
+            - {name: PGSSLMODE, value: {{ .Values.externalDatabase.sslmode | quote }}}
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef: {name: {{ .Values.existingSecret }}, key: POSTGRES_PASSWORD}
+            - name: PS_APP_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: {{ .Values.existingSecret }}, key: PS_APP_PASSWORD}
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {memory: 64Mi}
+{{- end }}

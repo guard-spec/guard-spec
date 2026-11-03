@@ -1,0 +1,130 @@
+# Guard Spec. Postgres is external: run the migrations against it before
+# installing (see README, "Kubernetes").
+
+# Set GUARD_ENV=dev only for a throwaway cluster. Any other value makes the
+# services refuse missing, default or weak secrets.
+guardEnv: ""
+
+# Secrets. The chart never stores them in values by default: create a Secret
+# with these keys and name it here.
+#   POSTGRES_PASSWORD  superuser, used only by the optional dbRoles job
+#   PS_APP_PASSWORD    application role ps_app (both services)
+#   JWT_SECRET         control plane signing key, at least 32 bytes
+#   ADMIN_PASSWORD     first owner (optional; with controlPlane.adminEmail)
+# kubectl create secret generic guard-spec-secrets \
+#   --from-literal=POSTGRES_PASSWORD=... --from-literal=PS_APP_PASSWORD=... \
+#   --from-literal=JWT_SECRET=... --from-literal=ADMIN_PASSWORD=...
+existingSecret: guard-spec-secrets
+
+# External Postgres. URLs carry no password: PS_APP_PASSWORD reaches the
+# services as PGPASSWORD. Use sslmode=require or stronger outside a test cluster.
+externalDatabase:
+  # Application role (ps_app), used by the gateway and the control plane.
+  url: postgres://ps_app@postgres:5432/promptshield?sslmode=require
+  # libpq settings for the optional dbRoles job, which connects as the owner.
+  host: postgres
+  port: 5432
+  database: promptshield
+  ownerUser: ps
+  sslmode: require
+
+# Optional hook job that sets the ps_app password from PS_APP_PASSWORD, as the
+# compose db-roles service does. Run the migrations first.
+dbRoles:
+  enabled: false
+  image:
+    repository: postgres
+    tag: 17-alpine
+    pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+# Shared pod and container security settings: non-root, read-only root
+# filesystem, no privilege escalation, no capabilities.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]
+
+gateway:
+  replicaCount: 2
+  image:
+    repository: ghcr.io/giaplee/promptshield-gateway
+    tag: ""  # defaults to the chart appVersion
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 8080
+  metricsPort: 9090
+  # Extra environment, such as UPSTREAM_LLM_URL, OUTPUT_*, SCAN_ROLES.
+  # Secrets (UPSTREAM_LLM_KEY) belong in extraEnvFrom.
+  env:
+    UPSTREAM_LLM_URL: ""
+    AUDIT_STORE_CONTENT: "false"
+    # Per-key limits for keys without their own; 0 = unlimited. Counted per
+    # replica: N replicas allow up to N times the limit.
+    RATE_LIMIT_RPM: "0"
+    RATE_LIMIT_TPM: "0"
+    METRICS_TENANT_LABELS: "false"
+    # Tracing is on only when set (OTLP/HTTP, e.g. http://otel-collector:4318).
+    OTEL_EXPORTER_OTLP_ENDPOINT: ""
+    OTEL_PROPAGATE_UPSTREAM: "false"
+  extraEnvFrom: []
+  resources:
+    requests: {cpu: 250m, memory: 256Mi}
+    limits: {memory: 1Gi}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+controlPlane:
+  replicaCount: 1
+  image:
+    repository: ghcr.io/giaplee/promptshield-control-plane
+    tag: ""
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 8081
+  metricsPort: 9091
+  # The first owner is created when adminEmail is set and ADMIN_PASSWORD is in
+  # the Secret.
+  adminEmail: ""
+  env:
+    ALLOWED_ORIGINS: ""
+    # Audit rows older than this are deleted; 0 keeps them forever. Safe with
+    # several replicas (advisory lock).
+    AUDIT_RETENTION_DAYS: "90"
+  extraEnvFrom: []
+  resources:
+    requests: {cpu: 100m, memory: 64Mi}
+    limits: {memory: 256Mi}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Detection models, mounted read-only at /models in the gateway. Fill the
+# volume with the image's ./models tool or your own job.
+models:
+  # Use an existing PersistentVolumeClaim.
+  existingClaim: ""
+  # Otherwise create one (when enabled), or use an emptyDir (no models).
+  persistence:
+    enabled: true
+    storageClass: ""
+    accessModes: [ReadWriteOnce]
+    size: 5Gi
+
+# Prometheus Operator ServiceMonitor for both metrics Services.
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  labels: {}

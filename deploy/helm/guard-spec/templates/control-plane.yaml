@@ -1,0 +1,121 @@
+{{- $name := printf "%s-control-plane" (include "guard-spec.fullname" .) -}}
+{{- $sel := dict "root" . "component" "control-plane" -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "guard-spec.labels" . | nindent 4 }}
+    app.kubernetes.io/component: control-plane
+spec:
+  replicas: {{ .Values.controlPlane.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "guard-spec.selector" $sel | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "guard-spec.labels" . | nindent 8 }}
+        app.kubernetes.io/component: control-plane
+    spec:
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: control-plane
+          image: {{ include "guard-spec.image" (dict "root" . "image" .Values.controlPlane.image) }}
+          imagePullPolicy: {{ .Values.controlPlane.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8081
+            - name: metrics
+              containerPort: {{ .Values.controlPlane.metricsPort }}
+          env:
+            {{- include "guard-spec.commonEnv" . | nindent 12 }}
+            - name: LISTEN_ADDR
+              value: ":8081"
+            - name: METRICS_ADDR
+              value: {{ printf ":%v" .Values.controlPlane.metricsPort | quote }}
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: JWT_SECRET
+            {{- if .Values.controlPlane.adminEmail }}
+            - name: ADMIN_EMAIL
+              value: {{ .Values.controlPlane.adminEmail | quote }}
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: ADMIN_PASSWORD
+            {{- end }}
+            {{- range $k, $v := .Values.controlPlane.env }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+          {{- with .Values.controlPlane.extraEnvFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 10
+            timeoutSeconds: 3
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 5
+            timeoutSeconds: 3
+          resources:
+            {{- toYaml .Values.controlPlane.resources | nindent 12 }}
+      {{- with .Values.controlPlane.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controlPlane.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controlPlane.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "guard-spec.labels" . | nindent 4 }}
+    app.kubernetes.io/component: control-plane
+spec:
+  type: {{ .Values.controlPlane.service.type }}
+  selector:
+    {{- include "guard-spec.selector" $sel | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.controlPlane.service.port }}
+      targetPort: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}-metrics
+  labels:
+    {{- include "guard-spec.labels" . | nindent 4 }}
+    app.kubernetes.io/component: control-plane
+    guard-spec.io/metrics: "true"
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "guard-spec.selector" $sel | nindent 4 }}
+  ports:
+    - name: metrics
+      port: {{ .Values.controlPlane.metricsPort }}
+      targetPort: metrics
