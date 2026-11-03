@@ -408,13 +408,20 @@ func (g *textGuard) guardContent(m map[string]any) error {
 			if err := rejectShadowKeys(p, "text"); err != nil {
 				return err
 			}
-			if text, ok := p["text"].(string); ok {
-				cleaned, err := g.clean(text)
-				if err != nil {
-					return err
-				}
-				p["text"] = cleaned
+			raw, present := p["text"]
+			if !present {
+				continue
 			}
+			// Anything but a string would reach the upstream unscanned.
+			text, ok := raw.(string)
+			if !ok {
+				return errUnsupportedContent
+			}
+			cleaned, err := g.clean(text)
+			if err != nil {
+				return err
+			}
+			p["text"] = cleaned
 		}
 		return nil
 	default:
@@ -667,8 +674,10 @@ func relay(w *bufio.Writer, resp *proxy.Response) {
 		if err != nil {
 			// The 200 is already sent, so the failure goes in the stream.
 			slog.Warn("upstream stream failed", "err", err)
+			// The blank line ends any event the upstream left half-written, so the
+			// error is parsed as an event of its own rather than glued onto it.
 			event, _ := json.Marshal(errorBody(streamFailure(err), "server_error", "upstream_error"))
-			_, _ = fmt.Fprintf(w, "data: %s\n\n", event)
+			_, _ = fmt.Fprintf(w, "\n\ndata: %s\n\n", event)
 			_ = w.Flush()
 			return
 		}
@@ -759,11 +768,16 @@ func upstreamError(c *fiber.Ctx, err error) error {
 	if upstream.RetryAfter != "" {
 		c.Set(fiber.HeaderRetryAfter, upstream.RetryAfter)
 	}
-	errType := "server_error"
-	if upstream.Status < 500 {
-		errType = "invalid_request_error"
+	// Only a 4xx is the client's to see as-is. A server-side failure is reported
+	// by the gateway: its own timeout stays 504, anything else is a 502.
+	status, code, errType := upstream.Status, upstream.Code, "invalid_request_error"
+	if status >= 500 {
+		errType = "server_error"
+		if code != "upstream_timeout" && status != fiber.StatusBadGateway {
+			status, code = fiber.StatusBadGateway, "upstream_error"
+		}
 	}
-	return c.Status(upstream.Status).JSON(errorBody(upstream.Message, errType, upstream.Code))
+	return c.Status(status).JSON(errorBody(upstream.Message, errType, code))
 }
 
 // ── Config ────────────────────────────────────────────────────────────────────

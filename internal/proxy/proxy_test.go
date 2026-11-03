@@ -47,8 +47,9 @@ func TestStatusMapping(t *testing.T) {
 		{"4xx not json", 422, `<html>`, 422, "Unprocessable Entity", "html"},
 		{"bad upstream key is ours, not the client's", 401, `{"error":{"message":"bad key sk-abc"}}`, 502, "credentials", "sk-abc"},
 		{"forbidden", 403, `{}`, 502, "credentials", ""},
-		{"5xx hides the body", 500, `{"error":{"message":"at /srv/app.py line 3"}}`, 500, "upstream error", "/srv"},
-		{"unavailable", 503, ``, 503, "upstream error", ""},
+		{"5xx hides the body", 500, `{"error":{"message":"at /srv/app.py line 3"}}`, 502, "upstream error", "/srv"},
+		{"unavailable", 503, ``, 502, "upstream error", ""},
+		{"upstream gateway timeout is still an upstream error", 504, ``, 502, "upstream error", ""},
 		{"redirect not followed", 302, ``, 502, "unexpected", ""},
 	}
 	for _, tt := range tests {

@@ -98,8 +98,20 @@ func (v *Vars) toActivation() map[string]any {
 // far less, so reaching it means something is wrong and the request fails closed.
 const costLimit = 100_000
 
+// totalCostBudget bounds all rules of one request together. One tenant can store
+// many rules, each just under costLimit; without a shared budget a request could
+// spend MaxRules*costLimit on the gateway's CPU. Reaching it fails closed.
+const totalCostBudget = 1_000_000
+
+// MaxRules is the most rules one policy may hold. The control plane refuses a
+// larger list. It caps the per-request evaluation work a single policy can cause.
+const MaxRules = 200
+
 // interruptCheckFrequency is how many loop iterations pass between ctx checks.
 const interruptCheckFrequency = 100
+
+// ErrCostBudget means a request's rules together exceeded the evaluation budget.
+var ErrCostBudget = errors.New("policy evaluation cost budget exceeded")
 
 // listOfStrings is the type of the list fields.
 var listOfStrings = cel.ListType(cel.StringType)
@@ -120,21 +132,19 @@ var fieldTypes = map[string]*cel.Type{
 	"mcp.is_tool_response":  cel.BoolType,
 }
 
-// Engine compiles and caches CEL programs per (policy_id, version).
+// Engine compiles and caches CEL programs per policy id. Only the newest version
+// of each policy is kept, so updates do not grow the cache.
 type Engine struct {
-	env       *cel.Env
-	costLimit uint64
-	mu        sync.RWMutex
-	cache     map[cacheKey]*compiledPolicy
-}
-
-type cacheKey struct {
-	id      uuid.UUID
-	version int
+	env        *cel.Env
+	costLimit  uint64
+	costBudget uint64
+	mu         sync.RWMutex
+	cache      map[uuid.UUID]*compiledPolicy
 }
 
 type compiledPolicy struct {
-	rules []compiledRule
+	version int
+	rules   []compiledRule
 }
 
 type compiledRule struct {
@@ -161,9 +171,10 @@ func NewWithCostLimit(limit uint64) (*Engine, error) {
 		return nil, fmt.Errorf("cel env: %w", err)
 	}
 	return &Engine{
-		env:       env,
-		costLimit: limit,
-		cache:     make(map[cacheKey]*compiledPolicy),
+		env:        env,
+		costLimit:  limit,
+		costBudget: totalCostBudget,
+		cache:      make(map[uuid.UUID]*compiledPolicy),
 	}, nil
 }
 
@@ -174,7 +185,8 @@ func (e *Engine) Evaluate(ctx context.Context, p *Policy, v *Vars) (Decision, er
 	if err != nil {
 		return Decision{}, err
 	}
-	return compiled.evaluate(ctx, v)
+	var spent uint64
+	return compiled.evaluate(ctx, v, e.costBudget, &spent)
 }
 
 // EvaluateAll runs policies in order; the first match across them wins. Every
@@ -188,8 +200,9 @@ func (e *Engine) EvaluateAll(ctx context.Context, policies []Policy, v *Vars) (D
 		}
 		compiled = append(compiled, cp)
 	}
+	var spent uint64
 	for _, cp := range compiled {
-		decision, err := cp.evaluate(ctx, v)
+		decision, err := cp.evaluate(ctx, v, e.costBudget, &spent)
 		if err != nil || decision.Matched {
 			return decision, err
 		}
@@ -197,12 +210,25 @@ func (e *Engine) EvaluateAll(ctx context.Context, policies []Policy, v *Vars) (D
 	return DefaultAllow, nil
 }
 
-func (cp *compiledPolicy) evaluate(ctx context.Context, v *Vars) (Decision, error) {
+// evaluate runs the rules in order. spent carries the cost of every rule run so
+// far for this request, across policies; budget bounds it. A cancelled or expired
+// ctx stops evaluation between rules, as the interrupt check does within one.
+func (cp *compiledPolicy) evaluate(ctx context.Context, v *Vars, budget uint64, spent *uint64) (Decision, error) {
 	activation := v.toActivation()
 	for _, rule := range cp.rules {
-		out, _, err := rule.program.ContextEval(ctx, activation)
+		if err := ctx.Err(); err != nil {
+			return Decision{}, fmt.Errorf("rule %s: %w", rule.id, err)
+		}
+		out, details, err := rule.program.ContextEval(ctx, activation)
 		if err != nil {
 			return Decision{}, fmt.Errorf("rule %s: %w", rule.id, err)
+		}
+		if details == nil || details.ActualCost() == nil {
+			return Decision{}, fmt.Errorf("rule %s: evaluation cost not tracked", rule.id)
+		}
+		*spent += *details.ActualCost()
+		if *spent > budget {
+			return Decision{}, fmt.Errorf("rule %s: %w", rule.id, ErrCostBudget)
 		}
 		matched, ok := out.Value().(bool)
 		if !ok {
@@ -238,6 +264,9 @@ func (e *Engine) ValidateRules(raw json.RawMessage) ([]Rule, error) {
 	if rules == nil {
 		return nil, errors.New("rules must be a list")
 	}
+	if len(rules) > MaxRules {
+		return nil, fmt.Errorf("a policy may hold at most %d rules, got %d", MaxRules, len(rules))
+	}
 	seen := make(map[uuid.UUID]bool, len(rules))
 	for i := range rules {
 		rule := &rules[i]
@@ -266,15 +295,16 @@ func (e *Engine) ValidateRules(raw json.RawMessage) ([]Rule, error) {
 	return rules, nil
 }
 
+// getOrCompile keeps one entry per policy id: compiling a newer version replaces
+// the older one. A request still holding an older version compiles it without
+// caching it, so a late reader cannot push the newer version out.
 func (e *Engine) getOrCompile(p *Policy) (*compiledPolicy, error) {
-	key := cacheKey{id: p.ID, version: p.Version}
-
 	e.mu.RLock()
-	if cp, ok := e.cache[key]; ok {
-		e.mu.RUnlock()
-		return cp, nil
-	}
+	cached, ok := e.cache[p.ID]
 	e.mu.RUnlock()
+	if ok && cached.version == p.Version {
+		return cached, nil
+	}
 
 	cp, err := e.compile(p)
 	if err != nil {
@@ -282,13 +312,15 @@ func (e *Engine) getOrCompile(p *Policy) (*compiledPolicy, error) {
 	}
 
 	e.mu.Lock()
-	e.cache[key] = cp
+	if cur, ok := e.cache[p.ID]; !ok || cur.version <= p.Version {
+		e.cache[p.ID] = cp
+	}
 	e.mu.Unlock()
 	return cp, nil
 }
 
 func (e *Engine) compile(p *Policy) (*compiledPolicy, error) {
-	cp := &compiledPolicy{}
+	cp := &compiledPolicy{version: p.Version}
 	for _, rule := range p.Rules {
 		celExpr, err := JSONASTToCEL(rule.Condition)
 		if err != nil {

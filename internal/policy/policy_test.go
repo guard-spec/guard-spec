@@ -3,6 +3,8 @@ package policy
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -186,7 +188,8 @@ func TestCostLimitStopsExpensiveExpression(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		_, err := cp.evaluate(context.Background(), &Vars{})
+		var spent uint64
+		_, err := cp.evaluate(context.Background(), &Vars{}, e.costBudget, &spent)
 		done <- err
 	}()
 	select {
@@ -228,5 +231,93 @@ func TestVersionBumpRecompiles(t *testing.T) {
 	}
 	if d := eval(2, ActionBlock); d.Action != ActionBlock {
 		t.Errorf("v2 = %+v", d)
+	}
+}
+
+// cheapRules returns n rules that never match, so evaluation runs all of them.
+func cheapRules(n int) []Rule {
+	rules := make([]Rule, n)
+	for i := range rules {
+		rules[i] = Rule{ID: uuid.New(), Action: ActionBlock,
+			Condition: json.RawMessage(`{"field":"request.tokens","operator":"<","value":0}`)}
+	}
+	return rules
+}
+
+func TestExpiredContextStopsBetweenRules(t *testing.T) {
+	e := newEngine(t)
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+	p := &Policy{ID: uuid.New(), Version: 1, Rules: cheapRules(3)}
+	decision, err := e.Evaluate(ctx, p, &Vars{})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v, want deadline exceeded", err)
+	}
+	if decision.Action != "" {
+		t.Errorf("decision = %+v, want empty", decision)
+	}
+}
+
+func TestCostBudgetSpansRulesAndPolicies(t *testing.T) {
+	e := newEngine(t)
+	one := []Policy{{ID: uuid.New(), Version: 1, Rules: cheapRules(1)}}
+	var spent uint64
+	cp, err := e.getOrCompile(&one[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cp.evaluate(context.Background(), &Vars{}, e.costBudget, &spent); err != nil || spent == 0 {
+		t.Fatalf("spent = %d, err = %v", spent, err)
+	}
+	// Room for exactly four rules: five fail whether in one policy or split.
+	e.costBudget = 4 * spent
+
+	if _, err := e.EvaluateAll(context.Background(), []Policy{
+		{ID: uuid.New(), Version: 1, Rules: cheapRules(4)}}, &Vars{}); err != nil {
+		t.Fatalf("four rules: %v", err)
+	}
+	if _, err := e.EvaluateAll(context.Background(), []Policy{
+		{ID: uuid.New(), Version: 1, Rules: cheapRules(5)}}, &Vars{}); !errors.Is(err, ErrCostBudget) {
+		t.Errorf("five rules in one policy: err = %v", err)
+	}
+	decision, err := e.EvaluateAll(context.Background(), []Policy{
+		{ID: uuid.New(), Version: 1, Rules: cheapRules(3)},
+		{ID: uuid.New(), Version: 1, Rules: cheapRules(2)}}, &Vars{})
+	if !errors.Is(err, ErrCostBudget) || decision.Action != "" {
+		t.Errorf("five rules across policies: %+v, err = %v", decision, err)
+	}
+}
+
+func TestValidateRulesCapsRuleCount(t *testing.T) {
+	e := newEngine(t)
+	for _, n := range []int{MaxRules, MaxRules + 1} {
+		raw, err := json.Marshal(cheapRules(n))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = e.ValidateRules(raw)
+		if ok := err == nil; ok != (n <= MaxRules) {
+			t.Errorf("%d rules: err = %v", n, err)
+		}
+		if n > MaxRules && err != nil && !strings.Contains(err.Error(), fmt.Sprint(MaxRules)) {
+			t.Errorf("error does not name the limit: %v", err)
+		}
+	}
+}
+
+func TestOlderVersionsAreEvicted(t *testing.T) {
+	e := newEngine(t)
+	id := uuid.New()
+	for v := 1; v <= 5; v++ {
+		if _, err := e.Evaluate(context.Background(), &Policy{ID: id, Version: v, Rules: cheapRules(1)}, &Vars{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A late request still holding an old version must not displace the newest.
+	if _, err := e.Evaluate(context.Background(), &Policy{ID: id, Version: 2, Rules: cheapRules(1)}, &Vars{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(e.cache) != 1 || e.cache[id].version != 5 {
+		t.Errorf("cache holds %d entries, version %d", len(e.cache), e.cache[id].version)
 	}
 }
