@@ -1,0 +1,196 @@
+// Package metrics holds the Prometheus metrics of both binaries and serves
+// them on their own listen address, away from the API port.
+//
+// Label values are bounded: routes, statuses, decisions, layers and kinds come
+// from fixed sets in the code, never from the request. Org IDs appear only in
+// the opt-in tenant metric (METRICS_TENANT_LABELS=true); API key IDs never do.
+package metrics
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"net"
+	"net/http"
+	"strconv"
+	"sync/atomic"
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+)
+
+const namespace = "guardspec"
+
+// Registry holds every metric of this package plus the Go runtime and process
+// collectors. A dedicated registry keeps dependencies' metrics out.
+var Registry = prometheus.NewRegistry()
+
+// latencyBuckets span sub-millisecond detector runs to multi-minute upstream
+// calls.
+var latencyBuckets = []float64{
+	.0005, .001, .0025, .005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 30, 60, 120, 300,
+}
+
+var (
+	// RequestsTotal counts gateway requests by route, HTTP status and decision.
+	RequestsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: namespace, Subsystem: "gateway", Name: "requests_total",
+		Help: "Gateway requests by route, status and decision (allow, block, error, output_leak, none).",
+	}, []string{"route", "status", "decision"})
+
+	// RequestDuration is the time from receipt until the response ends; for a
+	// stream that is when the stream ends.
+	RequestDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: namespace, Subsystem: "gateway", Name: "request_duration_seconds",
+		Help:    "Gateway request latency by route, status and decision.",
+		Buckets: latencyBuckets,
+	}, []string{"route", "status", "decision"})
+
+	// DetectorDuration is the time one detection layer takes on one chunk.
+	DetectorDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: namespace, Subsystem: "gateway", Name: "detector_duration_seconds",
+		Help:    "Injection detector latency per layer (l1, l2, l3) and chunk.",
+		Buckets: latencyBuckets,
+	}, []string{"layer"})
+
+	// DetectorErrors counts layers that failed and were left out of fusion.
+	DetectorErrors = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: namespace, Subsystem: "gateway", Name: "detector_errors_total",
+		Help: "Detection layer failures per layer.",
+	}, []string{"layer"})
+
+	// UpstreamDuration is the time until the upstream's response headers.
+	UpstreamDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: namespace, Subsystem: "gateway", Name: "upstream_duration_seconds",
+		Help:    "Time to the upstream's response headers, by path and outcome (ok or error).",
+		Buckets: latencyBuckets,
+	}, []string{"path", "outcome"})
+
+	// UpstreamErrors counts upstream failures by the error code the client sees.
+	UpstreamErrors = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: namespace, Subsystem: "gateway", Name: "upstream_errors_total",
+		Help: "Upstream failures by path and code (upstream_timeout, upstream_unavailable, upstream_error, upstream_auth_failed).",
+	}, []string{"path", "code"})
+
+	// PolicyErrors counts requests refused with 503 because policies could not
+	// be loaded or evaluated.
+	PolicyErrors = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: namespace, Subsystem: "gateway", Name: "policy_eval_errors_total",
+		Help: "Policy load or evaluation failures (stage load or eval); each one fails the request closed.",
+	}, []string{"stage"})
+
+	// OutputActions counts what the output guard removed or caught, by kind.
+	OutputActions = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: namespace, Subsystem: "gateway", Name: "output_guard_actions_total",
+		Help: "Output guard actions by kind (image, link, url, canary, email, phone, cccd, card, ipv4).",
+	}, []string{"kind"})
+
+	// RateLimited counts requests refused with 429.
+	RateLimited = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: namespace, Subsystem: "gateway", Name: "ratelimit_rejections_total",
+		Help: "Requests refused by the per-key rate limit, by the limit that refused them (requests or tokens).",
+	}, []string{"limit"})
+
+	// TenantRequests is registered only with METRICS_TENANT_LABELS=true.
+	TenantRequests = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: namespace, Subsystem: "gateway", Name: "tenant_requests_total",
+		Help: "Gateway requests by org and decision. Opt-in: one series per org.",
+	}, []string{"org_id", "decision"})
+
+	// HTTPRequests counts control plane requests.
+	HTTPRequests = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: namespace, Subsystem: "control_plane", Name: "requests_total",
+		Help: "Control plane requests by route pattern, method and status.",
+	}, []string{"route", "method", "status"})
+
+	// HTTPDuration is the control plane request latency.
+	HTTPDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: namespace, Subsystem: "control_plane", Name: "request_duration_seconds",
+		Help:    "Control plane request latency by route pattern, method and status.",
+		Buckets: latencyBuckets,
+	}, []string{"route", "method", "status"})
+
+	// RetentionRuns counts audit retention runs by result (ok, skipped, error).
+	RetentionRuns = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: namespace, Subsystem: "audit_retention", Name: "runs_total",
+		Help: "Audit retention runs by result: ok, skipped (another replica holds the lock) or error.",
+	}, []string{"result"})
+
+	// RetentionDeleted counts audit rows deleted by retention.
+	RetentionDeleted = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: namespace, Subsystem: "audit_retention", Name: "deleted_rows_total",
+		Help: "Audit rows deleted because they were older than AUDIT_RETENTION_DAYS.",
+	}, []string{})
+)
+
+func init() {
+	Registry.MustRegister(
+		collectors.NewGoCollector(),
+		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
+		RequestsTotal, RequestDuration, DetectorDuration, DetectorErrors,
+		UpstreamDuration, UpstreamErrors, PolicyErrors, OutputActions, RateLimited,
+		HTTPRequests, HTTPDuration, RetentionRuns, RetentionDeleted,
+	)
+}
+
+var tenantLabels atomic.Bool
+
+// EnableTenantLabels registers the per-org metric. Call it once at startup.
+func EnableTenantLabels() {
+	if tenantLabels.CompareAndSwap(false, true) {
+		Registry.MustRegister(TenantRequests)
+	}
+}
+
+// TenantLabels reports whether per-org series are on.
+func TenantLabels() bool { return tenantLabels.Load() }
+
+// Status renders an HTTP status as a label value.
+func Status(code int) string {
+	if code < 100 || code > 599 {
+		return "other"
+	}
+	return strconv.Itoa(code)
+}
+
+// ObserveRequest records one finished gateway request.
+func ObserveRequest(route string, status int, decision string, d time.Duration) {
+	s := Status(status)
+	RequestsTotal.WithLabelValues(route, s, decision).Inc()
+	RequestDuration.WithLabelValues(route, s, decision).Observe(d.Seconds())
+}
+
+// Handler serves the registry in the Prometheus text format.
+func Handler() http.Handler {
+	return promhttp.HandlerFor(Registry, promhttp.HandlerOpts{Registry: Registry})
+}
+
+// Serve listens on addr and serves /metrics until ctx ends. An empty addr or
+// "off" serves nothing. Listen errors are returned before serving starts.
+func Serve(ctx context.Context, addr string) error {
+	if addr == "" || addr == "off" {
+		return nil
+	}
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
+	mux := http.NewServeMux()
+	mux.Handle("GET /metrics", Handler())
+	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	go func() {
+		<-ctx.Done()
+		shutdown, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutdown)
+	}()
+	go func() {
+		slog.Info("metrics listening", "addr", ln.Addr().String())
+		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			slog.Error("metrics server", "err", err)
+		}
+	}()
+	return nil
+}

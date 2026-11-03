@@ -15,6 +15,13 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/promptshield/promptshield/internal/metrics"
+	"github.com/promptshield/promptshield/internal/tracing"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -33,14 +40,19 @@ type Config struct {
 	BaseURL string        // for example http://host:11434/v1
 	Key     string        // sent as a bearer token when set
 	Timeout time.Duration // time to first byte, and longest silence after it
+	// Propagate sends the W3C traceparent of the gateway's span upstream
+	// (OTEL_PROPAGATE_UPSTREAM=true). Off by default: it would tell the
+	// upstream the trace ID.
+	Propagate bool
 }
 
 // Proxy sends requests to one upstream.
 type Proxy struct {
-	base    string
-	key     string
-	timeout time.Duration
-	client  *http.Client
+	base      string
+	key       string
+	timeout   time.Duration
+	propagate bool
+	client    *http.Client
 }
 
 // Error is an upstream failure in a form that is safe to show the client.
@@ -74,9 +86,10 @@ func New(cfg Config) (*Proxy, error) {
 		cfg.Timeout = DefaultTimeout
 	}
 	return &Proxy{
-		base:    strings.TrimRight(cfg.BaseURL, "/"),
-		key:     cfg.Key,
-		timeout: cfg.Timeout,
+		base:      strings.TrimRight(cfg.BaseURL, "/"),
+		key:       cfg.Key,
+		timeout:   cfg.Timeout,
+		propagate: cfg.Propagate,
 		client: &http.Client{
 			// No client-wide Timeout: it would also cut off a long stream.
 			Transport: &http.Transport{
@@ -97,7 +110,30 @@ func New(cfg Config) (*Proxy, error) {
 // Forward posts body to base+path. The request is built from scratch, so no
 // client header can reach the upstream. A non-2xx status comes back as *Error.
 // The caller must Close the Response.
-func (p *Proxy) Forward(ctx context.Context, path string, body []byte) (*Response, error) {
+//
+// path must come from the code, not the request: it is a metric label.
+func (p *Proxy) Forward(ctx context.Context, path string, body []byte) (resp *Response, err error) {
+	start := time.Now()
+	ctx, end := tracing.Start(ctx, "upstream", trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(attribute.String("upstream.path", path)))
+	defer func() {
+		outcome := "ok"
+		if err != nil {
+			outcome = "error"
+			code := "upstream_unavailable"
+			var e *Error
+			if errors.As(err, &e) {
+				code = e.Code
+			}
+			metrics.UpstreamErrors.WithLabelValues(path, code).Inc()
+		}
+		metrics.UpstreamDuration.WithLabelValues(path, outcome).Observe(time.Since(start).Seconds())
+		end(err)
+	}()
+	return p.forward(ctx, path, body)
+}
+
+func (p *Proxy) forward(ctx context.Context, path string, body []byte) (*Response, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.base+path, bytes.NewReader(body))
 	if err != nil {
@@ -108,6 +144,9 @@ func (p *Proxy) Forward(ctx context.Context, path string, body []byte) (*Respons
 	req.Header.Set("User-Agent", "") // keep Go's default out
 	if p.key != "" {
 		req.Header.Set("Authorization", "Bearer "+p.key)
+	}
+	if p.propagate {
+		otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(req.Header))
 	}
 
 	resp, err := p.client.Do(req)

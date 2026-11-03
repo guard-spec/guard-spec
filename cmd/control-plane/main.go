@@ -23,7 +23,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/promptshield/promptshield/internal/auth"
 	"github.com/promptshield/promptshield/internal/config"
+	"github.com/promptshield/promptshield/internal/metrics"
 	"github.com/promptshield/promptshield/internal/policy"
+	"github.com/promptshield/promptshield/internal/retention"
 	"github.com/promptshield/promptshield/internal/tenant"
 )
 
@@ -55,6 +57,11 @@ func main() {
 		slog.Error("config", "err", err)
 		os.Exit(1)
 	}
+	ops, err := loadOpsConfig(os.Getenv)
+	if err != nil {
+		slog.Error("config", "err", err)
+		os.Exit(1)
+	}
 	secret := []byte(cfg.JWTSecret)
 
 	db, err := pgxpool.New(context.Background(), cfg.DatabaseURL)
@@ -80,13 +87,39 @@ func main() {
 		os.Exit(1)
 	}
 
+	app := newApp(db, secret, eng, cfg.AllowedOrigins)
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	if err := metrics.Serve(ctx, ops.MetricsAddr); err != nil {
+		slog.Error("metrics listener", "addr", ops.MetricsAddr, "err", err)
+		os.Exit(1)
+	}
+	go retention.Run(ctx, db, ops.Retention)
+
+	go func() {
+		slog.Info("control-plane listening", "addr", cfg.ListenAddr)
+		if err := app.Listen(cfg.ListenAddr); err != nil {
+			slog.Error("listen", "err", err)
+		}
+	}()
+
+	<-ctx.Done()
+	slog.Info("shutting down")
+	_ = app.Shutdown()
+}
+
+// newApp builds the Fiber app with all control plane routes.
+func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins string) *fiber.App {
 	app := fiber.New(fiber.Config{
 		ServerHeader: "promptshield-cp",
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 30 * time.Second,
 	})
-	if cfg.AllowedOrigins != "" {
-		app.Use(cors.New(cors.Config{AllowOrigins: cfg.AllowedOrigins}))
+	app.Use(observe())
+	if allowedOrigins != "" {
+		app.Use(cors.New(cors.Config{AllowOrigins: allowedOrigins}))
 	}
 	app.Use(logger.New())
 
@@ -100,6 +133,11 @@ func main() {
 		Max:        10,
 		Expiration: time.Minute,
 	}), login(db, secret))
+	// The token is the credential here, so it gets the login's limit.
+	v1.Post("/invites/accept", limiter.New(limiter.Config{
+		Max:        10,
+		Expiration: time.Minute,
+	}), acceptInvite(db, secret))
 
 	authed := v1.Group("", auth.Required(secret))
 
@@ -116,7 +154,11 @@ func main() {
 
 	authed.Get("/organizations/:orgId/api-keys", admin, listAPIKeys(db))
 	authed.Post("/organizations/:orgId/api-keys", admin, createAPIKey(db))
+	authed.Patch("/organizations/:orgId/api-keys/:keyId", admin, updateAPIKey(db))
 	authed.Delete("/organizations/:orgId/api-keys/:keyId", admin, revokeAPIKey(db))
+
+	authed.Get("/organizations/:orgId/projects", viewer, listProjects(db))
+	authed.Post("/organizations/:orgId/projects", admin, createProject(db))
 
 	authed.Get("/organizations/:orgId/policies", viewer, listPolicies(db))
 	authed.Post("/organizations/:orgId/policies", admin, createPolicy(db, eng))
@@ -125,19 +167,13 @@ func main() {
 
 	authed.Get("/organizations/:orgId/requests", viewer, listRequests(db))
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-
-	go func() {
-		slog.Info("control-plane listening", "addr", cfg.ListenAddr)
-		if err := app.Listen(cfg.ListenAddr); err != nil {
-			slog.Error("listen", "err", err)
-		}
-	}()
-
-	<-ctx.Done()
-	slog.Info("shutting down")
-	_ = app.Shutdown()
+	// Invites, also under the short /orgs prefix.
+	for _, prefix := range []string{"/organizations/:orgId", "/orgs/:orgId"} {
+		authed.Get(prefix+"/invites", admin, listInvites(db))
+		authed.Post(prefix+"/invites", admin, createInvite(db))
+		authed.Delete(prefix+"/invites/:inviteId", admin, revokeInvite(db))
+	}
+	return app
 }
 
 // ── Handlers ─────────────────────────────────────────────────────────────────
@@ -295,7 +331,7 @@ func listAPIKeys(db *pgxpool.Pool) fiber.Handler {
 		keys := []fiber.Map{}
 		err := tenant.WithOrg(c.Context(), db, id, func(tx pgx.Tx) error {
 			rows, err := tx.Query(c.Context(),
-				`SELECT key_prefix, alias, created_at, expires_at, revoked_at
+				`SELECT key_prefix, alias, project_id, rpm_limit::bigint, tpm_limit, created_at, expires_at, revoked_at
 				 FROM api_keys WHERE org_id = $1 ORDER BY created_at DESC`, id)
 			if err != nil {
 				return err
@@ -304,14 +340,19 @@ func listAPIKeys(db *pgxpool.Pool) fiber.Handler {
 			for rows.Next() {
 				var prefix string
 				var alias *string
+				var projectID *uuid.UUID
+				var rpm, tpm *int64
 				var createdAt time.Time
 				var expiresAt, revokedAt *time.Time
-				if err := rows.Scan(&prefix, &alias, &createdAt, &expiresAt, &revokedAt); err != nil {
+				if err := rows.Scan(&prefix, &alias, &projectID, &rpm, &tpm, &createdAt, &expiresAt, &revokedAt); err != nil {
 					return err
 				}
 				keys = append(keys, fiber.Map{
 					"key_prefix": prefix,
 					"alias":      alias,
+					"project_id": projectID,
+					"rpm_limit":  rpm, // null: the gateway's RATE_LIMIT_RPM; 0: unlimited
+					"tpm_limit":  tpm,
 					"created_at": createdAt,
 					"expires_at": expiresAt,
 					"revoked":    revokedAt != nil,
@@ -333,8 +374,14 @@ func createAPIKey(db *pgxpool.Pool) fiber.Handler {
 			Alias     string     `json:"alias"`
 			ProjectID *uuid.UUID `json:"project_id"`
 			ExpiresAt *time.Time `json:"expires_at"`
+			RPMLimit  optLimit   `json:"rpm_limit"`
+			TPMLimit  optLimit   `json:"tpm_limit"`
 		}
-		_ = c.BodyParser(&req)
+		if len(c.Body()) > 0 {
+			if err := json.Unmarshal(c.Body(), &req); err != nil {
+				return c.Status(400).JSON(fiber.Map{"error": "invalid body: " + err.Error()})
+			}
+		}
 
 		// Generate random key: ps_<32 hex chars>
 		buf := make([]byte, 16)
@@ -346,12 +393,18 @@ func createAPIKey(db *pgxpool.Pool) fiber.Handler {
 		prefix := raw[:11] // "ps_" + 8 chars
 
 		err := tenant.WithOrg(c.Context(), db, id, func(tx pgx.Tx) error {
+			if err := checkProject(c.Context(), tx, id, req.ProjectID); err != nil {
+				return err
+			}
 			_, err := tx.Exec(c.Context(),
-				`INSERT INTO api_keys (key_hash, key_prefix, alias, org_id, project_id, expires_at)
-				 VALUES ($1, $2, $3, $4, $5, $6)`,
-				hash, prefix, req.Alias, id, req.ProjectID, req.ExpiresAt)
+				`INSERT INTO api_keys (key_hash, key_prefix, alias, org_id, project_id, expires_at, rpm_limit, tpm_limit)
+				 VALUES ($1, $2, $3, $4, $5, $6, $7::int, $8)`,
+				hash, prefix, req.Alias, id, req.ProjectID, req.ExpiresAt, req.RPMLimit.Value, req.TPMLimit.Value)
 			return err
 		})
+		if errors.Is(err, errUnknownProject) {
+			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+		}
 		if err != nil {
 			return serverError(c, err)
 		}
@@ -360,6 +413,9 @@ func createAPIKey(db *pgxpool.Pool) fiber.Handler {
 			"key":        raw,
 			"key_prefix": prefix,
 			"alias":      req.Alias,
+			"project_id": req.ProjectID,
+			"rpm_limit":  req.RPMLimit.Value,
+			"tpm_limit":  req.TPMLimit.Value,
 		})
 	}
 }
@@ -387,6 +443,7 @@ func listPolicies(db *pgxpool.Pool) fiber.Handler {
 		id := orgID(c)
 		type pRow struct {
 			ID          uuid.UUID       `json:"id"`
+			ProjectID   *uuid.UUID      `json:"project_id"` // null: org-wide
 			Name        string          `json:"name"`
 			Description *string         `json:"description"`
 			Version     int             `json:"version"`
@@ -398,7 +455,7 @@ func listPolicies(db *pgxpool.Pool) fiber.Handler {
 		policies := []pRow{}
 		err := tenant.WithOrg(c.Context(), db, id, func(tx pgx.Tx) error {
 			rows, err := tx.Query(c.Context(),
-				`SELECT id, name, description, version, enabled, rules, created_at, updated_at
+				`SELECT id, project_id, name, description, version, enabled, rules, created_at, updated_at
 				 FROM policies WHERE org_id = $1 ORDER BY updated_at DESC`, id)
 			if err != nil {
 				return err
@@ -406,7 +463,7 @@ func listPolicies(db *pgxpool.Pool) fiber.Handler {
 			defer rows.Close()
 			for rows.Next() {
 				var p pRow
-				if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.Version, &p.Enabled,
+				if err := rows.Scan(&p.ID, &p.ProjectID, &p.Name, &p.Description, &p.Version, &p.Enabled,
 					&p.Rules, &p.CreatedAt, &p.UpdatedAt); err != nil {
 					return err
 				}
@@ -428,6 +485,7 @@ func createPolicy(db *pgxpool.Pool, eng *policy.Engine) fiber.Handler {
 			Name        string          `json:"name"`
 			Description string          `json:"description"`
 			Rules       json.RawMessage `json:"rules"`
+			ProjectID   *uuid.UUID      `json:"project_id"` // null or absent: org-wide
 		}
 		if err := c.BodyParser(&req); err != nil || req.Name == "" {
 			return c.Status(400).JSON(fiber.Map{"error": "name and rules are required"})
@@ -438,11 +496,17 @@ func createPolicy(db *pgxpool.Pool, eng *policy.Engine) fiber.Handler {
 		}
 		id := uuid.New()
 		err = tenant.WithOrg(c.Context(), db, org, func(tx pgx.Tx) error {
+			if err := checkProject(c.Context(), tx, org, req.ProjectID); err != nil {
+				return err
+			}
 			_, err := tx.Exec(c.Context(),
-				`INSERT INTO policies (id, org_id, name, description, rules) VALUES ($1,$2,$3,$4,$5)`,
-				id, org, req.Name, req.Description, rules)
+				`INSERT INTO policies (id, org_id, project_id, name, description, rules) VALUES ($1,$2,$3,$4,$5,$6)`,
+				id, org, req.ProjectID, req.Name, req.Description, rules)
 			return err
 		})
+		if errors.Is(err, errUnknownProject) {
+			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+		}
 		if err != nil {
 			return serverError(c, err)
 		}
@@ -462,6 +526,7 @@ func updatePolicy(db *pgxpool.Pool, eng *policy.Engine) fiber.Handler {
 			Description string          `json:"description"`
 			Enabled     *bool           `json:"enabled"`
 			Rules       json.RawMessage `json:"rules"`
+			ProjectID   optUUID         `json:"project_id"` // absent: unchanged; null: org-wide
 		}
 		if err := c.BodyParser(&req); err != nil {
 			return c.Status(400).JSON(fiber.Map{"error": "invalid body"})
@@ -473,19 +538,27 @@ func updatePolicy(db *pgxpool.Pool, eng *policy.Engine) fiber.Handler {
 		}
 		var updated int64
 		err = tenant.WithOrg(c.Context(), db, org, func(tx pgx.Tx) error {
+			if err := checkProject(c.Context(), tx, org, req.ProjectID.Value); err != nil {
+				return err
+			}
 			tag, err := tx.Exec(c.Context(),
 				`UPDATE policies SET
 				 name = COALESCE(NULLIF($1,''), name),
 				 description = COALESCE(NULLIF($2,''), description),
 				 rules = COALESCE($3, rules),
 				 enabled = COALESCE($4, enabled),
+				 project_id = CASE WHEN $7 THEN $8::uuid ELSE project_id END,
 				 version = version + 1,
 				 updated_at = NOW()
 				 WHERE id = $5 AND org_id = $6`,
-				req.Name, req.Description, req.Rules, req.Enabled, pID, org)
+				req.Name, req.Description, req.Rules, req.Enabled, pID, org,
+				req.ProjectID.Set, req.ProjectID.Value)
 			updated = tag.RowsAffected()
 			return err
 		})
+		if errors.Is(err, errUnknownProject) {
+			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+		}
 		if err != nil {
 			return serverError(c, err)
 		}

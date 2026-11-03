@@ -19,7 +19,7 @@ WORKDIR /app
 COPY --from=builder /out/control-plane .
 COPY --from=builder /src/migrations ./migrations
 
-EXPOSE 8081
+EXPOSE 8081 9091
 HEALTHCHECK --interval=10s --timeout=3s CMD ["/app/control-plane", "health"]
 
 ENTRYPOINT ["/app/control-plane"]
