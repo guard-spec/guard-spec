@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # Control plane: Go management API (no ORT, no CGO needed)
 
-FROM golang:1.22-bookworm AS builder
+FROM golang:1.26.10-bookworm AS builder
 
 WORKDIR /src
 COPY go.mod go.sum ./

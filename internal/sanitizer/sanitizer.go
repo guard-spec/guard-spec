@@ -60,9 +60,8 @@ func Sanitize(input string) (string, Report, error) {
 	// 7. Homoglyph detection — signal only, do not rewrite.
 	report.HomoglyphRisk = checkHomoglyphs(stripped)
 
-	// 8. Remove spoofed markers, then apply spotlighting/datamarking last.
-	// If attacker fakes the marker, cleaning removes it before we add ours.
-	stripped, report.HadFakeMarker = stripMarkers(stripped)
+	// 8. Apply spotlighting/datamarking last. Spoofed markers were removed in
+	// every cleaning pass, so the text holds none of ours.
 	report.BytesRemoved = len(input) - len(stripped)
 	report.AnomalyScore = computeAnomaly(report)
 	output := applyDatamarking(stripped)
@@ -94,7 +93,14 @@ func cleanPass(s string, report *Report) (string, error) {
 	stripped = stripControls(stripped)
 
 	// 6. HTML-strip (strict: no tags survive). Unescape entities bluemonday re-encodes.
-	return html.UnescapeString(htmlPolicy.Sanitize(stripped)), nil
+	stripped = html.UnescapeString(htmlPolicy.Sanitize(stripped))
+
+	// 6b. Remove spoofed datamarking tokens. This runs inside the loop because
+	// removing one can join its neighbours into a tag or entity that the steps
+	// above must see: "<[DATA]script>" becomes "<script>".
+	stripped, hadMarker := stripMarkers(stripped)
+	report.HadFakeMarker = report.HadFakeMarker || hadMarker
+	return stripped, nil
 }
 
 // markerPattern matches our datamarking tokens, tolerating case and spacing.
