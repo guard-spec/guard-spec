@@ -21,6 +21,10 @@ services:
       AUDIT_STORE_CONTENT: ${AUDIT_STORE_CONTENT:-false}
       CLICKHOUSE_URL: clickhouse://clickhouse:9000/promptshield
       MODELS_PATH: /models
+      # internal/onnx: bound on concurrent model runs (default: CPU count) and
+      # ORT threads per run (default: ORT picks). ONNXRUNTIME_LIB is set in the image.
+      INFERENCE_MAX_CONCURRENCY: ${INFERENCE_MAX_CONCURRENCY:-}
+      INFERENCE_INTRA_OP_THREADS: ${INFERENCE_INTRA_OP_THREADS:-}
       CONTROL_PLANE_URL: http://control-plane:8081
       LOG_LEVEL: info
       # Base URL of an OpenAI-compatible API, such as http://host.docker.internal:11434/v1.
@@ -149,6 +153,22 @@ services:
       - /models
     environment:
       HF_TOKEN: ${HF_TOKEN:-}   # optional for public models
+    volumes:
+      - models:/models
+    restart: "no"
+
+  # Pulls the ONNX models in models/manifest.yaml into the models volume,
+  # verifying SHA-256: docker compose --profile models run --rm models-pull
+  models-pull:
+    profiles: [models]
+    image: promptshield/gateway:latest
+    build:
+      context: .
+      dockerfile: build/gateway.Dockerfile
+    entrypoint: ["./models", "pull", "-manifest", "manifest.yaml", "-dir", "/models"]
+    user: "0:0"   # the named volume is owned by root
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}   # needed for gated repos (protectai small v2)
     volumes:
       - models:/models
     restart: "no"
