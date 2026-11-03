@@ -1,0 +1,201 @@
+{
+  "config": {
+    "name": "guardspec-classifier-v1",
+    "seed": 20261105,
+    "base_model": "intfloat/multilingual-e5-small",
+    "base_revision": "614241f622f53c4eeff9890bdc4f31cfecc418b3",
+    "labels": [
+      "benign",
+      "direct_injection",
+      "indirect_injection",
+      "jailbreak",
+      "prompt_extraction",
+      "data_exfiltration",
+      "tool_poisoning",
+      "obfuscation"
+    ],
+    "data": {
+      "train": "data/train.jsonl",
+      "val": [
+        "data/val.jsonl",
+        "data/val_hard.jsonl"
+      ]
+    },
+    "train": {
+      "max_len": 256,
+      "batch_size": 32,
+      "epochs": 5,
+      "lr": 5e-05,
+      "weight_decay": 0.01,
+      "warmup_ratio": 0.06,
+      "grad_clip": 1.0,
+      "early_stopping_patience": 1,
+      "device": "mps"
+    },
+    "calibration": {
+      "target_benign_fpr": 0.01
+    },
+    "export": {
+      "opset": 17,
+      "out_dir": "../models/local/guardspec-classifier-v1",
+      "run_dir": "runs/guardspec-classifier-v1"
+    },
+    "compare": {
+      "model": "protectai/deberta-v3-base-prompt-injection-v2",
+      "revision": "90c9989b1a342275dd0d1a95aad283c04e075671",
+      "max_len": 512
+    }
+  },
+  "device": "mps",
+  "n_train": 17833,
+  "n_val": 3258,
+  "epochs": [
+    {
+      "epoch": 1,
+      "train_loss": 0.3290324020182787,
+      "val_loss": 0.15419746628928727,
+      "seconds": 237.05014610290527,
+      "1-p_benign": {
+        "auc": 0.98855721890086,
+        "tpr_at_fpr1": 0.7169354838709677,
+        "fpr": 0.009910802775024777,
+        "threshold": 0.8773235976696014
+      },
+      "max_attack": {
+        "auc": 0.9635945842258385,
+        "tpr_at_fpr1": 0.11290322580645161,
+        "fpr": 0.009910802775024777,
+        "threshold": 0.6599746644496918
+      },
+      "per_label_auc": {
+        "benign": 0.98855721890086,
+        "direct_injection": 0.9677148308330599,
+        "indirect_injection": 0.9596641077915183,
+        "jailbreak": 0.9153740369529946,
+        "prompt_extraction": 0.9106530852789537,
+        "data_exfiltration": 0.9758851714774002,
+        "tool_poisoning": 0.9669705294705294,
+        "obfuscation": 0.9352047523170874
+      },
+      "macro_auc": 0.9525029666278004
+    },
+    {
+      "epoch": 2,
+      "train_loss": 0.1262686044732142,
+      "val_loss": 0.07993919077741543,
+      "seconds": 261.34758710861206,
+      "1-p_benign": {
+        "auc": 0.9922096294638576,
+        "tpr_at_fpr1": 0.7370967741935484,
+        "fpr": 0.009910802775024777,
+        "threshold": 0.9227312207221985
+      },
+      "max_attack": {
+        "auc": 0.9872410403145879,
+        "tpr_at_fpr1": 0.5701612903225807,
+        "fpr": 0.009910802775024777,
+        "threshold": 0.7338366806507111
+      },
+      "per_label_auc": {
+        "benign": 0.9922096294638575,
+        "direct_injection": 0.994280059188208,
+        "indirect_injection": 0.9967583269696386,
+        "jailbreak": 0.9796059757709218,
+        "prompt_extraction": 0.9874088055877982,
+        "data_exfiltration": 0.998424672614991,
+        "tool_poisoning": 0.9770059485968577,
+        "obfuscation": 0.9804915386791354
+      },
+      "macro_auc": 0.988273119608926
+    },
+    {
+      "epoch": 3,
+      "train_loss": 0.06693945404502653,
+      "val_loss": 0.04589068170515689,
+      "seconds": 255.26820588111877,
+      "1-p_benign": {
+        "auc": 0.9953307330797021,
+        "tpr_at_fpr1": 0.9024193548387097,
+        "fpr": 0.009910802775024777,
+        "threshold": 0.9075524806976318
+      },
+      "max_attack": {
+        "auc": 0.995170082163752,
+        "tpr_at_fpr1": 0.9185483870967742,
+        "fpr": 0.009910802775024777,
+        "threshold": 0.7781917452812195
+      },
+      "per_label_auc": {
+        "benign": 0.9953307330797021,
+        "direct_injection": 0.9958634864899584,
+        "indirect_injection": 0.9999986140773705,
+        "jailbreak": 0.9811212243566153,
+        "prompt_extraction": 0.993641644063562,
+        "data_exfiltration": 0.9995124610755214,
+        "tool_poisoning": 0.9999914857869403,
+        "obfuscation": 0.9816430104664127
+      },
+      "macro_auc": 0.9933878324245103
+    },
+    {
+      "epoch": 4,
+      "train_loss": 0.041618175071907834,
+      "val_loss": 0.039589321191901165,
+      "seconds": 281.61358308792114,
+      "1-p_benign": {
+        "auc": 0.9948899421336999,
+        "tpr_at_fpr1": 0.8330645161290322,
+        "fpr": 0.009910802775024777,
+        "threshold": 0.9548407793045044
+      },
+      "max_attack": {
+        "auc": 0.9937829694043927,
+        "tpr_at_fpr1": 0.7870967741935484,
+        "fpr": 0.009910802775024777,
+        "threshold": 0.9009983241558075
+      },
+      "per_label_auc": {
+        "benign": 0.9948899421336999,
+        "direct_injection": 0.9961356380574468,
+        "indirect_injection": 0.9999986140773705,
+        "jailbreak": 0.9864268292864624,
+        "prompt_extraction": 0.995402474726163,
+        "data_exfiltration": 0.9984220514379778,
+        "tool_poisoning": 1.0,
+        "obfuscation": 0.9859527097858461
+      },
+      "macro_auc": 0.9946535324381208
+    },
+    {
+      "epoch": 5,
+      "train_loss": 0.031218496508442373,
+      "val_loss": 0.035792831547313615,
+      "seconds": 236.67791390419006,
+      "1-p_benign": {
+        "auc": 0.9954508216375203,
+        "tpr_at_fpr1": 0.8741935483870967,
+        "fpr": 0.009910802775024777,
+        "threshold": 0.9444153904914856
+      },
+      "max_attack": {
+        "auc": 0.9953287349339813,
+        "tpr_at_fpr1": 0.9314516129032258,
+        "fpr": 0.009910802775024777,
+        "threshold": 0.8430125415325165
+      },
+      "per_label_auc": {
+        "benign": 0.9954508216375205,
+        "direct_injection": 0.9970225095990523,
+        "indirect_injection": 1.0,
+        "jailbreak": 0.9839088645767063,
+        "prompt_extraction": 0.9964364995212406,
+        "data_exfiltration": 0.9980131478238988,
+        "tool_poisoning": 1.0,
+        "obfuscation": 0.9842288300580727
+      },
+      "macro_auc": 0.9943825841520615
+    }
+  ],
+  "best_epoch": 5,
+  "train_seconds": 1272.6247069835663
+}

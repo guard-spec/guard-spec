@@ -1,5 +1,5 @@
-# Guard Spec attack-risk classifier v0 (task N6). Read by train.py, export.py and evaluate.py.
-name: guardspec-classifier-v0
+# Guard Spec attack-risk classifier v1 (task N6). Read by train.py, export.py and evaluate.py.
+name: guardspec-classifier-v1
 seed: 20261105
 
 base_model: intfloat/multilingual-e5-small
@@ -11,7 +11,9 @@ labels: [benign, direct_injection, indirect_injection, jailbreak, prompt_extract
 
 data:
   train: data/train.jsonl
-  val: data/val.jsonl
+  # Early stopping and calibration use both validation files: the in-distribution group split and the
+  # harder split built from v1 template set B (data/gen_hardneg.py), which training never sees.
+  val: [data/val.jsonl, data/val_hard.jsonl]
 
 train:
   max_len: 256
@@ -21,7 +23,7 @@ train:
   weight_decay: 0.01
   warmup_ratio: 0.06
   grad_clip: 1.0
-  early_stopping_patience: 1   # epochs without improvement of the selection metric
+  early_stopping_patience: 1   # epochs without improvement of validation loss (v0 selected on TPR@1%FPR)
   device: mps                   # falls back to cpu when MPS is unavailable
 
 calibration:
@@ -29,8 +31,8 @@ calibration:
 
 export:
   opset: 17
-  out_dir: ../models/local/guardspec-classifier-v0
-  run_dir: runs/guardspec-classifier-v0
+  out_dir: ../models/local/guardspec-classifier-v1
+  run_dir: runs/guardspec-classifier-v1
 
 compare:
   # The requested protectai/deberta-v3-small-prompt-injection-v2 (rev d7c8842daf06) is gated on Hugging Face

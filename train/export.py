@@ -21,6 +21,7 @@ import hashlib
 import json
 import shutil
 import time
+from pathlib import Path
 
 import numpy as np
 import onnxruntime as ort
@@ -62,7 +63,7 @@ def main():
     tok = AutoTokenizer.from_pretrained(best)
     model = AutoModelForSequenceClassification.from_pretrained(best).eval()
 
-    val = read_jsonl(ROOT / cfg["data"]["val"])
+    val = [dict(r, split=Path(p).stem) for p in cfg["data"]["val"] for r in read_jsonl(ROOT / p)]
     texts = [r["text"] for r in val]
     # PyTorch reference on the first validation batch, computed before export (tracing touches the module).
     with torch.no_grad():
@@ -133,6 +134,10 @@ def main():
         per_label[lb] = dict(threshold=float(ths[k]), val_f1=float(f1[k]), val_precision=float(prec[k]),
                              val_recall=float(rec[k]), val_auc=auc(y[:, j], p8[:, j]))
     by_lang = {}
+    for name in ("val", "val_hard"):
+        m = np.array([r["split"] == name for r in val])
+        tpr, fpr = rates(is_attack[m], risk[m], thr)
+        by_lang[name] = dict(tpr=tpr, benign_fpr=fpr, n_attack=int(is_attack[m].sum()), n_benign=int((1 - is_attack[m]).sum()))
     for lang in ("en", "vi"):
         m = np.array([r["lang"] == lang for r in val])
         tpr, fpr = rates(is_attack[m], risk[m], thr)
@@ -153,7 +158,7 @@ def main():
         label_thresholds={lb: v["threshold"] for lb, v in per_label.items()},
         label_threshold_method="max F1 on the validation split, one-vs-rest",
         label_validation=per_label,
-        calibrated_on="validation split (train/data/val.jsonl), INT8 model",
+        calibrated_on="validation splits " + ", ".join(cfg["data"]["val"]) + ", INT8 model",
     )
 
     # 5. Package ---------------------------------------------------------------------------

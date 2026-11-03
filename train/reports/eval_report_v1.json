@@ -1,0 +1,348 @@
+{
+  "eval_rows": 2176,
+  "ours": {
+    "model_dir": "../models/local/guardspec-classifier-v1",
+    "risk_score": "1-p_benign",
+    "threshold": 0.8768263459205627,
+    "rows_with_multiple_windows": 0,
+    "seconds": 5.30600118637085,
+    "metrics": {
+      "all": {
+        "n_attack": 1171,
+        "n_benign": 1005,
+        "auc": 0.9844534798254672,
+        "tpr_at_fpr1": 0.6251067463706234,
+        "fpr_at_fpr1": 0.009950248756218905,
+        "thr_at_fpr1": 0.9709122478961945,
+        "tpr_at_thr": 0.9299743808710503,
+        "fpr_at_thr": 0.03482587064676617
+      },
+      "en": {
+        "n_attack": 562,
+        "n_benign": 364,
+        "auc": 0.9878377849908099,
+        "tpr_at_fpr1": 0.8380782918149466,
+        "fpr_at_fpr1": 0.008241758241758242,
+        "thr_at_fpr1": 0.9445302486419678,
+        "tpr_at_thr": 0.9270462633451957,
+        "fpr_at_thr": 0.013736263736263736
+      },
+      "vi": {
+        "n_attack": 609,
+        "n_benign": 641,
+        "auc": 0.9824653084645553,
+        "tpr_at_fpr1": 0.548440065681445,
+        "fpr_at_fpr1": 0.0093603744149766,
+        "thr_at_fpr1": 0.975374162197113,
+        "tpr_at_thr": 0.9326765188834154,
+        "fpr_at_thr": 0.046801872074883
+      },
+      "en/data_exfiltration": {
+        "n_attack": 29,
+        "n_benign": 364,
+        "auc": 0.9807692307692307,
+        "tpr_at_fpr1": 0.6896551724137931,
+        "fpr_at_fpr1": 0.008241758241758242,
+        "thr_at_fpr1": 0.9445302486419678,
+        "tpr_at_thr": 0.8620689655172413,
+        "fpr_at_thr": 0.013736263736263736
+      },
+      "en/direct_injection": {
+        "n_attack": 147,
+        "n_benign": 364,
+        "auc": 0.9790872392913209,
+        "tpr_at_fpr1": 0.8503401360544217,
+        "fpr_at_fpr1": 0.008241758241758242,
+        "thr_at_fpr1": 0.9445302486419678,
+        "tpr_at_thr": 0.9319727891156463,
+        "fpr_at_thr": 0.013736263736263736
+      },
+      "en/indirect_injection": {
+        "n_attack": 60,
+        "n_benign": 364,
+        "auc": 0.9940934065934066,
+        "tpr_at_fpr1": 0.9166666666666666,
+        "fpr_at_fpr1": 0.008241758241758242,
+        "thr_at_fpr1": 0.9445302486419678,
+        "tpr_at_thr": 0.9166666666666666,
+        "fpr_at_thr": 0.013736263736263736
+      },
+      "en/jailbreak": {
+        "n_attack": 65,
+        "n_benign": 364,
+        "auc": 0.9714708368554522,
+        "tpr_at_fpr1": 0.6615384615384615,
+        "fpr_at_fpr1": 0.008241758241758242,
+        "thr_at_fpr1": 0.9445302486419678,
+        "tpr_at_thr": 0.8153846153846154,
+        "fpr_at_thr": 0.013736263736263736
+      },
+      "en/obfuscation": {
+        "n_attack": 48,
+        "n_benign": 364,
+        "auc": 0.9910714285714286,
+        "tpr_at_fpr1": 0.75,
+        "fpr_at_fpr1": 0.008241758241758242,
+        "thr_at_fpr1": 0.9445302486419678,
+        "tpr_at_thr": 0.8958333333333334,
+        "fpr_at_thr": 0.013736263736263736
+      },
+      "en/prompt_extraction": {
+        "n_attack": 173,
+        "n_benign": 364,
+        "auc": 0.998126151305342,
+        "tpr_at_fpr1": 0.9479768786127167,
+        "fpr_at_fpr1": 0.008241758241758242,
+        "thr_at_fpr1": 0.9445302486419678,
+        "tpr_at_thr": 0.9710982658959537,
+        "fpr_at_thr": 0.013736263736263736
+      },
+      "en/tool_poisoning": {
+        "n_attack": 40,
+        "n_benign": 364,
+        "auc": 0.993956043956044,
+        "tpr_at_fpr1": 0.7,
+        "fpr_at_fpr1": 0.008241758241758242,
+        "thr_at_fpr1": 0.9445302486419678,
+        "tpr_at_thr": 1.0,
+        "fpr_at_thr": 0.013736263736263736
+      },
+      "vi/data_exfiltration": {
+        "n_attack": 61,
+        "n_benign": 641,
+        "auc": 0.972149049896422,
+        "tpr_at_fpr1": 0.6065573770491803,
+        "fpr_at_fpr1": 0.0093603744149766,
+        "thr_at_fpr1": 0.975374162197113,
+        "tpr_at_thr": 0.8032786885245902,
+        "fpr_at_thr": 0.046801872074883
+      },
+      "vi/direct_injection": {
+        "n_attack": 134,
+        "n_benign": 641,
+        "auc": 0.9915244370968869,
+        "tpr_at_fpr1": 0.7761194029850746,
+        "fpr_at_fpr1": 0.0093603744149766,
+        "thr_at_fpr1": 0.975374162197113,
+        "tpr_at_thr": 0.9850746268656716,
+        "fpr_at_thr": 0.046801872074883
+      },
+      "vi/indirect_injection": {
+        "n_attack": 133,
+        "n_benign": 641,
+        "auc": 0.9910970874925222,
+        "tpr_at_fpr1": 0.7293233082706767,
+        "fpr_at_fpr1": 0.0093603744149766,
+        "thr_at_fpr1": 0.975374162197113,
+        "tpr_at_thr": 1.0,
+        "fpr_at_thr": 0.046801872074883
+      },
+      "vi/jailbreak": {
+        "n_attack": 81,
+        "n_benign": 641,
+        "auc": 0.9746538009668535,
+        "tpr_at_fpr1": 0.24691358024691357,
+        "fpr_at_fpr1": 0.0093603744149766,
+        "thr_at_fpr1": 0.975374162197113,
+        "tpr_at_thr": 0.9135802469135802,
+        "fpr_at_thr": 0.046801872074883
+      },
+      "vi/obfuscation": {
+        "n_attack": 34,
+        "n_benign": 641,
+        "auc": 0.9800862622740204,
+        "tpr_at_fpr1": 0.08823529411764706,
+        "fpr_at_fpr1": 0.0093603744149766,
+        "thr_at_fpr1": 0.975374162197113,
+        "tpr_at_thr": 1.0,
+        "fpr_at_thr": 0.046801872074883
+      },
+      "vi/prompt_extraction": {
+        "n_attack": 92,
+        "n_benign": 641,
+        "auc": 0.983229329173167,
+        "tpr_at_fpr1": 0.7065217391304348,
+        "fpr_at_fpr1": 0.0093603744149766,
+        "thr_at_fpr1": 0.975374162197113,
+        "tpr_at_thr": 0.9130434782608695,
+        "fpr_at_thr": 0.046801872074883
+      },
+      "vi/tool_poisoning": {
+        "n_attack": 74,
+        "n_benign": 641,
+        "auc": 0.9677446557321753,
+        "tpr_at_fpr1": 0.10810810810810811,
+        "fpr_at_fpr1": 0.0093603744149766,
+        "thr_at_fpr1": 0.975374162197113,
+        "tpr_at_thr": 0.8378378378378378,
+        "fpr_at_thr": 0.046801872074883
+      },
+      "en/variant:leet": {
+        "n_attack": 40,
+        "n_benign": 364,
+        "auc": 0.9809065934065934,
+        "tpr_at_fpr1": 0.2,
+        "fpr_at_fpr1": 0.008241758241758242,
+        "thr_at_fpr1": 0.9445302486419678,
+        "tpr_at_thr": 0.85,
+        "fpr_at_thr": 0.013736263736263736
+      },
+      "en/variant:orig": {
+        "n_attack": 522,
+        "n_benign": 364,
+        "auc": 0.9883689107827038,
+        "tpr_at_fpr1": 0.8869731800766284,
+        "fpr_at_fpr1": 0.008241758241758242,
+        "thr_at_fpr1": 0.9445302486419678,
+        "tpr_at_thr": 0.9329501915708812,
+        "fpr_at_thr": 0.013736263736263736
+      },
+      "vi/variant:leet": {
+        "n_attack": 77,
+        "n_benign": 26,
+        "auc": 0.9475524475524475,
+        "tpr_at_fpr1": 0.5844155844155844,
+        "fpr_at_fpr1": 0.0,
+        "thr_at_fpr1": 0.9309223294258118,
+        "tpr_at_thr": 0.8571428571428571,
+        "fpr_at_thr": 0.11538461538461539
+      },
+      "vi/variant:no_diacritics": {
+        "n_attack": 174,
+        "n_benign": 236,
+        "auc": 0.9796658873952855,
+        "tpr_at_fpr1": 0.5804597701149425,
+        "fpr_at_fpr1": 0.00847457627118644,
+        "thr_at_fpr1": 0.9772119224071503,
+        "tpr_at_thr": 0.9137931034482759,
+        "fpr_at_thr": 0.059322033898305086
+      },
+      "vi/variant:orig": {
+        "n_attack": 208,
+        "n_benign": 236,
+        "auc": 0.9981665580182529,
+        "tpr_at_fpr1": 0.9807692307692307,
+        "fpr_at_fpr1": 0.00847457627118644,
+        "thr_at_fpr1": 0.9221501648426056,
+        "tpr_at_thr": 0.9951923076923077,
+        "fpr_at_thr": 0.012711864406779662
+      },
+      "vi/variant:teencode": {
+        "n_attack": 113,
+        "n_benign": 143,
+        "auc": 0.9655300451760629,
+        "tpr_at_fpr1": 0.08849557522123894,
+        "fpr_at_fpr1": 0.006993006993006993,
+        "thr_at_fpr1": 0.9888434708118439,
+        "tpr_at_thr": 0.8938053097345132,
+        "fpr_at_thr": 0.06993006993006994
+      },
+      "vi/variant:translated": {
+        "n_attack": 37,
+        "n_benign": 641,
+        "auc": 0.9920310325926551,
+        "tpr_at_fpr1": 0.8378378378378378,
+        "fpr_at_fpr1": 0.0093603744149766,
+        "thr_at_fpr1": 0.975374162197113,
+        "tpr_at_thr": 0.9459459459459459,
+        "fpr_at_thr": 0.046801872074883
+      }
+    },
+    "category_heads": {
+      "en/data_exfiltration": {
+        "head_fires": 0.7586206896551724,
+        "top1": 0.7241379310344828,
+        "n": 29
+      },
+      "en/direct_injection": {
+        "head_fires": 0.8299319727891157,
+        "top1": 0.891156462585034,
+        "n": 147
+      },
+      "en/indirect_injection": {
+        "head_fires": 0.8666666666666667,
+        "top1": 0.7666666666666667,
+        "n": 60
+      },
+      "en/jailbreak": {
+        "head_fires": 0.6307692307692307,
+        "top1": 0.6615384615384615,
+        "n": 65
+      },
+      "en/obfuscation": {
+        "head_fires": 1.0,
+        "top1": 0.9166666666666666,
+        "n": 48
+      },
+      "en/prompt_extraction": {
+        "head_fires": 0.7109826589595376,
+        "top1": 0.3236994219653179,
+        "n": 173
+      },
+      "en/tool_poisoning": {
+        "head_fires": 1.0,
+        "top1": 0.375,
+        "n": 40
+      },
+      "vi/data_exfiltration": {
+        "head_fires": 0.6557377049180327,
+        "top1": 0.6721311475409836,
+        "n": 61
+      },
+      "vi/direct_injection": {
+        "head_fires": 0.8955223880597015,
+        "top1": 0.917910447761194,
+        "n": 134
+      },
+      "vi/indirect_injection": {
+        "head_fires": 0.8796992481203008,
+        "top1": 0.706766917293233,
+        "n": 133
+      },
+      "vi/jailbreak": {
+        "head_fires": 0.6419753086419753,
+        "top1": 0.6049382716049383,
+        "n": 81
+      },
+      "vi/obfuscation": {
+        "head_fires": 0.8823529411764706,
+        "top1": 0.6764705882352942,
+        "n": 34
+      },
+      "vi/prompt_extraction": {
+        "head_fires": 0.8152173913043478,
+        "top1": 0.8152173913043478,
+        "n": 92
+      },
+      "vi/tool_poisoning": {
+        "head_fires": 0.8918918918918919,
+        "top1": 0.47297297297297297,
+        "n": 74
+      }
+    }
+  },
+  "latency_int8_cpu": {
+    "machine": "arm64 arm macOS-15.4.1-arm64-arm-64bit",
+    "default_threads": {
+      "128_tokens": {
+        "p50_ms": 11.001999489963055,
+        "p99_ms": 13.563112581614353
+      },
+      "256_tokens": {
+        "p50_ms": 19.898166647180915,
+        "p99_ms": 23.070445584598925
+      }
+    },
+    "one_thread": {
+      "128_tokens": {
+        "p50_ms": 46.26727104187012,
+        "p99_ms": 51.641970155760646
+      },
+      "256_tokens": {
+        "p50_ms": 108.07160404510796,
+        "p99_ms": 118.46201323205604
+      }
+    },
+    "note": "model only, batch 1"
+  }
+}
