@@ -78,6 +78,11 @@ type Vars struct {
 	ScoreL2        float64
 	ScoreL3        float64
 	InjectionCat   string // top injection category, "" when nothing matched
+
+	// Indirect injection: content from tools, documents and tool descriptions.
+	IndirectScore  float64 // largest score over untrusted parts; 0 when there were none
+	IndirectSource string  // tool, document or tool_description; "" when there were none
+	SourceRole     string  // source of the strongest finding: user, system, assistant, tool, tool_description
 }
 
 // toActivation converts Vars to the map cel.Program.ContextEval expects.
@@ -94,6 +99,9 @@ func (v *Vars) toActivation() map[string]any {
 		"scores.l1":             v.ScoreL1,
 		"scores.l2":             v.ScoreL2,
 		"scores.l3":             v.ScoreL3,
+		"indirect.score":        v.IndirectScore,
+		"indirect.source":       v.IndirectSource,
+		"injection.source_role": v.SourceRole,
 		"anomaly.score":         float64(v.AnomalyScore),
 		"anomaly.has_tag_chars": v.AnomalyHasTagChars,
 		"anomaly.has_bidi":      v.AnomalyHasBidi,
@@ -137,6 +145,9 @@ var fieldTypes = map[string]*cel.Type{
 	"scores.l1":             cel.DoubleType,
 	"scores.l2":             cel.DoubleType,
 	"scores.l3":             cel.DoubleType,
+	"indirect.score":        cel.DoubleType,
+	"indirect.source":       cel.StringType,
+	"injection.source_role": cel.StringType,
 	"anomaly.score":         cel.DoubleType,
 	"anomaly.has_tag_chars": cel.BoolType,
 	"anomaly.has_bidi":      cel.BoolType,

@@ -84,6 +84,9 @@ func TestSanitizeOutput(t *testing.T) {
 		{"marker nested", "a[/DA[DATA]TA]b", "ab"},
 		{"marker fullwidth", "a［/DATA］b", "ab"},
 		{"marker split by zero-width", "a[/DA\u200BTA]b", "ab"},
+		// The HTML step already breaks a spelled-out boundary apart.
+		{"spotlight boundary", "a<</untrusted-1f2e>>b<<untrusted-1f2e>>c", "a<>b<>c"},
+		{"spotlight boundary spaced", "a<< / Untrusted-x >>b", "ab"},
 	}
 
 	for _, tt := range tests {
@@ -92,8 +95,8 @@ func TestSanitizeOutput(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Sanitize error: %v", err)
 			}
-			if want := "[DATA]" + tt.want + "[/DATA]"; got != want {
-				t.Errorf("Sanitize(%q) = %q, want %q", tt.in, got, want)
+			if got != tt.want {
+				t.Errorf("Sanitize(%q) = %q, want %q", tt.in, got, tt.want)
 			}
 		})
 	}
