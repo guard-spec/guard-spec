@@ -13,7 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync/atomic"
+	"sync"
 	"time"
 )
 
@@ -123,11 +123,6 @@ func (p *Proxy) Forward(ctx context.Context, path string, body []byte) (*Respons
 		cancel:      cancel,
 		idle:        p.timeout,
 	}
-	r.timer = time.AfterFunc(p.timeout, func() {
-		r.timedOut.Store(true)
-		cancel()
-	})
-	r.timer.Stop()
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		defer r.Close()
@@ -141,11 +136,18 @@ type Response struct {
 	Status      int
 	ContentType string
 
-	body     io.ReadCloser
-	cancel   context.CancelFunc
-	idle     time.Duration
+	body   io.ReadCloser
+	cancel context.CancelFunc
+	idle   time.Duration
+
+	// The idle timer of a read is armed for one generation. A timer that fires
+	// after its read returned, even by a hair, finds a newer generation or no
+	// read in progress and does nothing, so it cannot kill a healthy stream.
+	mu       sync.Mutex
+	gen      uint64
+	reading  bool
 	timer    *time.Timer
-	timedOut atomic.Bool
+	timedOut bool
 }
 
 // Stream reports whether the body is an event stream.
@@ -156,16 +158,51 @@ func (r *Response) Stream() bool {
 // Read cancels the upstream if no data arrives for the configured timeout.
 // The clock runs only during the read, so a slow client is not blamed on it.
 func (r *Response) Read(p []byte) (int, error) {
-	r.timer.Reset(r.idle)
+	gen := r.arm()
 	n, err := r.body.Read(p)
-	r.timer.Stop()
+	timedOut := r.disarm(gen)
 	if err == nil || errors.Is(err, io.EOF) {
 		return n, err
 	}
-	if r.timedOut.Load() {
+	if timedOut {
 		return n, timeoutError(err)
 	}
 	return n, classify(err)
+}
+
+// arm starts the idle clock for a new read and returns its generation.
+func (r *Response) arm() uint64 {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.gen++
+	gen := r.gen
+	r.reading = true
+	r.timer = time.AfterFunc(r.idle, func() { r.expire(gen) })
+	return gen
+}
+
+// disarm stops the clock of read gen and reports whether it had expired.
+func (r *Response) disarm(gen uint64) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.gen == gen {
+		r.reading = false
+		if r.timer != nil {
+			r.timer.Stop()
+		}
+	}
+	return r.timedOut
+}
+
+// expire cancels the upstream only if read gen is still waiting for data.
+func (r *Response) expire(gen uint64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.reading || r.gen != gen {
+		return
+	}
+	r.timedOut = true
+	r.cancel()
 }
 
 // ReadAll returns the whole body of a non-streaming response.
@@ -183,7 +220,12 @@ func (r *Response) ReadAll() ([]byte, error) {
 
 // Close stops the upstream request.
 func (r *Response) Close() {
-	r.timer.Stop()
+	r.mu.Lock()
+	r.reading = false
+	if r.timer != nil {
+		r.timer.Stop()
+	}
+	r.mu.Unlock()
 	r.cancel()
 	_ = r.body.Close()
 }

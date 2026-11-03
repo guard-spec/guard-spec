@@ -34,15 +34,15 @@ type Score struct {
 
 // Scores holds all model outputs for a single request.
 type Scores struct {
-	Injection  Score
-	PII        []PIIEntity
-	Toxicity   Score
-	Topic      []Score
+	Injection Score
+	PII       []PIIEntity
+	Toxicity  Score
+	Topic     []Score
 }
 
 // PIIEntity is a detected PII span.
 type PIIEntity struct {
-	Type  string  // SSN, CREDIT_CARD, EMAIL, PHONE, etc.
+	Type  string // SSN, CREDIT_CARD, EMAIL, PHONE, etc.
 	Start int
 	End   int
 	Score float32
@@ -132,7 +132,7 @@ func (r *Runner) Scan(ctx context.Context, text string) (Scores, error) {
 	}
 
 	return Scores{
-		Injection: maxScore(injScores),  // max(), not mean() — attacker hides in tail
+		Injection: maxScore(injScores), // max(), not mean() — attacker hides in tail
 		Toxicity:  maxScore(toxScores),
 		Topic:     topScores,
 	}, nil
