@@ -381,9 +381,42 @@ It checks every stored policy, enabled or not, against the rules for new policie
 ## Detection Layers
 
 1. **Unicode sanitization** — strips tag block chars, bidi overrides, variation selectors. Defeats 100% ASR emoji smuggling before classification.
-2. **ML classifiers** (ONNX, in-process) — concurrent injection + PII + toxicity + topic scoring.
+2. **Injection detector** — fusion of up to three calibrated layers (see [Model layers](#model-layers-l2-l3)): L1 rules, L2 our EN/VI classifier, L3 embedding similarity to attack and benign exemplars.
 3. **CEL policy engine** — per-tenant rules with 130ns eval latency. JSON rule builder in UI.
 4. **Output guard** — strips images and links to hosts off the allowlist, redacts personal data, catches a leaked canary. See [Output guard](#output-guard).
+
+## Model layers (L2, L3)
+
+The injection score fuses L1 (rules, always on) with two model layers that run in-process through ONNX Runtime (`internal/inference/ml`):
+
+- **L2**, our classifier `guardspec-classifier` (multilingual-e5-small fine-tuned on `train/`): risk = 1 − p(benign), long input in 256-token windows with a 64-token overlap, the worst window counts. `injection.category` is the top attack label.
+- **L3**, multilingual-e5-small embeddings (`query:` prefix in every window): the highest similarity to an attack exemplar minus the highest similarity to a benign one. The built-in exemplars are 520 rows picked from `train/data/train.jsonl` (`go run ./cmd/calibrate exemplars`); each organization can add its own.
+
+Both layers are Platt-calibrated, and fused with a logistic regression over the calibrated logits, all fitted on the classifier's validation splits `train/data/val.jsonl` and `val_hard.jsonl`, never on `eval/` (`make calibrate`). L2 and L3 run in parallel. `scores.l1`, `scores.l2` and `scores.l3` in CEL are each layer's calibrated score, `-1` when the layer did not run.
+
+| Variable | Default | |
+|---|---|---|
+| `MODEL_DIR` | `./models` (`/models` in the image) | root of the model files (`MODELS_PATH` is the older name) |
+| `L2_MODEL_DIR` | `$MODEL_DIR/local/guardspec-classifier-v1`, else `-v0` | classifier directory |
+| `L3_MODEL_DIR` | `$MODEL_DIR/cache/multilingual-e5-small` | embedding model directory |
+| `DETECTOR_LAYERS` | `l1,l2,l3` | layers to run |
+| `DETECTOR_FUSION` | `logreg` | `logreg` or `max` of the calibrated layers |
+| `DETECTOR_CASCADE` | `false` | `true` skips L2/L3 when L1 alone is decisive (`DETECTOR_CASCADE_LOW` 0.03, `DETECTOR_CASCADE_HIGH` 0.965, on L1's calibrated score) |
+| `DETECTOR_REQUIRE_ML` | `false` | `true` refuses to start without the model layers (not enforced with `GUARD_ENV=dev`) |
+
+**Know before enabling.** On `eval/`, L1+L2+L3 with `guardspec-classifier-v1` raises ROC AUC from 0.952 (L1) to 0.985 and the TPR at the block threshold 0.85 from 0.88 to 0.94, but it also blocks 2.7% of benign prompts there (L1: 0.1%): 1.1% in English and 3.6% in Vietnamese, mostly teencode and text without diacritics, v1's known weak spot. The cascade saves about a quarter of the latency and leaves that rate unchanged. Where false positives matter more than recall, keep `DETECTOR_LAYERS=l1`.
+
+Without the model files, or with a binary built without `-tags onnx`, the gateway logs a warning per missing layer and runs L1 only. The gateway image is built with `-tags onnx` and ships `libonnxruntime`; models are mounted from `./models` read-only:
+
+```bash
+docker compose --profile models run --rm models-pull          # multilingual-e5-small -> models/cache/
+cp -R /path/to/guardspec-classifier-v1 models/local/           # our classifier is not on Hugging Face
+docker compose up -d gateway
+```
+
+**Per-organization exemplars.** `GET/POST /v1/organizations/:orgId/exemplars` and `PUT/DELETE /v1/organizations/:orgId/exemplars/:id` (admin to change) store `{"label": "block"|"allow", "text": "...", "source": "..."}` in `org_exemplars` (migration 009; at most 1,000 per org, 4,000 characters each). A `block` text counts as an attack for that org's requests (`injection.category` `tenant_exemplar`), and its calibrated L3 score is a floor for the fused score, so the other layers cannot outvote it; an `allow` text counts as benign. The gateway embeds each org's exemplars once and reloads them when `organizations.exemplars_version` changes (checked at most every 5 s). An `allow` exemplar lowers L3 only; L1 and L2 still see the text. Tenant exemplars live in the database only, never in this repository.
+
+**Eval with the model layers** (`-tags onnx`): `make eval-ml` compares L1+L2+L3 with `eval/baseline-onnx.json`; `go run -tags onnx ./cmd/eval -layers l1,l2 [-cascade] [-fusion max]` runs other configurations. CI without models keeps using `eval/baseline.json` (L1).
 
 ## License
 

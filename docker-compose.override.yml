@@ -18,7 +18,7 @@ services:
       dockerfile: build/gateway.Dockerfile
     volumes:
       - .:/src:ro          # source read-only (rebuild required for Go changes)
-      - models:/models
+      - ./models:/models:ro
     environment:
       LOG_LEVEL: debug
       GUARD_ENV: ${GUARD_ENV:-dev}
