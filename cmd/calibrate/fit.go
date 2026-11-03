@@ -79,7 +79,7 @@ func runFit(args []string) int {
 			fmt.Fprintln(os.Stderr, err)
 			return 2
 		}
-		defer stack.Close()
+		defer func() { _ = stack.Close() }()
 		if stack.Degraded() {
 			fmt.Fprintln(os.Stderr, "models missing:\n  "+strings.Join(stack.Problems, "\n  "))
 			return 2

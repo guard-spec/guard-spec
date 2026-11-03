@@ -35,7 +35,7 @@ func TestBuildWithModels(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	if s.Degraded() {
 		t.Fatalf("problems: %v", s.Problems)
 	}

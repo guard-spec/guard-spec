@@ -236,7 +236,7 @@ func TestBuildDegradesToL1(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	if !s.Degraded() || len(s.Problems) != 2 || s.Active != [3]bool{true, false, false} || s.Fusion != "max" {
 		t.Fatalf("stack: %+v", s)
 	}
@@ -300,7 +300,7 @@ func readRows(t *testing.T, path string) []idText {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	var out []idText
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 1<<20), 1<<22)
