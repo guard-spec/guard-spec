@@ -24,7 +24,16 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
  && go build -tags onnx -trimpath -ldflags="-s -w" -o /out/onnxbench ./cmd/onnxbench/ \
  && go build -trimpath -ldflags="-s -w" -o /out/models ./cmd/models/
 
-# --- runtime image ---
+# --- dist: the linux onnx tarball of a release (.github/workflows/release.yml) ---
+# docker buildx build --target dist --output type=local,dest=out ...
+# Same binary as the image; it needs glibc >= 2.36 (Debian 12) at run time and
+# ONNXRUNTIME_LIB pointing at the bundled libonnxruntime.so.
+FROM scratch AS dist
+COPY --from=builder /out/gateway /out/models /
+COPY --from=builder /opt/onnx/lib/libonnxruntime.so /lib/
+COPY --from=builder /opt/onnx/LICENSE.onnxruntime /src/LICENSE /src/NOTICE /src/THIRD_PARTY_LICENSES.md /src/models/manifest.yaml /
+
+# --- runtime image (default target) ---
 FROM debian:bookworm-slim@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -34,7 +43,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # ONNX Runtime CPU shared library (MIT), loaded by internal/onnx via dlopen.
 COPY --from=builder /opt/onnx/lib/libonnxruntime.so /usr/local/lib/
 COPY --from=builder /opt/onnx/LICENSE.onnxruntime /usr/share/doc/onnxruntime/LICENSE
-# Model files are mounted at /models (docker-compose.yml), never baked in.
+# Model files are mounted at /models (read-only is fine), never baked in. An
+# empty /models: the gateway warns and runs L1 only; /readyz shows the layers.
 ENV ONNXRUNTIME_LIB=/usr/local/lib/libonnxruntime.so \
     MODEL_DIR=/models
 
@@ -45,7 +55,7 @@ COPY --from=builder /src/models/manifest.yaml ./manifest.yaml
 COPY --from=builder /src/LICENSE /src/NOTICE /src/THIRD_PARTY_LICENSES.md /usr/share/doc/guard-spec/
 
 EXPOSE 8080 9090
-HEALTHCHECK --interval=10s --timeout=3s CMD curl -f http://localhost:8080/health || exit 1
+HEALTHCHECK --interval=10s --timeout=3s --start-period=30s CMD curl -fsS http://localhost:8080/readyz || exit 1
 
 USER nobody
 ENTRYPOINT ["./gateway"]

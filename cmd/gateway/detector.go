@@ -94,3 +94,29 @@ func (s dbExemplarStore) Exemplars(ctx context.Context, org uuid.UUID) ([]ml.Exe
 	})
 	return out, err
 }
+
+// detectorStatus is the detection part of the /readyz response.
+type detectorStatus struct {
+	// Layers are the active layers, e.g. ["l1"] or ["l1","l2","l3"].
+	Layers []string `json:"layers"`
+	// Degraded is true when a requested layer did not load; Problems says why.
+	Degraded bool     `json:"degraded"`
+	Problems []string `json:"problems,omitempty"`
+	// ONNX reports whether the binary was built with -tags onnx.
+	ONNX    bool   `json:"onnx"`
+	Fusion  string `json:"fusion,omitempty"`
+	L2Model string `json:"l2_model,omitempty"`
+}
+
+func newDetectorStatus(s *ml.Stack) detectorStatus {
+	st := detectorStatus{Layers: []string{}, ONNX: onnx.Available()}
+	if s == nil {
+		return st
+	}
+	if k := ml.LayerKey(s.Active); k != "" {
+		st.Layers = strings.Split(k, ",")
+	}
+	st.Degraded, st.Problems = s.Degraded(), s.Problems
+	st.Fusion, st.L2Model = s.Fusion, s.L2Model
+	return st
+}

@@ -29,7 +29,7 @@ const auditedKey = "guardspec_audited"
 var knownRoutes = map[string]string{}
 
 func init() {
-	for _, r := range []string{"/health", "/v1/chat/completions", "/v1/completions",
+	for _, r := range []string{"/health", "/readyz", "/v1/chat/completions", "/v1/completions",
 		"/guardrail/scan", "/guardrail/sanitize"} {
 		knownRoutes[r] = r
 	}
@@ -52,7 +52,7 @@ func observe() fiber.Handler {
 		start := time.Now()
 		route := routeLabel(c.Path())
 		var span trace.Span
-		if route != "/health" {
+		if route != "/health" && route != "/readyz" {
 			// Copies: fiber's strings point into buffers it reuses, and spans
 			// are exported after the handler returns.
 			carrier := propagation.MapCarrier{}

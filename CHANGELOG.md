@@ -77,6 +77,14 @@ See "Upgrade notes" in the README for the full procedure.
 - Audit privacy: hashes and lengths by default, content only on opt-in.
 - EN/VI eval set (2,176 rows) with a deterministic builder, `cmd/eval` and
   CI regression baselines.
+- Release gateway images built with `-tags onnx` (ONNX Runtime included) for
+  linux/amd64 and linux/arm64 on native runners: they run L1 + L2 + L3 when
+  the models are mounted at `/models`, and L1 only, with a warning, when it is
+  empty. Linux `_onnx` tarballs with the same binary and `libonnxruntime.so`.
+  The plain release archives stay static and run L1 only.
+- `GET /readyz` on the gateway: lists the active detection layers, why a
+  requested layer is missing, and whether the binary has `-tags onnx`. The
+  gateway image `HEALTHCHECK` and the Helm readiness probe use it.
 - Helm chart, GoReleaser pipeline with SBOMs and keyless cosign signing,
   CodeQL, govulncheck, golangci-lint and license checks in CI.
 - Community files: CONTRIBUTING (DCO, the `eval/` rule), CODE_OF_CONDUCT,
@@ -116,8 +124,9 @@ See "Upgrade notes" in the README for the full procedure.
 - With L2/L3 enabled, about 2.7% of benign eval prompts are blocked, mostly
   Vietnamese teencode and text without diacritics (L1 alone: 0.1%).
 - The classifier weights are not published; build them with `train/`.
-- Release images and archives are built without `-tags onnx` and run L1
-  only; build `build/gateway.Dockerfile` for the model layers.
+- The plain release archives (`guard-spec_<version>_<os>_<arch>.tar.gz`) are
+  built without `-tags onnx` and run L1 only; use the gateway image or the
+  linux `_onnx` tarball for the model layers. There is no darwin ONNX build.
 
 [Unreleased]: https://github.com/giaplee/guard-spec/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/giaplee/guard-spec/releases/tag/v0.1.0

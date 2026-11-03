@@ -1,6 +1,10 @@
 # yaml-language-server: $schema=https://goreleaser.com/static/schema.json
 # Release pipeline. Run by .github/workflows/release.yml on a v* tag; never by hand.
 #
+# What it makes: the L1-only binaries (CGO_ENABLED=0), the GitHub release notes
+# and the control-plane image. The gateway image and the linux onnx tarballs
+# (L1+L2+L3) come from the other jobs of the release workflow.
+#
 # Supply chain:
 #   - binaries are built reproducibly (trimpath, commit timestamp, no buildvcs drift);
 #   - every archive and every image gets an SPDX SBOM made by syft;
@@ -80,27 +84,10 @@ signs:
       - --yes
     output: true
 
+# The control-plane image (static, no cgo). The gateway image needs cgo and
+# libonnxruntime (-tags onnx), so the gateway-image jobs of
+# .github/workflows/release.yml build it from build/gateway.Dockerfile instead.
 dockers_v2:
-  - id: gateway
-    ids: [gateway]
-    dockerfile: build/release.Dockerfile
-    images:
-      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/guard-spec-gateway"
-    tags:
-      - "{{ .Version }}"
-      - "{{ if not .Prerelease }}latest{{ end }}"
-    platforms: [linux/amd64, linux/arm64]
-    build_args:
-      BINARY: gateway
-    extra_files: [migrations, LICENSE, NOTICE, THIRD_PARTY_LICENSES.md]
-    # Attach an SPDX SBOM and SLSA provenance to the image (BuildKit attestations).
-    sbom: true
-    labels:
-      org.opencontainers.image.source: "{{ .GitURL }}"
-      org.opencontainers.image.revision: "{{ .FullCommit }}"
-      org.opencontainers.image.version: "{{ .Version }}"
-      org.opencontainers.image.created: "{{ .CommitDate }}"
-      org.opencontainers.image.licenses: Apache-2.0
   - id: control-plane
     ids: [control-plane]
     dockerfile: build/release.Dockerfile
@@ -144,3 +131,15 @@ changelog:
 release:
   draft: true
   prerelease: auto
+  header: |
+    ## Which build runs which detection layers
+
+    | Artifact | Layers | Notes |
+    |---|---|---|
+    | `ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/guard-spec-gateway:{{ .Version }}` | L1 + L2 + L3 | Built with `-tags onnx`, ships libonnxruntime. Mount the models at `/models` (read-only is fine); without them it runs L1 only and logs a warning. `GET /readyz` lists the active layers. |
+    | `guard-spec_{{ .Version }}_linux_<arch>_onnx.tar.gz` | L1 + L2 + L3 | Gateway built with `-tags onnx` plus `libonnxruntime.so`. Linux, glibc 2.36 or newer; set `ONNXRUNTIME_LIB` and `MODEL_DIR`. |
+    | `guard-spec_{{ .Version }}_<os>_<arch>.tar.gz` | **L1 only** | Static binaries (`CGO_ENABLED=0`), no ONNX Runtime. |
+    | `ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/guard-spec-control-plane:{{ .Version }}` | n/a | Static, no cgo. |
+
+    Models are never baked into images or archives; fetch them with `models pull` (see README).
+
