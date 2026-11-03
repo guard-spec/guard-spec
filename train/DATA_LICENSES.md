@@ -5,13 +5,13 @@ generated `train/data/*.jsonl` files and a model trained on them can be
 published under Apache-2.0. The agent checked each license on the Hugging
 Face card (front-matter `license:` field) at the pinned revision.
 
-| Source | License | Pinned revision | Split / file used | Use | Rows after filtering (train + val) |
+| Source | License | Pinned revision | Split / file used | Use | Rows after filtering (v1: train + val + val_hard) |
 |---|---|---|---|---|---|
 | [`deepset/prompt-injections`](https://huggingface.co/datasets/deepset/prompt-injections) | Apache-2.0 | `4f61ecb038e9` | `train` | EN attacks + benign | 291 |
 | [`Lakera/gandalf_ignore_instructions`](https://huggingface.co/datasets/Lakera/gandalf_ignore_instructions) | MIT | `04737b65e90a` | `train` | EN attacks (prompt extraction / override) | 776 |
 | [`jackhhao/jailbreak-classification`](https://huggingface.co/datasets/jackhhao/jailbreak-classification) | Apache-2.0 | `2f2ceeb39658` | `balanced/jailbreak_dataset_train_balanced.csv` | EN jailbreaks + benign role-play / instructions | 1,016 |
-| [`OpenAssistant/oasst2`](https://huggingface.co/datasets/OpenAssistant/oasst2) | Apache-2.0 | `179dd21fc551` | `2023-11-05_oasst2_prompts.messages.jsonl.gz` | Benign user prompts: a 3,200-row EN sample and every VI prompt (with variants) | 4,147 |
-| Guard Spec project-written rows (`data/gen_en.py`, `data/gen_vi.py`) | Apache-2.0 | this repository | - | EN + VI attacks of every category, hard benign | 11,848 |
+| [`OpenAssistant/oasst2`](https://huggingface.co/datasets/OpenAssistant/oasst2) | Apache-2.0 | `179dd21fc551` | `2023-11-05_oasst2_prompts.messages.jsonl.gz` | Benign user prompts: a 3,200-row EN sample and every VI prompt (with variants) | 4,229 |
+| Guard Spec project-written rows (`data/gen_en.py`, `data/gen_vi.py`, `data/gen_hardneg.py`) | Apache-2.0 | this repository | - | EN + VI attacks of every category, hard benign, minimal pairs | 14,779 |
 
 Row counts come from `data/stats.json`.
 

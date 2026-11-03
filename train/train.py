@@ -74,7 +74,7 @@ def main():
     run_dir.mkdir(parents=True, exist_ok=True)
 
     train_rows = read_jsonl(ROOT / cfg["data"]["train"])
-    val_rows = read_jsonl(ROOT / cfg["data"]["val"])
+    val_rows = [r for p in cfg["data"]["val"] for r in read_jsonl(ROOT / p)]
     y_tr, y_va = label_matrix(train_rows, labels), label_matrix(val_rows, labels)
 
     tok = AutoTokenizer.from_pretrained(cfg["base_model"], revision=cfg["base_revision"])
@@ -121,7 +121,9 @@ def main():
                       flush=True)
         logits, val_loss = predict(model, va_loader, device)
         m = val_metrics(logits, y_va, labels)
-        key = (max(m["1-p_benign"]["tpr_at_fpr1"], m["max_attack"]["tpr_at_fpr1"]), -val_loss)
+        # Selection on validation loss: TPR at 1% FPR on ~2k benign rows hinges on a handful of rows
+        # and swung 0.70-0.96 between epochs in the first v1 run; loss is stable.
+        key = (-val_loss, max(m["1-p_benign"]["tpr_at_fpr1"], m["max_attack"]["tpr_at_fpr1"]))
         entry = dict(epoch=epoch, train_loss=run_loss / len(tr_loader), val_loss=val_loss, seconds=time.time() - te, **m)
         log["epochs"].append(entry)
         print(json.dumps({k: entry[k] for k in ("epoch", "train_loss", "val_loss", "seconds", "macro_auc",

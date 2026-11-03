@@ -39,6 +39,7 @@ from scipy import sparse
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import gen_en  # noqa: E402
+import gen_hardneg  # noqa: E402
 import gen_vi  # noqa: E402
 from common import (LABELS, fingerprint, leet, normalize_for_fingerprint, rng, shingles,  # noqa: E402
                     strip_diacritics, teencode_vi)
@@ -218,11 +219,28 @@ def load_sources(c: Collector, counts):
     return vi
 
 
-def add_vi_variants(c, bases, section, source=PROJECT, license_=PROJECT_LICENSE, teen=0.5, leet_frac=0.25):
-    r_t, r_l = rng(section + ".teen"), rng(section + ".leet")
+# v1: identical variant rates for benign and attack rows, so that "no diacritics", "teencode",
+# "leet" or "partly stripped diacritics" carry no information about the label.
+VI_TEEN, VI_LEET, VI_PARTIAL, EN_LEET = 0.5, 0.2, 0.35, 0.08
+
+
+def partial_diacritics(text: str, key: str) -> str:
+    """Strip diacritics on some lines only (e.g. a document whose header kept its accents)."""
+    r = rng(f"partial:{key}")
+    lines = text.split("\n")
+    keep = r.randrange(len(lines))
+    return "\n".join(ln if i == keep or r.random() < 0.3 else strip_diacritics(ln) for i, ln in enumerate(lines))
+
+
+def add_vi_variants(c, bases, section, source=PROJECT, license_=PROJECT_LICENSE, teen=VI_TEEN, leet_frac=VI_LEET):
+    r_t, r_l, r_p = rng(section + ".teen"), rng(section + ".leet"), rng(section + ".partial")
     for b in bases:
         text, labels, g = b["text"], b["labels"], b["group"]
         c.add(text, labels, "vi", "orig", source, license_, g)
+        if "\n" in text and r_p.random() < VI_PARTIAL:
+            pt = partial_diacritics(text, g)
+            if pt != text and pt != strip_diacritics(text):
+                c.add(pt, labels, "vi", "partial_diacritics", source, license_, g)
         if strip_diacritics(text) != text:
             c.add(strip_diacritics(text), labels, "vi", "no_diacritics", source, license_, g)
         if r_t.random() < teen:
@@ -241,26 +259,41 @@ def build(c: Collector, counts):
     r_l = rng("en.leet")
     for b in en_attack:
         c.add(b["text"], b["labels"], "en", b["variant"], PROJECT, PROJECT_LICENSE, b["group"])
-        if r_l.random() < 0.12:
+        if r_l.random() < EN_LEET:
             c.add(leet(b["text"], b["group"]), b["labels"] + ["obfuscation"], "en", "leet", PROJECT, PROJECT_LICENSE, b["group"])
     for b in gen_en.obfuscation():
         c.add(b["text"], b["labels"], "en", b["variant"], PROJECT, PROJECT_LICENSE, b["group"])
     r_l = rng("en.benign.leet")
     for b in gen_en.hard_benign():
         c.add(b["text"], b["labels"], "en", b["variant"], PROJECT, PROJECT_LICENSE, b["group"])
-        if r_l.random() < 0.04:
+        if r_l.random() < EN_LEET:
             c.add(leet(b["text"], b["group"]), ["benign"], "en", "leet", PROJECT, PROJECT_LICENSE, b["group"])
 
     # Vietnamese project rows --------------------------------------------------------------
     vi_attack = (gen_vi.direct() + gen_vi.jailbreak() + gen_vi.extraction() + gen_vi.exfil() + gen_vi.indirect() +
                  gen_vi.tool_poisoning())
-    add_vi_variants(c, vi_attack, "vi.attack", teen=0.5, leet_frac=0.25)
+    add_vi_variants(c, vi_attack, "vi.attack")
     for b in gen_vi.obfuscation():
         c.add(b["text"], b["labels"], "vi", "orig", PROJECT, PROJECT_LICENSE, b["group"])
-    add_vi_variants(c, gen_vi.hard_benign(), "vi.benign", teen=0.45, leet_frac=0.10)
+    add_vi_variants(c, gen_vi.hard_benign(), "vi.benign")
     oasst_bases = [dict(text=t, labels=["benign"], group=f"oasst.{mid}") for mid, t in sorted(vi_oasst)]
     add_vi_variants(c, oasst_bases, "vi.oasst", source=OASST2["key"] + ":prompts", license_=OASST2["license"],
-                    teen=0.3, leet_frac=0.0)
+                    leet_frac=0.0)
+    add_hardneg(c, "train")
+
+
+def add_hardneg(c, split):
+    """v1 generators (gen_hardneg). Template set A for training, B for the hard validation split."""
+    src = PROJECT + (":hardneg" if split == "train" else ":hardneg-val")
+    rows = gen_hardneg.generate(split)
+    r_l = rng(f"hn.en.leet.{split}")
+    for b in rows:
+        if b["lang"] == "en":
+            c.add(b["text"], b["labels"], "en", "orig", src, PROJECT_LICENSE, b["group"])
+            if r_l.random() < EN_LEET:
+                lab = b["labels"] if b["labels"] == ["benign"] else b["labels"] + ["obfuscation"]
+                c.add(leet(b["text"], b["group"]), lab, "en", "leet", src, PROJECT_LICENSE, b["group"])
+    add_vi_variants(c, [b for b in rows if b["lang"] == "vi"], f"hn.vi.{split}", source=src)
 
 
 # ---------------------------------------------------------------------------
@@ -360,10 +393,24 @@ def main():
     rows.sort(key=lambda r: (r["lang"], r["group"], r["variant"], r["text"]))
     for r in rows:
         r["id"] = f"{r['lang']}-{hashlib.sha256(r['text'].encode('utf-8')).hexdigest()[:12]}"
-    split = {"train": [], "val": []}
+    split = {"train": [], "val": [], "val_hard": []}
     for r in rows:
         h = int(hashlib.sha256(f"split:{r['group']}".encode()).hexdigest(), 16) % 100
         split["val" if h < VAL_PCT else "train"].append(r)
+
+    # Hard validation split: v1 generators with template set B, never used for training.
+    hv = Collector()
+    add_hardneg(hv, "val")
+    hcounts = collections.Counter()
+    hrows = leakage_filter(dedupe(hv.rows, hcounts), hcounts)
+    train_texts = {r["text"] for r in rows}
+    hrows = [r for r in hrows if r["text"] not in train_texts]
+    for k, v in hcounts.items():
+        counts[f"val_hard:{k}"] += v
+    hrows.sort(key=lambda r: (r["lang"], r["group"], r["variant"], r["text"]))
+    for r in hrows:
+        r["id"] = f"{r['lang']}-{hashlib.sha256(r['text'].encode('utf-8')).hexdigest()[:12]}"
+    split["val_hard"] = hrows
     for name, rs in split.items():
         with open(DATA / f"{name}.jsonl", "w", encoding="utf-8", newline="\n") as f:
             for r in rs:
