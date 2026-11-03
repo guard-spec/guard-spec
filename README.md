@@ -23,6 +23,18 @@ open http://localhost:3000
 
 Default admin credentials: admin@localhost / change-on-first-login
 
+## Upstream LLM
+
+The gateway stubs responses until it has an upstream. Set these in `.env` or the environment:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `UPSTREAM_LLM_URL` | empty | Base URL of an OpenAI-compatible API, for example `http://host.docker.internal:11434/v1` |
+| `UPSTREAM_LLM_KEY` | empty | Bearer token for the upstream. Not sent when empty |
+| `UPSTREAM_LLM_TIMEOUT` | `5m` | Longest wait for the first byte, and for any later silence. A long stream is not cut off while data flows |
+
+Refused requests return HTTP 400 with `{"error":{"message":"...","type":"invalid_request_error","code":"content_filter"}}`. If policies cannot be loaded or evaluated the gateway returns 503 and sends nothing upstream.
+
 ## Detection Layers
 
 1. **Unicode sanitization** — strips tag block chars, bidi overrides, variation selectors. Defeats 100% ASR emoji smuggling before classification.

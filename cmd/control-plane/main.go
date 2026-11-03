@@ -392,14 +392,15 @@ func createPolicy(db *pgxpool.Pool, eng *policy.Engine) fiber.Handler {
 		if err := c.BodyParser(&req); err != nil || req.Name == "" {
 			return c.Status(400).JSON(fiber.Map{"error": "name and rules are required"})
 		}
-		if err := validateRules(eng, req.Rules); err != nil {
+		rules, err := validateRules(eng, req.Rules)
+		if err != nil {
 			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
 		}
 		id := uuid.New()
-		err := tenant.WithOrg(c.Context(), db, org, func(tx pgx.Tx) error {
+		err = tenant.WithOrg(c.Context(), db, org, func(tx pgx.Tx) error {
 			_, err := tx.Exec(c.Context(),
 				`INSERT INTO policies (id, org_id, name, description, rules) VALUES ($1,$2,$3,$4,$5)`,
-				id, org, req.Name, req.Description, req.Rules)
+				id, org, req.Name, req.Description, rules)
 			return err
 		})
 		if err != nil {
@@ -426,7 +427,7 @@ func updatePolicy(db *pgxpool.Pool, eng *policy.Engine) fiber.Handler {
 			return c.Status(400).JSON(fiber.Map{"error": "invalid body"})
 		}
 		if req.Rules != nil {
-			if err := validateRules(eng, req.Rules); err != nil {
+			if req.Rules, err = validateRules(eng, req.Rules); err != nil {
 				return c.Status(400).JSON(fiber.Map{"error": err.Error()})
 			}
 		}
@@ -493,22 +494,13 @@ func validateCEL(eng *policy.Engine) fiber.Handler {
 	}
 }
 
-// validateRules compiles each rule to CEL and returns an error if any fail.
-func validateRules(eng *policy.Engine, raw json.RawMessage) error {
-	var rules []policy.Rule
-	if err := json.Unmarshal(raw, &rules); err != nil {
-		return err
+// validateRules checks each rule and returns the list to store, with rule IDs filled in.
+func validateRules(eng *policy.Engine, raw json.RawMessage) (json.RawMessage, error) {
+	rules, err := eng.ValidateRules(raw)
+	if err != nil {
+		return nil, err
 	}
-	for _, rule := range rules {
-		celExpr, err := policy.JSONASTToCEL(rule.Condition)
-		if err != nil {
-			return err
-		}
-		if err := eng.ValidateCEL(celExpr); err != nil {
-			return err
-		}
-	}
-	return nil
+	return json.Marshal(rules)
 }
 
 func listRequests(db *pgxpool.Pool) fiber.Handler {
@@ -520,21 +512,23 @@ func listRequests(db *pgxpool.Pool) fiber.Handler {
 		}
 
 		type row struct {
-			ID             uuid.UUID `json:"id"`
-			Action         string    `json:"action"`
-			InjectionLabel *string   `json:"injection_label"`
-			InjectionScore float32   `json:"injection_score"`
-			ToxicityScore  float32   `json:"toxicity_score"`
-			AnomalyScore   float32   `json:"anomaly_score"`
-			HadTagChars    bool      `json:"had_tag_chars"`
-			HadBidi        bool      `json:"had_bidi"`
-			LatencyMs      *int      `json:"latency_ms"`
-			CreatedAt      time.Time `json:"created_at"`
+			ID             uuid.UUID  `json:"id"`
+			Model          *string    `json:"model"`
+			Action         string     `json:"action"`
+			RuleID         *uuid.UUID `json:"rule_id"`
+			InjectionLabel *string    `json:"injection_label"`
+			InjectionScore float32    `json:"injection_score"`
+			ToxicityScore  float32    `json:"toxicity_score"`
+			AnomalyScore   float32    `json:"anomaly_score"`
+			HadTagChars    bool       `json:"had_tag_chars"`
+			HadBidi        bool       `json:"had_bidi"`
+			LatencyMs      *int       `json:"latency_ms"`
+			CreatedAt      time.Time  `json:"created_at"`
 		}
 		reqs := []row{}
 		err := tenant.WithOrg(c.Context(), db, id, func(tx pgx.Tx) error {
 			rows, err := tx.Query(c.Context(),
-				`SELECT id, action, injection_label, injection_score, toxicity_score, anomaly_score,
+				`SELECT id, model, action, rule_id, injection_label, injection_score, toxicity_score, anomaly_score,
 				        had_tag_chars, had_bidi, latency_ms, created_at
 				 FROM requests WHERE org_id = $1
 				 ORDER BY created_at DESC LIMIT $2`, id, limit)
@@ -544,7 +538,7 @@ func listRequests(db *pgxpool.Pool) fiber.Handler {
 			defer rows.Close()
 			for rows.Next() {
 				var r row
-				if err := rows.Scan(&r.ID, &r.Action, &r.InjectionLabel, &r.InjectionScore, &r.ToxicityScore,
+				if err := rows.Scan(&r.ID, &r.Model, &r.Action, &r.RuleID, &r.InjectionLabel, &r.InjectionScore, &r.ToxicityScore,
 					&r.AnomalyScore, &r.HadTagChars, &r.HadBidi, &r.LatencyMs, &r.CreatedAt); err != nil {
 					return err
 				}

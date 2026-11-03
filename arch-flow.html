@@ -623,10 +623,10 @@
         <span class="step-title">Pre-Policy Hard Blocks</span>
         <span class="layer-chip" style="--lc:var(--c-hardblock)">Gateway</span>
       </div>
-      <div class="step-desc">Before any policy or routing evaluation, the gateway enforces two hard thresholds hard-coded in the request handler. These are the <em>active</em> blocking mechanism today. No policy rule can override them — they run first and terminate immediately.</div>
+      <div class="step-desc">Before any policy or routing evaluation, the gateway enforces two hard thresholds hard-coded in the request handler. They are a safety floor: no policy rule can override them, not even an <code>allow</code> — they run first and terminate immediately.</div>
       <div class="decisions">
-        <div class="dec"><span class="dec-cond">anomaly_score ≥ 0.6</span><span class="dec-arrow">→</span><span class="dec-block">HTTP 400 blocked</span></div>
-        <div class="dec"><span class="dec-cond">injection.score ≥ 0.85</span><span class="dec-arrow">→</span><span class="dec-block">HTTP 400 blocked</span></div>
+        <div class="dec"><span class="dec-cond">anomaly_score ≥ 0.6</span><span class="dec-arrow">→</span><span class="dec-block">HTTP 400 content_filter</span></div>
+        <div class="dec"><span class="dec-cond">injection.score ≥ 0.85</span><span class="dec-arrow">→</span><span class="dec-block">HTTP 400 content_filter</span></div>
         <div class="dec"><span class="dec-cond">both below threshold</span><span class="dec-arrow">→</span><span class="dec-pass">continue to policy engine</span></div>
       </div>
     </div>
@@ -644,15 +644,18 @@
         <span class="layer-chip" style="--lc:var(--c-policy)">Policy</span>
       </div>
       <div class="step-desc">Structured policy rules (configured in the Rules page) are evaluated using the Common Expression Language. Each rule has typed conditions on ML signal fields combined with AND/OR logic, plus an action. Rules evaluate in order — first match wins, evaluation stops. The Rules page UI provides a query-builder interface to author these conditions without writing CEL by hand.</div>
-      <div class="warn-chip">⚠ Engine is built but NOT wired into the gateway — step 5 hard blocks are the active gate today</div>
+      <div class="decisions">
+        <div class="dec"><span class="dec-cond">policies cannot be loaded, compiled or evaluated</span><span class="dec-arrow">→</span><span class="dec-block">HTTP 503, nothing sent upstream</span></div>
+      </div>
       <div class="signals" style="margin-top:10px;">
         <span class="sig">injection.score</span>
         <span class="sig">injection.label</span>
         <span class="sig">anomaly.score</span>
         <span class="sig">toxicity.score</span>
-        <span class="sig">had_tag_chars</span>
-        <span class="sig">had_bidi</span>
+        <span class="sig">anomaly.has_tag_chars</span>
+        <span class="sig">anomaly.has_bidi</span>
         <span class="sig">request.model</span>
+        <span class="sig">request.tokens</span>
       </div>
     </div>
   </div>
@@ -687,13 +690,13 @@
         <span class="step-title">Action Execution</span>
         <span class="layer-chip" style="--lc:var(--c-action)">Gateway</span>
       </div>
-      <div class="step-desc">The resolved action is executed. BLOCK and LOG are recorded to the audit log. ALLOW, REDACT, and ROUTE forward to an upstream LLM after optionally modifying the request.</div>
+      <div class="step-desc">The resolved action is executed and every outcome gets one audit row. ALLOW and LOG forward the sanitized request to the upstream LLM. REDACT and ROUTE are not implemented: the control plane refuses them, and a stored rule that matches with one fails closed.</div>
       <div class="signals">
-        <span class="sig">BLOCK → HTTP 400 + reason</span>
+        <span class="sig">BLOCK → HTTP 400 content_filter</span>
         <span class="sig">ALLOW → forward to upstream</span>
         <span class="sig">LOG → audit + allow through</span>
-        <span class="sig">REDACT → strip fields + forward</span>
-        <span class="sig">ROUTE → redirect to alt model</span>
+        <span class="sig">REDACT → not implemented, HTTP 503</span>
+        <span class="sig">ROUTE → not implemented, HTTP 503</span>
       </div>
     </div>
   </div>
@@ -751,7 +754,7 @@
         </div>
         <div class="attr-row">
           <div class="attr-k">Fields available</div>
-          <div class="attr-v"><code>injection.score</code>, <code>anomaly.score</code>, <code>toxicity.score</code>, <code>injection.label</code>, <code>had_bidi</code>, <code>had_tag_chars</code>, <code>request.model</code></div>
+          <div class="attr-v"><code>injection.score</code>, <code>anomaly.score</code>, <code>toxicity.score</code>, <code>injection.label</code>, <code>anomaly.has_bidi</code>, <code>anomaly.has_tag_chars</code>, <code>request.model</code>, <code>request.tokens</code>, <code>request.tenant_id</code>, <code>mcp.is_tool_response</code>, <code>pii.entities</code>, <code>topic.categories</code></div>
         </div>
         <div class="attr-row">
           <div class="attr-k">Evaluation</div>
@@ -763,7 +766,7 @@
         </div>
         <div class="attr-row">
           <div class="attr-k">Status</div>
-          <div class="attr-v"><span class="warn-chip" style="margin:0">⚠ Engine built · not wired to gateway</span></div>
+          <div class="attr-v"><span class="badge badge-live" style="margin:0">● Live</span></div>
         </div>
         <div class="ex-block">
           <div class="ex-label">Example — block moderate-injection requests</div>
@@ -898,8 +901,8 @@ injection_score >= 0.6 &&
         </tr>
         <tr>
           <td><div class="comp-name">Policy → Gateway Wire</div><div class="comp-sub">Gateway calls policy engine</div></td>
-          <td><span class="is is-planned">○ Pending</span></td>
-          <td style="font-size:0.8rem;">Gateway request handler needs to call the CEL policy engine after step 5 hard blocks. Policy rules are authored and stored but never evaluated on live traffic.</td>
+          <td><span class="is is-done">✓ Complete</span></td>
+          <td style="font-size:0.8rem;">Gateway loads the org's enabled policies on each request and evaluates them after the step 5 hard blocks. Errors fail closed with HTTP 503.</td>
         </tr>
         <tr>
           <td><div class="comp-name">Homoglyph Detection</div><div class="comp-sub">UTS #39 skeleton algorithm</div></td>
