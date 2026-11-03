@@ -2,8 +2,9 @@ package main
 
 import (
 	"encoding/json"
-	"strings"
 	"testing"
+
+	"github.com/promptshield/promptshield/internal/sanitizer"
 )
 
 // FuzzChatRequest drives the chat request parser and guard with arbitrary
@@ -41,7 +42,8 @@ func FuzzChatRequest(f *testing.F) {
 			return
 		}
 		for _, text := range guard.texts {
-			if !strings.HasPrefix(text, "[DATA]") || !strings.HasSuffix(text, "[/DATA]") {
+			// Sanitized text is a fixed point of the sanitizer.
+			if again, _, err := sanitizer.Sanitize(text); err != nil || again != text {
 				t.Fatalf("collected text %q was not sanitized", text)
 			}
 		}
