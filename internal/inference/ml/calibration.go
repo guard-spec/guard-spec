@@ -28,6 +28,17 @@ type CalibrationFile struct {
 
 // BuiltinCalibrations are the calibrations of the classifiers we ship.
 var BuiltinCalibrations = map[string]CalibrationFile{
+	// v2: fitted on val + val_hard + val_vi_variants (5,885 rows); the
+	// combiners use the built-in L1 and L3 scalings, as at run time.
+	"guardspec-classifier-v2": {
+		Model:    "guardspec-classifier-v2",
+		FittedOn: "train/data/val.jsonl + val_hard.jsonl + val_vi_variants.jsonl (5885 rows), 5-fold CV for the method choice",
+		Platt:    fusion.Calibration{A: 0.9364, B: -0.5280},
+		LogReg: map[string]fusion.LogReg{
+			"l1,l2":    {W: [3]float64{0.6367, 0.9369, 0}, B: 0.4053},
+			"l1,l2,l3": {W: [3]float64{0.5836, 0.8924, 0.5913}, B: 0.6526},
+		},
+	},
 	"guardspec-classifier-v1": {
 		Model:    "guardspec-classifier-v1",
 		FittedOn: "train/data/val.jsonl + val_hard.jsonl (3258 rows), 5-fold CV for the method choice",
