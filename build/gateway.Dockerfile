@@ -6,7 +6,7 @@
 # libonnxruntime.so is shipped in the image and loaded at run time
 # (ONNXRUNTIME_LIB). Versions and SHA-256 values live in build/onnx-deps.sh.
 
-FROM golang:1.22-bookworm AS builder
+FROM golang:1.26.10-bookworm@sha256:23ce71337b726608afb1bc00986e630a05034a87a87ea1fc2cd1ae5cf33387eb AS builder
 ARG TARGETOS=linux
 ARG TARGETARCH
 
@@ -25,7 +25,7 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
  && go build -trimpath -ldflags="-s -w" -o /out/models ./cmd/models/
 
 # --- runtime image ---
-FROM debian:bookworm-slim
+FROM debian:bookworm-slim@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl \

@@ -87,7 +87,7 @@ func newFakeClassifier(t *testing.T, o Options) (*Classifier, *fakeSession, *fak
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &Classifier{m: m, labels: []string{"SAFE", "INJECTION"}}, sess, tok
+	return newClassifier(m, []string{"SAFE", "INJECTION"}, HeadSoftmax), sess, tok
 }
 
 func words(n int) string { return strings.TrimSpace(strings.Repeat("abc ", n)) }

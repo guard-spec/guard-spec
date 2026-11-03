@@ -31,7 +31,8 @@ type ManifestModel struct {
 	Revision   string         `yaml:"revision"`
 	License    string         `yaml:"license"`
 	LicenseURL string         `yaml:"license_url"`
-	Gated      bool           `yaml:"gated"`
+	Gated      bool           `yaml:"gated"`    // needs HF_TOKEN
+	Optional   bool           `yaml:"optional"` // pulled only when named with -models
 	Files      []ManifestFile `yaml:"files"`
 }
 

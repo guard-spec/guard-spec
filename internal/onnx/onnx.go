@@ -30,14 +30,17 @@ import (
 	"runtime"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 )
 
 // File names inside a model directory.
 const (
-	ModelFile     = "model.onnx"
-	TokenizerFile = "tokenizer.json"
-	ConfigFile    = "config.json"
+	ModelFile      = "model.onnx"
+	ModelInt8File  = "model_int8.onnx"
+	ThresholdsFile = "thresholds.json"
+	TokenizerFile  = "tokenizer.json"
+	ConfigFile     = "config.json"
 )
 
 // Environment variables read by this package.
@@ -63,7 +66,8 @@ var (
 // Options tune a model. Zero values pick the defaults.
 type Options struct {
 	// MaxLength is the window size in tokens, special tokens included.
-	// Default: config.json max_position_embeddings, capped at 512.
+	// Default for a classifier: max_len from thresholds.json if present;
+	// otherwise config.json max_position_embeddings, capped at 512.
 	MaxLength int
 	// Stride is the overlap between consecutive windows in tokens (default 64).
 	Stride int
@@ -73,6 +77,11 @@ type Options struct {
 	MaxChunks int
 	// Limiter bounds concurrent runs. Default: DefaultLimiter(), shared by all models.
 	Limiter *Limiter
+	// Head for classifiers. Default HeadAuto (config.json problem_type).
+	Head Head
+	// ModelFile is the model file name inside the directory. Default: the
+	// first of model.onnx and model_int8.onnx that exists.
+	ModelFile string
 	// IntraOpThreads for ONNX Runtime. Default: $INFERENCE_INTRA_OP_THREADS, else see EnvIntraOpThreads.
 	IntraOpThreads int
 }
@@ -183,11 +192,31 @@ type session interface {
 	Close() error
 }
 
+// ResolveModelFile returns the model path inside dir: Options.ModelFile if set,
+// else the first of model.onnx and model_int8.onnx that exists.
+func ResolveModelFile(dir string, o Options) string {
+	if o.ModelFile != "" {
+		return filepath.Join(dir, o.ModelFile)
+	}
+	for _, name := range []string{ModelFile, ModelInt8File} {
+		if p := filepath.Join(dir, name); fileExists(p) {
+			return p
+		}
+	}
+	return filepath.Join(dir, ModelFile)
+}
+
+func fileExists(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
+}
+
 // ---------------------------------------------------------------------------
 // Model core shared by Classifier and Embedder
 
 type modelConfig struct {
 	ID2Label              map[string]string `json:"id2label"`
+	ProblemType           string            `json:"problem_type"`
 	MaxPositionEmbeddings int               `json:"max_position_embeddings"`
 	PadTokenID            *int64            `json:"pad_token_id"`
 }
@@ -405,14 +434,41 @@ func (m *model) run(ctx context.Context, texts []string, fn func(b batchOut) err
 // ---------------------------------------------------------------------------
 // Classifier
 
+// Head is how a classifier turns logits into probabilities.
+type Head int
+
+const (
+	// HeadAuto reads config.json problem_type: "multi_label_classification"
+	// means HeadSigmoid, anything else HeadSoftmax.
+	HeadAuto Head = iota
+	// HeadSoftmax: single-label, probabilities sum to 1 (ProtectAI).
+	HeadSoftmax
+	// HeadSigmoid: multi-label, one independent probability per label
+	// (guardspec-classifier).
+	HeadSigmoid
+)
+
+func (h Head) String() string {
+	switch h {
+	case HeadSoftmax:
+		return "softmax"
+	case HeadSigmoid:
+		return "sigmoid"
+	}
+	return "auto"
+}
+
 // Classifier is a sequence-classification model. Safe for concurrent use.
 type Classifier struct {
 	m      *model
 	labels []string
+	head   Head
+	benign int // index of the benign/safe label, or -1
 }
 
-// NewClassifier loads dir/model.onnx, dir/tokenizer.json and the label names
-// from dir/config.json id2label.
+// NewClassifier loads the model file (see Options.ModelFile), dir/tokenizer.json
+// and the label names from dir/config.json id2label. The head (softmax or
+// sigmoid) comes from Options.Head or config.json problem_type.
 func NewClassifier(dir string, o Options) (*Classifier, error) {
 	cfg, err := readConfig(dir)
 	if err != nil {
@@ -421,6 +477,16 @@ func NewClassifier(dir string, o Options) (*Classifier, error) {
 	labels, err := labelsFromID2Label(cfg.ID2Label)
 	if err != nil {
 		return nil, err
+	}
+	head := o.Head
+	if head == HeadAuto {
+		head = HeadSoftmax
+		if cfg.ProblemType == "multi_label_classification" {
+			head = HeadSigmoid
+		}
+	}
+	if o.MaxLength <= 0 {
+		o.MaxLength = trainedMaxLen(dir)
 	}
 	tok, sess, err := newBackend(dir, kindClassifier, o)
 	if err != nil {
@@ -432,11 +498,50 @@ func NewClassifier(dir string, o Options) (*Classifier, error) {
 		_ = tok.Close()
 		return nil, err
 	}
-	return &Classifier{m: m, labels: labels}, nil
+	return newClassifier(m, labels, head), nil
+}
+
+// trainedMaxLen reads max_len from dir/thresholds.json (written by the
+// guardspec-classifier training), or returns 0.
+func trainedMaxLen(dir string) int {
+	data, err := os.ReadFile(filepath.Join(dir, ThresholdsFile))
+	if err != nil {
+		return 0
+	}
+	var t struct {
+		MaxLen int `json:"max_len"`
+	}
+	if json.Unmarshal(data, &t) != nil {
+		return 0
+	}
+	return t.MaxLen
+}
+
+func newClassifier(m *model, labels []string, head Head) *Classifier {
+	c := &Classifier{m: m, labels: labels, head: head, benign: -1}
+	for i, l := range labels {
+		if isBenignLabel(l) {
+			c.benign = i
+			break
+		}
+	}
+	return c
+}
+
+// isBenignLabel matches the "no attack" label of the supported models.
+func isBenignLabel(l string) bool {
+	switch strings.ToLower(l) {
+	case "benign", "safe":
+		return true
+	}
+	return false
 }
 
 // Labels are the label names, in the order of Score's probabilities.
 func (c *Classifier) Labels() []string { return append([]string(nil), c.labels...) }
+
+// Head is the activation in use (HeadSoftmax or HeadSigmoid).
+func (c *Classifier) Head() Head { return c.head }
 
 // LabelIndex returns the position of a label in Labels, or -1.
 func (c *Classifier) LabelIndex(name string) int {
@@ -448,30 +553,64 @@ func (c *Classifier) LabelIndex(name string) int {
 	return -1
 }
 
-// Score returns per-label probabilities (softmax of the logits) for each text.
-// A text longer than one window is scored window by window and each label gets
-// its maximum over the windows, so the values of a chunked text need not sum to 1.
+// BenignIndex is the position of the benign/safe label ("benign", "SAFE"), or -1.
+func (c *Classifier) BenignIndex() int { return c.benign }
+
+// Score returns per-label probabilities for each text: softmax of the logits
+// for a single-label head, an independent sigmoid per label for a multi-label
+// head. A text longer than one window is scored window by window and every
+// label takes its worst case over the windows: the minimum for the benign/safe
+// label, the maximum for every other label. The values of a chunked text need
+// not sum to 1.
 func (c *Classifier) Score(ctx context.Context, texts []string) ([][]float32, error) {
 	out := make([][]float32, len(texts))
+	activate := softmax
+	if c.head == HeadSigmoid {
+		activate = sigmoid
+	}
 	err := c.m.run(ctx, texts, func(b batchOut) error {
 		if len(b.shape) != 2 || int(b.shape[0]) != len(b.wins) || int(b.shape[1]) != len(c.labels) {
 			return fmt.Errorf("onnx: classifier output shape %v, want [%d %d]", b.shape, len(b.wins), len(c.labels))
 		}
 		nl := len(c.labels)
 		for r, w := range b.wins {
-			p := softmax(b.data[r*nl : (r+1)*nl])
+			p := activate(b.data[r*nl : (r+1)*nl])
 			if out[w.text] == nil {
 				out[w.text] = p
 				continue
 			}
 			for k := range p {
-				out[w.text][k] = max(out[w.text][k], p[k])
+				if k == c.benign {
+					out[w.text][k] = min(out[w.text][k], p[k])
+				} else {
+					out[w.text][k] = max(out[w.text][k], p[k])
+				}
 			}
 		}
 		return nil
 	})
 	if err != nil {
 		return nil, err
+	}
+	return out, nil
+}
+
+// ErrNoBenignLabel means Risk was called on a model without a benign/safe label.
+var ErrNoBenignLabel = errors.New("onnx: model has no benign/safe label")
+
+// Risk returns 1 - p(benign) per text (for ProtectAI, 1 - p(SAFE) = p(INJECTION)).
+// For a chunked text it uses the lowest p(benign) of any window.
+func (c *Classifier) Risk(ctx context.Context, texts []string) ([]float32, error) {
+	if c.benign < 0 {
+		return nil, ErrNoBenignLabel
+	}
+	probs, err := c.Score(ctx, texts)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]float32, len(probs))
+	for i, p := range probs {
+		out[i] = 1 - p[c.benign]
 	}
 	return out, nil
 }
@@ -546,6 +685,14 @@ func (e *Embedder) Close() error { return e.m.close() }
 
 // ---------------------------------------------------------------------------
 // Math helpers
+
+func sigmoid(logits []float32) []float32 {
+	out := make([]float32, len(logits))
+	for i, v := range logits {
+		out[i] = float32(1 / (1 + math.Exp(-float64(v))))
+	}
+	return out
+}
 
 func softmax(logits []float32) []float32 {
 	out := make([]float32, len(logits))

@@ -136,3 +136,29 @@ amd64 hardware.
 Observation: ProtectAI flags highly repetitive benign text (one sentence
 repeated 20 times scores INJECTION ≈ 0.98 in a single window); varied long
 prose scores ≈ 0. Callers should not treat repetition-only hits as certain.
+
+## Addendum: guardspec-classifier-v0 as L2
+
+Our own classifier (PR #9, `models/local/guardspec-classifier-v0/`:
+`model_int8.onnx`, 8-label sigmoid head, risk = 1 − p(benign)) replaces
+ProtectAI as L2; the ProtectAI entries in the manifest are optional baselines.
+`Classifier` picks softmax or sigmoid from config.json `problem_type`
+(`multi_label_classification` → sigmoid), loads `model_int8.onnx` when there
+is no `model.onnx`, takes the window size from `thresholds.json` `max_len`
+(256), and `Risk()` returns 1 − p(benign). Over several windows the benign
+label takes its minimum and every attack label its maximum.
+
+macOS (M3 Max), one text per request, n=100 (512 tokens = 3 windows of 256):
+
+| tokens | conc | p50 ms | p99 ms | req/s |
+|---:|---:|---:|---:|---:|
+| 64 | 1 | 4.1 | 6.0 | 235.7 |
+| 64 | 4 | 7.9 | 9.0 | 499.1 |
+| 256 | 1 | 13.8 | 14.8 | 72.5 |
+| 256 | 4 | 31.5 | 61.7 | 123.5 |
+| 512 | 1 | 34.2 | 35.8 | 29.1 |
+| 512 | 4 | 84.7 | 95.3 | 47.2 |
+
+Observed: long varied business prose (≈ 600 tokens) reaches risk 0.61
+(jailbreak 0.58 in one window), below the 0.73 block threshold but above the
+0.014 review threshold; worth a look in the next training round.

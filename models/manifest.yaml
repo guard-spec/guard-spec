@@ -10,9 +10,18 @@
 # git_sha1 is the git blob id from the Hugging Face tree API. It is only used for
 # small files of gated repos, whose content (and so SHA-256) cannot be read
 # without a token. `pull` verifies it and prints the SHA-256 so it can be pinned.
+#
+# optional: true models are only pulled when named with -models. gated: true
+# models need HF_TOKEN (after accepting the terms on the model page) and are
+# skipped without it.
+#
+# The L2 injection classifier is our own guardspec-classifier-v0 (PR #9). It is
+# not on Hugging Face: the training writes it to models/local/guardspec-classifier-v0/
+# (model_int8.onnx, tokenizer.json, config.json, thresholds.json), which
+# internal/onnx loads directly. The ProtectAI models below are optional
+# comparison baselines.
 models:
-  # Primary injection classifier. The repo is gated (auto-approved): accept the
-  # terms on the model page, then export HF_TOKEN before pulling.
+  # ProtectAI small v2: gated, requires HF_TOKEN. Optional baseline.
   - name: protectai-deberta-v3-small-pi-v2
     kind: classifier
     repo: protectai/deberta-v3-small-prompt-injection-v2
@@ -20,6 +29,7 @@ models:
     license: Apache-2.0
     license_url: https://huggingface.co/protectai/deberta-v3-small-prompt-injection-v2
     gated: true
+    optional: true
     # No quantized ONNX is published; fp32 is the only variant.
     files:
       - src: onnx/model.onnx
@@ -35,10 +45,11 @@ models:
         size: 1031
         git_sha1: 85f089c80ca99b4937cdcbb0b0c4a8b28733e008
 
-  # Same family, same labels (SAFE/INJECTION) and tokenizer, not gated. About
-  # 3x the compute of the small model; used when no HF_TOKEN is available.
+  # ProtectAI base v2: same labels (SAFE/INJECTION) and tokenizer, not gated,
+  # about 3x the compute of small. Optional baseline.
   - name: protectai-deberta-v3-base-pi-v2
     kind: classifier
+    optional: true
     repo: protectai/deberta-v3-base-prompt-injection-v2
     revision: 90c9989b1a342275dd0d1a95aad283c04e075671
     license: Apache-2.0
