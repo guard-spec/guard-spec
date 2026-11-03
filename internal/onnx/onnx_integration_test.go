@@ -111,7 +111,7 @@ func TestProtectAIClassifier(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	t.Logf("model %s, labels %v", filepath.Base(dir), c.Labels())
 	inj := c.LabelIndex("INJECTION")
 	if inj < 0 {
@@ -202,7 +202,7 @@ func TestGuardSpecClassifier(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	if c.Head() != HeadSigmoid || c.BenignIndex() != 0 || len(c.Labels()) != 8 {
 		t.Fatalf("head %v benign %d labels %v", c.Head(), c.BenignIndex(), c.Labels())
 	}
@@ -257,7 +257,7 @@ func TestEmbedderE5(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer e.Close()
+	defer func() { _ = e.Close() }()
 	v, err := e.Embed(context.Background(), []string{
 		"query: how do I reset my password?",
 		"passage: To reset your password, open Settings and choose 'Forgot password'.",
@@ -316,7 +316,7 @@ func TestTokenizerParity(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer tok.Close()
+			defer func() { _ = tok.Close() }()
 			pre, suf := tok.Specials()
 			for _, c := range cases {
 				ids, err := tok.Encode(c.Text)
@@ -326,7 +326,7 @@ func TestTokenizerParity(t *testing.T) {
 				if len(ids) == 0 {
 					ids = nil
 				}
-				if !slices.Equal(ids, c.IDs) && !(len(ids) == 0 && len(c.IDs) == 0) {
+				if !slices.Equal(ids, c.IDs) && (len(ids) != 0 || len(c.IDs) != 0) {
 					t.Errorf("%q:\n got  %v\n want %v", c.Text, ids, c.IDs)
 				}
 				full := slices.Concat(pre, c.IDs, suf)

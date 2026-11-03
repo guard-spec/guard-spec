@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"sync"
 
 	"github.com/daulet/tokenizers"
@@ -93,6 +94,24 @@ func newBackend(dir string, kind modelKind, o Options) (tokenizer, session, erro
 	}
 	return tok, sess, nil
 }
+
+func intraOpThreads(o Options) int {
+	if o.IntraOpThreads > 0 {
+		return o.IntraOpThreads
+	}
+	if n, err := strconv.Atoi(os.Getenv(EnvIntraOpThreads)); err == nil && n >= 0 {
+		return n // 0: let ORT decide
+	}
+	if runtime.GOOS == "linux" {
+		// Measured in a linux/arm64 container on a 14-CPU host: ORT's default
+		// (one spinning thread per core) was 3-7x slower than 4 threads, both
+		// alone and with 4 concurrent calls. On macOS the ORT default was best.
+		return min(defaultLinuxIntraOpThreads, runtime.NumCPU())
+	}
+	return 0
+}
+
+const defaultLinuxIntraOpThreads = 4
 
 // ---------------------------------------------------------------------------
 // Tokenizer
@@ -226,7 +245,7 @@ func newORTSession(path string, kind modelKind, o Options) (*ortSession, error) 
 	if err != nil {
 		return nil, err
 	}
-	defer opts.Destroy()
+	defer func() { _ = opts.Destroy() }()
 	if n := intraOpThreads(o); n > 0 {
 		if err := opts.SetIntraOpNumThreads(n); err != nil {
 			return nil, err
@@ -266,7 +285,7 @@ func (s *ortSession) Run(ctx context.Context, ids, mask, typeIDs []int64, batch,
 	if err != nil {
 		return nil, nil, err
 	}
-	defer ro.Destroy()
+	defer func() { _ = ro.Destroy() }()
 	stop := context.AfterFunc(ctx, func() { _ = ro.Terminate() })
 	defer stop()
 
@@ -274,7 +293,7 @@ func (s *ortSession) Run(ctx context.Context, ids, mask, typeIDs []int64, batch,
 	if err := s.s.RunWithOptions(values, outputs, ro); err != nil {
 		return nil, nil, err
 	}
-	defer outputs[0].Destroy()
+	defer func() { _ = outputs[0].Destroy() }()
 	t, ok := outputs[0].(*ort.Tensor[float32])
 	if !ok {
 		return nil, nil, fmt.Errorf("onnx: output is %T, want float32 tensor", outputs[0])
