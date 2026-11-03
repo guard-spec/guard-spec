@@ -508,12 +508,22 @@ English and 1,250 Vietnamese, built deterministically by
 `eval/build/build.py` (see [eval/README.md](eval/README.md)). "Block" is the
 gateway's direct-injection threshold, 0.85.
 
+The model rows below use classifier v1. Classifier v2 (the new default L2,
+see [train/MODEL_CARD.md](train/MODEL_CARD.md)) has not been measured on
+`eval/` yet.
+
 | Detector | ROC AUC | TPR at FPR ≤ 1% | TPR at block | FPR at block | EN FPR | VI FPR | VI teencode FPR | VI no-diacritics FPR | Detector latency p50 / p99 |
 |---|---|---|---|---|---|---|---|---|---|
 | L1 only (default build) | 0.952 | 0.910 | 0.882 | 0.1% | 0.3% | 0.0% | 0.0% | 0.0% | 0.11 / 0.29 ms |
-| L1 + L2 | 0.985 | 0.917 | 0.942 | 2.6% | 1.1% | 3.4% | 6.3% | 3.8% | 2.7 / 7.6 ms |
-| L1 + L2 + L3 (default with models) | 0.985 | 0.916 | 0.939 | 2.7% | 1.1% | 3.6% | 7.0% | 3.8% | 3.7 / 11.3 ms |
-| L1 + L2 + L3, cascade | 0.987 | 0.932 | 0.953 | 2.7% | 1.1% | 3.6% | 7.0% | 3.8% | 2.9 / 8.5 ms |
+| L1 + L2 (v1) | 0.985 | 0.917 | 0.942 | 2.6% | 1.1% | 3.4% | 6.3% | 3.8% | 2.7 / 7.6 ms |
+| L1 + L2 + L3 (v1) | 0.985 | 0.916 | 0.939 | 2.7% | 1.1% | 3.6% | 7.0% | 3.8% | 3.7 / 11.3 ms |
+| L1 + L2 + L3 (v1), cascade | 0.987 | 0.932 | 0.953 | 2.7% | 1.1% | 3.6% | 7.0% | 3.8% | 2.9 / 8.5 ms |
+| L1 + L2 + L3 (v2, default with models) | TBD (pending measurement) | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+| L1 + L2 + L3 (v2), cascade | TBD (pending measurement) | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+
+L1 only after the hidden-HTML rules (2026-11-04, `go test ./internal/evalset
+-run TestBaseline -v`): AUC 0.952, TPR at block 0.881, FPR at block 0.1%
+(unchanged), EN FPR 0.3%, VI FPR 0.0%.
 
 Reproduce:
 
@@ -538,8 +548,8 @@ How to read them, and their limits:
   rules and is stiffer than real chat. Many attack rows come from templates,
   so errors are correlated.
 - **Vietnamese teencode and no-diacritics benign text is the known weak
-  spot** of the model layers: 7.0% and 3.8% of those benign rows are blocked
-  with L1+L2+L3. Fixing this is the main goal of classifier v2.
+  spot** of the model layers with classifier v1: 7.0% and 3.8% of those benign rows are blocked
+  with L1+L2+L3. Classifier v2 targets this; its eval numbers are TBD.
 - **Latency** is the sanitizer plus the detector for one row at a time, in
   process, measured by `cmd/eval`. It is not end-to-end HTTP latency through
   the gateway and does not include the upstream model. It was measured on a
