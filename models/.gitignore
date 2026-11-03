@@ -10,3 +10,6 @@ tokenizer_config.json
 config.json
 special_tokens_map.json
 vocab.txt
+
+# Pulled by `go run ./cmd/models pull`; never commit weights
+cache/

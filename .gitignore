@@ -22,3 +22,6 @@ test_body.json
 
 # OS
 .DS_Store
+
+# Native ONNX deps fetched by build/onnx-deps.sh
+/.onnx/
