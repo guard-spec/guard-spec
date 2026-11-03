@@ -24,7 +24,7 @@ func FuzzChatRequest(f *testing.F) {
 		`{"model":"m","prompt":["a","b"]}`,
 		`{"model":"m","prompt":[1,2,3]}`,
 		`{"model":"m","seed":12345678901234567890}`,
-		`{"model":"m","messages":[{"role":"user","content":"‮evil\U000E0041"}]}`,
+		`{"model":"m","messages":[{"role":"user","content":"\u202eevil\udb40\udc41"}]}`,
 		`{"model":"m"} trailing`,
 		`{"model":"m"}{"model":"n"}`,
 		`[]`, `null`, `"x"`, `{}`,

@@ -197,7 +197,8 @@ func TestCostLimitStopsExpensiveExpression(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected a cost error")
 		}
-	case <-time.After(5 * time.Second):
+	// Generous for -race on a small CI runner; unbounded would take days.
+	case <-time.After(30 * time.Second):
 		t.Fatal("evaluation did not stop")
 	}
 }

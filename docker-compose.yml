@@ -65,7 +65,7 @@ services:
         condition: service_completed_successfully
 
   migrate:
-    image: migrate/migrate:v4.17.1
+    image: migrate/migrate:v4.17.1@sha256:de154de4b7f9d0d751aacb1ec6023f5fc96f874eb88b65d050f761a33376aa4b
     command:
       - -path=/migrations
       - -database=postgres://ps@postgres:5432/promptshield?sslmode=disable
@@ -82,7 +82,7 @@ services:
   # Sets the ps_app password from PS_APP_PASSWORD after migrating, and refuses
   # default or weak database passwords unless GUARD_ENV=dev.
   db-roles:
-    image: postgres:17-alpine
+    image: postgres:17-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b
     entrypoint: ["/bin/sh", "/set-app-password.sh"]
     environment:
       GUARD_ENV: ${GUARD_ENV:-}
@@ -112,7 +112,7 @@ services:
       NEXT_PUBLIC_GATEWAY_URL: http://localhost:8080
 
   postgres:
-    image: postgres:17-alpine
+    image: postgres:17-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b
     environment:
       POSTGRES_DB: promptshield
       POSTGRES_USER: ps
