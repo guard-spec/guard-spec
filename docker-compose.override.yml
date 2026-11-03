@@ -11,7 +11,6 @@ services:
       - models:/models
     environment:
       LOG_LEVEL: debug
-      UPSTREAM_LLM_URL: ""  # leave empty to use stub responses
 
   control-plane:
     build:

@@ -1,12 +1,18 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -17,6 +23,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/promptshield/promptshield/internal/inference"
 	"github.com/promptshield/promptshield/internal/policy"
+	"github.com/promptshield/promptshield/internal/proxy"
 	"github.com/promptshield/promptshield/internal/sanitizer"
 	"github.com/promptshield/promptshield/internal/tenant"
 )
@@ -24,6 +31,16 @@ import (
 const (
 	injectionBlockThreshold = 0.85
 	anomalyBlockThreshold   = 0.6
+
+	// policyTimeout bounds loading and evaluating one request's policies.
+	policyTimeout = 5 * time.Second
+	// shutdownGrace is how long open streams get before they are cancelled.
+	shutdownGrace = 5 * time.Second
+
+	// Values of requests.action. A log rule is recorded as allow with its rule_id,
+	// and anything refused as block, because the column documents no other value.
+	actionAllow = "allow"
+	actionBlock = "block"
 )
 
 var (
@@ -35,7 +52,24 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
 
-	cfg := loadConfig()
+	cfg, err := loadConfig()
+	if err != nil {
+		slog.Error("config", "err", err)
+		os.Exit(1)
+	}
+
+	var upstream *proxy.Proxy
+	if cfg.UpstreamURL != "" {
+		upstream, err = proxy.New(proxy.Config{
+			BaseURL: cfg.UpstreamURL,
+			Key:     cfg.UpstreamKey,
+			Timeout: cfg.UpstreamTimeout,
+		})
+		if err != nil {
+			slog.Error("upstream config", "err", err)
+			os.Exit(1)
+		}
+	}
 
 	runner, err := inference.NewRunner(cfg.ModelsPath)
 	if err != nil {
@@ -59,7 +93,18 @@ func main() {
 	}
 	defer db.Close()
 
-	app := newApp(runner, engine, db, dbKeyLookup(db))
+	base, cancelUpstream := context.WithCancel(context.Background())
+	defer cancelUpstream()
+
+	audit := newAuditLog(func(e requestEntry) { logRequest(db, e) })
+	app := newApp(gateway{
+		runner:   runner,
+		engine:   engine,
+		policies: dbPolicyLoader(db),
+		audit:    audit,
+		upstream: upstream,
+		base:     base,
+	}, dbKeyLookup(db))
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -73,11 +118,26 @@ func main() {
 
 	<-ctx.Done()
 	slog.Info("shutting down")
-	_ = app.Shutdown()
+	_ = app.ShutdownWithTimeout(shutdownGrace)
+	cancelUpstream()
+	audit.wait() // the pool closes after this; pending rows need it
+}
+
+// policyLoader returns the enabled policies for a request, in evaluation order.
+type policyLoader func(ctx context.Context, orgID, projectID uuid.UUID) ([]policy.Policy, error)
+
+// gateway holds what the handlers depend on. A nil upstream means stub responses.
+type gateway struct {
+	runner   *inference.Runner
+	engine   *policy.Engine
+	policies policyLoader
+	audit    *auditLog
+	upstream *proxy.Proxy
+	base     context.Context // parent of upstream calls; a fiber ctx dies with the handler
 }
 
 // newApp builds the Fiber app with all gateway routes.
-func newApp(runner *inference.Runner, engine *policy.Engine, db *pgxpool.Pool, lookup tenant.LookupFn) *fiber.App {
+func newApp(gw gateway, lookup tenant.LookupFn) *fiber.App {
 	app := fiber.New(fiber.Config{
 		ServerHeader: "promptshield",
 	})
@@ -93,11 +153,11 @@ func newApp(runner *inference.Runner, engine *policy.Engine, db *pgxpool.Pool, l
 	app.Use(tenant.Middleware(lookup))
 
 	// OpenAI-compatible proxy
-	app.Post("/v1/chat/completions", chatHandler(runner, engine))
-	app.Post("/v1/completions", chatHandler(runner, engine))
+	app.Post("/v1/chat/completions", chatHandler(gw, "/chat/completions"))
+	app.Post("/v1/completions", chatHandler(gw, "/completions"))
 
 	// Direct guardrail endpoints
-	app.Post("/guardrail/scan", scanHandler(runner, engine, db))
+	app.Post("/guardrail/scan", scanHandler(gw))
 	app.Post("/guardrail/sanitize", sanitizeHandler())
 
 	return app
@@ -125,7 +185,7 @@ func sanitizeHandler() fiber.Handler {
 	}
 }
 
-func scanHandler(runner *inference.Runner, _ *policy.Engine, db *pgxpool.Pool) fiber.Handler {
+func scanHandler(gw gateway) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		start := time.Now()
 		var req struct {
@@ -143,24 +203,22 @@ func scanHandler(runner *inference.Runner, _ *policy.Engine, db *pgxpool.Pool) f
 			return c.Status(422).JSON(fiber.Map{"error": err.Error()})
 		}
 
-		scores, err := runner.Scan(c.Context(), cleaned)
+		scores, err := gw.runner.Scan(c.Context(), cleaned)
 		if err != nil {
 			return scanError(c, err)
 		}
 
 		blocked := scores.Injection.Confidence >= injectionBlockThreshold ||
 			report.AnomalyScore >= anomalyBlockThreshold
-		action := "allow"
+		entry := newEntry(c)
+		entry.Action = actionAllow
 		if blocked {
-			action = "block"
+			entry.Action = actionBlock
 		}
-		latencyMs := int(time.Since(start).Milliseconds())
-
-		if db != nil {
-			orgID, _ := tenant.OrgID(c)
-			projID := tenant.ProjectID(c)
-			go logRequest(db, orgID, projID, action, scores.Injection.Label, scores, report, latencyMs)
-		}
+		entry.Scores = scores
+		entry.Report = report
+		entry.LatencyMs = int(time.Since(start).Milliseconds())
+		gw.audit.record(entry)
 
 		return c.JSON(fiber.Map{
 			"injection_score": scores.Injection.Confidence,
@@ -176,38 +234,83 @@ func scanHandler(runner *inference.Runner, _ *policy.Engine, db *pgxpool.Pool) f
 	}
 }
 
-func logRequest(db *pgxpool.Pool, orgID, projID uuid.UUID, action, injectionLabel string,
-	scores inference.Scores, report sanitizer.Report, latencyMs int) {
-	if orgID == uuid.Nil {
+// requestEntry is one row of the requests table.
+type requestEntry struct {
+	OrgID     uuid.UUID
+	ProjectID uuid.UUID
+	Model     string
+	Action    string
+	RuleID    uuid.UUID
+	Scores    inference.Scores
+	Report    sanitizer.Report
+	LatencyMs int
+}
+
+// newEntry starts a row for the caller. Handlers must copy what they need from
+// c before going async, because fiber reuses it once the handler returns.
+func newEntry(c *fiber.Ctx) requestEntry {
+	orgID, _ := tenant.OrgID(c)
+	return requestEntry{OrgID: orgID, ProjectID: tenant.ProjectID(c), Action: actionBlock}
+}
+
+// auditLog writes rows without delaying the response, and tracks them so that
+// shutdown can wait for those still in flight.
+type auditLog struct {
+	write func(requestEntry)
+	wg    sync.WaitGroup
+}
+
+func newAuditLog(write func(requestEntry)) *auditLog {
+	return &auditLog{write: write}
+}
+
+func (a *auditLog) record(e requestEntry) {
+	a.wg.Add(1)
+	go func() {
+		defer a.wg.Done()
+		a.write(e)
+	}()
+}
+
+func (a *auditLog) wait() { a.wg.Wait() }
+
+func logRequest(db *pgxpool.Pool, e requestEntry) {
+	if e.OrgID == uuid.Nil {
+		slog.Warn("request log skipped: no org")
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	var label *string
-	if injectionLabel != "" && injectionLabel != "BENIGN" {
-		label = &injectionLabel
+	var label, model *string
+	if l := e.Scores.Injection.Label; l != "" && l != "BENIGN" {
+		label = &l
 	}
-	err := tenant.WithOrg(ctx, db, orgID, func(tx pgx.Tx) error {
+	if e.Model != "" {
+		model = &e.Model
+	}
+	err := tenant.WithOrg(ctx, db, e.OrgID, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx,
 			`INSERT INTO requests
-			 (org_id, project_id, action, injection_label, injection_score, toxicity_score,
-			  anomaly_score, had_tag_chars, had_bidi, latency_ms)
-			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-			orgID,
-			nullUUID(projID),
-			action,
+			 (org_id, project_id, model, action, rule_id, injection_label, injection_score,
+			  toxicity_score, anomaly_score, had_tag_chars, had_bidi, latency_ms)
+			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+			e.OrgID,
+			nullUUID(e.ProjectID),
+			model,
+			e.Action,
+			nullUUID(e.RuleID),
 			label,
-			scores.Injection.Confidence,
-			scores.Toxicity.Confidence,
-			report.AnomalyScore,
-			report.HadTagChars,
-			report.HadBidi,
-			latencyMs,
+			e.Scores.Injection.Confidence,
+			e.Scores.Toxicity.Confidence,
+			e.Report.AnomalyScore,
+			e.Report.HadTagChars,
+			e.Report.HadBidi,
+			e.LatencyMs,
 		)
 		return err
 	})
 	if err != nil {
-		slog.Warn("request log write failed", "err", err)
+		slog.Warn("request log write failed", "err", err, "action", e.Action)
 	}
 }
 
@@ -229,7 +332,16 @@ func scanError(c *fiber.Ctx, err error) error {
 
 // textGuard sanitizes untrusted text in place and collects it for classification.
 type textGuard struct {
-	texts []string
+	texts  []string
+	report sanitizer.Report // worst signals across all texts, for the audit log
+}
+
+func (g *textGuard) merge(rep sanitizer.Report) {
+	g.report.HadTagChars = g.report.HadTagChars || rep.HadTagChars
+	g.report.HadBidi = g.report.HadBidi || rep.HadBidi
+	if rep.AnomalyScore > g.report.AnomalyScore {
+		g.report.AnomalyScore = rep.AnomalyScore
+	}
 }
 
 func (g *textGuard) clean(text string) (string, error) {
@@ -237,6 +349,7 @@ func (g *textGuard) clean(text string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	g.merge(rep)
 	// Block if anomaly score is high (tag chars = likely encoding attack)
 	if rep.AnomalyScore >= anomalyBlockThreshold {
 		slog.Info("blocked encoding attack", "score", rep.AnomalyScore, "had_tag_chars", rep.HadTagChars)
@@ -244,6 +357,34 @@ func (g *textGuard) clean(text string) (string, error) {
 	}
 	g.texts = append(g.texts, cleaned)
 	return cleaned, nil
+}
+
+// rejectShadowKeys refuses a key that differs from a guarded one only in case.
+// Go-based upstreams such as Ollama match JSON keys case-insensitively, so they
+// would read "Content" as the text this guard never saw.
+func rejectShadowKeys(m map[string]any, guarded ...string) error {
+	for key := range m {
+		for _, name := range guarded {
+			if key != name && strings.EqualFold(key, name) {
+				return errUnsupportedContent
+			}
+		}
+	}
+	return nil
+}
+
+// guardBody sanitizes every untrusted text field of a chat or completion request.
+func (g *textGuard) guardBody(body map[string]any) error {
+	if err := rejectShadowKeys(body, "messages", "prompt", "suffix"); err != nil {
+		return err
+	}
+	if err := g.guardMessages(body["messages"]); err != nil {
+		return err
+	}
+	if err := g.guardPrompt(body); err != nil {
+		return err
+	}
+	return g.guardSuffix(body)
 }
 
 // guardContent handles the string and multi-part forms of a message's content.
@@ -264,13 +405,23 @@ func (g *textGuard) guardContent(m map[string]any) error {
 			if !ok {
 				return errUnsupportedContent
 			}
-			if text, ok := p["text"].(string); ok {
-				cleaned, err := g.clean(text)
-				if err != nil {
-					return err
-				}
-				p["text"] = cleaned
+			if err := rejectShadowKeys(p, "text"); err != nil {
+				return err
 			}
+			raw, present := p["text"]
+			if !present {
+				continue
+			}
+			// Anything but a string would reach the upstream unscanned.
+			text, ok := raw.(string)
+			if !ok {
+				return errUnsupportedContent
+			}
+			cleaned, err := g.clean(text)
+			if err != nil {
+				return err
+			}
+			p["text"] = cleaned
 		}
 		return nil
 	default:
@@ -292,6 +443,9 @@ func (g *textGuard) guardMessages(raw any) error {
 		m, ok := msg.(map[string]any)
 		if !ok {
 			return errUnsupportedContent
+		}
+		if err := rejectShadowKeys(m, "role", "content"); err != nil {
+			return err
 		}
 		switch role, _ := m["role"].(string); role {
 		case "system", "assistant":
@@ -335,11 +489,28 @@ func (g *textGuard) guardPrompt(body map[string]any) error {
 	}
 }
 
+// guardSuffix handles the text a legacy completion appends after the output.
+func (g *textGuard) guardSuffix(body map[string]any) error {
+	switch suffix := body["suffix"].(type) {
+	case nil:
+		return nil
+	case string:
+		cleaned, err := g.clean(suffix)
+		if err != nil {
+			return err
+		}
+		body["suffix"] = cleaned
+		return nil
+	default:
+		return errUnsupportedContent
+	}
+}
+
 // guardError maps a sanitization failure to its HTTP response.
 func guardError(c *fiber.Ctx, err error) error {
 	switch {
 	case errors.Is(err, errBlocked):
-		return c.Status(200).JSON(blockedResponse("Request blocked: potential prompt injection detected."))
+		return blockResponse(c, "Request blocked: potential prompt injection detected.")
 	case errors.Is(err, errUnsupportedContent):
 		return c.Status(400).JSON(fiber.Map{"error": err.Error()})
 	default:
@@ -347,42 +518,94 @@ func guardError(c *fiber.Ctx, err error) error {
 	}
 }
 
-// chatHandler is the OpenAI-compatible proxy entry point.
-// It sanitizes the untrusted text, runs the guard pipeline, then proxies to the upstream.
-func chatHandler(runner *inference.Runner, eng *policy.Engine) fiber.Handler {
-	upstreamURL := os.Getenv("UPSTREAM_LLM_URL")
-	upstreamKey := os.Getenv("UPSTREAM_LLM_KEY")
+// decodeBody keeps numbers exact, so a large seed is not rounded on its way upstream.
+func decodeBody(raw []byte) (map[string]any, error) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var body map[string]any
+	if err := dec.Decode(&body); err != nil {
+		return nil, err
+	}
+	if body == nil {
+		return nil, errors.New("body is not an object")
+	}
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+		return nil, errors.New("trailing data after body")
+	}
+	return body, nil
+}
 
+// chatHandler is the OpenAI-compatible proxy entry point.
+// It sanitizes the untrusted text, applies the fixed thresholds and the org's
+// policies, then proxies the sanitized body to upstreamPath. Every request gets
+// one audit row: refused unless it reaches the point where entry.Action is set.
+func chatHandler(gw gateway, upstreamPath string) fiber.Handler {
 	return func(c *fiber.Ctx) error {
+		start := time.Now()
+		entry := newEntry(c)
+		streaming := false // the stream writes the row when it ends
+		defer func() {
+			if !streaming {
+				entry.LatencyMs = int(time.Since(start).Milliseconds())
+				gw.audit.record(entry)
+			}
+		}()
+
 		// Parse request body
-		var body map[string]any
-		if err := c.BodyParser(&body); err != nil {
+		body, err := decodeBody(c.Body())
+		if err != nil {
 			return c.Status(400).JSON(fiber.Map{"error": "invalid body"})
 		}
+		entry.Model, _ = body["model"].(string)
 
 		// Extract + sanitize untrusted text
 		var guard textGuard
-		if err := guard.guardMessages(body["messages"]); err != nil {
-			return guardError(c, err)
-		}
-		if err := guard.guardPrompt(body); err != nil {
+		err = guard.guardBody(body)
+		entry.Report = guard.report
+		if err != nil {
 			return guardError(c, err)
 		}
 
 		// Run injection classifier on all untrusted text combined
 		if text := strings.Join(guard.texts, " "); text != "" {
-			scores, err := runner.Scan(c.Context(), text)
+			scores, err := gw.runner.Scan(c.Context(), text)
 			if err != nil {
 				return scanError(c, err)
 			}
+			entry.Scores = scores
 			if scores.Injection.Confidence >= injectionBlockThreshold {
 				slog.Info("blocked injection", "score", scores.Injection.Confidence)
-				return c.Status(200).JSON(blockedResponse("Request blocked: prompt injection detected."))
+				return blockResponse(c, "Request blocked: prompt injection detected.")
 			}
 		}
 
+		sanitized, err := json.Marshal(body)
+		if err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": "invalid body"})
+		}
+
+		// Policies run after the fixed thresholds, so they can only tighten them.
+		decision, err := gw.evaluatePolicies(entry, policyVars(entry, body, len(sanitized)))
+		if err != nil {
+			slog.Error("policy evaluation failed", "org", entry.OrgID, "err", err)
+			return policyUnavailable(c)
+		}
+		entry.RuleID = decision.RuleID
+		switch decision.Action {
+		case policy.ActionAllow, policy.ActionLog:
+		case policy.ActionBlock:
+			slog.Info("blocked by policy", "rule", decision.RuleID)
+			return blockResponse(c, "Request blocked by policy.")
+		default:
+			// redact and route are refused when saved, so this is a stale rule.
+			slog.Error("rule has an action the gateway cannot enforce",
+				"rule", decision.RuleID, "action", decision.Action)
+			return policyUnavailable(c)
+		}
+		entry.Action = actionAllow
+
 		// No upstream configured — return stub response for development
-		if upstreamURL == "" || upstreamKey == "" {
+		if gw.upstream == nil {
 			return c.Status(200).JSON(fiber.Map{
 				"id":     "chatcmpl-stub",
 				"object": "chat.completion",
@@ -398,42 +621,192 @@ func chatHandler(runner *inference.Runner, eng *policy.Engine) fiber.Handler {
 			})
 		}
 
-		// Proxy to upstream (TODO: implement full streaming proxy)
-		_ = upstreamURL
-		_ = upstreamKey
-		return c.Status(501).JSON(fiber.Map{"error": "upstream proxy not yet implemented"})
+		resp, err := gw.upstream.Forward(gw.base, upstreamPath, sanitized)
+		if err != nil {
+			return upstreamError(c, err)
+		}
+		if !resp.Stream() {
+			defer resp.Close()
+			data, err := resp.ReadAll()
+			if err != nil {
+				return upstreamError(c, err)
+			}
+			c.Set(fiber.HeaderContentType, resp.ContentType)
+			return c.Status(resp.Status).Send(data)
+		}
+
+		// Headers go out when the handler returns; the writer runs on its own
+		// goroutine and must not touch c.
+		streaming = true
+		gw.audit.wg.Add(1)
+		c.Set(fiber.HeaderContentType, resp.ContentType)
+		c.Set(fiber.HeaderCacheControl, "no-cache")
+		c.Status(resp.Status).Context().SetBodyStreamWriter(func(w *bufio.Writer) {
+			defer gw.audit.wg.Done()
+			defer resp.Close()
+			relay(w, resp)
+			entry.LatencyMs = int(time.Since(start).Milliseconds())
+			gw.audit.record(entry)
+		})
+		return nil
 	}
 }
 
-func blockedResponse(reason string) fiber.Map {
-	return fiber.Map{
-		"id":     "chatcmpl-blocked",
-		"object": "chat.completion",
-		"choices": []fiber.Map{{
-			"message": fiber.Map{
-				"role":    "assistant",
-				"content": reason,
-			},
-			"finish_reason": "content_filter",
-			"index":         0,
-		}},
+// relay copies an event stream as it arrives. It returns when the upstream ends,
+// fails, or the client is gone; closing resp then cancels the upstream.
+func relay(w *bufio.Writer, resp *proxy.Response) {
+	buf := make([]byte, 32*1024)
+	for {
+		n, err := resp.Read(buf)
+		if n > 0 {
+			if _, werr := w.Write(buf[:n]); werr != nil {
+				slog.Info("client left during stream", "err", werr)
+				return
+			}
+			if werr := w.Flush(); werr != nil {
+				slog.Info("client left during stream", "err", werr)
+				return
+			}
+		}
+		if errors.Is(err, io.EOF) {
+			return
+		}
+		if err != nil {
+			// The 200 is already sent, so the failure goes in the stream.
+			slog.Warn("upstream stream failed", "err", err)
+			// The blank line ends any event the upstream left half-written, so the
+			// error is parsed as an event of its own rather than glued onto it.
+			event, _ := json.Marshal(errorBody(streamFailure(err), "server_error", "upstream_error"))
+			_, _ = fmt.Fprintf(w, "\n\ndata: %s\n\n", event)
+			_ = w.Flush()
+			return
+		}
 	}
+}
+
+func streamFailure(err error) string {
+	var upstream *proxy.Error
+	if errors.As(err, &upstream) {
+		return upstream.Message
+	}
+	return "upstream unavailable"
+}
+
+// evaluatePolicies loads policies fresh, so an update applies to the next request.
+// Any error means the request must not go upstream.
+func (gw gateway) evaluatePolicies(entry requestEntry, vars *policy.Vars) (policy.Decision, error) {
+	ctx, cancel := context.WithTimeout(gw.base, policyTimeout)
+	defer cancel()
+	policies, err := gw.policies(ctx, entry.OrgID, entry.ProjectID)
+	if err != nil {
+		return policy.Decision{}, fmt.Errorf("load: %w", err)
+	}
+	return gw.engine.EvaluateAll(ctx, policies, vars)
+}
+
+// policyVars builds the rule inputs. request.tokens is an estimate from the body
+// size (the same 4 bytes per token as the chunker) because nothing tokenizes yet.
+func policyVars(entry requestEntry, body map[string]any, bodyBytes int) *policy.Vars {
+	vars := &policy.Vars{
+		RequestModel:       entry.Model,
+		RequestTenantID:    entry.OrgID.String(),
+		RequestTokens:      bodyBytes / 4,
+		IsMCPResponse:      hasToolMessage(body["messages"]),
+		InjectionLabel:     entry.Scores.Injection.Label,
+		InjectionScore:     float64(entry.Scores.Injection.Confidence),
+		ToxicityScore:      float64(entry.Scores.Toxicity.Confidence),
+		AnomalyHasTagChars: entry.Report.HadTagChars,
+		AnomalyHasBidi:     entry.Report.HadBidi,
+		AnomalyScore:       entry.Report.AnomalyScore,
+		PIIEntities:        []string{},
+		TopicCategories:    []string{},
+	}
+	for _, entity := range entry.Scores.PII {
+		vars.PIIEntities = append(vars.PIIEntities, entity.Type)
+	}
+	for _, topic := range entry.Scores.Topic {
+		if topic.Confidence > 0 {
+			vars.TopicCategories = append(vars.TopicCategories, topic.Label)
+		}
+	}
+	return vars
+}
+
+func hasToolMessage(raw any) bool {
+	messages, _ := raw.([]any)
+	for _, msg := range messages {
+		if m, ok := msg.(map[string]any); ok && m["role"] == "tool" {
+			return true
+		}
+	}
+	return false
+}
+
+func errorBody(message, errType, code string) fiber.Map {
+	return fiber.Map{"error": fiber.Map{"message": message, "type": errType, "code": code}}
+}
+
+// blockResponse is the single shape for every guardrail refusal.
+func blockResponse(c *fiber.Ctx, message string) error {
+	return c.Status(fiber.StatusBadRequest).JSON(errorBody(message, "invalid_request_error", "content_filter"))
+}
+
+func policyUnavailable(c *fiber.Ctx) error {
+	return c.Status(fiber.StatusServiceUnavailable).
+		JSON(errorBody("policy evaluation unavailable", "server_error", "policy_unavailable"))
+}
+
+// upstreamError turns a proxy failure into its client response.
+func upstreamError(c *fiber.Ctx, err error) error {
+	var upstream *proxy.Error
+	if !errors.As(err, &upstream) {
+		slog.Error("upstream request failed", "err", err)
+		return c.Status(fiber.StatusBadGateway).
+			JSON(errorBody("upstream unavailable", "server_error", "upstream_unavailable"))
+	}
+	slog.Warn("upstream request failed", "err", err)
+	if upstream.RetryAfter != "" {
+		c.Set(fiber.HeaderRetryAfter, upstream.RetryAfter)
+	}
+	// Only a 4xx is the client's to see as-is. A server-side failure is reported
+	// by the gateway: its own timeout stays 504, anything else is a 502.
+	status, code, errType := upstream.Status, upstream.Code, "invalid_request_error"
+	if status >= 500 {
+		errType = "server_error"
+		if code != "upstream_timeout" && status != fiber.StatusBadGateway {
+			status, code = fiber.StatusBadGateway, "upstream_error"
+		}
+	}
+	return c.Status(status).JSON(errorBody(upstream.Message, errType, code))
 }
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
 type config struct {
-	ListenAddr  string
-	ModelsPath  string
-	DatabaseURL string
+	ListenAddr      string
+	ModelsPath      string
+	DatabaseURL     string
+	UpstreamURL     string
+	UpstreamKey     string
+	UpstreamTimeout time.Duration
 }
 
-func loadConfig() config {
-	return config{
-		ListenAddr:  getenv("LISTEN_ADDR", ":8080"),
-		ModelsPath:  getenv("MODELS_PATH", "./models"),
-		DatabaseURL: getenv("DATABASE_URL", ""),
+func loadConfig() (config, error) {
+	timeout, err := time.ParseDuration(getenv("UPSTREAM_LLM_TIMEOUT", proxy.DefaultTimeout.String()))
+	if err != nil {
+		return config{}, fmt.Errorf("UPSTREAM_LLM_TIMEOUT: %w", err)
 	}
+	if timeout <= 0 {
+		return config{}, errors.New("UPSTREAM_LLM_TIMEOUT must be positive")
+	}
+	return config{
+		ListenAddr:      getenv("LISTEN_ADDR", ":8080"),
+		ModelsPath:      getenv("MODELS_PATH", "./models"),
+		DatabaseURL:     getenv("DATABASE_URL", ""),
+		UpstreamURL:     os.Getenv("UPSTREAM_LLM_URL"),
+		UpstreamKey:     os.Getenv("UPSTREAM_LLM_KEY"),
+		UpstreamTimeout: timeout,
+	}, nil
 }
 
 func getenv(key, fallback string) string {
@@ -457,5 +830,38 @@ func dbKeyLookup(db *pgxpool.Pool) tenant.LookupFn {
 			return orgID, uuid.Nil, nil
 		}
 		return orgID, *projectID, nil
+	}
+}
+
+// dbPolicyLoader reads enabled policies inside the org's RLS scope. Project
+// policies come before org-wide ones, then oldest first; updated_at is not used
+// so that editing a policy does not reorder it.
+func dbPolicyLoader(db *pgxpool.Pool) policyLoader {
+	return func(ctx context.Context, orgID, projectID uuid.UUID) ([]policy.Policy, error) {
+		var policies []policy.Policy
+		err := tenant.WithOrg(ctx, db, orgID, func(tx pgx.Tx) error {
+			rows, err := tx.Query(ctx,
+				`SELECT id, version, rules FROM policies
+				 WHERE org_id = $1 AND enabled AND (project_id IS NULL OR project_id = $2)
+				 ORDER BY project_id IS NULL, created_at, id`,
+				orgID, nullUUID(projectID))
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+			for rows.Next() {
+				p := policy.Policy{OrgID: orgID, ProjectID: projectID}
+				var rules []byte
+				if err := rows.Scan(&p.ID, &p.Version, &rules); err != nil {
+					return err
+				}
+				if err := json.Unmarshal(rules, &p.Rules); err != nil {
+					return fmt.Errorf("policy %s: %w", p.ID, err)
+				}
+				policies = append(policies, p)
+			}
+			return rows.Err()
+		})
+		return policies, err
 	}
 }
