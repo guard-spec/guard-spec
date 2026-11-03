@@ -3,6 +3,7 @@
 //	go run ./cmd/eval [-data eval/data] [-detector fusion|l1|regex] [-json out.json]
 //	go run ./cmd/eval -baseline eval/baseline.json [-max-regression 0.02]
 //	go run ./cmd/eval -path tool
+//	go run -tags onnx ./cmd/eval -detector fusion-ml [-layers l1,l2,l3] [-cascade] [-fusion logreg|max]
 //
 // Every row goes through the gateway's input path (sanitizer, then detector).
 // With -path tool every row is treated as untrusted content instead: a tool
@@ -35,17 +36,33 @@ func run() int {
 	baseline := flag.String("baseline", "", "baseline report to compare against")
 	maxReg := flag.Float64("max-regression", 0.02, "largest allowed drop (TPR, AUC) or rise (FPR) versus the baseline")
 	path := flag.String("path", evalset.PathDirect, "input path: direct (user message) or tool (tool result / tool definition)")
+	layers := flag.String("layers", "", "fusion-ml: layers to run (default $DETECTOR_LAYERS, else l1,l2,l3); implies -detector fusion-ml")
+	cascade := flag.Bool("cascade", false, "fusion-ml: skip L2/L3 when L1 is decisive (DETECTOR_CASCADE)")
+	fusionMethod := flag.String("fusion", "", "fusion-ml: logreg or max (default $DETECTOR_FUSION, else logreg)")
 	flag.Parse()
 
-	newDet, ok := evalset.Detectors[*detName]
-	if !ok {
-		fmt.Fprintf(os.Stderr, "unknown detector %q (have: %s)\n", *detName, strings.Join(evalset.DetectorNames(), ", "))
-		return 2
-	}
-	det, err := newDet()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "detector:", err)
-		return 2
+	var (
+		det evalset.Detector
+		err error
+	)
+	if *detName == mlDetector || *layers != "" {
+		var name string
+		det, name, err = newMLDetector(*layers, *cascade, *fusionMethod)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "detector:", err)
+			return 2
+		}
+		*detName = name
+	} else {
+		newDet, ok := evalset.Detectors[*detName]
+		if !ok {
+			fmt.Fprintf(os.Stderr, "unknown detector %q (have: %s, %s)\n", *detName, strings.Join(evalset.DetectorNames(), ", "), mlDetector)
+			return 2
+		}
+		if det, err = newDet(); err != nil {
+			fmt.Fprintln(os.Stderr, "detector:", err)
+			return 2
+		}
 	}
 	rows, err := evalset.Load(*dataDir)
 	if err != nil {

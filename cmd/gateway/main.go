@@ -26,6 +26,7 @@ import (
 	appconfig "github.com/promptshield/promptshield/internal/config"
 	"github.com/promptshield/promptshield/internal/indirect"
 	"github.com/promptshield/promptshield/internal/inference"
+	"github.com/promptshield/promptshield/internal/inference/ml"
 	"github.com/promptshield/promptshield/internal/metrics"
 	"github.com/promptshield/promptshield/internal/outputguard"
 	"github.com/promptshield/promptshield/internal/policy"
@@ -86,12 +87,6 @@ func main() {
 		}
 	}
 
-	runner, err := inference.NewRunner(cfg.ModelsPath)
-	if err != nil {
-		slog.Error("load models", "err", err)
-		os.Exit(1)
-	}
-
 	engine, err := policy.New()
 	if err != nil {
 		slog.Error("init policy engine", "err", err)
@@ -107,6 +102,15 @@ func main() {
 		os.Exit(1)
 	}
 	defer db.Close()
+
+	// L1 rules plus the model layers that load (L2 classifier, L3 embeddings).
+	detector, err := buildDetector(context.Background(), cfg.Detector, dbExemplarStore{db: db})
+	if err != nil {
+		slog.Error("load detector", "err", err)
+		os.Exit(1)
+	}
+	defer func() { _ = detector.Close() }()
+	runner := inference.NewRunnerWith(inference.FusedBackend{F: detector.Fuser})
 
 	base, cancelUpstream := context.WithCancel(context.Background())
 	defer cancelUpstream()
@@ -616,6 +620,7 @@ func chatHandler(gw gateway, upstreamPath string) fiber.Handler {
 		start := time.Now()
 		release := gw.audit.hold()
 		entry := newEntry(c)
+		gw := gw.forOrg(entry.OrgID)
 		tctx := requestContext(c, gw.base) // gw.base with the request span, for child spans
 		streaming := false                 // the stream writes the row when it ends
 		defer func() {
@@ -1075,8 +1080,9 @@ func upstreamError(c *fiber.Ctx, err error) error {
 // ── Config ────────────────────────────────────────────────────────────────────
 
 type config struct {
-	ListenAddr      string
-	ModelsPath      string
+	ListenAddr string
+	// Detector is DETECTOR_*, MODEL_DIR (or MODELS_PATH), L2_MODEL_DIR and L3_MODEL_DIR.
+	Detector        ml.Config
 	DatabaseURL     string
 	UpstreamURL     string
 	UpstreamKey     string
@@ -1118,13 +1124,17 @@ func loadConfig() (config, error) {
 	if err != nil {
 		return config{}, err
 	}
+	detector, err := ml.ConfigFromEnv(os.Getenv)
+	if err != nil {
+		return config{}, err
+	}
 	storeContent, err := strconv.ParseBool(getenv("AUDIT_STORE_CONTENT", "false"))
 	if err != nil {
 		return config{}, fmt.Errorf("AUDIT_STORE_CONTENT must be true or false: %w", err)
 	}
 	cfg := config{
 		ListenAddr:        getenv("LISTEN_ADDR", ":8080"),
-		ModelsPath:        getenv("MODELS_PATH", "./models"),
+		Detector:          detector,
 		DatabaseURL:       getenv("DATABASE_URL", ""),
 		UpstreamURL:       os.Getenv("UPSTREAM_LLM_URL"),
 		UpstreamKey:       os.Getenv("UPSTREAM_LLM_KEY"),

@@ -208,6 +208,41 @@ func TestEmbedMeanPoolL2(t *testing.T) {
 	}
 }
 
+// TestEmbedWindowsPrefix checks that the prefix starts every window and that
+// EmbedWindows keeps one vector per window, in order.
+func TestEmbedWindowsPrefix(t *testing.T) {
+	tok, sess := &fakeTokenizer{}, &fakeSession{embed: true}
+	// MaxLength 6 = [1] + prefix (1 token) + 3 content + [2]; stride 1 -> step 2.
+	m, err := newModel(tok, sess, modelConfig{}, Options{MaxLength: 6, Stride: 1, Limiter: NewLimiter(1), MaxChunks: -1, Prefix: "query:"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := &Embedder{m: m}
+	// 7 words -> windows at 0, 2, 4 (the last ends at 7).
+	got, err := e.EmbedWindows(context.Background(), []string{"a", "a bb ccc dddd eeeee ffffff ggggggg"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got[0]) != 1 || len(got[1]) != 3 {
+		t.Fatalf("windows per text = %d, %d; want 1, 3", len(got[0]), len(got[1]))
+	}
+	// Window ids: [1, 16 (prefix "query:"), content..., 2]; first dim is the mean id.
+	wantMean := []float64{
+		(1 + 16 + 11 + 12 + 13 + 2) / 6.0,
+		(1 + 16 + 13 + 14 + 15 + 2) / 6.0,
+		(1 + 16 + 15 + 16 + 17 + 2) / 6.0,
+	}
+	for i, v := range got[1] {
+		want := wantMean[i] / math.Sqrt(wantMean[i]*wantMean[i]+1)
+		if math.Abs(float64(v[0])-want) > 1e-5 {
+			t.Errorf("window %d: %v, want first dim %v", i, v, want)
+		}
+	}
+	if len(sess.batches) == 0 {
+		t.Fatal("no batches run")
+	}
+}
+
 func TestLimiterBoundsConcurrency(t *testing.T) {
 	lim := NewLimiter(2)
 	c, sess, _ := newFakeClassifier(t, Options{Limiter: lim, BatchSize: 1})

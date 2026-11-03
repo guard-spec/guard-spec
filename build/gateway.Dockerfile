@@ -34,8 +34,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # ONNX Runtime CPU shared library (MIT), loaded by internal/onnx via dlopen.
 COPY --from=builder /opt/onnx/lib/libonnxruntime.so /usr/local/lib/
 COPY --from=builder /opt/onnx/LICENSE.onnxruntime /usr/share/doc/onnxruntime/LICENSE
+# Model files are mounted at /models (docker-compose.yml), never baked in.
 ENV ONNXRUNTIME_LIB=/usr/local/lib/libonnxruntime.so \
-    MODELS_PATH=/models
+    MODEL_DIR=/models
 
 WORKDIR /app
 COPY --from=builder /out/gateway /out/onnxbench /out/models ./

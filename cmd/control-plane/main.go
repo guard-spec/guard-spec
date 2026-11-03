@@ -167,6 +167,12 @@ func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins 
 
 	authed.Get("/organizations/:orgId/requests", viewer, listRequests(db))
 
+	// L3 exemplars of the org (migration 009); never stored in the repository.
+	authed.Get("/organizations/:orgId/exemplars", viewer, listExemplars(db))
+	authed.Post("/organizations/:orgId/exemplars", admin, createExemplar(db))
+	authed.Put("/organizations/:orgId/exemplars/:id", admin, updateExemplar(db))
+	authed.Delete("/organizations/:orgId/exemplars/:id", admin, deleteExemplar(db))
+
 	// Invites, also under the short /orgs prefix.
 	for _, prefix := range []string{"/organizations/:orgId", "/orgs/:orgId"} {
 		authed.Get(prefix+"/invites", admin, listInvites(db))

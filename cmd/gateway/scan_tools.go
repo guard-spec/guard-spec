@@ -51,6 +51,7 @@ func scanToolsHandler(gw gateway) fiber.Handler {
 		threshold := gw.baseScanConfig().IndirectThreshold
 		scanner := indirect.Scanner{Runner: gw.runner}
 		entry := newEntry(c)
+		gw := gw.forOrg(entry.OrgID)
 		results := make([]toolResult, 0, len(req.Tools))
 		blocked := false
 		var strongest indirect.Verdict
