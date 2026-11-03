@@ -14,7 +14,7 @@ import (
 	"github.com/promptshield/promptshield/internal/tenant"
 )
 
-// Requires migration 007. Connects as the application role, so the loader is
+// Requires migration 008. Connects as the application role, so the loader is
 // checked under row-level security.
 func TestOrgGuardSettings(t *testing.T) {
 	ctx := context.Background()
@@ -34,7 +34,7 @@ func TestOrgGuardSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !migrated {
-		t.Skip("database lacks migration 007_org_guard_settings")
+		t.Skip("database lacks migration 008_org_guard_settings")
 	}
 
 	newOrg := func(settings *string) uuid.UUID {

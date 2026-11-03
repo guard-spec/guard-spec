@@ -140,7 +140,7 @@ The sanitizer still strips spoofed markers from client text (the old `[DATA]` to
 | `SPOTLIGHT` | `off` | `off`, `delimit` or `datamark` |
 | `INDIRECT_BLOCK_THRESHOLD` | `0.85` | Floor for `indirect.score`, in (0, 0.85]; it cannot be looser than the direct floor |
 
-An org can override the parts and the spotlight mode (migration 007 adds `organizations.guard_settings`). Fields left out keep the gateway default:
+An org can override the parts and the spotlight mode (migration 008 adds `organizations.guard_settings`). Fields left out keep the gateway default:
 
 ```bash
 curl -X PUT http://localhost:8081/v1/organizations/$ORG/guard-settings \
