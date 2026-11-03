@@ -10,7 +10,9 @@ import (
 	"math"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 	"unicode"
 
 	"golang.org/x/text/unicode/norm"
@@ -183,5 +185,112 @@ func TestCalibrationSplitIsNotEval(t *testing.T) {
 	}
 	if len(rows) < 100 || att == 0 || att == len(rows) {
 		t.Errorf("calibration split too small or one-sided: %d rows, %d attacks", len(rows), att)
+	}
+}
+
+// slow records that it ran; with a delay it shows L2 and L3 run in parallel.
+type slow struct {
+	s     float64
+	delay time.Duration
+	calls *atomic.Int32
+}
+
+func (s slow) Score(ctx context.Context, _ string) (LayerResult, error) {
+	s.calls.Add(1)
+	time.Sleep(s.delay)
+	return LayerResult{Score: s.s}, nil
+}
+
+func TestL2L3RunInParallel(t *testing.T) {
+	var calls atomic.Int32
+	f := &Fuser{}
+	f.Set(L1, fixed{s: 0.2, cat: "x"}, Identity)
+	f.Set(L2, slow{s: 0.6, delay: 50 * time.Millisecond, calls: &calls}, Identity)
+	f.Set(L3, slow{s: 0.7, delay: 50 * time.Millisecond, calls: &calls}, Identity)
+	start := time.Now()
+	r := f.Score(context.Background(), "x")
+	if el := time.Since(start); el > 90*time.Millisecond {
+		t.Errorf("took %v; L2 and L3 should overlap", el)
+	}
+	if calls.Load() != 2 || math.Abs(r.Score-0.7) > 1e-9 {
+		t.Fatalf("calls %d, result %+v", calls.Load(), r)
+	}
+}
+
+func TestCascadeSkipsWhenL1Decisive(t *testing.T) {
+	for _, tc := range []struct {
+		l1   float64
+		skip bool
+	}{{0.99, true}, {0.001, true}, {0.5, false}} {
+		var calls atomic.Int32
+		f := &Fuser{}
+		f.Set(L1, fixed{s: tc.l1, cat: "x"}, Identity)
+		f.Set(L2, slow{s: 0.6, calls: &calls}, Identity)
+		f.Set(L3, slow{s: 0.6, calls: &calls}, Identity)
+		f.SetCascade(&Cascade{Low: 0.01, High: 0.95})
+		r := f.Score(context.Background(), "x")
+		if got := calls.Load() == 0; got != tc.skip {
+			t.Errorf("l1=%v: skipped=%v, want %v", tc.l1, got, tc.skip)
+		}
+		if tc.skip && (r.Layers[L2] != Missing || r.Layers[L3] != Missing) {
+			t.Errorf("l1=%v: skipped layers must be Missing: %+v", tc.l1, r.Layers)
+		}
+	}
+}
+
+func TestLogRegCombinerAndFallback(t *testing.T) {
+	f := &Fuser{}
+	f.Set(L1, fixed{s: 0.3, cat: "x"}, Identity)
+	f.Set(L2, fixed{s: 0.6, cat: "y"}, Identity)
+	f.SetCombiner(&LogReg{W: [numLayers]float64{1, 1, 0}, B: 0})
+	r := f.Score(context.Background(), "x")
+	want := sigmoid(logit(0.3) + logit(0.6))
+	if math.Abs(r.Score-want) > 1e-9 {
+		t.Fatalf("score %v, want %v", r.Score, want)
+	}
+	// A weighted layer that fails: back to max.
+	f.Set(L2, fixed{err: errors.New("down")}, Identity)
+	if r := f.Score(context.Background(), "x"); math.Abs(r.Score-0.3) > 1e-9 {
+		t.Fatalf("fallback score %v, want 0.3", r.Score)
+	}
+}
+
+func TestFitLogRegSeparates(t *testing.T) {
+	var p [][numLayers]float64
+	var y []bool
+	for i := 0; i < 200; i++ {
+		a := i%2 == 0
+		v := 0.2 + 0.1*float64(i%3)
+		if a {
+			v = 0.6 + 0.1*float64(i%3)
+		}
+		p = append(p, [numLayers]float64{0.5, v, Missing})
+		y = append(y, a)
+	}
+	lr := FitLogReg(p, y, [numLayers]bool{false, true, false}, 0.01)
+	if lr.W[L1] != 0 || lr.W[L3] != 0 || lr.W[L2] <= 0 {
+		t.Fatalf("weights %+v", lr)
+	}
+	hi, _ := lr.Apply([numLayers]float64{Missing, 0.8, Missing})
+	lo, _ := lr.Apply([numLayers]float64{Missing, 0.2, Missing})
+	if hi < 0.9 || lo > 0.1 {
+		t.Fatalf("hi %v lo %v", hi, lo)
+	}
+}
+
+type floored struct{ s float64 }
+
+func (f floored) Score(context.Context, string) (LayerResult, error) {
+	return LayerResult{Score: f.s, Floor: true}, nil
+}
+
+func TestFloorLayerBoundsTheCombiner(t *testing.T) {
+	f := &Fuser{}
+	f.Set(L1, fixed{s: 0.01, cat: "x"}, Identity)
+	f.Set(L2, fixed{s: 0.01, cat: "y"}, Identity)
+	f.Set(L3, floored{s: 0.9}, Identity)
+	f.SetCombiner(&LogReg{W: [numLayers]float64{1, 1, 0.1}})
+	if r := f.Score(context.Background(), "x"); math.Abs(r.Score-0.9) > 1e-9 {
+		t.Fatalf("score %v, want the floor 0.9", r.Score)
 	}
 }

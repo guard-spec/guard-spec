@@ -8,6 +8,7 @@ detection number we publish should come from this set.
 - `build/build.py`: deterministic generator (pinned dependencies, fixed seed).
 - `baseline.json`: metrics of the production detector (`fusion`, L1 v2 rules today); CI fails on regressions.
 - `baseline-regex.json`: metrics of the legacy regex detector, kept for comparison.
+- `baseline-onnx.json`: metrics of `fusion-ml:l1,l2,l3/logreg` (L1 rules, L2 classifier, L3 embeddings; needs `-tags onnx` and the models). Only the onnx CI job reads it, and it skips when the models are absent.
 - `fingerprints.txt`: leakage guard for training (see below).
 - `LICENSES.md`: sources, licenses and row counts (generated).
 
@@ -75,6 +76,7 @@ go run ./cmd/eval                                   # table on stdout (default -
 go run ./cmd/eval -json out.json                    # also write the report
 go run ./cmd/eval -baseline eval/baseline.json      # exit 1 on regression > 0.02
 go run ./cmd/eval -detector regex -baseline eval/baseline-regex.json   # legacy detector
+go run -tags onnx ./cmd/eval -detector fusion-ml -baseline eval/baseline-onnx.json   # with L2/L3 (make eval-ml)
 go run ./cmd/eval -json eval/baseline.json          # refresh the baseline
 go test ./internal/evalset -run TestBaseline -update-baseline          # refresh every baseline
 go test ./internal/evalset -run TestBaseline/fusion -update-baseline   # refresh one

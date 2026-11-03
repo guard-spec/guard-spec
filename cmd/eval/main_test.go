@@ -65,3 +65,15 @@ func TestCLIRegressionExitCode(t *testing.T) {
 		t.Fatalf("unknown detector exit code %d, want 2", code)
 	}
 }
+
+// TestMLDetectorNeedsModels: fusion-ml refuses to run on L1 alone, so a
+// baseline for the model layers is never compared with L1 numbers.
+func TestMLDetectorNeedsModels(t *testing.T) {
+	t.Setenv("MODEL_DIR", t.TempDir())
+	if code := runWith(t, "-data", "../../eval/data", "-detector", "fusion-ml"); code != 2 {
+		t.Fatalf("exit code %d, want 2", code)
+	}
+	if code := runWith(t, "-data", "../../eval/data", "-layers", "l9"); code != 2 {
+		t.Fatalf("bad -layers: exit code %d, want 2", code)
+	}
+}

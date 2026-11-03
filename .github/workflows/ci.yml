@@ -48,7 +48,17 @@ jobs:
       - run: go vet -tags onnx ./...
       # Models are not downloaded in CI: the model tests skip, the unit tests
       # and the runtime/tokenizer load test run against the real libraries.
-      - run: go test -race -tags onnx ./internal/onnx/ ./cmd/...
+      - run: go test -race -tags onnx ./internal/onnx/ ./internal/inference/... ./cmd/...
+      # The model-layer eval baseline (L1+L2+L3). Our classifier is not
+      # published, so this skips unless a runner provides models/.
+      - name: Detector eval with model layers vs baseline
+        run: |
+          if [ -f models/cache/multilingual-e5-small/model.onnx ] && \
+             { [ -f models/local/guardspec-classifier-v1/config.json ] || [ -f models/local/guardspec-classifier-v0/config.json ]; }; then
+            go run -tags onnx ./cmd/eval -detector fusion-ml -baseline eval/baseline-onnx.json -max-regression 0.02
+          else
+            echo "models absent: skipping eval/baseline-onnx.json"
+          fi
 
   integration:
     name: Integration tests (Postgres)
