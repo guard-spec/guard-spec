@@ -1,38 +1,47 @@
 # syntax=docker/dockerfile:1
-# Gateway: Go data plane with ONNX Runtime
+# Gateway: Go data plane with in-process ONNX Runtime (internal/onnx).
+#
+# Builds for linux/amd64 and linux/arm64 (docker buildx --platform ...).
+# The `onnx` build tag needs cgo: libtokenizers.a is linked statically and
+# libonnxruntime.so is shipped in the image and loaded at run time
+# (ONNXRUNTIME_LIB). Versions and SHA-256 values live in build/onnx-deps.sh.
 
 FROM golang:1.22-bookworm AS builder
+ARG TARGETOS=linux
+ARG TARGETARCH
 
 WORKDIR /src
+COPY build/onnx-deps.sh /tmp/onnx-deps.sh
+RUN sh /tmp/onnx-deps.sh /opt/onnx "$TARGETOS" "${TARGETARCH:-$(uname -m)}"
+
 COPY go.mod go.sum ./
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
 
 COPY . .
-# ORT shared lib path must be available at build time
-ARG ORT_LIB_DIR=/usr/local/lib
-RUN CGO_ENABLED=1 GOOS=linux \
-    go build -tags ORT -ldflags="-s -w" \
-    -o /out/gateway ./cmd/gateway/
+ENV CGO_ENABLED=1 CGO_LDFLAGS=-L/opt/onnx/lib GOTOOLCHAIN=local
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    go build -tags onnx -trimpath -ldflags="-s -w" -o /out/gateway ./cmd/gateway/ \
+ && go build -tags onnx -trimpath -ldflags="-s -w" -o /out/onnxbench ./cmd/onnxbench/ \
+ && go build -trimpath -ldflags="-s -w" -o /out/models ./cmd/models/
 
 # --- runtime image ---
 FROM debian:bookworm-slim
 
-# ORT runtime dependency
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgomp1 ca-certificates curl \
+    ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install ORT shared library (CPU, 1.18.x)
-ARG ORT_VERSION=1.18.1
-RUN ORT_ARCH=$(uname -m | sed 's/x86_64/x64/') \
-    && curl -fsSL \
-    "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-linux-${ORT_ARCH}-${ORT_VERSION}.tgz" \
-    | tar -xz -C /usr/local/lib --strip-components=2 \
-    && ldconfig
+# ONNX Runtime CPU shared library (MIT), loaded by internal/onnx via dlopen.
+COPY --from=builder /opt/onnx/lib/libonnxruntime.so* /usr/local/lib/
+COPY --from=builder /opt/onnx/LICENSE.onnxruntime /usr/share/doc/onnxruntime/LICENSE
+RUN ldconfig
+ENV ONNXRUNTIME_LIB=/usr/local/lib/libonnxruntime.so \
+    MODELS_PATH=/models
 
 WORKDIR /app
-COPY --from=builder /out/gateway .
+COPY --from=builder /out/gateway /out/onnxbench /out/models ./
 COPY --from=builder /src/migrations ./migrations
+COPY --from=builder /src/models/manifest.yaml ./models/manifest.yaml
 
 EXPOSE 8080 9090
 HEALTHCHECK --interval=10s --timeout=3s CMD curl -f http://localhost:8080/health || exit 1
