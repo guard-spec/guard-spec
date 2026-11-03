@@ -1,0 +1,94 @@
+# Models that internal/onnx can load. Fetch them with:
+#
+#   go run ./cmd/models pull [-dir models/cache] [-models name,name]
+#
+# Every file is pinned to a Hugging Face commit and checked against its SHA-256
+# before it is moved into place; a mismatch is refused. Files land in
+# <dir>/<name>/<dest>, the layout internal/onnx expects (model.onnx,
+# tokenizer.json, config.json). models/cache/ is gitignored.
+#
+# git_sha1 is the git blob id from the Hugging Face tree API. It is only used for
+# small files of gated repos, whose content (and so SHA-256) cannot be read
+# without a token. `pull` verifies it and prints the SHA-256 so it can be pinned.
+#
+# optional: true models are only pulled when named with -models. gated: true
+# models need HF_TOKEN (after accepting the terms on the model page) and are
+# skipped without it.
+#
+# The L2 injection classifier is our own guardspec-classifier-v0 (PR #9). It is
+# not on Hugging Face: the training writes it to models/local/guardspec-classifier-v0/
+# (model_int8.onnx, tokenizer.json, config.json, thresholds.json), which
+# internal/onnx loads directly. The ProtectAI models below are optional
+# comparison baselines.
+models:
+  # ProtectAI small v2: gated, requires HF_TOKEN. Optional baseline.
+  - name: protectai-deberta-v3-small-pi-v2
+    kind: classifier
+    repo: protectai/deberta-v3-small-prompt-injection-v2
+    revision: d7c8842daf06de3179cc3aca76b7b3a057acc5e7
+    license: Apache-2.0
+    license_url: https://huggingface.co/protectai/deberta-v3-small-prompt-injection-v2
+    gated: true
+    optional: true
+    # No quantized ONNX is published; fp32 is the only variant.
+    files:
+      - src: onnx/model.onnx
+        dest: model.onnx
+        size: 568027819
+        sha256: 6a842b32de08da9e8b2406192b7b5ba3cc0230392b637588899e75bd22cfac2b
+      - src: onnx/tokenizer.json
+        dest: tokenizer.json
+        size: 8648864
+        git_sha1: 91cf6343ed019104bdb2f55473543ee1ce7e79ed
+      - src: onnx/config.json
+        dest: config.json
+        size: 1031
+        git_sha1: 85f089c80ca99b4937cdcbb0b0c4a8b28733e008
+
+  # ProtectAI base v2: same labels (SAFE/INJECTION) and tokenizer, not gated,
+  # about 3x the compute of small. Optional baseline.
+  - name: protectai-deberta-v3-base-pi-v2
+    kind: classifier
+    optional: true
+    repo: protectai/deberta-v3-base-prompt-injection-v2
+    revision: 90c9989b1a342275dd0d1a95aad283c04e075671
+    license: Apache-2.0
+    license_url: https://huggingface.co/protectai/deberta-v3-base-prompt-injection-v2/blob/main/LICENSE
+    files:
+      - src: onnx/model.onnx
+        dest: model.onnx
+        size: 738563188
+        sha256: f0ea7f239f765aedbde7c9e163a7cb38a79c5b8853d3f76db5152172047b228c
+      - src: onnx/tokenizer.json
+        dest: tokenizer.json
+        size: 8648886
+        sha256: 752fe5f0d5678ad563e1bd2ecc1ddf7a3ba7e2024d0ac1dba1a72975e26dff2f
+      - src: onnx/config.json
+        dest: config.json
+        size: 1014
+        sha256: 3093743035223c46b1497a72e939e56fa0a50afbd7bafbf7eb8aad060b8d23f8
+
+  # Multilingual sentence embeddings (384-d, mean pooling). The repo ships ONNX
+  # exports; we take the int8 dynamic-quantized one (118 MB instead of 470 MB).
+  # It uses standard ONNX integer ops, so it runs on arm64 as well, the
+  # "avx512_vnni" in the name is only the quantization preset.
+  # Inputs need the "query: " / "passage: " prefix, as the model card says.
+  - name: multilingual-e5-small
+    kind: embedder
+    repo: intfloat/multilingual-e5-small
+    revision: 614241f622f53c4eeff9890bdc4f31cfecc418b3
+    license: MIT
+    license_url: https://huggingface.co/intfloat/multilingual-e5-small
+    files:
+      - src: onnx/model_qint8_avx512_vnni.onnx
+        dest: model.onnx
+        size: 118346824
+        sha256: dd476dd0c2514e9b9be83aeb3853fac0763e0bdf4a71645407587d77c48a2d88
+      - src: onnx/tokenizer.json
+        dest: tokenizer.json
+        size: 17082730
+        sha256: 0b44a9d7b51c3c62626640cda0e2c2f70fdacdc25bbbd68038369d14ebdf4c39
+      - src: onnx/config.json
+        dest: config.json
+        size: 653
+        sha256: bbb7c1333fc4b3e27fbc9cd5d2070aabcc1d4dfb99917c3633e772f97545a6b6

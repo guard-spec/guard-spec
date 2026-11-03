@@ -14,6 +14,9 @@ permissions:
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
+    # Code scanning uploads need GitHub Advanced Security, which this repo only
+    # has once it is public. Skip instead of failing until then.
+    if: ${{ !github.event.repository.private }}
     runs-on: ubuntu-latest
     permissions:
       contents: read

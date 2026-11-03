@@ -23,6 +23,9 @@ test_body.json
 # OS
 .DS_Store
 
+# Native ONNX deps fetched by build/onnx-deps.sh
+/.onnx/
+
 # Eval set raw downloads (rebuilt by eval/build/build.py)
 eval/.cache/
 
