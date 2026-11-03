@@ -77,8 +77,10 @@ make onnxbench                       # latency table
 
 Run time: `ONNXRUNTIME_LIB` (path to libonnxruntime; the image sets
 `/usr/local/lib/libonnxruntime.so`), `INFERENCE_MAX_CONCURRENCY` (default: CPU
-count), `INFERENCE_INTRA_OP_THREADS` (default: ORT's choice; 3 threads was
-slower than the default on an M3 Max at both concurrency 1 and 4).
+count), `INFERENCE_INTRA_OP_THREADS` (default: `min(4, NumCPU)` on Linux,
+ORT's own choice elsewhere; `0` forces ORT's choice). On the M3 Max the ORT
+default beat 3 threads; in the linux/arm64 container the ORT default (one
+spinning thread per core) was 3-7x slower than 4 threads, hence the split.
 `HF_TOKEN` is needed to pull the gated ProtectAI small v2 model.
 
 ## Measurements (2026-11-04, `cmd/onnxbench`, one text per request, n=100)
@@ -102,6 +104,34 @@ small); small should be markedly faster.
 | | 256 | 4 | 32.5 | 37.1 | 125.0 |
 | | 512 | 1 | 29.3 | 41.0 | 33.6 |
 | | 512 | 4 | 79.2 | 91.1 | 50.1 |
+
+linux/arm64 container (`guardspec-onnx-dev:arm64` built from
+build/gateway.Dockerfile) on the same Mac under Docker Desktop, 14 vCPUs shared
+with other running stacks, default threads (4):
+
+| model | tokens | conc | p50 ms | p99 ms | req/s |
+|---|---:|---:|---:|---:|---:|
+| deberta-v3-base-pi-v2 (fp32) | 64 | 1 | 84.3 | 177.6 | 11.5 |
+| | 64 | 4 | 128.2 | 170.0 | 30.7 |
+| | 256 | 1 | 288.8 | 500.9 | 3.9 |
+| | 256 | 4 | 508.2 | 694.9 | 7.8 |
+| | 512 | 1 | 509.4 | 779.2 | 2.0 |
+| | 512 | 4 | 896.7 | 961.0 | 4.4 |
+| multilingual-e5-small (int8) | 64 | 1 | 5.8 | 6.6 | 173.7 |
+| | 64 | 4 | 9.4 | 10.0 | 419.4 |
+| | 256 | 1 | 18.4 | 20.3 | 54.4 |
+| | 256 | 4 | 40.2 | 44.9 | 99.0 |
+| | 512 | 1 | 42.5 | 53.7 | 23.2 |
+| | 512 | 4 | 105.1 | 122.2 | 37.9 |
+
+The fp32 DeBERTa is 3-4x slower in the container than natively (the int8 e5
+only ~1.3x), so the fp32 classifier, not the runtime, dominates; an int8
+export of the small model is the obvious next step for the hot path.
+
+linux/amd64: the image also builds (`--platform linux/amd64`) and runs under
+Docker Desktop's x86 emulation (base classifier, 64 tokens: p50 83 ms), which
+proves the binary and library load; the latency is not representative of real
+amd64 hardware.
 
 Observation: ProtectAI flags highly repetitive benign text (one sentence
 repeated 20 times scores INJECTION ≈ 0.98 in a single window); varied long

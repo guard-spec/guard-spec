@@ -60,7 +60,13 @@ trap 'rm -rf "$tmp"' EXIT
 
 fetch "https://github.com/microsoft/onnxruntime/releases/download/v$ORT_VERSION/$ort_pkg.tgz" "$ort_sha" "$tmp/ort.tgz"
 tar -xzf "$tmp/ort.tgz" -C "$tmp"
-find "$tmp/$ort_pkg/lib" -maxdepth 1 -name "libonnxruntime*" ! -name "*.dSYM" \( -type f -o -type l \) -exec cp -P {} "$dest/lib/" \;
+# Only the CPU runtime, as one dereferenced file: it is dlopen()ed by path, so
+# the versioned symlinks and the CUDA/TensorRT provider bridge are not needed.
+case "$os" in
+  darwin) ort_lib=libonnxruntime.dylib ;;
+  *)      ort_lib=libonnxruntime.so ;;
+esac
+cp -L "$tmp/$ort_pkg/lib/$ort_lib" "$dest/lib/$ort_lib"
 cp "$tmp/$ort_pkg/LICENSE" "$dest/LICENSE.onnxruntime"
 
 fetch "https://github.com/daulet/tokenizers/releases/download/v$TOKENIZERS_VERSION/libtokenizers.$os-$arch.tar.gz" "$tok_sha" "$tmp/tok.tgz"
