@@ -67,25 +67,25 @@ jobs:
       postgres:
         image: postgres:17-alpine
         env:
-          POSTGRES_DB: promptshield
+          POSTGRES_DB: guardspec
           POSTGRES_USER: ps
           # Throwaway credentials for an ephemeral CI container.
           POSTGRES_PASSWORD: ci-superuser-password
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U ps -d promptshield"
+          --health-cmd "pg_isready -U ps -d guardspec"
           --health-interval 5s
           --health-timeout 3s
           --health-retries 10
     env:
       PGHOST: localhost
       PGUSER: ps
-      PGDATABASE: promptshield
+      PGDATABASE: guardspec
       PGPASSWORD: ci-superuser-password
-      PS_APP_PASSWORD: ci-app-password-0123456789
-      TEST_DATABASE_URL: postgres://ps_app:ci-app-password-0123456789@localhost:5432/promptshield?sslmode=disable
-      TEST_OWNER_DATABASE_URL: postgres://ps:ci-superuser-password@localhost:5432/promptshield?sslmode=disable
+      GUARDSPEC_APP_PASSWORD: ci-app-password-0123456789
+      TEST_DATABASE_URL: postgres://guardspec_app:ci-app-password-0123456789@localhost:5432/guardspec?sslmode=disable
+      TEST_OWNER_DATABASE_URL: postgres://ps:ci-superuser-password@localhost:5432/guardspec?sslmode=disable
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -97,19 +97,50 @@ jobs:
         run: |
           go run -tags postgres github.com/golang-migrate/migrate/v4/cmd/migrate@v4.20.1 \
             -path migrations \
-            -database "postgres://ps:${PGPASSWORD}@localhost:5432/promptshield?sslmode=disable" up
+            -database "postgres://ps:${PGPASSWORD}@localhost:5432/guardspec?sslmode=disable" up
       - name: Set the application role password
         run: sh deploy/postgres/set-app-password.sh
       - name: Migrations roll back and forward
         run: |
           go run -tags postgres github.com/golang-migrate/migrate/v4/cmd/migrate@v4.20.1 \
             -path migrations \
-            -database "postgres://ps:${PGPASSWORD}@localhost:5432/promptshield?sslmode=disable" down -all
+            -database "postgres://ps:${PGPASSWORD}@localhost:5432/guardspec?sslmode=disable" down -all
           go run -tags postgres github.com/golang-migrate/migrate/v4/cmd/migrate@v4.20.1 \
             -path migrations \
-            -database "postgres://ps:${PGPASSWORD}@localhost:5432/promptshield?sslmode=disable" up
+            -database "postgres://ps:${PGPASSWORD}@localhost:5432/guardspec?sslmode=disable" up
           sh deploy/postgres/set-app-password.sh
+      # Upgrade from a PromptShield database: role ps_app with its password,
+      # schema at 009. Migration 010 renames the role; the password and the
+      # grants must survive, and the old PS_APP_PASSWORD still works (warned).
+      - name: Upgrade from the ps_app role
+        run: |
+          migrate() { go run -tags postgres github.com/golang-migrate/migrate/v4/cmd/migrate@v4.20.1 -path migrations -database "postgres://ps:${PGPASSWORD}@localhost:5432/guardspec?sslmode=disable" "$@"; }
+          migrate down -all
+          migrate up 9
+          psql -v ON_ERROR_STOP=1 -q -c "ALTER ROLE ps_app WITH PASSWORD 'old-ps-app-password-123'"
+          migrate up
+          test "$(psql -tAc "SELECT count(*) FROM pg_roles WHERE rolname = 'ps_app'")" = 0
+          PGUSER=guardspec_app PGPASSWORD=old-ps-app-password-123 \
+            psql -v ON_ERROR_STOP=1 -tAc "SELECT set_config('app.org_id', '00000000-0000-0000-0000-000000000000', false); SELECT count(*) FROM policies"
+          env -u GUARDSPEC_APP_PASSWORD PS_APP_PASSWORD="$GUARDSPEC_APP_PASSWORD" \
+            sh deploy/postgres/set-app-password.sh 2> warn.txt
+          cat warn.txt
+          grep -q "PS_APP_PASSWORD is deprecated" warn.txt
       - run: go test -race -tags integration ./...
+
+  licenses:
+    name: Third-party licenses
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      # Fails on GPL, AGPL, LGPL and unknown licenses (onnx build included).
+      # Regenerate THIRD_PARTY_LICENSES.md with make licenses.
+      - run: make licenses-check
 
   govulncheck:
     name: govulncheck

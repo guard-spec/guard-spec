@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/promptshield/promptshield/internal/inference/fusion"
+	"github.com/giaplee/guard-spec/internal/inference/fusion"
 )
 
 // Exemplar labels: "block" exemplars are attacks, "allow" exemplars benign.

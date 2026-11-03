@@ -8,12 +8,12 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/giaplee/guard-spec/internal/indirect"
+	"github.com/giaplee/guard-spec/internal/inference"
+	"github.com/giaplee/guard-spec/internal/tenant"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/promptshield/promptshield/internal/indirect"
-	"github.com/promptshield/promptshield/internal/inference"
-	"github.com/promptshield/promptshield/internal/tenant"
 )
 
 // scanConfig decides which parts of a request are classified, how untrusted

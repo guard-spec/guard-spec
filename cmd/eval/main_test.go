@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/promptshield/promptshield/internal/evalset"
+	"github.com/giaplee/guard-spec/internal/evalset"
 )
 
 func runWith(t *testing.T, args ...string) int {

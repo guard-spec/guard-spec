@@ -9,8 +9,8 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/promptshield/promptshield/internal/inference/fusion"
-	"github.com/promptshield/promptshield/internal/onnx"
+	"github.com/giaplee/guard-spec/internal/inference/fusion"
+	"github.com/giaplee/guard-spec/internal/onnx"
 )
 
 // TestBuildWithModels loads the real layers from models/ (skips without them)

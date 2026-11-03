@@ -6,9 +6,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/promptshield/promptshield/internal/evalset"
-	"github.com/promptshield/promptshield/internal/inference"
-	"github.com/promptshield/promptshield/internal/inference/ml"
+	"github.com/giaplee/guard-spec/internal/evalset"
+	"github.com/giaplee/guard-spec/internal/inference"
+	"github.com/giaplee/guard-spec/internal/inference/ml"
 )
 
 // mlDetector is the gateway's detector with the model layers (L2, L3) as

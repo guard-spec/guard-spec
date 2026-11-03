@@ -11,6 +11,7 @@ ARG BINARY
 WORKDIR /app
 COPY ${TARGETPLATFORM}/${BINARY} /app/service
 COPY migrations /app/migrations
+COPY LICENSE NOTICE THIRD_PARTY_LICENSES.md /usr/share/doc/guard-spec/
 
 USER nonroot:nonroot
 ENTRYPOINT ["/app/service"]

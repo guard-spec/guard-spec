@@ -16,8 +16,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/promptshield/promptshield/internal/metrics"
-	"github.com/promptshield/promptshield/internal/tracing"
+	"github.com/giaplee/guard-spec/internal/metrics"
+	"github.com/giaplee/guard-spec/internal/tracing"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"

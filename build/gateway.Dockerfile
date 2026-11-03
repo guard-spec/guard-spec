@@ -42,6 +42,7 @@ WORKDIR /app
 COPY --from=builder /out/gateway /out/onnxbench /out/models ./
 COPY --from=builder /src/migrations ./migrations
 COPY --from=builder /src/models/manifest.yaml ./manifest.yaml
+COPY --from=builder /src/LICENSE /src/NOTICE /src/THIRD_PARTY_LICENSES.md /usr/share/doc/guard-spec/
 
 EXPOSE 8080 9090
 HEALTHCHECK --interval=10s --timeout=3s CMD curl -f http://localhost:8080/health || exit 1

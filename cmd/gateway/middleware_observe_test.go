@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/giaplee/guard-spec/internal/metrics"
+	"github.com/giaplee/guard-spec/internal/proxy"
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
-	"github.com/promptshield/promptshield/internal/metrics"
-	"github.com/promptshield/promptshield/internal/proxy"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"

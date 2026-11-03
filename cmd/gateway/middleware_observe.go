@@ -6,11 +6,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/giaplee/guard-spec/internal/metrics"
+	"github.com/giaplee/guard-spec/internal/outputguard"
+	"github.com/giaplee/guard-spec/internal/tracing"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
-	"github.com/promptshield/promptshield/internal/metrics"
-	"github.com/promptshield/promptshield/internal/outputguard"
-	"github.com/promptshield/promptshield/internal/tracing"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
@@ -23,7 +23,7 @@ const decisionNone = "none"
 
 // auditedKey marks a request whose audit row records its metrics (see
 // observeEntry), so that observe does not count it a second time.
-const auditedKey = "ps_audited"
+const auditedKey = "guardspec_audited"
 
 // knownRoutes bounds the route label; anything else is "other".
 var knownRoutes = map[string]string{}

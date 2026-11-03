@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/promptshield/promptshield/internal/outputguard"
+	"github.com/giaplee/guard-spec/internal/outputguard"
 )
 
 func jsonCompletion(content string) string {

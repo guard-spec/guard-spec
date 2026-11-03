@@ -27,16 +27,16 @@ func TestCheckerRefusesDefaultsOutsideDev(t *testing.T) {
 		{"admin empty", func(c *Checker) { c.Password("ADMIN_PASSWORD", "") }, ""},
 		{"admin ok", func(c *Checker) { c.Password("ADMIN_PASSWORD", "correct horse battery") }, ""},
 		{"db default", func(c *Checker) {
-			c.DatabaseURL("DATABASE_URL", "postgres://ps_app:ps_app@localhost:5432/promptshield")
+			c.DatabaseURL("DATABASE_URL", "postgres://guardspec_app:guardspec_app@localhost:5432/guardspec")
 		}, "known default"},
 		{"db short", func(c *Checker) {
-			c.DatabaseURL("DATABASE_URL", "postgres://ps_app:abc@localhost:5432/promptshield")
+			c.DatabaseURL("DATABASE_URL", "postgres://guardspec_app:abc@localhost:5432/guardspec")
 		}, "too short"},
 		{"db ok", func(c *Checker) {
-			c.DatabaseURL("DATABASE_URL", "postgres://ps_app:"+strong+"@localhost:5432/promptshield")
+			c.DatabaseURL("DATABASE_URL", "postgres://guardspec_app:"+strong+"@localhost:5432/guardspec")
 		}, ""},
 		{"db no password", func(c *Checker) {
-			c.DatabaseURL("DATABASE_URL", "postgres://ps_app@localhost:5432/promptshield")
+			c.DatabaseURL("DATABASE_URL", "postgres://guardspec_app@localhost:5432/guardspec")
 		}, ""},
 	}
 	for _, tc := range cases {
@@ -62,9 +62,9 @@ func TestCheckerRefusesDefaultsOutsideDev(t *testing.T) {
 
 func TestCheckerReadsPGPASSWORD(t *testing.T) {
 	t.Setenv(EnvVar, "")
-	t.Setenv("PGPASSWORD", "ps_app")
+	t.Setenv("PGPASSWORD", "guardspec_app")
 	var c Checker
-	c.DatabaseURL("DATABASE_URL", "postgres://ps_app@localhost:5432/promptshield")
+	c.DatabaseURL("DATABASE_URL", "postgres://guardspec_app@localhost:5432/guardspec")
 	if err := c.Err(); err == nil {
 		t.Fatal("default PGPASSWORD was accepted")
 	}

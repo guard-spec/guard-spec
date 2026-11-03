@@ -7,10 +7,10 @@ import (
 	"sort"
 	"time"
 
-	"github.com/promptshield/promptshield/internal/inference"
-	"github.com/promptshield/promptshield/internal/inference/fusion"
-	"github.com/promptshield/promptshield/internal/inference/rules"
-	"github.com/promptshield/promptshield/internal/sanitizer"
+	"github.com/giaplee/guard-spec/internal/inference"
+	"github.com/giaplee/guard-spec/internal/inference/fusion"
+	"github.com/giaplee/guard-spec/internal/inference/rules"
+	"github.com/giaplee/guard-spec/internal/sanitizer"
 )
 
 // Detector scores sanitized text: 0 is benign, 1 is certainly an attack.

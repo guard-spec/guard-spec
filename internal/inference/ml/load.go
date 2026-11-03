@@ -13,8 +13,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/promptshield/promptshield/internal/inference/fusion"
-	"github.com/promptshield/promptshield/internal/onnx"
+	"github.com/giaplee/guard-spec/internal/inference/fusion"
+	"github.com/giaplee/guard-spec/internal/onnx"
 )
 
 // Environment variables read by ConfigFromEnv.

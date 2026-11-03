@@ -20,7 +20,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/promptshield/promptshield/internal/onnx"
+	"github.com/giaplee/guard-spec/internal/onnx"
 )
 
 func main() {

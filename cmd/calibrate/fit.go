@@ -12,11 +12,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/promptshield/promptshield/internal/evalset"
-	"github.com/promptshield/promptshield/internal/inference/fusion"
-	"github.com/promptshield/promptshield/internal/inference/ml"
-	"github.com/promptshield/promptshield/internal/inference/rules"
-	"github.com/promptshield/promptshield/internal/sanitizer"
+	"github.com/giaplee/guard-spec/internal/evalset"
+	"github.com/giaplee/guard-spec/internal/inference/fusion"
+	"github.com/giaplee/guard-spec/internal/inference/ml"
+	"github.com/giaplee/guard-spec/internal/inference/rules"
+	"github.com/giaplee/guard-spec/internal/sanitizer"
 )
 
 // scoredRow is one validation row with its raw layer scores.
