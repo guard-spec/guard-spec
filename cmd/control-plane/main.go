@@ -22,6 +22,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/promptshield/promptshield/internal/auth"
+	"github.com/promptshield/promptshield/internal/config"
 	"github.com/promptshield/promptshield/internal/policy"
 	"github.com/promptshield/promptshield/internal/tenant"
 )
@@ -50,8 +51,8 @@ func main() {
 	if *checkOnly {
 		os.Exit(runPolicyCheck(context.Background(), cfg.DatabaseURL, os.Stdout))
 	}
-	if cfg.JWTSecret == "" {
-		slog.Error("JWT_SECRET is required")
+	if err := cfg.check(); err != nil {
+		slog.Error("config", "err", err)
 		os.Exit(1)
 	}
 	secret := []byte(cfg.JWTSecret)
@@ -109,6 +110,7 @@ func main() {
 	admin := auth.RequireRole(db, auth.RoleAdmin)
 
 	authed.Get("/organizations/:orgId", viewer, getOrg(db))
+	authed.Patch("/organizations/:orgId", admin, updateOrgSettings(db))
 
 	authed.Get("/organizations/:orgId/api-keys", admin, listAPIKeys(db))
 	authed.Post("/organizations/:orgId/api-keys", admin, createAPIKey(db))
@@ -240,21 +242,48 @@ func getOrg(db *pgxpool.Pool) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		id := orgID(c)
 		var org struct {
-			ID        uuid.UUID `json:"id"`
-			Name      string    `json:"name"`
-			Slug      string    `json:"slug"`
-			Tier      string    `json:"tier"`
-			CreatedAt time.Time `json:"created_at"`
+			ID                uuid.UUID `json:"id"`
+			Name              string    `json:"name"`
+			Slug              string    `json:"slug"`
+			Tier              string    `json:"tier"`
+			AuditStoreContent bool      `json:"audit_store_content"`
+			CreatedAt         time.Time `json:"created_at"`
 		}
 		err := tenant.WithOrg(c.Context(), db, id, func(tx pgx.Tx) error {
 			return tx.QueryRow(c.Context(),
-				`SELECT id, name, slug, tier, created_at FROM organizations WHERE id = $1`, id).
-				Scan(&org.ID, &org.Name, &org.Slug, &org.Tier, &org.CreatedAt)
+				`SELECT id, name, slug, tier, audit_store_content, created_at FROM organizations WHERE id = $1`, id).
+				Scan(&org.ID, &org.Name, &org.Slug, &org.Tier, &org.AuditStoreContent, &org.CreatedAt)
 		})
 		if err != nil {
 			return c.Status(404).JSON(fiber.Map{"error": "not found"})
 		}
 		return c.JSON(org)
+	}
+}
+
+// updateOrgSettings changes org-level settings. audit_store_content opts the org
+// into storing prompt and response content in audit rows (off by default, D6).
+func updateOrgSettings(db *pgxpool.Pool) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		id := orgID(c)
+		var req struct {
+			AuditStoreContent *bool `json:"audit_store_content"`
+		}
+		if err := c.BodyParser(&req); err != nil || req.AuditStoreContent == nil {
+			return c.Status(400).JSON(fiber.Map{"error": "audit_store_content (boolean) is required"})
+		}
+		err := tenant.WithOrg(c.Context(), db, id, func(tx pgx.Tx) error {
+			_, err := tx.Exec(c.Context(),
+				`UPDATE organizations SET audit_store_content = $1, updated_at = NOW() WHERE id = $2`,
+				*req.AuditStoreContent, id)
+			return err
+		})
+		if err != nil {
+			return serverError(c, err)
+		}
+		slog.Info("org audit content storage changed", "org", id, "enabled", *req.AuditStoreContent,
+			"by", auth.UserID(c))
+		return c.JSON(fiber.Map{"id": id, "audit_store_content": *req.AuditStoreContent})
 	}
 }
 
@@ -532,13 +561,22 @@ func listRequests(db *pgxpool.Pool) fiber.Handler {
 			HadTagChars    bool       `json:"had_tag_chars"`
 			HadBidi        bool       `json:"had_bidi"`
 			LatencyMs      *int       `json:"latency_ms"`
-			CreatedAt      time.Time  `json:"created_at"`
+			RequestSHA256  *string    `json:"request_sha256"`
+			RequestBytes   *int       `json:"request_bytes"`
+			ResponseSHA256 *string    `json:"response_sha256"`
+			ResponseBytes  *int       `json:"response_bytes"`
+			// Present only when the org or gateway enabled content storage.
+			RequestContent  *string   `json:"request_content,omitempty"`
+			ResponseContent *string   `json:"response_content,omitempty"`
+			CreatedAt       time.Time `json:"created_at"`
 		}
 		reqs := []row{}
 		err := tenant.WithOrg(c.Context(), db, id, func(tx pgx.Tx) error {
 			rows, err := tx.Query(c.Context(),
 				`SELECT id, model, action, rule_id, injection_label, injection_score, toxicity_score, anomaly_score,
-				        had_tag_chars, had_bidi, latency_ms, created_at
+				        had_tag_chars, had_bidi, latency_ms,
+				        request_sha256, request_bytes, response_sha256, response_bytes,
+				        request_content, response_content, created_at
 				 FROM requests WHERE org_id = $1
 				 ORDER BY created_at DESC LIMIT $2`, id, limit)
 			if err != nil {
@@ -548,7 +586,9 @@ func listRequests(db *pgxpool.Pool) fiber.Handler {
 			for rows.Next() {
 				var r row
 				if err := rows.Scan(&r.ID, &r.Model, &r.Action, &r.RuleID, &r.InjectionLabel, &r.InjectionScore, &r.ToxicityScore,
-					&r.AnomalyScore, &r.HadTagChars, &r.HadBidi, &r.LatencyMs, &r.CreatedAt); err != nil {
+					&r.AnomalyScore, &r.HadTagChars, &r.HadBidi, &r.LatencyMs,
+					&r.RequestSHA256, &r.RequestBytes, &r.ResponseSHA256, &r.ResponseBytes,
+					&r.RequestContent, &r.ResponseContent, &r.CreatedAt); err != nil {
 					return err
 				}
 				reqs = append(reqs, r)
@@ -576,12 +616,32 @@ type appConfig struct {
 func loadConfig() appConfig {
 	return appConfig{
 		ListenAddr:     getenv("LISTEN_ADDR", ":8081"),
-		DatabaseURL:    getenv("DATABASE_URL", "postgres://ps_app:ps_app@localhost:5432/promptshield?sslmode=disable"),
+		DatabaseURL:    os.Getenv("DATABASE_URL"),
 		JWTSecret:      os.Getenv("JWT_SECRET"),
 		AdminEmail:     os.Getenv("ADMIN_EMAIL"),
 		AdminPassword:  os.Getenv("ADMIN_PASSWORD"),
 		AllowedOrigins: os.Getenv("ALLOWED_ORIGINS"),
 	}
+}
+
+// check refuses missing, default and weak secrets unless GUARD_ENV=dev.
+func (cfg appConfig) check() error {
+	if cfg.DatabaseURL == "" {
+		return errors.New("DATABASE_URL is not set; set DATABASE_URL to the application role's connection string, " +
+			"such as postgres://ps_app@host:5432/promptshield (password in the URL or PGPASSWORD)")
+	}
+	if cfg.JWTSecret == "" {
+		// Even dev mode needs a key to sign with.
+		return errors.New("JWT_SECRET is not set; set JWT_SECRET to a random value of at least 32 bytes " +
+			"(for example: openssl rand -hex 32)")
+	}
+	var c config.Checker
+	c.Secret("JWT_SECRET", cfg.JWTSecret)
+	if cfg.AdminEmail != "" {
+		c.Password("ADMIN_PASSWORD", cfg.AdminPassword)
+	}
+	c.DatabaseURL("DATABASE_URL", cfg.DatabaseURL)
+	return c.Err()
 }
 
 func getenv(k, fallback string) string {

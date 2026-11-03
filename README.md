@@ -13,15 +13,48 @@ LLM Guard (Protect AI) was archived 2026-07-09. Rebuff was archived 2025-05-16. 
 - **Admin UI (Next.js):** Dashboard, rules config, routing, attack analysis, monitoring.
 - **Models:** Apache-2.0 only — Qwen3Guard-Gen-0.6B (fast) + IBM Granite Guardian 3.3 (broad coverage).
 
-## Quick Start
+## Quick Start (local development)
 
 ```bash
-cp .env.example .env
 docker compose up -d
-open http://localhost:3000
 ```
 
-Default admin credentials: admin@localhost / change-on-first-login
+`docker compose up` also loads `docker-compose.override.yml`, which sets
+`GUARD_ENV=dev` and well-known throwaway credentials (admin login
+`admin@localhost` / `change-on-first-login`). Never deploy with it.
+
+## Production
+
+```bash
+cp .env.example .env      # fill in every secret, e.g. with: openssl rand -hex 32
+docker compose -f docker-compose.yml up -d
+```
+
+Outside `GUARD_ENV=dev` the services refuse to start while a secret is missing,
+a known default (any value shipped in this repository) or too short, and the
+error names the variable to set:
+
+| Variable | Used by | Requirement |
+| --- | --- | --- |
+| `POSTGRES_PASSWORD` | postgres, migrations | at least 12 characters, not a default |
+| `PS_APP_PASSWORD` | gateway, control plane (role `ps_app`) | at least 12 characters, not a default; applied by the `db-roles` service on every start |
+| `JWT_SECRET` | control plane | at least 32 bytes, not a default |
+| `ADMIN_PASSWORD` | control plane, with `ADMIN_EMAIL` | at least 12 characters, not a default; the first owner is created only when both are set |
+
+Migration 004 no longer contains a password for `ps_app`, and migration 005
+clears the one earlier versions set. Outside compose, set it yourself after
+migrating: `PS_APP_PASSWORD=... sh deploy/postgres/set-app-password.sh` with
+superuser credentials in `PGHOST`, `PGUSER`, `PGDATABASE` and `PGPASSWORD`.
+
+## Audit privacy
+
+Audit rows (`requests`) store scores, the decision, and a SHA-256 and the
+length of the request body and of a buffered upstream response. They store no
+prompt or response content unless content storage is enabled, either for every
+organization with `AUDIT_STORE_CONTENT=true` on the gateway, or for one
+organization with `PATCH /v1/organizations/{id}` and
+`{"audit_store_content": true}` (admin role). Streamed responses are not
+buffered, so their response columns stay empty.
 
 ## Upstream LLM
 

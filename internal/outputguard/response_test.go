@@ -129,7 +129,7 @@ func TestSSEChoicesAreSeparate(t *testing.T) {
 	out := feed(scanner(full).NewEventStream(), upstream, 9)
 	texts, _ := sseText(t, out, "content")
 	if texts[0] != "[REDACTED:email]" || texts[1] != "[REDACTED:email]" {
-		t.Errorf("texts = %q", texts)
+		t.Errorf("texts = %v", texts)
 	}
 }
 

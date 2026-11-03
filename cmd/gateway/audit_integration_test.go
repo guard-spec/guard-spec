@@ -4,19 +4,19 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/promptshield/promptshield/internal/outputguard"
 	"github.com/promptshield/promptshield/internal/tenant"
 )
 
-// Requires the compose stack. The audit row carries the new actions and the
-// output guard counts, and never the content.
-func TestAuditRowWithOutputCounts(t *testing.T) {
+// Requires the compose stack with migration 006. Connects as the application role.
+func TestAuditPrivacy(t *testing.T) {
 	ctx := context.Background()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
@@ -28,45 +28,81 @@ func TestAuditRowWithOutputCounts(t *testing.T) {
 	}
 	defer db.Close()
 
-	org := uuid.New()
-	err = tenant.WithOrg(ctx, db, org, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `INSERT INTO organizations (id, name, slug) VALUES ($1,'a',$2)`, org, org.String())
-		return err
-	})
-	if err != nil {
+	var migrated bool
+	if err := db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM information_schema.columns
+		WHERE table_name = 'requests' AND column_name = 'request_sha256')`).Scan(&migrated); err != nil {
 		t.Fatal(err)
 	}
-
-	logRequest(db, requestEntry{OrgID: org, Model: "m", Action: actionOutputLeak,
-		Output: outputguard.Counts{"canary": 1, "email": 2}})
-	logRequest(db, requestEntry{OrgID: org, Model: "m", Action: actionError})
-
-	type row struct {
-		action string
-		tags   []string
+	if !migrated {
+		t.Skip("database lacks migration 006_audit_privacy")
 	}
-	var rows []row
-	err = tenant.WithOrg(ctx, db, org, func(tx pgx.Tx) error {
-		r, err := tx.Query(ctx, `SELECT action, pii_entities FROM requests WHERE org_id = $1 ORDER BY created_at`, org)
-		if err != nil {
+
+	const prompt = `{"messages":[{"role":"user","content":"my secret"}]}`
+	const answer = `{"choices":[{"message":{"content":"ok"}}]}`
+	sum := sha256.Sum256([]byte(prompt))
+	wantHash := hex.EncodeToString(sum[:])
+
+	newOrg := func(optIn bool) uuid.UUID {
+		org := uuid.New()
+		err := tenant.WithOrg(ctx, db, org, func(tx pgx.Tx) error {
+			_, err := tx.Exec(ctx, `INSERT INTO organizations (id, name, slug, audit_store_content)
+				VALUES ($1, 'audit', $2, $3)`, org, org.String(), optIn)
 			return err
+		})
+		if err != nil {
+			t.Fatal(err)
 		}
-		defer r.Close()
-		for r.Next() {
-			var x row
-			if err := r.Scan(&x.action, &x.tags); err != nil {
-				return err
-			}
-			rows = append(rows, x)
+		return org
+	}
+	type row struct {
+		reqHash, reqContent, respContent *string
+		reqBytes, respBytes              *int
+	}
+	read := func(org uuid.UUID) row {
+		var r row
+		err := tenant.WithOrg(ctx, db, org, func(tx pgx.Tx) error {
+			return tx.QueryRow(ctx, `SELECT request_sha256, request_bytes, request_content,
+				response_bytes, response_content FROM requests WHERE org_id = $1`, org).
+				Scan(&r.reqHash, &r.reqBytes, &r.reqContent, &r.respBytes, &r.respContent)
+		})
+		if err != nil {
+			t.Fatal(err)
 		}
-		return r.Err()
+		return r
+	}
+	entry := func(org uuid.UUID) requestEntry {
+		return requestEntry{OrgID: org, Action: actionAllow, Request: prompt, Response: answer}
+	}
+
+	t.Run("default stores digests only", func(t *testing.T) {
+		org := newOrg(false)
+		logRequest(db, false, entry(org))
+		r := read(org)
+		if r.reqHash == nil || *r.reqHash != wantHash {
+			t.Errorf("request_sha256 = %v, want %s", r.reqHash, wantHash)
+		}
+		if r.reqBytes == nil || *r.reqBytes != len(prompt) || r.respBytes == nil || *r.respBytes != len(answer) {
+			t.Errorf("lengths = %v, %v", r.reqBytes, r.respBytes)
+		}
+		if r.reqContent != nil || r.respContent != nil {
+			t.Errorf("content stored without opt-in: %v / %v", r.reqContent, r.respContent)
+		}
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(rows) != 2 || rows[0].action != "output_leak" || len(rows[0].tags) != 2 ||
-		rows[0].tags[0] != "output:canary=1" || rows[0].tags[1] != "output:email=2" ||
-		rows[1].action != "error" || rows[1].tags != nil {
-		t.Errorf("rows = %+v", rows)
-	}
+
+	t.Run("org opt-in stores content", func(t *testing.T) {
+		org := newOrg(true)
+		logRequest(db, false, entry(org))
+		r := read(org)
+		if r.reqContent == nil || *r.reqContent != prompt || r.respContent == nil || *r.respContent != answer {
+			t.Errorf("content = %v / %v", r.reqContent, r.respContent)
+		}
+	})
+
+	t.Run("gateway setting stores content", func(t *testing.T) {
+		org := newOrg(false)
+		logRequest(db, true, entry(org))
+		if r := read(org); r.reqContent == nil || *r.reqContent != prompt {
+			t.Errorf("request_content = %v", r.reqContent)
+		}
+	})
 }

@@ -1,6 +1,7 @@
 -- Services connect as this role. It is not a superuser and does not own the
--- tables, so RLS applies. Change the password outside local development.
-CREATE ROLE ps_app LOGIN PASSWORD 'ps_app';
+-- tables, so RLS applies. It has no password here: the deployment sets one from
+-- its own configuration (see deploy/postgres/set-app-password.sh).
+CREATE ROLE ps_app LOGIN;
 GRANT USAGE ON SCHEMA public TO ps_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ps_app;
 
