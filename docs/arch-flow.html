@@ -1,0 +1,994 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Guard Spec Architecture</title>
+<style>
+  :root {
+    --bg: #07101e;
+    --surface: #0c1422;
+    --surface2: #101d30;
+    --border: #1a2d45;
+    --text: #b8d0e8;
+    --text-dim: #6a8aaa;
+    --text-bright: #e4f0ff;
+
+    --c-client:    #3b7de8;
+    --c-gateway:   #8644d6;
+    --c-sanitizer: #d4761c;
+    --c-ml:        #c435a0;
+    --c-hardblock: #d83030;
+    --c-policy:    #1da868;
+    --c-routing:   #4748e2;
+    --c-action:    #d47620;
+    --c-storage:   #1e90d4;
+
+    --radius: 8px;
+
+    /* No web fonts are loaded: the page is self-contained. */
+    font-family: 'Barlow', system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+    color: var(--text);
+    background: var(--bg);
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg: #f0f4f8;
+      --surface: #ffffff;
+      --surface2: #f7fafc;
+      --border: #cfdde9;
+      --text: #2a3f58;
+      --text-dim: #6a7f9a;
+      --text-bright: #0f1f33;
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #f0f4f8;
+    --surface: #ffffff;
+    --surface2: #f7fafc;
+    --border: #cfdde9;
+    --text: #2a3f58;
+    --text-dim: #6a7f9a;
+    --text-bright: #0f1f33;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+
+  body {
+    margin: 0 auto;
+    padding-block: 28px 56px;
+    padding-inline: 20px;
+    background: var(--bg);
+    max-width: 1080px;
+  }
+
+  h1, h2, h3 {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-weight: 700;
+    color: var(--text-bright);
+    text-wrap: balance;
+    margin: 0;
+  }
+
+  code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.84em;
+  }
+
+  /* ── Page header ── */
+  .page-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 48px;
+    padding-bottom: 24px;
+    border-bottom: 1px solid var(--border);
+  }
+  .logo-badge {
+    width: 42px;
+    height: 42px;
+    flex-shrink: 0;
+    border-radius: 10px;
+    background: linear-gradient(135deg, var(--c-client), var(--c-gateway));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Barlow Condensed', sans-serif;
+    font-weight: 700;
+    font-size: 1.15rem;
+    color: #fff;
+    letter-spacing: -0.5px;
+  }
+  .page-header h1 { font-size: 2.2rem; letter-spacing: -0.4px; }
+  .page-header .subtitle { color: var(--text-dim); font-size: 0.9rem; margin-top: 4px; }
+
+  /* ── Sections ── */
+  section { margin-bottom: 56px; }
+
+  .section-eyebrow {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    margin-bottom: 6px;
+  }
+  .section-header { margin-bottom: 20px; }
+  .section-header h2 { font-size: 1.55rem; }
+  .section-desc {
+    font-size: 0.875rem;
+    color: var(--text-dim);
+    margin: 8px 0 0;
+    max-width: 640px;
+  }
+
+  /* ── Service map ── */
+  .service-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 10px;
+  }
+  .svc-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--lc, var(--border));
+    border-radius: var(--radius);
+    padding: 14px 16px;
+  }
+  .svc-name {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-weight: 700;
+    font-size: 0.98rem;
+    color: var(--text-bright);
+  }
+  .svc-tech {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    margin-top: 3px;
+  }
+  .svc-ep {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.68rem;
+    color: var(--lc, var(--text-dim));
+    opacity: 0.85;
+    margin-top: 6px;
+  }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.64rem;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: 100px;
+    margin-top: 8px;
+  }
+  .badge-live    { background: #0d2d1c; color: #1da868; }
+  .badge-unwired { background: #2a1800; color: #d47620; }
+
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) .badge-live    { background: #d4f5e3; color: #0d8050; }
+    :root:not([data-theme="dark"]) .badge-unwired { background: #fdefd4; color: #9a4e00; }
+  }
+  :root[data-theme="light"] .badge-live    { background: #d4f5e3; color: #0d8050; }
+  :root[data-theme="light"] .badge-unwired { background: #fdefd4; color: #9a4e00; }
+
+  /* ── Flow steps ── */
+  .flow-step {
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+  }
+  .step-spine {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex-shrink: 0;
+    width: 38px;
+  }
+  .step-num {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: var(--lc);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Barlow Condensed', sans-serif;
+    font-weight: 700;
+    font-size: 0.95rem;
+    flex-shrink: 0;
+    position: relative;
+    z-index: 1;
+  }
+  .step-line {
+    width: 2px;
+    background: var(--border);
+    flex: 1;
+    min-height: 24px;
+    margin-top: 2px;
+    margin-bottom: 2px;
+  }
+  .step-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--lc);
+    border-radius: var(--radius);
+    padding: 16px 18px;
+    flex: 1;
+    margin-bottom: 6px;
+  }
+  .step-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+  }
+  .step-title {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-weight: 700;
+    font-size: 1.05rem;
+    color: var(--text-bright);
+  }
+  .layer-chip {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.63rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 500;
+    padding: 2px 8px;
+    border-radius: 100px;
+    background: color-mix(in srgb, var(--lc) 14%, transparent);
+    color: var(--lc);
+  }
+  .step-desc {
+    font-size: 0.875rem;
+    color: var(--text);
+    line-height: 1.55;
+    margin-bottom: 10px;
+  }
+  .signals {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+  .sig {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.68rem;
+    padding: 2px 8px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-dim);
+  }
+  .decisions { margin-top: 10px; display: flex; flex-direction: column; gap: 5px; }
+  .dec {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.8rem;
+    flex-wrap: wrap;
+  }
+  .dec-cond {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    padding: 2px 8px;
+    border-radius: 4px;
+    color: var(--text-dim);
+  }
+  .dec-arrow { color: var(--text-dim); }
+  .dec-block { color: #d83030; font-weight: 600; }
+  .dec-pass  { color: #1da868; font-weight: 600; }
+
+  .warn-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.68rem;
+    padding: 3px 10px;
+    border-radius: 4px;
+    background: color-mix(in srgb, #d47620 14%, transparent);
+    color: #d47620;
+    border: 1px solid color-mix(in srgb, #d47620 28%, transparent);
+    margin-top: 8px;
+  }
+
+  /* ── Rules comparison ── */
+  .rules-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+  }
+  @media (max-width: 620px) { .rules-grid { grid-template-columns: 1fr; } }
+
+  .rule-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .rule-card-head {
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+    background: color-mix(in srgb, var(--lc) 7%, var(--surface));
+  }
+  .rule-card-head h3 { font-size: 1.08rem; color: var(--lc); }
+  .rule-card-head .sub { font-size: 0.78rem; color: var(--text-dim); margin-top: 2px; }
+  .rule-card-body { padding: 16px 18px; }
+  .attr-row {
+    display: grid;
+    grid-template-columns: 110px 1fr;
+    gap: 4px 12px;
+    margin-bottom: 9px;
+    font-size: 0.84rem;
+  }
+  .attr-k {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    color: var(--text-dim);
+    padding-top: 2px;
+    line-height: 1.45;
+  }
+  .attr-v { color: var(--text); line-height: 1.45; }
+  .ex-block {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin-top: 14px;
+  }
+  .ex-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.62rem;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--text-dim);
+    margin-bottom: 6px;
+  }
+  .ex-block pre {
+    margin: 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    color: var(--text);
+    white-space: pre-wrap;
+    line-height: 1.5;
+    overflow-x: auto;
+  }
+
+  /* ── Impl status table ── */
+  .table-wrap {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    overflow-x: auto;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 0.875rem; min-width: 480px; }
+  th {
+    text-align: left;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.64rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  td { padding: 11px 14px; border-bottom: 1px solid var(--border); color: var(--text); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: color-mix(in srgb, var(--surface2) 60%, transparent); }
+
+  .comp-name {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-weight: 700;
+    font-size: 0.95rem;
+    color: var(--text-bright);
+  }
+  .comp-sub {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.68rem;
+    color: var(--text-dim);
+    margin-top: 2px;
+  }
+  .is {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.68rem;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    padding: 2px 9px;
+    border-radius: 100px;
+    white-space: nowrap;
+  }
+  .is-done    { background: #0d2d1c; color: #1da868; }
+  .is-partial { background: #2a1800; color: #d47620; }
+  .is-planned { background: #111d2a; color: #6a8aaa; }
+  .is-ui      { background: #0a1e36; color: #3b7de8; }
+
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) .is-done    { background: #d4f5e3; color: #0d8050; }
+    :root:not([data-theme="dark"]) .is-partial { background: #fdefd4; color: #9a4e00; }
+    :root:not([data-theme="dark"]) .is-planned { background: #e8edf3; color: #4a6280; }
+    :root:not([data-theme="dark"]) .is-ui      { background: #d6e6ff; color: #1a4fa8; }
+  }
+  :root[data-theme="light"] .is-done    { background: #d4f5e3; color: #0d8050; }
+  :root[data-theme="light"] .is-partial { background: #fdefd4; color: #9a4e00; }
+  :root[data-theme="light"] .is-planned { background: #e8edf3; color: #4a6280; }
+  :root[data-theme="light"] .is-ui      { background: #d6e6ff; color: #1a4fa8; }
+
+  @media (max-width: 480px) {
+    .service-grid { grid-template-columns: 1fr 1fr; }
+    .page-header h1 { font-size: 1.7rem; }
+  }
+  @media (max-width: 360px) {
+    .service-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ── Page header ── -->
+<header class="page-header">
+  <div class="logo-badge">GS</div>
+  <div>
+    <h1>Guard Spec Architecture</h1>
+    <p class="subtitle">Services · request lifecycle · detection layers · policies · what is not built</p>
+  </div>
+</header>
+
+<!-- ── § 01  Service Map ── -->
+<section>
+  <div class="section-header">
+    <div class="section-eyebrow">§ 01</div>
+    <h2>Service Map</h2>
+    <p class="section-desc">The services in <code>docker-compose.yml</code>. Two Go binaries share one PostgreSQL database. The gateway reads policies, API keys, org guard settings and org exemplars from PostgreSQL directly; the control plane does not push anything to it. There is no web UI and no separate inference service: the ONNX models run inside the gateway process.</p>
+  </div>
+  <div class="service-grid">
+    <div class="svc-card" style="--lc:var(--c-gateway)">
+      <div class="svc-name">gateway</div>
+      <div class="svc-tech">Go · Fiber · ONNX Runtime in-process</div>
+      <div class="svc-ep">:8080 API<br>:9090 metrics</div>
+      <span class="badge badge-live">● Long-running</span>
+    </div>
+    <div class="svc-card" style="--lc:var(--c-client)">
+      <div class="svc-name">control-plane</div>
+      <div class="svc-tech">Go · Fiber · JWT</div>
+      <div class="svc-ep">:8081 in container, published on 18081<br>:9091 metrics</div>
+      <span class="badge badge-live">● Long-running</span>
+    </div>
+    <div class="svc-card" style="--lc:var(--c-storage)">
+      <div class="svc-name">postgres</div>
+      <div class="svc-tech">PostgreSQL 17 · row-level security</div>
+      <div class="svc-ep">orgs · keys · policies · requests · exemplars</div>
+      <span class="badge badge-live">● Long-running</span>
+    </div>
+    <div class="svc-card" style="--lc:var(--c-storage)">
+      <div class="svc-name">migrate</div>
+      <div class="svc-tech">golang-migrate</div>
+      <div class="svc-ep">applies migrations/</div>
+      <span class="badge badge-unwired">One-shot</span>
+    </div>
+    <div class="svc-card" style="--lc:var(--c-storage)">
+      <div class="svc-name">db-roles</div>
+      <div class="svc-tech">psql</div>
+      <div class="svc-ep">sets the guardspec_app password</div>
+      <span class="badge badge-unwired">One-shot</span>
+    </div>
+    <div class="svc-card" style="--lc:var(--c-ml)">
+      <div class="svc-name">models-pull</div>
+      <div class="svc-tech">profile <code>models</code> · optional</div>
+      <div class="svc-ep">multilingual-e5-small → ./models/cache, SHA-256 checked</div>
+      <span class="badge badge-unwired">One-shot</span>
+    </div>
+  </div>
+</section>
+
+<!-- ── § 02  Gateway endpoints ── -->
+<section>
+  <div class="section-header">
+    <div class="section-eyebrow">§ 02</div>
+    <h2>Gateway Endpoints</h2>
+    <p class="section-desc">Middleware runs in this order: metrics and tracing, CORS, API-key lookup (<code>Authorization: Bearer &lt;key&gt;</code> or <code>x-api-key</code>), then the per-key rate limit (token buckets held in memory, per replica). <code>/health</code> is registered before the key check.</p>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Route</th><th>Auth</th><th>What it does</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><div class="comp-name">GET /health</div></td>
+          <td><span class="is is-planned">none</span></td>
+          <td style="font-size:0.8rem;">Liveness.</td>
+        </tr>
+        <tr>
+          <td><div class="comp-name">POST /v1/chat/completions</div><div class="comp-sub">POST /v1/completions</div></td>
+          <td><span class="is is-done">API key</span></td>
+          <td style="font-size:0.8rem;">OpenAI-compatible proxy. Full lifecycle in § 03.</td>
+        </tr>
+        <tr>
+          <td><div class="comp-name">POST /guardrail/scan</div></td>
+          <td><span class="is is-done">API key</span></td>
+          <td style="font-size:0.8rem;">Classifies <code>text</code> (direct) and/or <code>documents[]</code> (indirect, one by one) without calling a model. Applies the fixed thresholds only; org policies are not evaluated. Writes an audit row.</td>
+        </tr>
+        <tr>
+          <td><div class="comp-name">POST /guardrail/scan/tools</div></td>
+          <td><span class="is is-done">API key</span></td>
+          <td style="font-size:0.8rem;">Checks MCP tool definitions (descriptions, including those nested in <code>inputSchema</code>) for tool poisoning before an agent loads them.</td>
+        </tr>
+        <tr>
+          <td><div class="comp-name">POST /guardrail/sanitize</div></td>
+          <td><span class="is is-done">API key</span></td>
+          <td style="font-size:0.8rem;">Runs the L0 sanitizer only and returns the cleaned text and its signals.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ── § 03  Request Lifecycle ── -->
+<section>
+  <div class="section-header">
+    <div class="section-eyebrow">§ 03</div>
+    <h2>Chat Request Lifecycle</h2>
+    <p class="section-desc">What <code>chatHandler</code> in <code>cmd/gateway/main.go</code> does with one <code>/v1/chat/completions</code> or <code>/v1/completions</code> request. A block returns HTTP 400 with code <code>content_filter</code>. Every request gets one audit row (step 9).</p>
+  </div>
+
+  <!-- Step 1 -->
+  <div class="flow-step">
+    <div class="step-spine">
+      <div class="step-num" style="--lc:var(--c-client)">1</div>
+      <div class="step-line"></div>
+    </div>
+    <div class="step-card" style="--lc:var(--c-client)">
+      <div class="step-head">
+        <span class="step-title">Key, Rate Limit, Body</span>
+        <span class="layer-chip" style="--lc:var(--c-client)">Middleware</span>
+      </div>
+      <div class="step-desc">The API key resolves to an organization (and optionally a project). The key's rate limit is checked. The body is decoded with exact numbers; trailing data or a non-object body is refused.</div>
+      <div class="decisions">
+        <div class="dec"><span class="dec-cond">key missing / unknown</span><span class="dec-arrow">→</span><span class="dec-block">HTTP 401</span></div>
+        <div class="dec"><span class="dec-cond">rate limit exceeded</span><span class="dec-arrow">→</span><span class="dec-block">HTTP 429</span></div>
+        <div class="dec"><span class="dec-cond">invalid body</span><span class="dec-arrow">→</span><span class="dec-block">HTTP 400</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 2 -->
+  <div class="flow-step">
+    <div class="step-spine">
+      <div class="step-num" style="--lc:var(--c-gateway)">2</div>
+      <div class="step-line"></div>
+    </div>
+    <div class="step-card" style="--lc:var(--c-gateway)">
+      <div class="step-head">
+        <span class="step-title">Org Scan Settings</span>
+        <span class="layer-chip" style="--lc:var(--c-gateway)">Gateway</span>
+      </div>
+      <div class="step-desc">The org's <code>guard_settings</code> are read from PostgreSQL and override the gateway's <code>SCAN_ROLES</code> and <code>SPOTLIGHT</code> defaults (<code>INDIRECT_BLOCK_THRESHOLD</code> is gateway-wide). They decide which roles are classified. By default: user turns, tool results and tool descriptions. System messages and earlier assistant tool-call arguments can be switched on; they are classified but forwarded unchanged.</div>
+      <div class="decisions">
+        <div class="dec"><span class="dec-cond">settings cannot be read</span><span class="dec-arrow">→</span><span class="dec-block">HTTP 503, fail closed</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 3 -->
+  <div class="flow-step">
+    <div class="step-spine">
+      <div class="step-num" style="--lc:var(--c-sanitizer)">3</div>
+      <div class="step-line"></div>
+    </div>
+    <div class="step-card" style="--lc:var(--c-sanitizer)">
+      <div class="step-head">
+        <span class="step-title">L0 Sanitizer</span>
+        <span class="layer-chip" style="--lc:var(--c-sanitizer)">internal/sanitizer</span>
+      </div>
+      <div class="step-desc">User and tool text is replaced with its sanitized form. Steps 2–6 repeat until the text stops changing (at most 8 passes), because decoding an HTML entity can bring back something an earlier step removed. Content of a type that cannot be scanned (token arrays, non-string parts, keys that differ from a guarded key only in case) is refused.</div>
+      <div class="signals" style="margin-bottom:8px;">
+        <span class="sig">① UTF-8 validate</span>
+        <span class="sig">② NFKC</span>
+        <span class="sig">③ strip default-ignorable · tag · bidi · variation selectors</span>
+        <span class="sig">④ strip ANSI escapes</span>
+        <span class="sig">⑤ strip C0/C1 controls</span>
+        <span class="sig">⑥ HTML strip (bluemonday) + entity unescape</span>
+        <span class="sig">⑥b remove spoofed marker tokens</span>
+        <span class="sig">⑦ homoglyph signal (mixed scripts in a word)</span>
+      </div>
+      <div style="font-size:0.76rem;color:var(--text-dim);margin-top:4px;margin-bottom:8px;">
+        Anomaly score: tag chars +0.6 · bidi +0.3 · ANSI +0.2 · homoglyph +0.3 · spoofed marker +0.3, capped at 1.0
+      </div>
+      <div class="decisions">
+        <div class="dec"><span class="dec-cond">anomaly.score ≥ 0.6</span><span class="dec-arrow">→</span><span class="dec-block">HTTP 400 content_filter</span></div>
+        <div class="dec"><span class="dec-cond">invalid UTF-8 / too many encoding layers</span><span class="dec-arrow">→</span><span class="dec-block">HTTP 422</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 4 -->
+  <div class="flow-step">
+    <div class="step-spine">
+      <div class="step-num" style="--lc:var(--c-ml)">4</div>
+      <div class="step-line"></div>
+    </div>
+    <div class="step-card" style="--lc:var(--c-ml)">
+      <div class="step-head">
+        <span class="step-title">Injection Detector</span>
+        <span class="layer-chip" style="--lc:var(--c-ml)">internal/inference</span>
+      </div>
+      <div class="step-desc">User text (and system / tool-call text when enabled) is joined and scored as the <strong>direct</strong> score. Each tool result and each tool definition is scored on its own as <strong>indirect</strong>, with a category hint (<code>indirect_injection</code>, <code>tool_poisoning</code>); tool descriptions also get MCP poisoning signals. Long text is split into overlapping windows and the worst window counts. Layers are described in § 04.</div>
+      <div class="signals">
+        <span class="sig">injection.score</span>
+        <span class="sig">injection.category</span>
+        <span class="sig">scores.l1 · l2 · l3</span>
+        <span class="sig">indirect.score</span>
+        <span class="sig">indirect.source</span>
+        <span class="sig">injection.source_role</span>
+      </div>
+      <div class="decisions">
+        <div class="dec"><span class="dec-cond">detector error</span><span class="dec-arrow">→</span><span class="dec-block">HTTP 503, fail closed</span></div>
+        <div class="dec"><span class="dec-cond">too long to scan</span><span class="dec-arrow">→</span><span class="dec-block">HTTP 413</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 5 -->
+  <div class="flow-step">
+    <div class="step-spine">
+      <div class="step-num" style="--lc:var(--c-hardblock)">5</div>
+      <div class="step-line"></div>
+    </div>
+    <div class="step-card" style="--lc:var(--c-hardblock)">
+      <div class="step-head">
+        <span class="step-title">Fixed Thresholds</span>
+        <span class="layer-chip" style="--lc:var(--c-hardblock)">Gateway</span>
+      </div>
+      <div class="step-desc">Constants in <code>cmd/gateway/main.go</code>. They run before policies, so no policy can allow what they block. The indirect threshold can be lowered but never set above 0.85.</div>
+      <div class="decisions">
+        <div class="dec"><span class="dec-cond">direct score ≥ 0.85</span><span class="dec-arrow">→</span><span class="dec-block">HTTP 400 content_filter</span></div>
+        <div class="dec"><span class="dec-cond">indirect.score ≥ INDIRECT_BLOCK_THRESHOLD (default 0.85)</span><span class="dec-arrow">→</span><span class="dec-block">HTTP 400 content_filter</span></div>
+        <div class="dec"><span class="dec-cond">both below</span><span class="dec-arrow">→</span><span class="dec-pass">continue</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 6 -->
+  <div class="flow-step">
+    <div class="step-spine">
+      <div class="step-num" style="--lc:var(--c-sanitizer)">6</div>
+      <div class="step-line"></div>
+    </div>
+    <div class="step-card" style="--lc:var(--c-sanitizer)">
+      <div class="step-head">
+        <span class="step-title">Spotlighting</span>
+        <span class="layer-chip" style="--lc:var(--c-sanitizer)">internal/indirect</span>
+      </div>
+      <div class="step-desc">Optional. With <code>SPOTLIGHT=delimit</code> or <code>datamark</code> (or the org setting), tool results are marked as untrusted data and a note explaining the marking is added to the system prompt. Off by default.</div>
+      <div class="signals">
+        <span class="sig">off</span>
+        <span class="sig">delimit</span>
+        <span class="sig">datamark</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 7 -->
+  <div class="flow-step">
+    <div class="step-spine">
+      <div class="step-num" style="--lc:var(--c-policy)">7</div>
+      <div class="step-line"></div>
+    </div>
+    <div class="step-card" style="--lc:var(--c-policy)">
+      <div class="step-head">
+        <span class="step-title">CEL Policies</span>
+        <span class="layer-chip" style="--lc:var(--c-policy)">internal/policy</span>
+      </div>
+      <div class="step-desc">The org's enabled policies are loaded from PostgreSQL: project policies first, then org-wide ones, oldest first. Rules are evaluated in order; the first matching <code>allow</code> or <code>block</code> decides, a matching <code>log</code> rule is recorded and evaluation continues. No match means allow. Each rule and each request has a CEL cost limit. Details in § 05.</div>
+      <div class="decisions">
+        <div class="dec"><span class="dec-cond">block rule matches</span><span class="dec-arrow">→</span><span class="dec-block">HTTP 400 content_filter</span></div>
+        <div class="dec"><span class="dec-cond">load / compile / evaluate error, cost limit, stale redact or route rule</span><span class="dec-arrow">→</span><span class="dec-block">HTTP 503, nothing sent upstream</span></div>
+        <div class="dec"><span class="dec-cond">allow, log only, or no match</span><span class="dec-arrow">→</span><span class="dec-pass">continue</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 8 -->
+  <div class="flow-step">
+    <div class="step-spine">
+      <div class="step-num" style="--lc:var(--c-action)">8</div>
+      <div class="step-line"></div>
+    </div>
+    <div class="step-card" style="--lc:var(--c-action)">
+      <div class="step-head">
+        <span class="step-title">Upstream and Output Guard</span>
+        <span class="layer-chip" style="--lc:var(--c-action)">internal/proxy · internal/outputguard</span>
+      </div>
+      <div class="step-desc">The sanitized body goes to the OpenAI-compatible URL in <code>UPSTREAM_LLM_URL</code>. When that is empty, the gateway returns a stub answer instead. If the client hangs up, the upstream request is cancelled. The answer then passes the output guard (on by default, <code>OUTPUT_*</code> variables): images and links to hosts not on <code>OUTPUT_LINK_ALLOWLIST</code> are removed; email, Vietnamese phone, CCCD and card numbers (and IPv4 if enabled) become <code>[REDACTED:type]</code>; with <code>OUTPUT_CANARY=block|redact</code> a per-request canary is placed in the system prompt and caught if the model repeats it. Message content, reasoning fields and tool-call arguments are all guarded. Streams hold back a 256-character window per choice so a pattern split across chunks is still caught.</div>
+      <div class="signals">
+        <span class="sig">images · links</span>
+        <span class="sig">email · phone · cccd · card · ipv4</span>
+        <span class="sig">canary</span>
+        <span class="sig">reasoning: guard | drop</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 9 -->
+  <div class="flow-step">
+    <div class="step-spine">
+      <div class="step-num" style="--lc:var(--c-storage)">9</div>
+    </div>
+    <div class="step-card" style="--lc:var(--c-storage)">
+      <div class="step-head">
+        <span class="step-title">Audit Row</span>
+        <span class="layer-chip" style="--lc:var(--c-storage)">PostgreSQL · requests</span>
+      </div>
+      <div class="step-desc">One row per request, whatever the outcome. Request and response bodies are stored as SHA-256 and byte length only, unless content storage is enabled (<code>AUDIT_STORE_CONTENT</code> or the org setting). <code>pii_entities</code> holds output guard counts as <code>output:&lt;type&gt;=&lt;n&gt;</code>, never the content. The control plane lists these rows and deletes old ones with its retention job.</div>
+      <div class="signals">
+        <span class="sig">action: allow · block · error · output_leak</span>
+        <span class="sig">rule_id</span>
+        <span class="sig">injection_score</span>
+        <span class="sig">injection_label</span>
+        <span class="sig">anomaly_score</span>
+        <span class="sig">had_tag_chars · had_bidi</span>
+        <span class="sig">pii_entities</span>
+        <span class="sig">request_sha256 · request_bytes</span>
+        <span class="sig">response_sha256 · response_bytes</span>
+        <span class="sig">latency_ms · created_at</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── § 04  Detection layers ── -->
+<section>
+  <div class="section-header">
+    <div class="section-eyebrow">§ 04</div>
+    <h2>Detection Layers</h2>
+    <p class="section-desc">L1 always runs. L2 and L3 need a gateway built with <code>-tags onnx</code> (the Docker image is) and the model files under <code>MODEL_DIR</code>; without them the gateway runs on L1 alone, unless <code>DETECTOR_REQUIRE_ML=true</code>. Each layer's raw score is Platt-calibrated; the calibrated scores are combined by logistic regression (<code>DETECTOR_FUSION=logreg</code>, the default) or by taking the maximum (<code>max</code>). If a weighted layer did not run for a request, that request falls back to the maximum.</p>
+  </div>
+  <div class="rules-grid">
+
+    <div class="rule-card" style="--lc:var(--c-sanitizer)">
+      <div class="rule-card-head">
+        <h3>L1 · Rules on a skeleton</h3>
+        <div class="sub"><code>internal/inference/rules</code> · <code>internal/inference/skeleton</code></div>
+      </div>
+      <div class="rule-card-body">
+        <div class="attr-row">
+          <div class="attr-k">Input</div>
+          <div class="attr-v">A lossy skeleton of the sanitized text, used only for matching: Vietnamese diacritics removed, confusables folded to Latin, leetspeak folded, spelled-out letters joined, repeated letters squeezed, Vietnamese teencode expanded</div>
+        </div>
+        <div class="attr-row">
+          <div class="attr-k">Rules</div>
+          <div class="attr-v">Weighted phrase sequences in one sentence (English and Vietnamese), plus structural regexes on the original text. Single keywords add only a small score</div>
+        </div>
+        <div class="attr-row">
+          <div class="attr-k">Suppressors</div>
+          <div class="attr-v">Discussion of attacks, quoted examples, string literals in code, negation</div>
+        </div>
+        <div class="attr-row">
+          <div class="attr-k">Output</div>
+          <div class="attr-v">Score, top category and the ids of the rules that fired</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="rule-card" style="--lc:var(--c-ml)">
+      <div class="rule-card-head">
+        <h3>L2 · Classifier &nbsp;·&nbsp; L3 · Similarity</h3>
+        <div class="sub"><code>internal/inference/ml</code> · ONNX Runtime via <code>internal/onnx</code></div>
+      </div>
+      <div class="rule-card-body">
+        <div class="attr-row">
+          <div class="attr-k">L2 model</div>
+          <div class="attr-v"><code>guardspec-classifier-v1</code>, our fine-tune of <code>intfloat/multilingual-e5-small</code> with an attack-category head. Risk = 1 − p(benign). Not on Hugging Face: copied into <code>models/local/</code></div>
+        </div>
+        <div class="attr-row">
+          <div class="attr-k">L3 model</div>
+          <div class="attr-v"><code>multilingual-e5-small</code> embeddings compared with attack and benign exemplars, plus the org's own exemplars (managed in the control plane, read from PostgreSQL)</div>
+        </div>
+        <div class="attr-row">
+          <div class="attr-k">Cascade</div>
+          <div class="attr-v">Optional (<code>DETECTOR_CASCADE=true</code>): L2 and L3 are skipped when L1's calibrated score is already decisive. Otherwise L1 runs first, then L2 and L3 in parallel</div>
+        </div>
+        <div class="attr-row">
+          <div class="attr-k">Layers</div>
+          <div class="attr-v"><code>DETECTOR_LAYERS</code>, default <code>l1,l2,l3</code></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── § 05  Policies ── -->
+<section>
+  <div class="section-header">
+    <div class="section-eyebrow">§ 05</div>
+    <h2>Policies</h2>
+    <p class="section-desc">Policies are stored per org (optionally per project) as a JSON condition tree. The control plane validates and compiles each rule to CEL when it is saved; the gateway evaluates them in step 7. Policies run after the fixed thresholds, so they can only make blocking stricter.</p>
+  </div>
+  <div class="rules-grid">
+    <div class="rule-card" style="--lc:var(--c-policy)">
+      <div class="rule-card-head">
+        <h3>Rule model</h3>
+        <div class="sub"><code>internal/policy/policy.go</code></div>
+      </div>
+      <div class="rule-card-body">
+        <div class="attr-row">
+          <div class="attr-k">Condition</div>
+          <div class="attr-v">Clauses of <em>field</em>, <em>operator</em> (<code>==</code> <code>!=</code> <code>&gt;</code> <code>&gt;=</code> <code>&lt;</code> <code>&lt;=</code> <code>contains</code> <code>in</code>) and <em>value</em>, combined with <code>and</code> / <code>or</code></div>
+        </div>
+        <div class="attr-row">
+          <div class="attr-k">Actions</div>
+          <div class="attr-v"><code>allow</code>, <code>block</code>, <code>log</code>. <code>redact</code> and <code>route</code> are refused by the control plane; a stored rule with one fails closed (503)</div>
+        </div>
+        <div class="attr-row">
+          <div class="attr-k">Order</div>
+          <div class="attr-v">Project policies, then org-wide; inside a policy, rule order. First matching allow or block wins</div>
+        </div>
+        <div class="attr-row">
+          <div class="attr-k">Limits</div>
+          <div class="attr-v">CEL cost limit per rule and a total budget per request; exceeding either fails closed</div>
+        </div>
+        <div class="ex-block">
+          <div class="ex-label">Example — block indirect injection from tool results</div>
+          <pre>{
+  "name": "block-tool-injection",
+  "condition": {
+    "combinator": "and",
+    "rules": [
+      { "field": "indirect.source", "operator": "==", "value": "tool" },
+      { "field": "indirect.score",  "operator": ">=", "value": 0.6 }
+    ]
+  },
+  "action": "block"
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="rule-card" style="--lc:var(--c-policy)">
+      <div class="rule-card-head">
+        <h3>Variables</h3>
+        <div class="sub">What a condition can read</div>
+      </div>
+      <div class="rule-card-body">
+        <div class="attr-row"><div class="attr-k">request.*</div><div class="attr-v"><code>model</code>, <code>tenant_id</code>, <code>tokens</code></div></div>
+        <div class="attr-row"><div class="attr-k">injection.*</div><div class="attr-v"><code>score</code>, <code>label</code>, <code>category</code>, <code>source_role</code></div></div>
+        <div class="attr-row"><div class="attr-k">scores.*</div><div class="attr-v"><code>l1</code>, <code>l2</code>, <code>l3</code> (calibrated; −1 when the layer did not run)</div></div>
+        <div class="attr-row"><div class="attr-k">indirect.*</div><div class="attr-v"><code>score</code>, <code>source</code> (tool, document, tool_description)</div></div>
+        <div class="attr-row"><div class="attr-k">anomaly.*</div><div class="attr-v"><code>score</code>, <code>has_tag_chars</code>, <code>has_bidi</code></div></div>
+        <div class="attr-row"><div class="attr-k">mcp.*</div><div class="attr-v"><code>is_tool_response</code></div></div>
+        <div class="attr-row"><div class="attr-k">removed</div><div class="attr-v"><code>toxicity.score</code>, <code>pii.entities</code>, <code>topic.categories</code>: no detector produces them. New rules naming them are refused; stored ones see zero or empty</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── § 06  Control plane ── -->
+<section>
+  <div class="section-header">
+    <div class="section-eyebrow">§ 06</div>
+    <h2>Control Plane API</h2>
+    <p class="section-desc">REST API under <code>/v1</code> (<code>cmd/control-plane/main.go</code>). Login returns a JWT; org routes check the caller's role: owner, admin, member or viewer. There is no UI; clients call the API directly.</p>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Area</th><th>Routes</th><th>Notes</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><div class="comp-name">Auth</div></td>
+          <td style="font-size:0.8rem;"><code>POST /v1/auth/login</code>, <code>POST /v1/invites/accept</code></td>
+          <td style="font-size:0.8rem;">Both rate limited.</td>
+        </tr>
+        <tr>
+          <td><div class="comp-name">Organizations</div></td>
+          <td style="font-size:0.8rem;"><code>/v1/organizations</code>, <code>/:orgId</code>, <code>/:orgId/guard-settings</code></td>
+          <td style="font-size:0.8rem;">Guard settings: scanned roles, spotlight mode. Read by the gateway in step 2.</td>
+        </tr>
+        <tr>
+          <td><div class="comp-name">API keys</div></td>
+          <td style="font-size:0.8rem;"><code>/:orgId/api-keys</code></td>
+          <td style="font-size:0.8rem;">Create, update, revoke. Admin only.</td>
+        </tr>
+        <tr>
+          <td><div class="comp-name">Projects</div></td>
+          <td style="font-size:0.8rem;"><code>/:orgId/projects</code></td>
+          <td style="font-size:0.8rem;">Scope for project policies.</td>
+        </tr>
+        <tr>
+          <td><div class="comp-name">Policies</div></td>
+          <td style="font-size:0.8rem;"><code>/:orgId/policies</code>, <code>POST /v1/cel/validate</code></td>
+          <td style="font-size:0.8rem;">JSON condition tree compiled to CEL on save.</td>
+        </tr>
+        <tr>
+          <td><div class="comp-name">Audit</div></td>
+          <td style="font-size:0.8rem;"><code>GET /:orgId/requests</code></td>
+          <td style="font-size:0.8rem;">Lists audit rows. A background job deletes rows past the retention period.</td>
+        </tr>
+        <tr>
+          <td><div class="comp-name">Exemplars</div></td>
+          <td style="font-size:0.8rem;"><code>/:orgId/exemplars</code></td>
+          <td style="font-size:0.8rem;">The org's own L3 exemplars, stored only in the database.</td>
+        </tr>
+        <tr>
+          <td><div class="comp-name">Invites</div></td>
+          <td style="font-size:0.8rem;"><code>/:orgId/invites</code> (also <code>/orgs/:orgId</code>)</td>
+          <td style="font-size:0.8rem;">Invite users to an org with a role.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ── § 07  Not built ── -->
+<section>
+  <div class="section-header">
+    <div class="section-eyebrow">§ 07</div>
+    <h2>Not Built</h2>
+    <p class="section-desc">Earlier versions of this page described these. None of them exist in the code.</p>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Item</th><th>Status</th><th>Notes</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><div class="comp-name">Admin web UI</div></td>
+          <td><span class="is is-planned">○ Not built</span></td>
+          <td style="font-size:0.8rem;">No dashboard, rules page or routing page.</td>
+        </tr>
+        <tr>
+          <td><div class="comp-name">Routing / route rules</div></td>
+          <td><span class="is is-planned">○ Not built</span></td>
+          <td style="font-size:0.8rem;">One upstream per gateway. The <code>route</code> action is refused.</td>
+        </tr>
+        <tr>
+          <td><div class="comp-name">Input-side toxicity, PII, topic detectors</div></td>
+          <td><span class="is is-planned">○ Not built</span></td>
+          <td style="font-size:0.8rem;">Their runner slots return neutral stubs and they are not policy inputs. PII redaction exists only on the output side (step 8).</td>
+        </tr>
+        <tr>
+          <td><div class="comp-name">Separate inference service</div></td>
+          <td><span class="is is-planned">○ Not built</span></td>
+          <td style="font-size:0.8rem;">No Python service, no <code>/predict</code>, no Triton or GPU serving. Models run in the gateway via ONNX Runtime on CPU.</td>
+        </tr>
+        <tr>
+          <td><div class="comp-name">Other guard models</div></td>
+          <td><span class="is is-planned">○ Not built</span></td>
+          <td style="font-size:0.8rem;">No Qwen3Guard or Granite Guardian integration.</td>
+        </tr>
+        <tr>
+          <td><div class="comp-name">ClickHouse</div></td>
+          <td><span class="is is-planned">○ Not built</span></td>
+          <td style="font-size:0.8rem;">Audit rows live in PostgreSQL only.</td>
+        </tr>
+        <tr>
+          <td><div class="comp-name">/v1/embeddings, /guardrail/models</div></td>
+          <td><span class="is is-planned">○ Not built</span></td>
+          <td style="font-size:0.8rem;">Not registered on the gateway.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+</body>
+</html>

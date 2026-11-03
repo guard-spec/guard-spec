@@ -1,13 +1,14 @@
-// Package inference wraps ONNX Runtime (via hugot) for in-process ML inference.
+// Package inference runs the injection detector over a request's text.
 //
-// Design: 4 models loaded once at startup, evaluated concurrently per request
-// using errgroup fan-out. Max latency = slowest model (~15ms), not sum.
+// The injection backend is the fusion of L1 rules and, when their models are
+// installed, the L2 classifier and L3 embeddings (packages fusion and ml; the
+// ONNX models run in-process through package onnx). The PII, toxicity and
+// topic slots hold stubs that always return a neutral score: no such
+// detector exists yet.
 //
-// IMPORTANT: Do not use DeBERTa-v3-base on CPU hot path (~1714ms).
-// Use DeBERTa-v3-xsmall or DistilBERT-class models only.
-//
-// Chunking is required: naive truncation at 512 tokens is a security bug
-// (attacker prepends 512 benign tokens to hide injection payload).
+// Chunking is required: naive truncation is a security bug (an attacker
+// prepends benign text to push the payload past the cut). Text is split into
+// overlapping windows and the worst window counts.
 package inference
 
 import (
@@ -63,7 +64,6 @@ type ModelBackend interface {
 
 // NewRunner loads models from the given directory.
 func NewRunner(modelsDir string) (*Runner, error) {
-	// TODO: load models via hugot (requires ORT shared lib on Linux)
 	// Injection: fusion over the L1 v2 rules (L2/L3 plug into the Fuser).
 	// The legacy regex detector stays available through NewRegexRunner.
 	return &Runner{
