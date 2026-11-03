@@ -21,7 +21,6 @@ services:
       - .:/src:ro          # source read-only (rebuild required for Go changes)
       - ./models:/models:ro
     environment:
-      LOG_LEVEL: debug
       GUARD_ENV: ${GUARD_ENV:-dev}
       PGPASSWORD: ${GUARDSPEC_APP_PASSWORD:-${PS_APP_PASSWORD:-guardspec_app}}
 
@@ -30,7 +29,6 @@ services:
       context: .
       dockerfile: build/control-plane.Dockerfile
     environment:
-      LOG_LEVEL: debug
       GUARD_ENV: ${GUARD_ENV:-dev}
       PGPASSWORD: ${GUARDSPEC_APP_PASSWORD:-${PS_APP_PASSWORD:-guardspec_app}}
       JWT_SECRET: ${JWT_SECRET:-dev-only-insecure-jwt-secret-do-not-deploy}
@@ -46,23 +44,8 @@ services:
       PGPASSWORD: ${POSTGRES_PASSWORD:-ps}
       GUARDSPEC_APP_PASSWORD: ${GUARDSPEC_APP_PASSWORD:-${PS_APP_PASSWORD:-guardspec_app}}
 
-  ui:
-    build:
-      context: ./web
-      dockerfile: Dockerfile
-      target: dev          # use dev stage (next dev with hot reload)
-    volumes:
-      - ./web:/app         # mount source for hot reload
-      - /app/node_modules  # exclude node_modules from mount
-    environment:
-      NEXT_TELEMETRY_DISABLED: "1"
-
   postgres:
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ps}
     ports:
       - "${POSTGRES_PORT:-5432}:5432"   # expose for local DB tools (TablePlus, etc.)
-
-  clickhouse:
-    ports:
-      - "8123:8123"

@@ -1,6 +1,6 @@
-# models directory — contents are gitignored
-# Model weights are downloaded at runtime by cmd/model-init/download.py
-# This prevents 2-8GB binary files from entering git history
+# Model files never enter git history.
+# models/cache/: pulled by `go run ./cmd/models pull` (models/manifest.yaml).
+# models/local/: our classifier, built with train/ or copied in by hand.
 
 *.onnx
 *.bin
@@ -13,3 +13,6 @@ vocab.txt
 
 # Pulled by `go run ./cmd/models pull`; never commit weights
 cache/
+
+# Our classifier (train/ output or copied in).
+local/

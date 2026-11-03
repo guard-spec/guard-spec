@@ -1,0 +1,74 @@
+name: False positive / false negative
+description: A text that was blocked but should pass, or passed but should be blocked.
+labels: [detection]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you: these reports are how the rules and the classifier improve.
+        **Remove personal, confidential and customer data from the text before posting.**
+        If an attack text is a working bypass of something sensitive, report it privately instead (SECURITY.md).
+        Reported texts may be used, after review, in training data. They are never added to `eval/` without a new eval release.
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      options:
+        - False positive (benign text was blocked)
+        - False negative (attack was allowed)
+    validations:
+      required: true
+  - type: textarea
+    id: text
+    attributes:
+      label: Text
+      description: The exact text, or a redacted version that still shows the problem.
+      render: text
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where the text was
+      options:
+        - User message
+        - System message
+        - Tool result
+        - Document (/guardrail/scan documents)
+        - Tool description (MCP)
+        - Model output (output guard)
+    validations:
+      required: true
+  - type: dropdown
+    id: lang
+    attributes:
+      label: Language
+      options:
+        - English
+        - Vietnamese with diacritics
+        - Vietnamese without diacritics
+        - Vietnamese teencode
+        - Mixed
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: scores
+    attributes:
+      label: Scores
+      description: |
+        From POST /guardrail/scan or the audit row: injection_score, injection_label, anomaly_score,
+        and scores.l1 / l2 / l3 if you have them.
+      render: json
+  - type: input
+    id: config
+    attributes:
+      label: Version and detector layers
+      placeholder: v0.1.0, DETECTOR_LAYERS=l1,l2,l3, guardspec-classifier-v1
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why the decision is wrong
+      description: For a false positive, the legitimate use; for a false negative, what the attack tries to do.

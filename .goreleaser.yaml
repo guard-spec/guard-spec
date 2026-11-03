@@ -47,6 +47,8 @@ archives:
       - NOTICE*
       - THIRD_PARTY_LICENSES.md
       - README.md
+      - README.vi.md
+      - CHANGELOG.md
       - SECURITY.md
       - migrations/*
       - deploy/**/*
