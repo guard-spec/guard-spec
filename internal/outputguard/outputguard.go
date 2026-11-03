@@ -134,13 +134,19 @@ type span struct {
 
 var (
 	// An inline image or link. The URL may hold one level of balanced
-	// parentheses, as Wikipedia URLs do, and may be followed by a title.
-	mdURL     = `<?((?:[^\s()<>]|\([^\s()<>]*\))*)>?(?:\s+(?:"[^"\n]*"|'[^'\n]*'|\([^()\n]*\)))?\s*\)`
-	mdFullRe  = regexp.MustCompile(`(!?)\[([^\[\]\n]{0,1000})\]\(\s*` + mdURL)
-	mdTailRe  = regexp.MustCompile(`\]\(\s*` + mdURL)
-	refDefRe  = regexp.MustCompile(`(?m)^[ \t]{0,3}\[[^\]\n]{1,1000}\]:[ \t]*<?([^\s>]+)>?[^\n]*$`)
+	// parentheses, as Wikipedia URLs do, and may be followed by a title. In
+	// angle brackets it may hold spaces. The captured URL keeps its brackets;
+	// allowed strips them.
+	mdURL    = `(<[^<>\n]*>|(?:[^\s()<>]|\([^\s()<>]*\))*)(?:\s+(?:"[^"\n]*"|'[^'\n]*'|\([^()\n]*\)))?\s*\)`
+	mdFullRe = regexp.MustCompile(`(!?)\[([^\[\]\n]{0,1000})\]\(\s*` + mdURL)
+	mdTailRe = regexp.MustCompile(`\]\(\s*` + mdURL)
+	// A reference definition, also inside a blockquote, with the URL on the
+	// same line or the next one.
+	refDefRe = regexp.MustCompile(`(?m)^[ \t]{0,3}(?:>[ \t]?)*[ \t]{0,3}\[[^\]\n]{1,1000}\]:[ \t]*` +
+		`(?:\n[ \t]*(?:>[ \t]?)*[ \t]*)?(<[^<>\n]*>|[^\s<>]+)[^\n]*$`)
 	htmlImgRe = regexp.MustCompile(`(?i)<img\b[^>]*>`)
-	imgSrcRe  = regexp.MustCompile(`(?i)\bsrc\s*=\s*["']?([^"'\s>]+)`)
+	// src and srcset, but not data-src: the name must follow a space.
+	imgSrcRe  = regexp.MustCompile(`(?i)\s(src|srcset)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))`)
 	bareURLRe = regexp.MustCompile(`(?i)\b(?:https?://|www\.)[^\s<>"'\x60\[\]()]+`)
 
 	emailRe = regexp.MustCompile(`[A-Za-z0-9._%+\-]{1,64}@[A-Za-z0-9\-]{1,63}(?:\.[A-Za-z0-9\-]{1,63}){0,8}\.[A-Za-z]{2,24}`)
@@ -155,6 +161,13 @@ var (
 
 // allowed reports whether raw is an http or https URL to an allowlisted host.
 func (g *Guard) allowed(raw string) bool {
+	raw = strings.TrimSpace(raw)
+	if strings.HasPrefix(raw, "<") && strings.HasSuffix(raw, ">") {
+		raw = raw[1 : len(raw)-1]
+	}
+	if strings.ContainsAny(raw, " \t\n") {
+		return false // a URL with spaces is not a plain link to a known host
+	}
 	u := parseURL(raw)
 	if u == nil || (u.Scheme != "http" && u.Scheme != "https") {
 		return false
@@ -169,6 +182,32 @@ func (g *Guard) allowed(raw string) bool {
 		}
 	}
 	return false
+}
+
+// imgAllowed reports whether an <img> tag loads only from allowlisted hosts:
+// it needs at least one src or srcset, and every URL in them must be allowed.
+func (g *Guard) imgAllowed(tag string) bool {
+	found := false
+	for _, m := range imgSrcRe.FindAllStringSubmatch(tag, -1) {
+		value := m[2] + m[3] + m[4] // only one of the three forms matched
+		var urls []string
+		if strings.EqualFold(m[1], "srcset") {
+			for _, candidate := range strings.Split(value, ",") {
+				if fields := strings.Fields(candidate); len(fields) > 0 {
+					urls = append(urls, fields[0])
+				}
+			}
+		} else {
+			urls = []string{value}
+		}
+		for _, u := range urls {
+			found = true
+			if !g.allowed(u) {
+				return false
+			}
+		}
+	}
+	return found
 }
 
 func parseURL(raw string) *url.URL {
@@ -230,8 +269,7 @@ func (s *Scanner) spans(text string, from int) (accepted []span, all []span) {
 		}
 	}
 	for _, m := range htmlImgRe.FindAllStringIndex(text, -1) {
-		src := imgSrcRe.FindStringSubmatch(text[m[0]:m[1]])
-		if src == nil || !g.allowed(src[1]) {
+		if !g.imgAllowed(text[m[0]:m[1]]) {
 			add(m[0], m[1], marker(KindImage), KindImage, nil)
 		}
 	}
@@ -333,8 +371,8 @@ func (s *Scanner) inlineMatches(text string, from int) []span {
 			}
 		}
 		for _, m := range digitRe.FindAllStringIndex(text, -1) {
-			if start, end, ok := findCard(text, m[0], m[1]); ok {
-				add(start, end, KindCard)
+			for _, card := range findCards(text, m[0], m[1]) {
+				add(card[0], card[1], KindCard)
 			}
 		}
 		for _, m := range allBounded(cccdRe, text, digitAt) {
@@ -402,12 +440,13 @@ func allBounded(re *regexp.Regexp, text string, inToken func(string, int) bool) 
 	return out
 }
 
-// findCard looks in the digit run text[start:end] (digits with single spaces or
-// dashes between them) for the longest group-aligned stretch of 13 to 19 digits
-// that passes the Luhn check.
-func findCard(text string, start, end int) (int, int, bool) {
+// findCards looks in the digit run text[start:end] (digits with single spaces
+// or dashes between them) for group-aligned stretches of 13 to 19 digits that
+// pass the Luhn check. It takes the leftmost such stretch, the longest one that
+// starts there, then goes on after it, so a run holding several cards yields
+// them all.
+func findCards(text string, start, end int) [][2]int {
 	run := text[start:end]
-	// Group boundaries: the run split at its separators.
 	type group struct{ start, end, digits int }
 	var groups []group
 	gs := 0
@@ -417,23 +456,25 @@ func findCard(text string, start, end int) (int, int, bool) {
 			gs = i + 1
 		}
 	}
-	bestLen, bs, be := 0, 0, 0
-	for i := range groups {
+	var out [][2]int
+	for i := 0; i < len(groups); i++ {
+		best := -1
 		digits := 0
 		for j := i; j < len(groups); j++ {
 			digits += groups[j].digits
 			if digits > 19 {
 				break
 			}
-			if digits >= 13 && digits > bestLen && luhn(run[groups[i].start:groups[j].end]) {
-				bestLen, bs, be = digits, groups[i].start, groups[j].end
+			if digits >= 13 && luhn(run[groups[i].start:groups[j].end]) {
+				best = j
 			}
 		}
+		if best >= 0 {
+			out = append(out, [2]int{start + groups[i].start, start + groups[best].end})
+			i = best
+		}
 	}
-	if bestLen == 0 {
-		return 0, 0, false
-	}
-	return start + bs, start + be, true
+	return out
 }
 
 func luhn(s string) bool {
