@@ -228,11 +228,25 @@ lock lets one of them work at a time; the others skip that round.
 
 ### Kubernetes
 
-There is no Helm chart in this repository yet. When deploying to Kubernetes,
-take the secrets (`POSTGRES_PASSWORD`, `PS_APP_PASSWORD`, `JWT_SECRET`,
-`ADMIN_PASSWORD`) from Secrets, expose the metrics ports (9090, 9091) only to
-the cluster, probe `/health` (gateway 8080, control plane 8081), and run as a
-non-root user with a read-only root filesystem: neither service writes to disk.
+A minimal chart is in `deploy/helm/guard-spec`. It deploys the gateway and the
+control plane against an external Postgres; Postgres is not bundled.
+
+```bash
+kubectl create secret generic guard-spec-secrets \
+  --from-literal=POSTGRES_PASSWORD=... --from-literal=PS_APP_PASSWORD=... \
+  --from-literal=JWT_SECRET=... --from-literal=ADMIN_PASSWORD=...
+# migrate first, as the owner role: migrate -path migrations -database "postgres://ps:...@host/promptshield" up
+helm install gs deploy/helm/guard-spec \
+  --set externalDatabase.url='postgres://ps_app@db.example:5432/promptshield?sslmode=require' \
+  --set externalDatabase.host=db.example --set dbRoles.enabled=true \
+  --set controlPlane.adminEmail=admin@example.com
+```
+
+- **Secrets** come from `existingSecret`. `PS_APP_PASSWORD` reaches both services as `PGPASSWORD`, so URLs carry no password. `POSTGRES_PASSWORD` is used only by the optional `dbRoles` hook job, which sets the `ps_app` password like the compose `db-roles` service. The chart does not run the migrations.
+- **Metrics** are served on separate ClusterIP Services (`*-metrics`, ports 9090 and 9091), so exposing an API Service never exposes `/metrics`. `serviceMonitor.enabled=true` adds a Prometheus Operator ServiceMonitor for both.
+- **Models** come from a PVC (`models.existingClaim`, or one the chart creates), mounted read-only at `/models` in the gateway.
+- **Security:** pods run as non-root (UID 65532) with a read-only root filesystem, no capabilities and the RuntimeDefault seccomp profile. The gateway gets an emptyDir at `/tmp`. Probes use `/health`; the gateway has a startup probe for model loading.
+- **Rate limits** are per replica, so `gateway.replicaCount` multiplies the effective limit.
 
 ## Indirect injection and tool poisoning
 
