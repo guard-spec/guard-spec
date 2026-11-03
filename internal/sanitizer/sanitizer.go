@@ -19,6 +19,7 @@ type Report struct {
 	HadBidi       bool    // bidi control chars were present
 	HadANSI       bool    // ANSI escape sequences were present
 	HadFakeMarker bool    // input contained our datamarking tokens
+	HadHiddenHTML bool    // HTML hid some content (see HiddenMarker); a signal, not an anomaly
 	HomoglyphRisk bool    // skeleton analysis found confusable characters
 	AnomalyScore  float32 // 0-1 composite signal
 	BytesRemoved  int
@@ -92,6 +93,13 @@ func cleanPass(s string, report *Report) (string, error) {
 
 	// 5. Strip remaining control chars.
 	stripped = stripControls(stripped)
+
+	// 6a. Content a browser would hide (display:none, visibility:hidden,
+	// font-size:0, white-on-white, aria-hidden, the hidden attribute, HTML
+	// comments) is kept and prefixed with HiddenMarker, so the detectors and
+	// the model see that it was hidden instead of losing that signal in step 6.
+	stripped, hadHidden := markHidden(stripped)
+	report.HadHiddenHTML = report.HadHiddenHTML || hadHidden
 
 	// 6. HTML-strip (strict: no tags survive). Unescape entities bluemonday re-encodes.
 	stripped = html.UnescapeString(htmlPolicy.Sanitize(stripped))
