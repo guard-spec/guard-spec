@@ -28,6 +28,15 @@ services:
       UPSTREAM_LLM_URL: ${UPSTREAM_LLM_URL:-}
       UPSTREAM_LLM_KEY: ${UPSTREAM_LLM_KEY:-}
       UPSTREAM_LLM_TIMEOUT: ${UPSTREAM_LLM_TIMEOUT:-}
+      # Prometheus metrics on their own port, not on the API port.
+      METRICS_ADDR: ":9090"
+      # Per-key limits; a key's own rpm_limit / tpm_limit wins. 0 = unlimited.
+      # Counted per gateway replica.
+      RATE_LIMIT_RPM: ${RATE_LIMIT_RPM:-0}
+      RATE_LIMIT_TPM: ${RATE_LIMIT_TPM:-0}
+      # Tracing is on only when an OTLP/HTTP endpoint is set.
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_PROPAGATE_UPSTREAM: ${OTEL_PROPAGATE_UPSTREAM:-false}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -50,6 +59,7 @@ services:
       dockerfile: build/control-plane.Dockerfile
     ports:
       - "${CONTROL_PLANE_PORT:-18081}:8081"
+      - "${CONTROL_PLANE_METRICS_PORT:-9091}:9091"   # Prometheus metrics
     environment:
       GUARD_ENV: ${GUARD_ENV:-}
       DATABASE_URL: postgres://ps_app@postgres:5432/promptshield?sslmode=disable
@@ -59,6 +69,9 @@ services:
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@localhost}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
+      METRICS_ADDR: ":9091"
+      # Audit rows older than this are deleted hourly; 0 keeps them forever.
+      AUDIT_RETENTION_DAYS: ${AUDIT_RETENTION_DAYS:-90}
       LOG_LEVEL: info
     depends_on:
       db-roles:

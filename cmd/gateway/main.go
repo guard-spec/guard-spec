@@ -25,11 +25,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	appconfig "github.com/promptshield/promptshield/internal/config"
 	"github.com/promptshield/promptshield/internal/inference"
+	"github.com/promptshield/promptshield/internal/metrics"
 	"github.com/promptshield/promptshield/internal/outputguard"
 	"github.com/promptshield/promptshield/internal/policy"
 	"github.com/promptshield/promptshield/internal/proxy"
 	"github.com/promptshield/promptshield/internal/sanitizer"
 	"github.com/promptshield/promptshield/internal/tenant"
+	"github.com/promptshield/promptshield/internal/tracing"
 )
 
 const (
@@ -63,13 +65,19 @@ func main() {
 		slog.Error("config", "err", err)
 		os.Exit(1)
 	}
+	ops, err := loadOpsConfig(os.Getenv)
+	if err != nil {
+		slog.Error("config", "err", err)
+		os.Exit(1)
+	}
 
 	var upstream *proxy.Proxy
 	if cfg.UpstreamURL != "" {
 		upstream, err = proxy.New(proxy.Config{
-			BaseURL: cfg.UpstreamURL,
-			Key:     cfg.UpstreamKey,
-			Timeout: cfg.UpstreamTimeout,
+			BaseURL:   cfg.UpstreamURL,
+			Key:       cfg.UpstreamKey,
+			Timeout:   cfg.UpstreamTimeout,
+			Propagate: ops.Propagate,
 		})
 		if err != nil {
 			slog.Error("upstream config", "err", err)
@@ -102,6 +110,13 @@ func main() {
 	base, cancelUpstream := context.WithCancel(context.Background())
 	defer cancelUpstream()
 
+	stopOps, err := startOps(base, ops)
+	if err != nil {
+		slog.Error("observability", "err", err)
+		os.Exit(1)
+	}
+	defer stopOps()
+
 	var output *outputguard.Guard
 	if cfg.Output != nil {
 		output = outputguard.New(*cfg.Output)
@@ -117,6 +132,7 @@ func main() {
 		upstream: upstream,
 		output:   output,
 		base:     base,
+		limits:   newRateLimiter(ops.RateLimit, dbKeyLimits(db)),
 
 		waitOnHalfClose: cfg.WaitOnHalfClose,
 	}, dbKeyLookup(db))
@@ -149,6 +165,7 @@ type gateway struct {
 	audit    *auditLog
 	upstream *proxy.Proxy
 	output   *outputguard.Guard // nil: responses are passed on unchanged
+	limits   *rateLimiter       // nil: no rate limit
 	// base is the parent of upstream calls and scans: a fiber ctx dies with the
 	// handler, and fasthttp's RequestCtx.Done races with server shutdown.
 	base context.Context
@@ -164,6 +181,7 @@ func newApp(gw gateway, lookup tenant.LookupFn) *fiber.App {
 		ServerHeader: "promptshield",
 	})
 
+	app.Use(observe()) // metrics and the request span; first, so it sees every response
 	app.Use(cors.New())
 
 	// Health check — no auth required
@@ -173,6 +191,9 @@ func newApp(gw gateway, lookup tenant.LookupFn) *fiber.App {
 
 	// All proxy routes require a valid API key.
 	app.Use(tenant.Middleware(lookup))
+	if gw.limits != nil {
+		app.Use(gw.limits.middleware())
+	}
 
 	// OpenAI-compatible proxy
 	app.Post("/v1/chat/completions", chatHandler(gw, "/chat/completions"))
@@ -271,14 +292,20 @@ type requestEntry struct {
 	LatencyMs int
 	Request   string // body as received; hashed, stored only if enabled
 	Response  string // buffered upstream body; empty when streamed
+
+	// For metrics only, not stored.
+	Route  string
+	Status int // HTTP status sent to the client
+	Start  time.Time
 }
 
 // newEntry starts a row for the caller. Handlers must copy what they need from
 // c before going async, because fiber reuses it once the handler returns.
 func newEntry(c *fiber.Ctx) requestEntry {
 	orgID, _ := tenant.OrgID(c)
+	c.Locals(auditedKey, true) // observeEntry records this request's metrics
 	return requestEntry{OrgID: orgID, ProjectID: tenant.ProjectID(c), Action: actionBlock,
-		Request: string(c.Body())}
+		Request: string(c.Body()), Route: routeLabel(c.Path()), Status: fiber.StatusOK, Start: time.Now()}
 }
 
 // auditLog writes rows without delaying the response, and tracks them so that
@@ -311,6 +338,7 @@ func (a *auditLog) hold() (release func()) {
 }
 
 func (a *auditLog) record(e requestEntry) {
+	observeEntry(e)
 	a.mu.Lock()
 	if a.closed {
 		a.mu.Unlock()
@@ -620,9 +648,11 @@ func chatHandler(gw gateway, upstreamPath string) fiber.Handler {
 		start := time.Now()
 		release := gw.audit.hold()
 		entry := newEntry(c)
-		streaming := false // the stream writes the row when it ends
+		tctx := requestContext(c, gw.base) // gw.base with the request span, for child spans
+		streaming := false                 // the stream writes the row when it ends
 		defer func() {
 			if !streaming {
+				entry.Status = c.Response().StatusCode()
 				entry.LatencyMs = int(time.Since(start).Milliseconds())
 				gw.audit.record(entry)
 				release()
@@ -638,7 +668,9 @@ func chatHandler(gw gateway, upstreamPath string) fiber.Handler {
 
 		// Extract + sanitize untrusted text
 		var guard textGuard
+		_, endSpan := tracing.Start(tctx, "sanitize")
 		err = guard.guardBody(body)
+		endSpan(err)
 		entry.Report = guard.report
 		if err != nil {
 			return guardError(c, err)
@@ -646,7 +678,9 @@ func chatHandler(gw gateway, upstreamPath string) fiber.Handler {
 
 		// Run injection classifier on all untrusted text combined
 		if text := strings.Join(guard.texts, " "); text != "" {
-			scores, err := gw.runner.Scan(gw.base, text)
+			dctx, endSpan := tracing.Start(tctx, "detect")
+			scores, err := gw.runner.Scan(dctx, text)
+			endSpan(err)
 			if err != nil {
 				return scanError(c, err)
 			}
@@ -663,7 +697,9 @@ func chatHandler(gw gateway, upstreamPath string) fiber.Handler {
 		}
 
 		// Policies run after the fixed thresholds, so they can only tighten them.
+		_, endSpan = tracing.Start(tctx, "policy")
 		decision, err := gw.evaluatePolicies(entry, policyVars(entry, body, len(sanitized)))
+		endSpan(err)
 		if err != nil {
 			slog.Error("policy evaluation failed", "org", entry.OrgID, "err", err)
 			return policyUnavailable(c)
@@ -728,7 +764,7 @@ func chatHandler(gw gateway, upstreamPath string) fiber.Handler {
 
 		// Cancelled when the client hangs up, so a client that leaves while the
 		// upstream is still thinking does not hold the upstream until its timeout.
-		ctx, cancel := context.WithCancel(gw.base)
+		ctx, cancel := context.WithCancel(tctx)
 		conn := c.Context().Conn()
 		stopWatch := watchClose(conn, cancel, !gw.waitOnHalfClose)
 		handedOff := false // the stream writer owns cancel once it is set up
@@ -756,7 +792,9 @@ func chatHandler(gw gateway, upstreamPath string) fiber.Handler {
 			entry.Response = string(data)
 			if scan != nil {
 				counts := outputguard.Counts{}
+				_, endSpan := tracing.Start(tctx, "output_guard")
 				data, err = scan.Response(data, counts)
+				endSpan(err)
 				entry.Output = counts
 				if errors.Is(err, outputguard.ErrToolCanary) {
 					entry.Action = actionOutputLeak
@@ -798,8 +836,11 @@ func chatHandler(gw gateway, upstreamPath string) fiber.Handler {
 			defer cancel()
 			defer resp.Close()
 			stop := watchClose(conn, cancel, !gw.waitOnHalfClose)
+			_, endSpan := tracing.Start(tctx, "output_guard.stream") // the relay, guarded when events is set
 			outcome := relay(w, resp, events)
+			endSpan(nil)
 			stop()
+			entry.Status = resp.Status
 			switch outcome {
 			case relayUpstreamFailed:
 				entry.Action = actionError
@@ -961,9 +1002,14 @@ func (gw gateway) evaluatePolicies(entry requestEntry, vars *policy.Vars) (polic
 	defer cancel()
 	policies, err := gw.policies(ctx, entry.OrgID, entry.ProjectID)
 	if err != nil {
+		metrics.PolicyErrors.WithLabelValues("load").Inc()
 		return policy.Decision{}, fmt.Errorf("load: %w", err)
 	}
-	return gw.engine.EvaluateAll(ctx, policies, vars)
+	decision, err := gw.engine.EvaluateAll(ctx, policies, vars)
+	if err != nil {
+		metrics.PolicyErrors.WithLabelValues("eval").Inc()
+	}
+	return decision, err
 }
 
 // policyVars builds the rule inputs. request.tokens is an estimate from the body
