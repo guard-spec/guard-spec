@@ -24,6 +24,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	appconfig "github.com/promptshield/promptshield/internal/config"
+	"github.com/promptshield/promptshield/internal/indirect"
 	"github.com/promptshield/promptshield/internal/inference"
 	"github.com/promptshield/promptshield/internal/outputguard"
 	"github.com/promptshield/promptshield/internal/policy"
@@ -109,6 +110,8 @@ func main() {
 	slog.Info("output guard", "enabled", output != nil)
 
 	audit := newAuditLog(func(e requestEntry) { logRequest(db, cfg.AuditStoreContent, e) })
+	slog.Info("scan config", "roles", cfg.Scan.Roles.String(), "spotlight", cfg.Scan.Spotlight,
+		"indirect_threshold", cfg.Scan.IndirectThreshold)
 	app := newApp(gateway{
 		runner:   runner,
 		engine:   engine,
@@ -117,6 +120,8 @@ func main() {
 		upstream: upstream,
 		output:   output,
 		base:     base,
+		scan:     &cfg.Scan,
+		settings: dbSettingsLoader(db),
 
 		waitOnHalfClose: cfg.WaitOnHalfClose,
 	}, dbKeyLookup(db))
@@ -156,6 +161,9 @@ type gateway struct {
 	// waitOnHalfClose keeps the upstream running when the client sends FIN, for
 	// clients that half-close and still wait for the answer. See watchClose.
 	waitOnHalfClose bool
+
+	scan     *scanConfig    // nil: defaultScanConfig
+	settings settingsLoader // per-org overrides; nil: none
 }
 
 // newApp builds the Fiber app with all gateway routes.
@@ -180,6 +188,7 @@ func newApp(gw gateway, lookup tenant.LookupFn) *fiber.App {
 
 	// Direct guardrail endpoints
 	app.Post("/guardrail/scan", scanHandler(gw))
+	app.Post("/guardrail/scan/tools", scanToolsHandler(gw))
 	app.Post("/guardrail/sanitize", sanitizeHandler())
 
 	return app
@@ -207,57 +216,6 @@ func sanitizeHandler() fiber.Handler {
 	}
 }
 
-func scanHandler(gw gateway) fiber.Handler {
-	return func(c *fiber.Ctx) error {
-		start := time.Now()
-		release := gw.audit.hold()
-		defer release()
-		var req struct {
-			Text string `json:"text"`
-		}
-		if err := c.BodyParser(&req); err != nil {
-			return c.Status(400).JSON(fiber.Map{"error": "invalid body"})
-		}
-		if req.Text == "" {
-			return c.Status(400).JSON(fiber.Map{"error": "text is required"})
-		}
-
-		cleaned, report, err := sanitizer.Sanitize(req.Text)
-		if err != nil {
-			return c.Status(422).JSON(fiber.Map{"error": err.Error()})
-		}
-
-		scores, err := gw.runner.Scan(gw.base, cleaned)
-		if err != nil {
-			return scanError(c, err)
-		}
-
-		blocked := scores.Injection.Confidence >= injectionBlockThreshold ||
-			report.AnomalyScore >= anomalyBlockThreshold
-		entry := newEntry(c)
-		entry.Action = actionAllow
-		if blocked {
-			entry.Action = actionBlock
-		}
-		entry.Scores = scores
-		entry.Report = report
-		entry.LatencyMs = int(time.Since(start).Milliseconds())
-		gw.audit.record(entry)
-
-		return c.JSON(fiber.Map{
-			"injection_score": scores.Injection.Confidence,
-			"injection_label": scores.Injection.Label,
-			"toxicity_score":  scores.Toxicity.Confidence,
-			"anomaly_score":   report.AnomalyScore,
-			"had_tag_chars":   report.HadTagChars,
-			"had_bidi":        report.HadBidi,
-			"bytes_removed":   report.BytesRemoved,
-			"sanitized_text":  cleaned,
-			"blocked":         blocked,
-		})
-	}
-}
-
 // requestEntry is one row of the requests table.
 type requestEntry struct {
 	OrgID     uuid.UUID
@@ -268,9 +226,13 @@ type requestEntry struct {
 	Scores    inference.Scores
 	Report    sanitizer.Report
 	Output    outputguard.Counts // what the output guard acted on, never the content
-	LatencyMs int
-	Request   string // body as received; hashed, stored only if enabled
-	Response  string // buffered upstream body; empty when streamed
+	Indirect  indirect.Verdict   // strongest untrusted part (tool result, tool description)
+	// SourceRole is where the strongest injection finding came from: user,
+	// system, assistant, tool or tool_description.
+	SourceRole string
+	LatencyMs  int
+	Request    string // body as received; hashed, stored only if enabled
+	Response   string // buffered upstream body; empty when streamed
 }
 
 // newEntry starts a row for the caller. Handlers must copy what they need from
@@ -410,6 +372,11 @@ func scanError(c *fiber.Ctx, err error) error {
 type textGuard struct {
 	texts  []string
 	report sanitizer.Report // worst signals across all texts, for the audit log
+
+	roles  *indirect.Roles // what is classified; nil: indirect.DefaultRoles
+	source indirect.Source // source of the text being cleaned; "" is user
+	parts  []scanPart      // sanitized text to classify, by source (scan_roles.go)
+	tools  []indirect.Tool // tool definitions to classify
 }
 
 func (g *textGuard) merge(rep sanitizer.Report) {
@@ -432,6 +399,7 @@ func (g *textGuard) clean(text string) (string, error) {
 		return "", errBlocked
 	}
 	g.texts = append(g.texts, cleaned)
+	g.collect(cleaned)
 	return cleaned, nil
 }
 
@@ -455,6 +423,9 @@ func (g *textGuard) guardBody(body map[string]any) error {
 		return err
 	}
 	if err := g.guardMessages(body["messages"]); err != nil {
+		return err
+	}
+	if err := g.guardTools(body); err != nil {
 		return err
 	}
 	if err := g.guardPrompt(body); err != nil {
@@ -506,7 +477,8 @@ func (g *textGuard) guardContent(m map[string]any) error {
 }
 
 // guardMessages covers roles carrying untrusted text. System and assistant turns
-// come from the integrating application and are left unchanged.
+// come from the integrating application and are left unchanged; see
+// guardMessage for what is classified.
 func (g *textGuard) guardMessages(raw any) error {
 	if raw == nil {
 		return nil
@@ -523,12 +495,8 @@ func (g *textGuard) guardMessages(raw any) error {
 		if err := rejectShadowKeys(m, "role", "content"); err != nil {
 			return err
 		}
-		switch role, _ := m["role"].(string); role {
-		case "system", "assistant":
-		default:
-			if err := g.guardContent(m); err != nil {
-				return err
-			}
+		if err := g.guardMessage(m); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -636,25 +604,45 @@ func chatHandler(gw gateway, upstreamPath string) fiber.Handler {
 		}
 		entry.Model, _ = body["model"].(string)
 
+		scanCfg, err := gw.scanConfigFor(entry.OrgID)
+		if err != nil {
+			slog.Error("org scan settings unavailable", "org", entry.OrgID, "err", err)
+			return policyUnavailable(c)
+		}
+
 		// Extract + sanitize untrusted text
-		var guard textGuard
+		guard := textGuard{roles: &scanCfg.Roles}
 		err = guard.guardBody(body)
 		entry.Report = guard.report
 		if err != nil {
 			return guardError(c, err)
 		}
 
-		// Run injection classifier on all untrusted text combined
-		if text := strings.Join(guard.texts, " "); text != "" {
-			scores, err := gw.runner.Scan(gw.base, text)
-			if err != nil {
-				return scanError(c, err)
+		// Classify: user, system and tool-call text together, each tool result
+		// and tool definition on its own (scan_roles.go).
+		verdict, err := gw.scoreRequest(&guard)
+		if err != nil {
+			if errors.Is(err, errUnsupportedContent) {
+				return guardError(c, err)
 			}
-			entry.Scores = scores
-			if scores.Injection.Confidence >= injectionBlockThreshold {
-				slog.Info("blocked injection", "score", scores.Injection.Confidence)
-				return blockResponse(c, "Request blocked: prompt injection detected.")
-			}
+			return scanError(c, err)
+		}
+		entry.Scores, entry.Indirect, entry.SourceRole = verdict.Scores, verdict.Indirect, verdict.SourceRole
+		if verdict.Direct >= injectionBlockThreshold {
+			slog.Info("blocked injection", "score", verdict.Direct, "source_role", verdict.SourceRole)
+			return blockResponse(c, "Request blocked: prompt injection detected.")
+		}
+		if verdict.Indirect.Score >= scanCfg.IndirectThreshold {
+			slog.Info("blocked indirect injection", "score", verdict.Indirect.Score,
+				"source", verdict.Indirect.Source, "category", verdict.Indirect.Category)
+			return blockResponse(c, "Request blocked: prompt injection detected in tool or document content.")
+		}
+
+		// Mark tool results for the model (SPOTLIGHT). Off by default.
+		if _, err := spotlight(body, scanCfg.Spotlight); err != nil {
+			slog.Error("spotlight", "err", err)
+			return c.Status(fiber.StatusServiceUnavailable).
+				JSON(errorBody("guardrail unavailable", "server_error", "guardrail_unavailable"))
 		}
 
 		sanitized, err := json.Marshal(body)
@@ -979,6 +967,9 @@ func policyVars(entry requestEntry, body map[string]any, bodyBytes int) *policy.
 		AnomalyHasTagChars: entry.Report.HadTagChars,
 		AnomalyHasBidi:     entry.Report.HadBidi,
 		AnomalyScore:       entry.Report.AnomalyScore,
+		IndirectScore:      entry.Indirect.Score,
+		IndirectSource:     string(entry.Indirect.Source),
+		SourceRole:         entry.SourceRole,
 	}
 	vars.ScoreL1, vars.ScoreL2, vars.ScoreL3 = vars.InjectionScore, -1, -1
 	if d := entry.Scores.Injection.Detail; d != nil {
@@ -1052,6 +1043,9 @@ type config struct {
 	Output *outputguard.Config
 	// WaitOnHalfClose is CLIENT_HALF_CLOSE=wait.
 	WaitOnHalfClose bool
+	// Scan is SCAN_ROLES, SPOTLIGHT and INDIRECT_BLOCK_THRESHOLD; an org can
+	// override roles and spotlight in organizations.guard_settings.
+	Scan scanConfig
 }
 
 func loadConfig() (config, error) {
@@ -1074,6 +1068,10 @@ func loadConfig() (config, error) {
 	default:
 		return config{}, errors.New("CLIENT_HALF_CLOSE must be cancel or wait")
 	}
+	scan, err := loadScanConfig(os.Getenv)
+	if err != nil {
+		return config{}, err
+	}
 	storeContent, err := strconv.ParseBool(getenv("AUDIT_STORE_CONTENT", "false"))
 	if err != nil {
 		return config{}, fmt.Errorf("AUDIT_STORE_CONTENT must be true or false: %w", err)
@@ -1088,6 +1086,7 @@ func loadConfig() (config, error) {
 		Output:            output,
 		WaitOnHalfClose:   waitOnHalfClose,
 		AuditStoreContent: storeContent,
+		Scan:              scan,
 	}
 	// Refuse a default or weak database password unless GUARD_ENV=dev.
 	var secrets appconfig.Checker
