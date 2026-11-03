@@ -84,6 +84,10 @@ type Options struct {
 	ModelFile string
 	// IntraOpThreads for ONNX Runtime. Default: $INFERENCE_INTRA_OP_THREADS, else see EnvIntraOpThreads.
 	IntraOpThreads int
+	// Prefix is text put at the start of every window, after the special
+	// tokens, such as "query:" for e5 models. Repeating it per window keeps
+	// every window of a long text in the form the model was trained on.
+	Prefix string
 }
 
 const (
@@ -248,6 +252,13 @@ type model struct {
 func newModel(tok tokenizer, sess session, cfg modelConfig, o Options) (*model, error) {
 	m := &model{tok: tok, sess: sess, lim: o.Limiter}
 	m.prefix, m.suffix = tok.Specials()
+	if o.Prefix != "" {
+		ids, err := tok.Encode(o.Prefix)
+		if err != nil {
+			return nil, fmt.Errorf("onnx: tokenize prefix: %w", err)
+		}
+		m.prefix = append(append([]int64(nil), m.prefix...), ids...)
+	}
 	if cfg.PadTokenID != nil {
 		m.pad = *cfg.PadTokenID
 	}
@@ -331,6 +342,7 @@ func (m *model) chunk(ids []int64) ([][]int64, error) {
 // window is one chunk of one input text.
 type window struct {
 	text int
+	pos  int // index of the window within its text
 	ids  []int64
 }
 
@@ -345,8 +357,8 @@ func (m *model) windows(texts []string) ([]window, error) {
 		if err != nil {
 			return nil, fmt.Errorf("text %d: %w", i, err)
 		}
-		for _, c := range chunks {
-			ws = append(ws, window{text: i, ids: c})
+		for j, c := range chunks {
+			ws = append(ws, window{text: i, pos: j, ids: c})
 		}
 	}
 	return ws, nil
@@ -655,6 +667,33 @@ func (e *Embedder) Embed(ctx context.Context, texts []string) ([][]float32, erro
 	out := make([][]float32, len(texts))
 	for i := range texts {
 		out[i] = l2normalize(sums[i], counts[i])
+	}
+	return out, nil
+}
+
+// EmbedWindows returns, per text, one unit-length vector per window (see the
+// package comment on chunking), in window order. Unlike Embed it does not
+// average the windows, so a short passage inside a long text keeps its own
+// vector.
+func (e *Embedder) EmbedWindows(ctx context.Context, texts []string) ([][][]float32, error) {
+	out := make([][][]float32, len(texts))
+	err := e.m.run(ctx, texts, func(b batchOut) error {
+		if len(b.shape) != 3 || int(b.shape[0]) != len(b.wins) || int(b.shape[1]) != b.seq {
+			return fmt.Errorf("onnx: embedder output shape %v, want [%d %d hidden]", b.shape, len(b.wins), b.seq)
+		}
+		hidden := int(b.shape[2])
+		for r, w := range b.wins {
+			sum := make([]float64, hidden)
+			accumulateMasked(sum, b.data[r*b.seq*hidden:(r+1)*b.seq*hidden], b.mask[r*b.seq:(r+1)*b.seq], hidden)
+			for len(out[w.text]) <= w.pos {
+				out[w.text] = append(out[w.text], nil)
+			}
+			out[w.text][w.pos] = l2normalize(sum, float64(len(w.ids)))
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	return out, nil
 }

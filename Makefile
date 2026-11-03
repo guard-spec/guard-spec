@@ -51,7 +51,7 @@ generate:
 ONNX_DIR  := $(CURDIR)/.onnx
 ONNX_ENV  := CGO_ENABLED=1 CGO_LDFLAGS=-L$(ONNX_DIR)/lib ONNXRUNTIME_LIB=$(ONNX_DIR)/lib/libonnxruntime$(if $(filter Darwin,$(shell uname -s)),.dylib,.so)
 
-.PHONY: onnx-deps models-pull test-onnx onnxbench
+.PHONY: onnx-deps models-pull test-onnx onnxbench eval-ml calibrate
 
 onnx-deps: $(ONNX_DIR)/lib/libtokenizers.a   ## fetch libonnxruntime + libtokenizers.a into .onnx/lib
 
@@ -63,7 +63,19 @@ models-pull:        ## download + verify models/manifest.yaml into models/cache
 	$(GO) run ./cmd/models pull -dir models/cache
 
 test-onnx: onnx-deps
-	$(ONNX_ENV) $(GO) test -tags onnx -v ./internal/onnx/
+	$(ONNX_ENV) $(GO) test -race -tags onnx ./...
+
+# Eval with the model layers (L1+L2+L3, see internal/inference/ml) against
+# eval/baseline-onnx.json. LAYERS=l1,l2 CASCADE=1 for other configurations.
+eval-ml: onnx-deps
+	$(ONNX_ENV) $(GO) run -tags onnx ./cmd/eval -detector fusion-ml \
+	  $(if $(LAYERS),-layers $(LAYERS)) $(if $(CASCADE),-cascade) \
+	  $(if $(LAYERS)$(CASCADE),,-baseline eval/baseline-onnx.json)
+
+# Refit the L2/L3 calibration and compare fusion methods on train/data/val.jsonl
+# (never eval/); writes calibration.json next to the classifier.
+calibrate: onnx-deps
+	$(ONNX_ENV) $(GO) run -tags onnx ./cmd/calibrate fit -write
 
 onnxbench: onnx-deps
 	$(ONNX_ENV) $(GO) run -tags onnx ./cmd/onnxbench -model models/local/guardspec-classifier-v0
