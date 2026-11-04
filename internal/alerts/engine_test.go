@@ -34,7 +34,9 @@ func TestValidateRule(t *testing.T) {
 		{"severity", func(r *Rule) { r.Severity = "fatal" }, "severity"},
 		{"group_by", func(r *Rule) { r.GroupBy = []string{"attrs.model"} }, "group_by"},
 		{"group_by ok", func(r *Rule) { r.GroupBy = []string{"project_id", "attrs.category"} }, ""},
-		{"quiet tz", func(r *Rule) { r.QuietHours = &QuietHours{TZ: "Mars/Base", Start: "22:00", End: "07:00", Mode: "delay"} }, "tz"},
+		{"quiet tz", func(r *Rule) {
+			r.QuietHours = &QuietHours{TZ: "Mars/Base", Start: "22:00", End: "07:00", Mode: "delay"}
+		}, "tz"},
 		{"quiet clock", func(r *Rule) { r.QuietHours = &QuietHours{TZ: "UTC", Start: "25:00", End: "07:00", Mode: "delay"} }, "start"},
 		{"quiet mode", func(r *Rule) { r.QuietHours = &QuietHours{TZ: "UTC", Start: "22:00", End: "07:00", Mode: "mute"} }, "mode"},
 		{"role", func(r *Rule) { r.Recipients.Roles = []string{"root"} }, "roles"},

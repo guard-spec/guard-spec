@@ -200,7 +200,7 @@ func (e *Email) send(ctx context.Context, u *url.URL, from string, to []string, 
 		_ = conn.Close()
 		return err
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	if !implicit {
 		if ok, _ := c.Extension("STARTTLS"); ok {
 			if err := c.StartTLS(tlsCfg); err != nil {

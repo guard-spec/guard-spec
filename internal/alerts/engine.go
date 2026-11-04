@@ -39,6 +39,8 @@ const (
 	maxBatches   = 10
 	hitRetention = 24 * time.Hour // the longest window
 	maxSamples   = 10
+	// MaxOutboxPerMinute caps the deliveries one org queues per minute.
+	MaxOutboxPerMinute = 1000
 )
 
 // Caps says which personal channels the instance can deliver to.
@@ -56,8 +58,9 @@ type Engine struct {
 	Lang      string // language of in-app notification text: en or vi
 	Now       func() time.Time
 
-	mu    sync.Mutex
-	conds map[uuid.UUID]condEntry
+	mu     sync.Mutex
+	conds  map[uuid.UUID]condEntry
+	pruned map[uuid.UUID]time.Time
 }
 
 type condEntry struct {
@@ -186,14 +189,60 @@ func (e *Engine) processBatch(ctx context.Context, org uuid.UUID, housekeeping b
 			if err := e.resolve(ctx, tx, org, rules, now); err != nil {
 				return err
 			}
-			if _, err := tx.Exec(ctx, `DELETE FROM alert_rule_hits WHERE org_id = $1 AND occurred_at < $2`,
-				org, now.Add(-hitRetention)); err != nil {
-				return err
+			if e.pruneDue(org, now) {
+				if err := prune(ctx, tx, org, now); err != nil {
+					return err
+				}
 			}
 		}
 		return nil
 	})
 	return n, more, err
+}
+
+// Retention of alert data, in batches of pruneBatch rows per pass.
+const (
+	EventRetention        = 30 * 24 * time.Hour
+	DeliveryRetention     = 30 * 24 * time.Hour
+	NotificationRetention = 90 * 24 * time.Hour
+	pruneBatch            = 1000
+)
+
+// pruneDue reports whether org was not pruned in the last minute.
+func (e *Engine) pruneDue(org uuid.UUID, now time.Time) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.pruned == nil || len(e.pruned) > 100000 {
+		e.pruned = map[uuid.UUID]time.Time{}
+	}
+	if last, ok := e.pruned[org]; ok && now.Sub(last) < time.Minute {
+		return false
+	}
+	e.pruned[org] = now
+	return true
+}
+
+// prune deletes old rule hits, processed events, finished deliveries and
+// read in-app notifications of org.
+func prune(ctx context.Context, tx pgx.Tx, org uuid.UUID, now time.Time) error {
+	stmts := []struct {
+		q    string
+		keep time.Duration
+	}{
+		{`DELETE FROM alert_rule_hits WHERE org_id = $1 AND occurred_at < $2`, hitRetention},
+		{`DELETE FROM events WHERE id IN (SELECT id FROM events WHERE org_id = $1 AND processed_at IS NOT NULL
+		   AND occurred_at < $2 LIMIT ` + fmt.Sprint(pruneBatch) + `)`, EventRetention},
+		{`DELETE FROM notification_outbox WHERE id IN (SELECT id FROM notification_outbox WHERE org_id = $1
+		   AND state IN (sent, dead) AND created_at < $2 LIMIT ` + fmt.Sprint(pruneBatch) + `)`, DeliveryRetention},
+		{`DELETE FROM notifications WHERE id IN (SELECT id FROM notifications WHERE org_id = $1
+		   AND read_at IS NOT NULL AND created_at < $2 LIMIT ` + fmt.Sprint(pruneBatch) + `)`, NotificationRetention},
+	}
+	for _, s := range stmts {
+		if _, err := tx.Exec(ctx, s.q, org, now.Add(-s.keep)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func loadEvents(ctx context.Context, tx pgx.Tx, org uuid.UUID) ([]events.Event, error) {
@@ -322,6 +371,20 @@ func (e *Engine) windowCount(ctx context.Context, tx pgx.Tx, r *Rule, key string
 	return n, *first, *last, nil
 }
 
+// windowSamples returns the newest hits of the window, oldest first.
+func windowSamples(ctx context.Context, tx pgx.Tx, r *Rule, key string, now time.Time) ([]uuid.UUID, error) {
+	rows, err := tx.Query(ctx,
+		`SELECT event_id FROM alert_rule_hits WHERE rule_id = $1 AND dedupe_key = $2 AND occurred_at > $3
+		 ORDER BY occurred_at DESC, event_id LIMIT $4`,
+		r.ID, key, now.Add(-time.Duration(r.WindowSeconds)*time.Second), maxSamples)
+	if err != nil {
+		return nil, err
+	}
+	ids, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	slices.Reverse(ids)
+	return ids, err
+}
+
 // fire records or updates the firing alert of t and notifies unless the
 // throttle holds it back.
 func (e *Engine) fire(ctx context.Context, tx pgx.Tx, org uuid.UUID, t *touched, now time.Time) error {
@@ -334,6 +397,10 @@ func (e *Engine) fire(ctx context.Context, tx pgx.Tx, org uuid.UUID, t *touched,
 		return nil
 	}
 	group, _ := json.Marshal(t.group)
+	samples, err := windowSamples(ctx, tx, r, t.key, now)
+	if err != nil {
+		return err
+	}
 	a := alertRow{OrgID: org, RuleName: r.Name, Key: t.key, Group: t.group, ProjectID: t.project, Severity: r.Severity,
 		Count: count, LastAt: last}
 	var existing []uuid.UUID
@@ -343,7 +410,7 @@ func (e *Engine) fire(ctx context.Context, tx pgx.Tx, org uuid.UUID, t *touched,
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		a.FirstAt = first
-		a.Samples = lastN(t.events, maxSamples)
+		a.Samples = samples
 		err = tx.QueryRow(ctx,
 			`INSERT INTO alerts (org_id, rule_id, rule_name, dedupe_key, group_values, project_id, window_start, state,
 			                     severity, first_at, last_at, count, sample_event_ids)
@@ -359,7 +426,7 @@ func (e *Engine) fire(ctx context.Context, tx pgx.Tx, org uuid.UUID, t *touched,
 	case err != nil:
 		return err
 	default:
-		a.Samples = lastN(append(existing, t.events...), maxSamples)
+		a.Samples = lastN(append(existing, samples...), maxSamples)
 		if _, err := tx.Exec(ctx,
 			`UPDATE alerts SET count = GREATEST(count, $2), last_at = GREATEST(last_at, $3), sample_event_ids = $4,
 			        project_id = COALESCE($5, project_id)
@@ -539,6 +606,19 @@ func (e *Engine) notify(ctx context.Context, tx pgx.Tx, a *alertRow, r *Rule, st
 	}
 	deliveries = append(deliveries, shared...)
 
+	// A runaway rule (threshold 1, no throttle, a flood of events) must not
+	// fill the outbox: past MaxOutboxPerMinute rows a minute per org, only the
+	// in-app notifications are written.
+	var recent int
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM notification_outbox WHERE org_id = $1 AND created_at > $2`,
+		a.OrgID, now.Add(-time.Minute)).Scan(&recent); err != nil {
+		return err
+	}
+	if recent+len(deliveries) > MaxOutboxPerMinute {
+		slog.Warn("alert deliveries over the per-org limit; only in-app notifications sent", "org", a.OrgID, "rule", r.ID)
+		metrics.Deliveries.WithLabelValues("all", "limited").Add(float64(len(deliveries)))
+		deliveries = nil
+	}
 	base, err := e.payload(ctx, tx, a, r, state)
 	if err != nil {
 		return err

@@ -1401,7 +1401,9 @@ make eval-ml                               # needs models/, see Models
 [CONTRIBUTING.md](CONTRIBUTING.md) covers the rules, including the most
 important one: **`eval/` is never used for tuning**. Design notes are in
 [DESIGN.md](DESIGN.md), [docs/arch-flow.html](docs/arch-flow.html) and
-[docs/adr/](docs/adr/). Planned work is in [ROADMAP.md](ROADMAP.md).
+[docs/adr/](docs/adr/). Alerts and notifications (Telegram, Slack, Teams,
+webhooks, A2A, email, in-app) are described in [docs/alerts.md](docs/alerts.md).
+Planned work is in [ROADMAP.md](ROADMAP.md).
 
 ## License
 

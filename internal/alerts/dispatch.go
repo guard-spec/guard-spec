@@ -64,8 +64,13 @@ type Dispatcher struct {
 	DB      *pgxpool.Pool
 	Senders map[string]channels.Sender
 	Getenv  func(string) string
-	Lang    string
-	Now     func() time.Time
+	// The instance bot tokens of personal channels (TELEGRAM_BOT_TOKEN,
+	// SLACK_BOT_TOKEN).
+	TelegramToken, SlackToken string
+	// SecretOrgs is ALERTS_SECRET_ORGS.
+	SecretOrgs SecretOrgs
+	Lang       string
+	Now        func() time.Time
 }
 
 func (d *Dispatcher) now() time.Time {
@@ -219,14 +224,14 @@ func (d *Dispatcher) claim(ctx context.Context, org uuid.UUID) ([]outboxRow, err
 }
 
 // Message builds the message of a shared channel or a personal delivery.
-func (d *Dispatcher) message(r *outboxRow) (*channels.Message, error) {
+func (d *Dispatcher) message(org uuid.UUID, r *outboxRow) (*channels.Message, error) {
 	m := &channels.Message{Kind: r.Kind, Payload: r.Payload, IdempotencyKey: r.Key, Lang: d.Lang}
 	getenv := d.Getenv
 	if r.channel != nil {
 		m.Config = r.channel.Config
 		if r.channel.SecretEnv != nil && *r.channel.SecretEnv != "" {
-			if !AllowedSecretEnv(*r.channel.SecretEnv) {
-				return nil, &channels.Error{Permanent: true, Msg: "secret_env is not an allowed variable name"}
+			if err := CheckSecretEnv(r.Kind, *r.channel.SecretEnv, org, d.SecretOrgs); err != nil {
+				return nil, &channels.Error{Permanent: true, Msg: err.Error()}
 			}
 			m.Secret = getenv(*r.channel.SecretEnv)
 			if m.Secret == "" {
@@ -234,16 +239,16 @@ func (d *Dispatcher) message(r *outboxRow) (*channels.Message, error) {
 			}
 		}
 		if r.Kind == channels.KindTelegram && m.Secret == "" {
-			m.Secret = getenv(EnvTelegramToken)
+			m.Secret = d.TelegramToken
 		}
 		return m, nil
 	}
 	m.Target = r.Target
 	switch r.Kind {
 	case channels.KindTelegram:
-		m.Secret = getenv(EnvTelegramToken)
+		m.Secret = d.TelegramToken
 	case channels.KindSlack:
-		m.Secret = getenv(EnvSlackToken)
+		m.Secret = d.SlackToken
 		m.Config = map[string]any{"mode": "bot"}
 	}
 	return m, nil
@@ -261,8 +266,8 @@ func (d *Dispatcher) Send(ctx context.Context, m *channels.Message) (channels.Re
 }
 
 // TestChannel sends a test alert to a shared channel synchronously.
-func (d *Dispatcher) TestChannel(ctx context.Context, c *ChannelRow, p channels.Payload) (channels.Result, error) {
-	m, err := d.message(&outboxRow{Kind: c.Kind, ChannelID: &c.ID, Payload: p, Key: p.EventID, channel: c})
+func (d *Dispatcher) TestChannel(ctx context.Context, org uuid.UUID, c *ChannelRow, p channels.Payload) (channels.Result, error) {
+	m, err := d.message(org, &outboxRow{Kind: c.Kind, ChannelID: &c.ID, Payload: p, Key: p.EventID, channel: c})
 	if err != nil {
 		return channels.Result{}, err
 	}
@@ -274,7 +279,7 @@ func (d *Dispatcher) deliver(ctx context.Context, org uuid.UUID, r *outboxRow) {
 		metrics.DeliveryLatency.WithLabelValues(r.Kind).Observe(d.now().Sub(r.Payload.LastAt).Seconds())
 	}
 	var res channels.Result
-	m, err := d.message(r)
+	m, err := d.message(org, r)
 	if err == nil {
 		res, err = d.Send(ctx, m)
 	}
