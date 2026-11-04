@@ -30,16 +30,17 @@ func digest(body string) auditDigest {
 
 // auditInsert writes one requests row. pii_entities ($13) holds the output
 // guard counts. Content is stored only when the gateway enables it for every
-// org ($14) or the row's organization has opted in.
+// org ($14) or the row's organization has opted in. route_target ($21) is the
+// named upstream (migration 011).
 const auditInsert = `
 INSERT INTO requests
 	(org_id, project_id, model, action, rule_id, injection_label, injection_score,
 	 toxicity_score, anomaly_score, had_tag_chars, had_bidi, latency_ms, pii_entities,
 	 request_sha256, request_bytes, request_content,
-	 response_sha256, response_bytes, response_content)
+	 response_sha256, response_bytes, response_content, route_target)
 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,
 	$15, $16, CASE WHEN ` + storeContent + ` THEN $17::text END,
-	$18, $19, CASE WHEN ` + storeContent + ` THEN $20::text END)`
+	$18, $19, CASE WHEN ` + storeContent + ` THEN $20::text END, $21)`
 
 const storeContent = `($14::bool OR COALESCE(
 	(SELECT o.audit_store_content FROM organizations o WHERE o.id = $1), false))`

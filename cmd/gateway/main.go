@@ -48,6 +48,7 @@ const (
 	// Values of requests.action. A log rule is recorded with its rule_id under
 	// the action the request ended with, and anything refused as block.
 	actionAllow      = "allow"
+	actionRoute      = "route" // allowed by a route rule and sent to its target
 	actionBlock      = "block"
 	actionError      = "error"       // the upstream failed, or the client left before it answered
 	actionOutputLeak = "output_leak" // the canary showed up in the output
@@ -132,17 +133,19 @@ func main() {
 	slog.Info("scan config", "roles", cfg.Scan.Roles.String(), "spotlight", cfg.Scan.Spotlight,
 		"indirect_threshold", cfg.Scan.IndirectThreshold)
 	app := newApp(gateway{
-		detector: newDetectorStatus(detector),
-		runner:   runner,
-		engine:   engine,
-		policies: dbPolicyLoader(db),
-		audit:    audit,
-		upstream: upstream,
-		output:   output,
-		base:     base,
-		scan:     &cfg.Scan,
-		settings: dbSettingsLoader(db),
-		limits:   newRateLimiter(ops.RateLimit, dbKeyLimits(db)),
+		detector:  newDetectorStatus(detector),
+		runner:    runner,
+		engine:    engine,
+		policies:  dbPolicyLoader(db),
+		audit:     audit,
+		upstream:  upstream,
+		upstreams: dbUpstreamLoader(db),
+		pool:      newUpstreamPool(ops.Propagate, os.Getenv),
+		output:    output,
+		base:      base,
+		scan:      &cfg.Scan,
+		settings:  dbSettingsLoader(db),
+		limits:    newRateLimiter(ops.RateLimit, dbKeyLimits(db)),
 
 		waitOnHalfClose: cfg.WaitOnHalfClose,
 	}, dbKeyLookup(db))
@@ -167,15 +170,20 @@ func main() {
 // policyLoader returns the enabled policies for a request, in evaluation order.
 type policyLoader func(ctx context.Context, orgID, projectID uuid.UUID) ([]policy.Policy, error)
 
-// gateway holds what the handlers depend on. A nil upstream means stub responses.
+// gateway holds what the handlers depend on. A nil upstream means stub
+// responses when no named upstream applies either.
 type gateway struct {
 	runner   *inference.Runner
 	engine   *policy.Engine
 	policies policyLoader
 	audit    *auditLog
-	upstream *proxy.Proxy
-	output   *outputguard.Guard // nil: responses are passed on unchanged
-	limits   *rateLimiter       // nil: no rate limit
+	upstream *proxy.Proxy // UPSTREAM_LLM_URL
+	// upstreams finds an org's named upstreams and defaults (routing.go);
+	// nil: none, so a route rule fails closed.
+	upstreams upstreamLoader
+	pool      *upstreamPool
+	output    *outputguard.Guard // nil: responses are passed on unchanged
+	limits    *rateLimiter       // nil: no rate limit
 	// base is the parent of upstream calls and scans: a fiber ctx dies with the
 	// handler, and fasthttp's RequestCtx.Done races with server shutdown.
 	base context.Context
@@ -264,9 +272,12 @@ type requestEntry struct {
 	// SourceRole is where the strongest injection finding came from: user,
 	// system, assistant, tool or tool_description.
 	SourceRole string
-	LatencyMs  int
-	Request    string // body as received; hashed, stored only if enabled
-	Response   string // buffered upstream body; empty when streamed
+	// RouteTarget is the named upstream the request went to, or was meant to
+	// go to when it failed closed; "" for UPSTREAM_LLM_URL and the stub.
+	RouteTarget string
+	LatencyMs   int
+	Request     string // body as received; hashed, stored only if enabled
+	Response    string // buffered upstream body; empty when streamed
 
 	// For metrics only, not stored.
 	Route  string
@@ -366,6 +377,10 @@ func logRequest(db *pgxpool.Pool, storeContent bool, e requestEntry) {
 	if e.Model != "" {
 		model = &e.Model
 	}
+	var target *string
+	if e.RouteTarget != "" {
+		target = &e.RouteTarget
+	}
 	req, resp := digest(e.Request), digest(e.Response)
 	err := tenant.WithOrg(ctx, db, e.OrgID, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, auditInsert,
@@ -385,6 +400,7 @@ func logRequest(db *pgxpool.Pool, storeContent bool, e requestEntry) {
 			storeContent,
 			req.SHA256, req.Bytes, req.Content,
 			resp.SHA256, resp.Bytes, resp.Content,
+			target,
 		)
 		return err
 	})
@@ -714,20 +730,43 @@ func chatHandler(gw gateway, upstreamPath string) fiber.Handler {
 			}
 		}
 		switch decision.Action {
-		case policy.ActionAllow:
+		case policy.ActionAllow, policy.ActionRoute:
 		case policy.ActionBlock:
 			slog.Info("blocked by policy", "rule", decision.RuleID)
 			return blockResponse(c, "Request blocked by policy.")
 		default:
-			// redact and route are refused when saved, so this is a stale rule.
+			// redact is refused when saved, so this is a stale rule.
 			slog.Error("rule has an action the gateway cannot enforce",
 				"rule", decision.RuleID, "action", decision.Action)
 			return policyUnavailable(c)
 		}
+
+		// Pick the upstream: route rule, project default, org default, env, stub.
+		target, err := gw.resolveRoute(entry, decision)
+		entry.RouteTarget = target.name
+		if errors.Is(err, errRouteUnavailable) {
+			entry.Action = actionError
+			return c.Status(fiber.StatusBadGateway).
+				JSON(errorBody("route target unavailable", "server_error", "route_unavailable"))
+		}
+		if err != nil {
+			slog.Error("upstreams unavailable", "org", entry.OrgID, "err", err)
+			metrics.PolicyErrors.WithLabelValues("route").Inc()
+			return policyUnavailable(c)
+		}
 		entry.Action = actionAllow
+		if decision.Action == policy.ActionRoute {
+			entry.Action = actionRoute
+		}
+		if target.model != "" {
+			body["model"] = target.model
+			if sanitized, err = json.Marshal(body); err != nil {
+				return c.Status(400).JSON(fiber.Map{"error": "invalid body"})
+			}
+		}
 
 		// No upstream configured — return stub response for development
-		if gw.upstream == nil {
+		if target.proxy == nil {
 			return c.Status(200).JSON(fiber.Map{
 				"id":     "chatcmpl-stub",
 				"object": "chat.completion",
@@ -777,7 +816,7 @@ func chatHandler(gw gateway, upstreamPath string) fiber.Handler {
 			}
 		}()
 
-		resp, err := gw.upstream.Forward(ctx, upstreamPath, sanitized)
+		resp, err := target.proxy.Forward(ctx, upstreamPath, sanitized)
 		if err != nil {
 			entry.Action = actionError
 			clientLeft(ctx, gw.base)

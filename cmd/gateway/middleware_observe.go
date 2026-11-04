@@ -102,7 +102,7 @@ func requestContext(c *fiber.Ctx, base context.Context) context.Context {
 func observeEntry(e requestEntry) {
 	decision := e.Action
 	switch decision {
-	case actionAllow, actionBlock, actionError, actionOutputLeak:
+	case actionAllow, actionRoute, actionBlock, actionError, actionOutputLeak:
 	default:
 		decision = "other"
 	}
