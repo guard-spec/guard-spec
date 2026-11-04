@@ -3,10 +3,12 @@
 > Formerly PromptShield; renamed to avoid confusion with Microsoft's Prompt Shields.
 
 This document describes the design **as built in v0.1.0**. It replaces the
-pre-implementation draft of 2026-09-22. That draft also planned an admin UI,
-model routing, ClickHouse, GPU serving and several third-party models; those
-parts were not built, and the [last section](#planned-in-the-original-draft-not-built)
-lists them so that nobody mistakes them for features. The README has the
+pre-implementation draft of 2026-09-22. That draft also planned a dashboard,
+ClickHouse, GPU serving and several third-party models; those parts were not
+built, and the [last section](#planned-in-the-original-draft-not-built)
+lists them so that nobody mistakes them for features. Routing to named
+upstreams, text rule conditions, config as code and the policy simulator were
+added after v0.1.0, and the admin UI is in progress. The README has the
 user-facing details, measured benchmarks and configuration;
 [docs/arch-flow.html](docs/arch-flow.html) shows the request flow, and
 [docs/adr/](docs/adr/) holds the decision records.
@@ -94,17 +96,39 @@ client ──► gateway (Go, Fiber) ──────────────�
    delimiters or datamarked.
 7. **CEL policies** (`internal/policy`). Rules are stored as a JSON condition
    tree and compiled to CEL on the server only. Project policies, then
-   org-wide ones; first matching `allow` / `block` decides, `log` records and
-   continues. At most 200 rules per policy, a per-rule cost limit, a shared
-   per-request budget and a timeout; any failure is a 503. `redact` and
-   `route` are refused when saved because the gateway cannot enforce them.
-8. **Upstream**, or a stub response when no upstream is configured.
+   org-wide ones; first matching `allow` / `block` / `route` decides, `log`
+   records and continues. At most 200 rules per policy, a per-rule cost limit,
+   a shared per-request budget and a timeout; any failure is a 503. `redact`
+   is refused when saved because the gateway cannot enforce it. Conditions can
+   be edited as text: `policy.ParseCondition` runs the cel-go parser for the
+   syntax tree only (no check, compile or evaluation of client text), accepts
+   a small subset (`&&`, `||`, `!`, parentheses, field-vs-literal comparisons,
+   `contains` / `startsWith` / `endsWith`, `in`) and rebuilds the JSON tree;
+   parentheses found in the token stream keep groups, so
+   `parse(format(tree))` gives the tree back in canonical form. The stored
+   form stays the tree.
+8. **Routing and upstream** (`cmd/gateway/routing.go`, migration 011). The
+   upstream is the `route` rule's target, else the project's default, else
+   the org's default (all named upstreams of the org), else
+   `UPSTREAM_LLM_URL`, else a stub response. A missing or disabled target, or
+   an unset `UPSTREAM_KEY_*` variable, fails closed with 502; there is no
+   fallback to another upstream. Keys never reach the database: an upstream
+   names the gateway variable that holds its key. One proxy (and connection
+   pool) per upstream is cached until the row's `updated_at` changes. Defaults
+   reference upstreams through composite foreign keys that include `org_id`,
+   since foreign keys are checked without RLS.
 9. **Output guard** (`internal/outputguard`): link/image allowlist, PII
    redaction (e-mail, Vietnamese phone, CCCD, Luhn-valid cards, optional
    IPv4), canary, reasoning fields, refusals and tool-call arguments; whole
    responses and streams (256-character window).
 10. **Audit row** in `requests`: hashes and lengths by default, content only
-    when enabled.
+    when enabled; `route_target` names the upstream used.
+
+The control plane also serves the admin UI (`web/`, embedded from
+`web/dist` with `go:embed`) at `/ui/` under a strict CSP, keeps the org's
+upstreams, defaults and policies as one YAML file (`GET`/`PUT .../config`,
+applied in one transaction, the file is the whole truth), and simulates
+policies against given field values.
 
 CEL variables: `request.model`, `request.tenant_id`, `request.tokens`,
 `injection.score`, `injection.label`, `injection.category`, `scores.l1`,
@@ -158,9 +182,10 @@ These appeared in the 2026-09 draft (and in older versions of this repository's
 compose file and README). **None of them exists in v0.1.0.** Some are on the
 [roadmap](ROADMAP.md); the rest are not planned.
 
-- Admin UI (Next.js dashboard, rule builder, attack analysis, monitoring). On
-  the roadmap.
-- Model routing, fallback chains and cost caps (`route` action).
+- A Next.js dashboard with attack analysis and monitoring. (A smaller admin UI
+  is in progress at `/ui/`, and routing to named upstreams with the `route`
+  action is built; see sections 3 and the README.)
+- Fallback chains and cost caps for routing.
 - Input-side PII NER, toxicity and topic classifiers (the `pii.entities`,
   `toxicity.score` and `topic.categories` policy fields were removed).
 - ClickHouse audit storage, hash-chained tamper-evident logs.

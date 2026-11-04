@@ -697,10 +697,11 @@
         <span class="step-title">CEL Policies</span>
         <span class="layer-chip" style="--lc:var(--c-policy)">internal/policy</span>
       </div>
-      <div class="step-desc">The org's enabled policies are loaded from PostgreSQL: project policies first, then org-wide ones, oldest first. Rules are evaluated in order; the first matching <code>allow</code> or <code>block</code> decides, a matching <code>log</code> rule is recorded and evaluation continues. No match means allow. Each rule and each request has a CEL cost limit. Details in § 05.</div>
+      <div class="step-desc">The org's enabled policies are loaded from PostgreSQL: project policies first, then org-wide ones, oldest first. Rules are evaluated in order; the first matching <code>allow</code>, <code>block</code> or <code>route</code> decides, a matching <code>log</code> rule is recorded and evaluation continues. No match means allow. Each rule and each request has a CEL cost limit. Details in § 05.</div>
       <div class="decisions">
         <div class="dec"><span class="dec-cond">block rule matches</span><span class="dec-arrow">→</span><span class="dec-block">HTTP 400 content_filter</span></div>
-        <div class="dec"><span class="dec-cond">load / compile / evaluate error, cost limit, stale redact or route rule</span><span class="dec-arrow">→</span><span class="dec-block">HTTP 503, nothing sent upstream</span></div>
+        <div class="dec"><span class="dec-cond">load / compile / evaluate error, cost limit, stale redact rule</span><span class="dec-arrow">→</span><span class="dec-block">HTTP 503, nothing sent upstream</span></div>
+        <div class="dec"><span class="dec-cond">route rule matches</span><span class="dec-arrow">→</span><span class="dec-pass">continue, to the rule's upstream</span></div>
         <div class="dec"><span class="dec-cond">allow, log only, or no match</span><span class="dec-arrow">→</span><span class="dec-pass">continue</span></div>
       </div>
     </div>
@@ -714,10 +715,10 @@
     </div>
     <div class="step-card" style="--lc:var(--c-action)">
       <div class="step-head">
-        <span class="step-title">Upstream and Output Guard</span>
-        <span class="layer-chip" style="--lc:var(--c-action)">internal/proxy · internal/outputguard</span>
+        <span class="step-title">Routing, Upstream and Output Guard</span>
+        <span class="layer-chip" style="--lc:var(--c-action)">cmd/gateway/routing.go · internal/proxy · internal/outputguard</span>
       </div>
-      <div class="step-desc">The sanitized body goes to the OpenAI-compatible URL in <code>UPSTREAM_LLM_URL</code>. When that is empty, the gateway returns a stub answer instead. If the client hangs up, the upstream request is cancelled. The answer then passes the output guard (on by default, <code>OUTPUT_*</code> variables): images and links to hosts not on <code>OUTPUT_LINK_ALLOWLIST</code> are removed; email, Vietnamese phone, CCCD and card numbers (and IPv4 if enabled) become <code>[REDACTED:type]</code>; with <code>OUTPUT_CANARY=block|redact</code> a per-request canary is placed in the system prompt and caught if the model repeats it. Message content, reasoning fields and tool-call arguments are all guarded. Streams hold back a 256-character window per choice so a pattern split across chunks is still caught.</div>
+      <div class="step-desc">The upstream is picked in order: the matching <code>route</code> rule's target, the API key's project default, the org default (named upstreams of the org, migration 011), then <code>UPSTREAM_LLM_URL</code>; with none of them the gateway returns a stub answer. A missing or disabled target, or an unset <code>UPSTREAM_KEY_*</code> variable, fails closed with 502 and is audited with its <code>route_target</code>. An upstream with a <code>model</code> replaces the request's model. The sanitized body then goes to that OpenAI-compatible API. If the client hangs up, the upstream request is cancelled. The answer then passes the output guard (on by default, <code>OUTPUT_*</code> variables): images and links to hosts not on <code>OUTPUT_LINK_ALLOWLIST</code> are removed; email, Vietnamese phone, CCCD and card numbers (and IPv4 if enabled) become <code>[REDACTED:type]</code>; with <code>OUTPUT_CANARY=block|redact</code> a per-request canary is placed in the system prompt and caught if the model repeats it. Message content, reasoning fields and tool-call arguments are all guarded. Streams hold back a 256-character window per choice so a pattern split across chunks is still caught.</div>
       <div class="signals">
         <span class="sig">images · links</span>
         <span class="sig">email · phone · cccd · card · ipv4</span>
@@ -831,15 +832,19 @@
       <div class="rule-card-body">
         <div class="attr-row">
           <div class="attr-k">Condition</div>
-          <div class="attr-v">Clauses of <em>field</em>, <em>operator</em> (<code>==</code> <code>!=</code> <code>&gt;</code> <code>&gt;=</code> <code>&lt;</code> <code>&lt;=</code> <code>contains</code> <code>in</code>) and <em>value</em>, combined with <code>and</code> / <code>or</code></div>
+          <div class="attr-v">Clauses of <em>field</em>, <em>operator</em> (<code>==</code> <code>!=</code> <code>&gt;</code> <code>&gt;=</code> <code>&lt;</code> <code>&lt;=</code> <code>contains</code> <code>beginsWith</code> <code>endsWith</code> <code>in</code>) and <em>value</em>, combined with <code>and</code> / <code>or</code></div>
         </div>
         <div class="attr-row">
           <div class="attr-k">Actions</div>
-          <div class="attr-v"><code>allow</code>, <code>block</code>, <code>log</code>. <code>redact</code> and <code>route</code> are refused by the control plane; a stored rule with one fails closed (503)</div>
+          <div class="attr-v"><code>allow</code>, <code>block</code>, <code>log</code>, <code>route</code> (allow, sent to the upstream named in <code>route_target</code>, which must exist when the rule is saved). <code>redact</code> is refused by the control plane; a stored rule with it fails closed (503)</div>
+        </div>
+        <div class="attr-row">
+          <div class="attr-k">Text form</div>
+          <div class="attr-v"><code>POST /v1/policy/parse</code> turns <code>scores.l2 &gt; 0.8 &amp;&amp; injection.category == "jailbreak"</code> into the condition tree with the cel-go parser only (never compiled or run from client text); <code>/v1/policy/format</code> goes back. The tree stays the stored form</div>
         </div>
         <div class="attr-row">
           <div class="attr-k">Order</div>
-          <div class="attr-v">Project policies, then org-wide; inside a policy, rule order. First matching allow or block wins</div>
+          <div class="attr-v">Project policies, then org-wide; inside a policy, rule order. First matching allow, block or route wins</div>
         </div>
         <div class="attr-row">
           <div class="attr-k">Limits</div>
@@ -885,7 +890,7 @@
   <div class="section-header">
     <div class="section-eyebrow">§ 06</div>
     <h2>Control Plane API</h2>
-    <p class="section-desc">REST API under <code>/v1</code> (<code>cmd/control-plane/main.go</code>). Login returns a JWT; org routes check the caller's role: owner, admin, member or viewer. There is no UI; clients call the API directly.</p>
+    <p class="section-desc">REST API under <code>/v1</code> (<code>cmd/control-plane/main.go</code>). Login returns a JWT; org routes check the caller's role: owner, admin, member or viewer. The admin UI (in progress, N12) is served by the control plane at <code>/ui/</code> and calls this API.</p>
   </div>
   <div class="table-wrap">
     <table>
@@ -915,8 +920,23 @@
         </tr>
         <tr>
           <td><div class="comp-name">Policies</div></td>
-          <td style="font-size:0.8rem;"><code>/:orgId/policies</code>, <code>POST /v1/cel/validate</code></td>
-          <td style="font-size:0.8rem;">JSON condition tree compiled to CEL on save.</td>
+          <td style="font-size:0.8rem;"><code>/:orgId/policies</code>, <code>POST /:orgId/policies/simulate</code>, <code>POST /v1/cel/validate</code>, <code>/v1/policy/schema|parse|format</code></td>
+          <td style="font-size:0.8rem;">JSON condition tree compiled to CEL on save; text form for editing; the simulator reports every rule, the decision and the upstream.</td>
+        </tr>
+        <tr>
+          <td><div class="comp-name">Upstreams</div></td>
+          <td style="font-size:0.8rem;"><code>/:orgId/upstreams</code>, <code>/:orgId/default-upstream</code>, <code>/:orgId/projects/:projectId/default-upstream</code></td>
+          <td style="font-size:0.8rem;">Named route targets; keys stay in the gateway's <code>UPSTREAM_KEY_*</code> variables. Deleting one in use is a 409.</td>
+        </tr>
+        <tr>
+          <td><div class="comp-name">Config as code</div></td>
+          <td style="font-size:0.8rem;"><code>GET|PUT /:orgId/config[?dry_run=true]</code></td>
+          <td style="font-size:0.8rem;">Upstreams, defaults and policies as one YAML file, applied in one transaction.</td>
+        </tr>
+        <tr>
+          <td><div class="comp-name">Admin UI</div></td>
+          <td style="font-size:0.8rem;"><code>/ui/</code> (and <code>/</code> redirects there)</td>
+          <td style="font-size:0.8rem;">Embedded from <code>web/dist</code>; strict CSP, no framing. In progress (N12).</td>
         </tr>
         <tr>
           <td><div class="comp-name">Audit</div></td>
@@ -943,7 +963,7 @@
   <div class="section-header">
     <div class="section-eyebrow">§ 07</div>
     <h2>Not Built</h2>
-    <p class="section-desc">Earlier versions of this page described these. None of them exist in the code.</p>
+    <p class="section-desc">Earlier versions of this page described these. Apart from the admin UI, which is being built, none of them exist in the code.</p>
   </div>
   <div class="table-wrap">
     <table>
@@ -953,13 +973,13 @@
       <tbody>
         <tr>
           <td><div class="comp-name">Admin web UI</div></td>
-          <td><span class="is is-planned">○ Not built</span></td>
-          <td style="font-size:0.8rem;">No dashboard, rules page or routing page.</td>
+          <td><span class="is is-partial">◐ In progress (N12)</span></td>
+          <td style="font-size:0.8rem;">Served at <code>/ui/</code>; a build without it shows a placeholder page.</td>
         </tr>
         <tr>
-          <td><div class="comp-name">Routing / route rules</div></td>
+          <td><div class="comp-name">Routing fallback chains, cost caps</div></td>
           <td><span class="is is-planned">○ Not built</span></td>
-          <td style="font-size:0.8rem;">One upstream per gateway. The <code>route</code> action is refused.</td>
+          <td style="font-size:0.8rem;">Routing to named upstreams is built (step 8); a failed target is not retried elsewhere.</td>
         </tr>
         <tr>
           <td><div class="comp-name">Input-side toxicity, PII, topic detectors</div></td>
