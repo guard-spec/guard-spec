@@ -104,7 +104,7 @@ func validIssuer(raw string) error {
 	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
 		loopback = true
 	}
-	if u.Scheme != "https" && !(u.Scheme == "http" && loopback) {
+	if u.Scheme != "https" && (u.Scheme != "http" || !loopback) {
 		return errors.New("issuer must be an https url")
 	}
 	return nil

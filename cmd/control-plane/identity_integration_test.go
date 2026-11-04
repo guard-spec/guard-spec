@@ -101,16 +101,17 @@ func totpNow(t *testing.T, secret string, delta int64) string {
 	return code
 }
 
-// enableMFA turns on 2FA for the session token and returns the secret and
-// the recovery codes.
-func (h *cpHarness) enableMFA(token string) (string, []string) {
+// enableMFA turns on 2FA for the session token and returns the secret, the
+// recovery codes and the TOTP code the setup was confirmed with.
+func (h *cpHarness) enableMFA(token string) (string, []string, string) {
 	h.t.Helper()
 	setup := h.expect(200, "POST", "/v1/auth/mfa/totp/setup", token, `{}`)
 	secret := setup["secret"].(string)
 	if !strings.HasPrefix(setup["otpauth_url"].(string), "otpauth://totp/") {
 		h.t.Fatalf("otpauth_url %v", setup["otpauth_url"])
 	}
-	conf := h.expect(200, "POST", "/v1/auth/mfa/totp/confirm", token, `{"code":"`+totpNow(h.t, secret, 0)+`"}`)
+	used := totpNow(h.t, secret, 0)
+	conf := h.expect(200, "POST", "/v1/auth/mfa/totp/confirm", token, `{"code":"`+used+`"}`)
 	var codes []string
 	for _, c := range conf["recovery_codes"].([]any) {
 		codes = append(codes, c.(string))
@@ -118,7 +119,7 @@ func (h *cpHarness) enableMFA(token string) (string, []string) {
 	if len(codes) != 10 {
 		h.t.Fatalf("recovery codes %v", codes)
 	}
-	return secret, codes
+	return secret, codes, used
 }
 
 func loginBody(email, password string) string {
@@ -197,7 +198,7 @@ func TestMFALoginReplayAndRecovery(t *testing.T) {
 	email := uniqueEmail()
 	h.passwordUser(email, "mfa-password-1234")
 	token := h.expect(200, "POST", "/v1/auth/login", "", loginBody(email, "mfa-password-1234"))["token"].(string)
-	secret, codes := h.enableMFA(token)
+	secret, codes, used := h.enableMFA(token)
 	// With 2FA rows in the database, the control plane refuses to start
 	// without MFA_ENC_KEY.
 	if err := checkMFAKey(context.Background(), h.db, nil); err == nil || !strings.Contains(err.Error(), "MFA_ENC_KEY") {
@@ -229,8 +230,10 @@ func TestMFALoginReplayAndRecovery(t *testing.T) {
 	mt := login()
 	h.expect(401, "GET", "/v1/auth/me", mt, "")
 
-	// The code used to confirm the setup is refused for its window (replay).
-	if status, out := verify(mt, totpNow(t, secret, 0)); status != 401 || out["code"] != "invalid_code" {
+	// The code used to confirm the setup is refused for its window (replay);
+	// the exact code, since bcrypt under -race can make the confirm cross a
+	// 30-second step.
+	if status, out := verify(mt, used); status != 401 || out["code"] != "invalid_code" {
 		t.Errorf("replayed code: %d %v", status, out)
 	}
 	status, out := verify(mt, totpNow(t, secret, 1))

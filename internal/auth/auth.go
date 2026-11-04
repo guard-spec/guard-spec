@@ -269,7 +269,7 @@ func checkOrgSecurity(s Session, requireMFA, ssoSatisfies bool, allowed []string
 	if allowed != nil && !slices.Contains(allowed, s.Method) {
 		return "login_method_not_allowed", "this organization does not allow the login method of this session"
 	}
-	if requireMFA && !s.MFA && !(ssoSatisfies && IsSSOMethod(s.Method)) {
+	if requireMFA && !s.MFA && (!ssoSatisfies || !IsSSOMethod(s.Method)) {
 		return "mfa_required", "this organization requires two-factor authentication; log in again with 2FA"
 	}
 	if lifetimeHours > 0 && now.Sub(s.CreatedAt) > time.Duration(lifetimeHours)*time.Hour {
