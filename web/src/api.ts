@@ -22,6 +22,9 @@ import type {
   IdentityProvider,
   IdentityProviderInput,
   InstanceUser,
+  InviteAcceptResponse,
+  LinkResult,
+  ProviderKind,
   LoginProvider,
   LoginResponse,
   Me,
@@ -92,6 +95,40 @@ interface RequestOptions {
 /** The endpoint does not exist on this control plane (yet): 404 or 405. */
 export function isNotFound(e: unknown): boolean {
   return e instanceof ApiError && (e.status === 404 || e.status === 405);
+}
+
+/** The caller lacks the role for this endpoint (403). */
+export function isForbidden(e: unknown): boolean {
+  return e instanceof ApiError && e.status === 403;
+}
+
+/**
+ * A catalog preset in the control plane's field names, also from the
+ * contract draft's names (provider, base_url, needs_key, env_hint, models).
+ */
+export function normalizeCatalogEntry(raw: unknown): CatalogEntry {
+  const o = (raw ?? {}) as Record<string, unknown>;
+  const str = (...keys: string[]) => {
+    for (const k of keys) if (typeof o[k] === 'string') return o[k];
+    return undefined;
+  };
+  const models = Array.isArray(o.known_models) ? o.known_models : Array.isArray(o.models) ? o.models : [];
+  const entry: CatalogEntry = {
+    id: (str('id', 'provider') ?? '') as ProviderKind,
+    display_name: str('display_name', 'name') ?? str('id', 'provider') ?? '',
+    default_base_url: str('default_base_url', 'base_url') ?? '',
+    key_required: o.key_required === true || o.needs_key === true,
+    known_models: models.filter((m): m is string => typeof m === 'string'),
+    needs_api_version: o.needs_api_version === true,
+    openai_compatible_endpoint: o.openai_compatible_endpoint === true,
+  };
+  const hint = str('key_env_hint', 'env_hint');
+  if (hint) entry.key_env_hint = hint;
+  const docs = str('docs_url');
+  if (docs) entry.docs_url = docs;
+  const notes = str('notes');
+  if (notes) entry.notes = notes;
+  return entry;
 }
 
 /** The rows of a list response: {data}, {items} or a plain array. */
@@ -254,6 +291,16 @@ export class ApiClient {
     return url;
   }
 
+  /** Binds the identity of a profile link (the code of /ui/account?link_code=) to the caller. */
+  completeLink(code: string): Promise<LinkResult> {
+    return this.request('POST', '/auth/identities/link/complete', { body: { code } });
+  }
+
+  /** Accepts an invite (public): answers like a login, plus the membership. */
+  acceptInvite(token: string, password: string, displayName: string): Promise<InviteAcceptResponse> {
+    return this.request('POST', '/invites/accept', { body: { token, password, display_name: displayName }, anonymous: true });
+  }
+
   unlinkIdentity(providerId: string): Promise<void> {
     return this.request('DELETE', `/auth/identities/${enc(providerId)}`);
   }
@@ -300,7 +347,8 @@ export class ApiClient {
     return this.request('GET', `/organizations/${enc(orgId)}/security`);
   }
 
-  putOrgSecurity(orgId: UUID, s: OrgSecurity): Promise<OrgSecurity> {
+  /** allowed_login_methods is sent only when it changes (null: unrestricted). */
+  putOrgSecurity(orgId: UUID, s: Partial<OrgSecurity>): Promise<OrgSecurity> {
     return this.request('PUT', `/organizations/${enc(orgId)}/security`, { body: s });
   }
 
@@ -331,8 +379,9 @@ export class ApiClient {
   }
 
   /** The redirect URI to register at the provider. */
-  oidcCallbackUrl(providerId: string): string {
-    return `${typeof window === 'undefined' ? '' : window.location.origin}${this.baseUrl}/auth/oidc/${enc(providerId)}/callback`;
+  oidcCallbackUrl(providerId: string | null): string {
+    const id = providerId === null ? '<id>' : enc(providerId);
+    return `${typeof window === 'undefined' ? '' : window.location.origin}${this.baseUrl}/auth/oidc/${id}/callback`;
   }
 
   listAdminActivity(q: ListQuery): Promise<unknown> {
@@ -360,7 +409,7 @@ export class ApiClient {
   async getProviderCatalog(): Promise<CatalogEntry[]> {
     const r = await this.request<unknown>('GET', '/providers/catalog');
     const providers = (r as { providers?: unknown } | null)?.providers;
-    return Array.isArray(providers) ? (providers as CatalogEntry[]) : listOf<CatalogEntry>(r);
+    return (Array.isArray(providers) ? (providers as unknown[]) : listOf<unknown>(r)).map(normalizeCatalogEntry).filter((e) => e.id !== ('' as ProviderKind));
   }
 
   testUpstream(orgId: UUID, id: UUID): Promise<ConnectionTest> {

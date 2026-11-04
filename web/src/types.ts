@@ -305,7 +305,8 @@ export interface Me {
   display_name: string | null;
   mfa_enabled: boolean;
   has_password: boolean;
-  identities: { provider: string; email: string }[];
+  /** provider is the type (google, oidc); provider_id names the identity provider. */
+  identities: { provider_id?: string; provider: string; display_name?: string; email: string | null }[];
   is_instance_admin: boolean;
 }
 
@@ -347,6 +348,8 @@ export interface IdentityProvider {
   scopes: string[];
   allowed_domains: string[];
   auto_provision: boolean;
+  /** Lets this provider sign in to an existing password-less account with the same verified email (off by default). */
+  trust_email_for_linking?: boolean;
   enabled: boolean;
 }
 
@@ -363,7 +366,8 @@ export interface DomainJoinRule {
 export interface OrgSecurity {
   require_mfa: boolean;
   sso_satisfies_mfa: boolean;
-  allowed_login_methods: string[];
+  /** null: unrestricted (every method of the instance). */
+  allowed_login_methods: string[] | null;
   domain_join: DomainJoinRule[];
   session_lifetime_hours: number;
 }
@@ -440,15 +444,19 @@ export interface ActivityEntry {
 export type ProviderKind = 'openai' | 'anthropic' | 'azure_openai' | 'gemini' | 'ollama' | 'vllm' | 'openai_compatible';
 export const PROVIDER_KINDS: readonly ProviderKind[] = ['openai', 'anthropic', 'azure_openai', 'gemini', 'ollama', 'vllm', 'openai_compatible'];
 
-/** GET /providers/catalog: one preset. */
+/** GET /providers/catalog: one preset (field names of the control plane). */
 export interface CatalogEntry {
-  provider: ProviderKind;
+  id: ProviderKind;
   display_name: string;
-  base_url: string;
-  needs_key: boolean;
-  env_hint?: string;
-  models: string[];
+  default_base_url: string;
+  key_required: boolean;
+  key_env_hint?: string;
+  known_models: string[];
   docs_url?: string;
+  notes?: string;
+  needs_api_version?: boolean;
+  /** The preset uses the provider's OpenAI-compatible API (Anthropic, Gemini). */
+  openai_compatible_endpoint?: boolean;
 }
 
 /** POST .../upstreams/:id/test */
@@ -456,6 +464,19 @@ export interface ConnectionTest {
   ok: boolean;
   latency_ms: number | null;
   status: number | null;
-  models_found: string[];
+  models_found: string[] | null;
   error: string | null;
+  /** false: the key was not sent (UPSTREAM_KEY_ORGS allows it only through *). */
+  key_sent?: boolean;
+  note?: string;
+}
+
+/** POST /invites/accept: a login answer plus the membership. */
+export type InviteAcceptResponse = LoginResponse & { user_id?: UUID; org_id?: UUID; role?: Role };
+
+/** POST /auth/identities/link/complete */
+export interface LinkResult {
+  provider_id: string;
+  display_name?: string;
+  email?: string | null;
 }

@@ -8,29 +8,29 @@
 
 import { ROLES, type PermissionMatrix, type Role } from '../types';
 
+// Mirrors `capabilities` in cmd/control-plane/members.go (N15); a unit test
+// checks that every key the UI gates on is listed here.
 export const FALLBACK_MATRIX: PermissionMatrix = {
   roles: [...ROLES],
   capabilities: [
-    { key: 'org.read', min_role: 'viewer' },
-    { key: 'requests.read', min_role: 'viewer' },
-    { key: 'policies.read', min_role: 'viewer' },
-    { key: 'policies.simulate', min_role: 'viewer' },
-    { key: 'policies.write', min_role: 'admin' },
-    { key: 'upstreams.write', min_role: 'admin' },
-    { key: 'upstreams.test', min_role: 'admin' },
-    { key: 'projects.write', min_role: 'admin' },
-    { key: 'api_keys.write', min_role: 'admin' },
-    { key: 'exemplars.write', min_role: 'admin' },
-    { key: 'guard.write', min_role: 'admin' },
-    { key: 'config.write', min_role: 'admin' },
-    { key: 'members.read', min_role: 'admin' },
-    { key: 'members.write', min_role: 'admin' },
-    { key: 'invites.write', min_role: 'admin' },
-    { key: 'activity.read', min_role: 'admin' },
-    { key: 'security.read', min_role: 'admin' },
-    { key: 'security.write', min_role: 'owner' },
-    { key: 'members.reset_mfa', min_role: 'owner' },
-    { key: 'org.write', min_role: 'owner' },
+    { key: 'org.read', min_role: 'viewer', description: 'View the organization, its projects, upstreams and settings' },
+    { key: 'org.settings.write', min_role: 'admin', description: 'Change organization settings and guard settings' },
+    { key: 'policies.read', min_role: 'viewer', description: 'View policies and run the simulator' },
+    { key: 'policies.write', min_role: 'admin', description: 'Create, edit and delete policies' },
+    { key: 'requests.read', min_role: 'viewer', description: 'View the request log' },
+    { key: 'exemplars.read', min_role: 'viewer', description: 'View L3 exemplars' },
+    { key: 'exemplars.write', min_role: 'admin', description: 'Create, edit and delete L3 exemplars' },
+    { key: 'upstreams.write', min_role: 'admin', description: 'Manage model providers, defaults and connection tests' },
+    { key: 'projects.write', min_role: 'admin', description: 'Create projects and manage project members' },
+    { key: 'config.write', min_role: 'admin', description: 'Apply the configuration file' },
+    { key: 'api_keys.manage', min_role: 'admin', description: 'Create, change and revoke API keys' },
+    { key: 'members.read', min_role: 'admin', description: 'View members and invites' },
+    { key: 'members.write', min_role: 'admin', description: 'Invite members, change roles below owner, remove members, revoke sessions' },
+    { key: 'members.owner', min_role: 'owner', description: 'Grant the owner role and change or remove owners' },
+    { key: 'members.reset_mfa', min_role: 'owner', description: "Reset a member's two-factor authentication" },
+    { key: 'activity.read', min_role: 'admin', description: 'View the activity log' },
+    { key: 'security.read', min_role: 'admin', description: 'View the security policy' },
+    { key: 'security.write', min_role: 'owner', description: 'Change the security policy (2FA, login methods, domain join)' },
   ],
 };
 

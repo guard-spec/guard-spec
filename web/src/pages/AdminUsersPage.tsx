@@ -5,10 +5,11 @@
 
 import { Pencil, Plus, Trash2, UserCog } from 'lucide-react';
 import { useCallback, useState } from 'react';
-import { Badge, DataTable, EmptyState, SearchBox, type Column } from '../components/DataTable';
+import { Badge, DataTable, EmptyState, InstanceAdminOnly, SearchBox, type Column } from '../components/DataTable';
 import { usePaged } from '../components/usePaged';
 import { ConfirmDialog, Dialog, ErrorBanner, Field, formatTime, PageHeader, useDebounced } from '../components/ui';
-import { errorText, nonEmpty, useApp } from '../context';
+import { authErrorText } from '../auth/errors';
+import { nonEmpty, useApp } from '../context';
 import type { InstanceUser } from '../types';
 
 interface Draft {
@@ -18,11 +19,6 @@ interface Draft {
   password: string;
   disabled: boolean;
   is_instance_admin: boolean;
-}
-
-export function InstanceAdminOnly() {
-  const { t } = useApp();
-  return <EmptyState icon={UserCog} title={t('admin.onlyTitle')} body={t('admin.onlyBody')} />;
 }
 
 export default function AdminUsersPage() {
@@ -64,7 +60,7 @@ export default function AdminUsersPage() {
       notify(t('common.saved'));
       await paged.reload();
     } catch (e) {
-      setError(errorText(e));
+      setError(authErrorText(e, t));
     }
   };
 
@@ -221,7 +217,7 @@ export default function AdminUsersPage() {
             notify(t('common.deleted'));
             await paged.reload();
           } catch (e) {
-            notify(errorText(e), 'error');
+            notify(authErrorText(e, t), 'error');
           }
           setDeleting(null);
         }}

@@ -5,14 +5,17 @@
 
 import { History } from 'lucide-react';
 import { useCallback, useId, useState } from 'react';
-import { Badge, DataTable, EmptyState, SearchBox, type Column, type Tone } from '../components/DataTable';
+import { Badge, DataTable, EmptyState, InstanceAdminOnly, SearchBox, type Column, type Tone } from '../components/DataTable';
 import { usePaged } from '../components/usePaged';
 import { formatTime, PageHeader, useDebounced } from '../components/ui';
 import { useApp, useOrg } from '../context';
 import type { ActivityEntry } from '../types';
 
 /** Action families of the filter (the action is "family.verb"). */
-const FAMILIES = ['auth', 'member', 'invite', 'api_key', 'policy', 'upstream', 'security', 'mfa', 'identity_provider'];
+/** Action families of the org log (?action=); sign-ins live in the instance log. */
+export const ORG_FAMILIES = ['member', 'invite', 'api_key', 'policy', 'upstream', 'guard_settings', 'config', 'security', 'mfa', 'identity_provider', 'user', 'org', 'project_member', 'identity', 'session', 'password'];
+/** The instance log (GET /admin/activity) also has the sign-ins. */
+export const INSTANCE_FAMILIES = ['login', ...ORG_FAMILIES];
 
 export function actionTone(action: string): Tone {
   if (/fail|denied|refused|revoked|removed|deleted|reset/.test(action)) return 'danger';
@@ -28,7 +31,19 @@ function detailsText(d: ActivityEntry['details']): string {
     .join(' · ');
 }
 
-export function ActivityLog({ fetcher, title, help }: { fetcher: (q: Record<string, string | number | undefined>) => Promise<unknown>; title: string; help: string }) {
+export function ActivityLog({
+  fetcher,
+  title,
+  help,
+  families,
+  note,
+}: {
+  fetcher: (q: Record<string, string | number | undefined>) => Promise<unknown>;
+  title: string;
+  help: string;
+  families: readonly string[];
+  note?: string;
+}) {
   const { t } = useApp();
   const [actor, setActor] = useState('');
   const [family, setFamily] = useState('');
@@ -64,6 +79,7 @@ export function ActivityLog({ fetcher, title, help }: { fetcher: (q: Record<stri
   return (
     <div>
       <PageHeader title={title} help={help} />
+      {note ? <p className="muted small">{note}</p> : null}
       <DataTable
         columns={columns}
         paged={paged}
@@ -77,7 +93,7 @@ export function ActivityLog({ fetcher, title, help }: { fetcher: (q: Record<stri
               <label htmlFor={familyId}>{t('act.filter')}</label>
               <select id={familyId} value={family} onChange={(e) => setFamily(e.target.value)}>
                 <option value="">{t('audit.all')}</option>
-                {FAMILIES.map((f) => (
+                {families.map((f) => (
                   <option key={f} value={f}>
                     {f}
                   </option>
@@ -96,5 +112,20 @@ export function ActivityPage() {
   const { api, t } = useApp();
   const { org } = useOrg();
   const fetcher = useCallback((q: Record<string, string | number | undefined>) => api.listActivity(org.id, q), [api, org.id]);
-  return <ActivityLog fetcher={fetcher} title={t('act.title')} help={t('act.help')} />;
+  return <ActivityLog fetcher={fetcher} title={t('act.title')} help={t('act.help')} families={ORG_FAMILIES} note={t('act.loginsHint')} />;
+}
+
+/** The instance log (instance admins): sign-ins, SSO providers, users. */
+export default function InstanceActivityPage() {
+  const { api, t, me } = useApp();
+  const fetcher = useCallback((q: Record<string, string | number | undefined>) => api.listAdminActivity(q), [api]);
+  if (me && !me.is_instance_admin) {
+    return (
+      <div>
+        <PageHeader title={t('act.instanceTitle')} />
+        <InstanceAdminOnly />
+      </div>
+    );
+  }
+  return <ActivityLog fetcher={fetcher} title={t('act.instanceTitle')} help={t('act.instanceHelp')} families={INSTANCE_FAMILIES} />;
 }

@@ -1639,6 +1639,27 @@ tbody tr:last-child td {
 .spacer {
   flex: 1;
 }
+.radio-list,
+.method-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.method-list {
+  padding-left: 24px;
+}
+.method-list-off {
+  opacity: 0.6;
+}
+.test-note {
+  color: var(--warn);
+  max-width: 320px;
+  margin-top: 2px;
+}
+.catalog-notes {
+  white-space: normal;
+}
 .btn-square {
   width: 28px;
   padding: 0;

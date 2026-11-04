@@ -26,6 +26,14 @@ describe('router', () => {
     expect(resolve(`${B}/upstreams`, '', '', B)).toEqual({ route: 'providers', redirect: `${B}/providers` });
     expect(resolve(`${B}/audit`, '?x=1', '', B)).toEqual({ route: 'requests', redirect: `${B}/requests?x=1` });
     expect(ALIASES.audit).toBe('requests');
+    expect(resolve(`${B}/policies`, '', '', B)).toEqual({ route: 'flow', redirect: `${B}/flow` });
+    expect(resolve(`${B}/`, '', '#/policies', B)).toEqual({ route: 'flow', redirect: `${B}/flow` });
+  });
+
+  it('opens the invite page and the account page of a link return', () => {
+    expect(resolve(`${B}/invite`, '?token=inv_1', '', B)).toEqual({ route: 'invite', redirect: null });
+    // N15 builds that return to #/account?link_code= reach the path with the code in the query.
+    expect(resolve(`${B}/`, '', '#/account?link_code=c1', B)).toEqual({ route: 'account', redirect: `${B}/account?link_code=c1` });
   });
 
   it('redirects #/page links to the path, including renamed pages', () => {

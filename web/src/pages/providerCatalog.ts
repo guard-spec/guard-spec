@@ -10,69 +10,81 @@ import { API_KEY_ENV_RE, UPSTREAM_NAME_RE, type CatalogEntry, type ProviderKind,
 
 export const BUILTIN_CATALOG: CatalogEntry[] = [
   {
-    provider: 'openai',
+    id: 'openai',
     display_name: 'OpenAI',
-    base_url: 'https://api.openai.com/v1',
-    needs_key: true,
-    env_hint: 'UPSTREAM_KEY_OPENAI',
-    models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'gpt-4.1-mini', 'o4-mini'],
+    default_base_url: 'https://api.openai.com/v1',
+    key_required: true,
+    key_env_hint: 'UPSTREAM_KEY_OPENAI',
+    known_models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'gpt-4.1-mini', 'o4-mini'],
     docs_url: 'https://platform.openai.com/docs/api-reference/chat',
   },
   {
-    provider: 'anthropic',
+    id: 'anthropic',
     display_name: 'Anthropic',
-    base_url: 'https://api.anthropic.com/v1',
-    needs_key: true,
-    env_hint: 'UPSTREAM_KEY_ANTHROPIC',
-    models: [],
+    openai_compatible_endpoint: true,
+    default_base_url: 'https://api.anthropic.com/v1',
+    key_required: true,
+    key_env_hint: 'UPSTREAM_KEY_ANTHROPIC',
+    known_models: [],
     docs_url: 'https://docs.anthropic.com/en/api/openai-sdk',
   },
   {
-    provider: 'azure_openai',
+    id: 'azure_openai',
     display_name: 'Azure OpenAI',
-    base_url: 'https://YOUR-RESOURCE.openai.azure.com/openai/deployments/YOUR-DEPLOYMENT',
-    needs_key: true,
-    env_hint: 'UPSTREAM_KEY_AZURE',
-    models: [],
+    needs_api_version: true,
+    default_base_url: 'https://YOUR-RESOURCE.openai.azure.com/openai/deployments/YOUR-DEPLOYMENT',
+    key_required: true,
+    key_env_hint: 'UPSTREAM_KEY_AZURE',
+    known_models: [],
     docs_url: 'https://learn.microsoft.com/azure/ai-services/openai/reference',
   },
   {
-    provider: 'gemini',
+    id: 'gemini',
     display_name: 'Google Gemini',
-    base_url: 'https://generativelanguage.googleapis.com/v1beta/openai',
-    needs_key: true,
-    env_hint: 'UPSTREAM_KEY_GEMINI',
-    models: ['gemini-2.5-flash', 'gemini-2.5-pro'],
+    openai_compatible_endpoint: true,
+    default_base_url: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    key_required: true,
+    key_env_hint: 'UPSTREAM_KEY_GEMINI',
+    known_models: ['gemini-2.5-flash', 'gemini-2.5-pro'],
     docs_url: 'https://ai.google.dev/gemini-api/docs/openai',
   },
   {
-    provider: 'ollama',
+    id: 'ollama',
     display_name: 'Ollama',
-    base_url: 'http://ollama:11434/v1',
-    needs_key: false,
-    models: [],
+    default_base_url: 'http://ollama:11434/v1',
+    key_required: false,
+    known_models: [],
     docs_url: 'https://github.com/ollama/ollama/blob/main/docs/openai.md',
   },
   {
-    provider: 'vllm',
+    id: 'vllm',
     display_name: 'vLLM',
-    base_url: 'http://vllm:8000/v1',
-    needs_key: false,
-    env_hint: 'UPSTREAM_KEY_VLLM',
-    models: [],
+    default_base_url: 'http://vllm:8000/v1',
+    key_required: false,
+    key_env_hint: 'UPSTREAM_KEY_VLLM',
+    known_models: [],
     docs_url: 'https://docs.vllm.ai/en/latest/serving/openai_compatible_server.html',
   },
   {
-    provider: 'openai_compatible',
+    id: 'openai_compatible',
     display_name: 'OpenAI-compatible',
-    base_url: 'https://llm.example.com/v1',
-    needs_key: false,
-    models: [],
+    default_base_url: 'https://llm.example.com/v1',
+    key_required: false,
+    known_models: [],
   },
 ];
 
-/** Providers reached through an OpenAI-compatible endpoint of theirs (the UI says so). */
-export const VIA_OPENAI_COMPAT: readonly ProviderKind[] = ['anthropic', 'gemini'];
+/** A human name for a provider id: from the catalog, else the built-in presets, else the id. */
+export function providerLabel(catalog: readonly CatalogEntry[], id: string | undefined): string {
+  if (!id) return '—';
+  return catalog.find((c) => c.id === id)?.display_name ?? BUILTIN_CATALOG.find((c) => c.id === id)?.display_name ?? id;
+}
+
+/** Whether the provider is reached through its OpenAI-compatible endpoint (the UI says so). */
+export function viaOpenAICompat(catalog: readonly CatalogEntry[], id: ProviderKind | undefined): boolean {
+  const e = catalog.find((c) => c.id === id) ?? BUILTIN_CATALOG.find((c) => c.id === id);
+  return e?.openai_compatible_endpoint === true;
+}
 
 /** Header names whose values are secrets: the control plane refuses them (use api_key_env). */
 const SECRET_HEADER = /^(authorization|proxy-authorization|x-api-key|api-key|cookie)$/i;

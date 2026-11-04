@@ -52,7 +52,7 @@ export function KeysPage() {
   };
 
   const projectName = (id: string | null) => (id ? (projects.find((p) => p.id === id)?.name ?? id) : '—');
-  const writable = can('api_keys.write');
+  const writable = can('api_keys.manage');
 
   const columns: Column<ApiKey>[] = [
     { key: 'alias', header: t('keys.alias'), cell: (k) => k.alias ?? '—' },

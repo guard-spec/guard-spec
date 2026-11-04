@@ -106,6 +106,7 @@ test.describe('members and invites', () => {
     await page.getByRole('dialog').getByLabel('Email').fill('someone@acme.example');
     await page.getByRole('dialog').getByRole('button', { name: 'Send invite' }).click();
     await expect(page.getByTestId('invite-token')).toHaveText(/^inv_/);
+    await expect(page.getByTestId('invite-link')).toContainText('/ui/invite?token=inv_');
     await page.getByRole('dialog').getByRole('button', { name: 'Close' }).first().click();
     await expect(page.getByTestId('invites-table')).toContainText('someone@acme.example');
   });
@@ -124,6 +125,17 @@ test('hides write actions from a viewer', async ({ page }) => {
   await expect(nav.getByRole('link', { name: 'Security' })).toHaveCount(0);
   await go(page, 'Roles and permissions');
   await expect(page.getByText('Your role')).toBeVisible();
+  await expect(nav.getByRole('link', { name: 'API keys' })).toHaveCount(0);
+  // A page the role cannot read says so, without a retry button.
+  await page.goto('/ui/members');
+  await expect(page.getByText('You don’t have permission')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Try again' })).toHaveCount(0);
+  await go(page, 'Guard settings');
+  await expect(page.getByRole('button', { name: 'Save' })).toBeDisabled();
+  await go(page, 'Policy flow');
+  await expect(page.getByRole('button', { name: '+ New policy' })).toBeDisabled();
+  await go(page, 'Config as code');
+  await expect(page.getByRole('button', { name: 'Apply' })).toBeDisabled();
 });
 
 test('adds a provider from the catalog, with allowed models and a connection test', async ({ page, mock }) => {
@@ -132,6 +144,7 @@ test('adds a provider from the catalog, with allowed models and a connection tes
   await expect(page.getByTestId('test-result').first()).toContainText('Connected');
   await expect(page.getByTestId('test-result').first()).toContainText('212 ms');
   await expect(page.getByTestId('test-result').first()).toContainText('4 models found');
+  await expect(page.getByTestId('key-not-sent')).toBeVisible();
 
   await page.getByRole('button', { name: 'Add provider' }).click();
   await page.getByTestId('provider-catalog').getByRole('button', { name: /^Google Gemini/ }).click();
@@ -166,12 +179,25 @@ test('adds a provider from the catalog, with allowed models and a connection tes
 test('saves the security policy and manages identity providers without secrets', async ({ page, mock }) => {
   await login(page, 'Security');
   await expect(page.getByLabel('Require two-factor authentication')).toBeChecked();
+  // null: unrestricted, shown as such; an untouched save leaves the field out.
+  await expect(page.getByRole('radio', { name: /All sign-in methods/ })).toBeChecked();
+  await expect(page.getByTestId('login-methods').getByRole('checkbox', { name: /Okta/ })).toBeDisabled();
   await page.getByLabel('SSO counts as two-factor').check();
-  await page.getByRole('checkbox', { name: /Okta/ }).check();
   await page.getByLabel('Session lifetime (hours)').fill('8');
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(page.getByText('Saved.')).toBeVisible();
-  expect(mock.identity.security).toMatchObject({ sso_satisfies_mfa: true, session_lifetime_hours: 8, allowed_login_methods: ['password', 'google', 'oidc:okta'] });
+  const first = mock.calls.filter((c) => c.method === 'PUT' && c.path.endsWith('/security')).at(-1);
+  expect(first?.body).not.toHaveProperty('allowed_login_methods');
+  expect(mock.identity.security).toMatchObject({ sso_satisfies_mfa: true, session_lifetime_hours: 8, allowed_login_methods: null });
+  // Restrict: every method starts checked; drop Okta.
+  await page.getByRole('radio', { name: 'Only the methods below' }).check();
+  await page.getByTestId('login-methods').getByRole('checkbox', { name: /Okta/ }).uncheck();
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect.poll(() => mock.identity.security.allowed_login_methods).toEqual(['password', 'google']);
+  // And back to unrestricted: null is sent.
+  await page.getByRole('radio', { name: /All sign-in methods/ }).check();
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect.poll(() => mock.identity.security.allowed_login_methods).toBeNull();
 
   await go(page, 'Identity providers');
   await page.getByRole('button', { name: 'Add OIDC provider' }).click();
@@ -243,6 +269,57 @@ test.describe('control plane without the identity API (main before N15)', () => 
     // No /auth/me: the instance admin group stays hidden.
     await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Users' })).toHaveCount(0);
   });
+});
+
+test('links an identity: start, provider round trip, complete with the code', async ({ page, mock }) => {
+  await login(page, null);
+  await openProfile(page);
+  await page.getByRole('link', { name: 'My account' }).click();
+  const okta = page.getByRole('listitem').filter({ hasText: 'Okta' });
+  await expect(okta).toContainText('Not linked');
+  // The mock's start answers {url: /ui/account?link_code=…}, as the provider's callback would.
+  await okta.getByRole('button', { name: 'Link' }).click();
+  await expect(page.getByText('Okta is linked.')).toBeVisible();
+  await expect(page).toHaveURL(/\/ui\/account$/); // the code is stripped
+  await expect(okta).toContainText('Linked as ada@acme.okta.example');
+  const complete = mock.calls.find((c) => c.path === '/auth/identities/link/complete');
+  expect(complete?.body).toEqual({ code: 'mock-link-okta' });
+
+  await page.goto('/ui/account?link_error=identity_in_use');
+  await expect(page.getByRole('alert')).toContainText('already linked to another account');
+  await expect(page).toHaveURL(/\/ui\/account$/);
+  await page.goto('/ui/account?link_code=old-code');
+  await expect(page.getByRole('alert')).toContainText('The link expired');
+});
+
+test('accepts an invite from the link and signs in', async ({ page, mock }) => {
+  await page.goto('/ui/invite?token=inv_8f3a2c71d94e4b0f9a6c5e1d2b7f3a90');
+  await expect(page.getByRole('heading', { name: 'Accept your invitation' })).toBeVisible();
+  await expect(page).toHaveURL(/\/ui\/invite$/); // the token is stripped
+  await page.getByLabel('Display name').fill('New Hire');
+  await page.getByLabel('Password', { exact: true }).fill('a-long-password-1');
+  await page.getByLabel('Confirm new password').fill('a-long-password-1');
+  await page.getByRole('button', { name: 'Accept and sign in' }).click();
+  await expect(page.getByRole('heading', { name: 'Dashboard', level: 1 })).toBeVisible();
+  expect(mock.calls.find((c) => c.path === '/invites/accept')?.body).toMatchObject({ token: 'inv_8f3a2c71d94e4b0f9a6c5e1d2b7f3a90', display_name: 'New Hire' });
+});
+
+test.describe('invite with forced 2FA', () => {
+  test.use({ mockOptions: { mfa: 'enroll' } });
+  test('continues with the enrollment step', async ({ page }) => {
+    await page.goto('/ui/invite?token=inv_x');
+    await page.getByLabel('Password', { exact: true }).fill('a-long-password-1');
+    await page.getByLabel('Confirm new password').fill('a-long-password-1');
+    await page.getByRole('button', { name: 'Accept and sign in' }).click();
+    await expect(page.getByRole('heading', { name: 'Set up two-factor authentication' })).toBeVisible();
+  });
+});
+
+test('shows the instance activity with sign-ins', async ({ page }) => {
+  await login(page, 'Instance activity');
+  await expect(page.getByTestId('activity-table')).toContainText('login.');
+  await page.getByLabel('Kind').selectOption('login');
+  await expect(page.getByTestId('activity-table').getByRole('row').nth(1)).toContainText('login.');
 });
 
 test('redirects the old addresses', async ({ page }) => {

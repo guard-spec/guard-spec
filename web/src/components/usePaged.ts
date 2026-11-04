@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useCallback, useEffect, useReducer, useRef } from 'react';
-import { isNotFound } from '../api';
+import { isForbidden, isNotFound } from '../api';
 import { errorText } from '../context';
 import {
   currentCursor,
@@ -26,7 +26,7 @@ export interface UsePaged<T> {
   state: PagedState<T>;
   hasNext: boolean;
   hasPrev: boolean;
-  range: { from: number; to: number; total: number | null };
+  range: { from: number; to: number; total: number | null; capped: boolean };
   next: () => void;
   prev: () => void;
   setPageSize: (n: PageSize) => void;
@@ -64,7 +64,7 @@ export function usePaged<T>(
         dispatch({ type: 'loaded', page });
       } catch (e) {
         if (my !== seq.current) return;
-        dispatch({ type: 'failed', error: errorText(e), notFound: isNotFound(e) });
+        dispatch({ type: 'failed', error: errorText(e), notFound: isNotFound(e), forbidden: isForbidden(e) });
       }
     },
     [fetchPage],

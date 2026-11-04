@@ -76,7 +76,7 @@ export const NAV: NavGroup[] = [
     items: [
       { route: 'members', label: 'nav.members', icon: Users, capability: 'members.read' },
       { route: 'roles', label: 'nav.roles', icon: KeyRound },
-      { route: 'keys', label: 'nav.keys', icon: Key },
+      { route: 'keys', label: 'nav.keys', icon: Key, capability: 'api_keys.manage' },
       { route: 'security', label: 'nav.security', icon: Lock, capability: 'security.read' },
     ],
   },
@@ -95,6 +95,7 @@ export const NAV: NavGroup[] = [
     items: [
       { route: 'admin-users', label: 'nav.adminUsers', icon: UserCog },
       { route: 'admin-idps', label: 'nav.adminIdps', icon: Fingerprint },
+      { route: 'admin-activity', label: 'nav.adminActivity', icon: ScrollText },
     ],
   },
 ];
