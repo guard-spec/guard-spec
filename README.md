@@ -127,7 +127,7 @@ What each stage does:
   attack category run on it, with suppressors for meta discussion, quoted
   examples and code literals. L1 always runs and needs no model files.
 - **L2 classifier** (`internal/inference/ml`, `internal/onnx`). Our own
-  `guardspec-classifier-v2`: `intfloat/multilingual-e5-small` fine-tuned on
+  `guardspec-classifier-v3b`: `intfloat/multilingual-e5-small` fine-tuned on
   `train/` with an 8-label sigmoid head, INT8 ONNX, run in-process with ONNX
   Runtime. Risk is 1 − p(benign). Long input is scored in 256-token windows
   with a 64-token overlap; the worst window counts.
@@ -305,7 +305,7 @@ see [SECURITY.md](SECURITY.md#verifying-releases).
 | Layer | Files | Where it comes from |
 |---|---|---|
 | L1 | none | built into the binary |
-| L2 | `models/local/guardspec-classifier-v2/` (falls back to `-v1`, then `-v0`) (`model_int8.onnx`, `tokenizer.json`, `config.json`, `thresholds.json`) | **not published yet**: build it with `train/`, or copy the files in |
+| L2 | `models/local/guardspec-classifier-v3b/` (falls back to `-v2`, `-v1`, then `-v0`) (`model_int8.onnx`, `tokenizer.json`, `config.json`, `thresholds.json`) | **not published yet**: build it with `train/`, or copy the files in |
 | L3 | `models/cache/multilingual-e5-small/` (`model.onnx`, `tokenizer.json`, `config.json`) | pulled from Hugging Face, pinned by commit and SHA-256 in `models/manifest.yaml` |
 
 The model layers need a gateway built with `-tags onnx` (cgo, ONNX Runtime).
@@ -331,21 +331,23 @@ docker compose --profile models run --rm models-pull   # -> models/cache/multili
 **L2 classifier.** Our classifier is not hosted anywhere yet (publishing it to
 Hugging Face is on the [roadmap](ROADMAP.md)). Two ways to get it:
 
-1. Build it from `train/` (deterministic data build; training takes about 20
-   minutes on an Apple M3 Max with MPS; see [train/MODEL_CARD.md](train/MODEL_CARD.md)):
+1. Build it from `train/` (deterministic data build; training takes about 40
+   minutes on an Apple M3 Max with MPS; see [train/MODEL_CARD.md](train/MODEL_CARD.md)).
+   v3b also trains on owner-supplied rows that are not in this repository; without
+   them these commands reproduce the v3 recipe, not v3b exactly:
 
    ```bash
    cd train
    uv sync
    uv run python data/build_data.py
    uv run python train.py
-   uv run python export.py      # writes ../models/local/guardspec-classifier-v2
+   uv run python export.py      # writes ../models/local/guardspec-classifier-v3b
    ```
 
    MPS training is not bit-reproducible, so your weights and numbers can
    differ slightly from ours.
-2. Copy an existing `guardspec-classifier-v2` directory (from a teammate or
-   an earlier build) to `models/local/guardspec-classifier-v2`.
+2. Copy an existing `guardspec-classifier-v3b` directory (from a teammate or
+   an earlier build) to `models/local/guardspec-classifier-v3b`.
 
 Then restart the gateway (`docker compose up -d gateway`); the log line
 `L3 embeddings loaded` and the absence of `L2:` warnings confirm the layers
@@ -353,8 +355,8 @@ are on. `models/` is mounted read-only at `/models` and never baked into an
 image.
 
 **Know before enabling L2/L3.** On our eval set they raise recall but also
-block about 2.7% of benign prompts (L1 alone: 0.1%), mostly Vietnamese
-teencode and text without diacritics. See [Benchmarks](#benchmarks). Where
+block about 1.4% of benign prompts with classifier v3b (L1 alone: 0.1%),
+mostly Vietnamese teencode (3.5%) and English (1.7%). See [Benchmarks](#benchmarks). Where
 false positives cost more than missed attacks, keep `DETECTOR_LAYERS=l1`.
 
 ## Configuration
@@ -388,7 +390,7 @@ in a second table.
 | `OUTPUT_CANARY` | `off` | `block` or `redact` injects a canary and acts when it leaks |
 | `OUTPUT_REASONING` | `guard` | `drop` removes `reasoning` / `reasoning_content` instead of guarding them |
 | `MODEL_DIR` | `./models` (`/models` in the image) | Root of the model files. `MODELS_PATH` is the older name |
-| `L2_MODEL_DIR` | `$MODEL_DIR/local/guardspec-classifier-v2`, else `-v1`, else `-v0` | Classifier directory |
+| `L2_MODEL_DIR` | `$MODEL_DIR/local/guardspec-classifier-v3b`, else `-v2`, `-v1`, `-v0` | Classifier directory |
 | `L3_MODEL_DIR` | `$MODEL_DIR/cache/multilingual-e5-small` | Embedding model directory |
 | `DETECTOR_LAYERS` | `l1,l2,l3` | Layers to run |
 | `DETECTOR_FUSION` | `logreg` | `logreg` or `max` of the calibrated layers |
@@ -826,8 +828,9 @@ English and 1,250 Vietnamese, built deterministically by
 `eval/build/build.py` (see [eval/README.md](eval/README.md)). "Block" is the
 gateway's direct-injection threshold, 0.85.
 
-Classifier v2 is the default L2 (see [train/MODEL_CARD.md](train/MODEL_CARD.md));
-the v1 rows are kept for comparison. All model rows were measured on
+Classifier v3b is the default L2 (see [train/MODEL_CARD.md](train/MODEL_CARD.md));
+the v2 and v1 rows are kept for comparison. Classifier v3 was measured once and
+not shipped (FPR 2.2%, TPR 0.915; see the model card). All model rows were measured on
 2026-11-04 with the L1 rules of this release.
 
 | Detector | ROC AUC | TPR at FPR ≤ 1% | TPR at block | FPR at block | EN FPR | VI FPR | VI teencode FPR | VI no-diacritics FPR | Detector latency p50 / p99 |
@@ -836,8 +839,9 @@ the v1 rows are kept for comparison. All model rows were measured on
 | L1 + L2 (v1) | 0.985 | 0.917 | 0.942 | 2.6% | 1.1% | 3.4% | 6.3% | 3.8% | 2.7 / 7.6 ms |
 | L1 + L2 + L3 (v1) | 0.985 | 0.916 | 0.939 | 2.7% | 1.1% | 3.6% | 7.0% | 3.8% | 3.7 / 11.3 ms |
 | L1 + L2 + L3 (v1), cascade | 0.987 | 0.932 | 0.953 | 2.7% | 1.1% | 3.6% | 7.0% | 3.8% | 2.9 / 8.5 ms |
-| **L1 + L2 + L3 (v2, default with models)** | 0.985 | 0.922 | 0.933 | 2.0% | 2.2% | 1.9% | 1.4% | 3.0% | 3.8 / 11.0 ms |
+| L1 + L2 + L3 (v2) | 0.985 | 0.922 | 0.933 | 2.0% | 2.2% | 1.9% | 1.4% | 3.0% | 3.8 / 11.0 ms |
 | L1 + L2 + L3 (v2), cascade | 0.987 | 0.936 | 0.945 | 2.1% | 2.5% | 1.9% | 1.4% | 3.0% | 2.9 / 8.8 ms |
+| **L1 + L2 + L3 (v3b, default with models)** | 0.986 | 0.924 | 0.932 | 1.4% | 1.7% | 1.3% | 3.5% | 0.4% | 3.7 / 11.1 ms |
 
 L1 only after the hidden-HTML rules (2026-11-04, `go test ./internal/evalset
 -run TestBaseline -v`): AUC 0.952, TPR at block 0.881, FPR at block 0.1%
@@ -865,6 +869,11 @@ How to read them, and their limits:
   reviewed by AI agents, without a native-speaker review; teencode comes from
   rules and is stiffer than real chat. Many attack rows come from templates,
   so errors are correlated.
+- **Classifier v3b** (the default) blocks 1.4% of benign rows (v2 2.0%) at
+  the same TPR at block (0.932 vs 0.933): Vietnamese without diacritics falls
+  from 3.0% to 0.4% and English from 2.2% to 1.7%, but **Vietnamese teencode
+  rises from 1.4% to 3.5%**, and English leet recall falls (0.825 vs 0.875).
+  `eval/baseline-onnx.json` holds the v3b run.
 - **Vietnamese teencode and no-diacritics benign text was the known weak
   spot** of the model layers. With L1+L2+L3, classifier v2 blocks 1.4% of
   teencode and 3.0% of no-diacritics benign rows (v1: 7.0% and 3.8%). The
