@@ -49,6 +49,7 @@ test('routes a rule edited as text, simulates it and round-trips the config', as
     await d.getByLabel('Base URL').fill(base);
     await d.getByLabel('API key environment variable').fill('UPSTREAM_KEY_MAIN');
     await d.getByRole('button', { name: 'Save' }).click();
+    await expect(d).toBeHidden();
     // The list may hold more than one page: search for the new row.
     await page.getByLabel('Search providers').fill(name);
     await expect(page.getByTestId('providers-table').getByText(name, { exact: true })).toBeVisible();
