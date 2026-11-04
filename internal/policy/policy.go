@@ -536,14 +536,19 @@ func JSONASTToCEL(raw json.RawMessage) (string, error) {
 // jsonASTToCEL with legacy set also accepts removed fields. Only the gateway's
 // compile of stored policies uses it.
 func jsonASTToCEL(raw json.RawMessage, legacy bool) (string, error) {
+	return jsonASTToCELIn(raw, legacy, nil)
+}
+
+// jsonASTToCELIn converts with the given field set (nil: the policy fields).
+func jsonASTToCELIn(raw json.RawMessage, legacy bool, fields FieldSet) (string, error) {
 	var node queryBuilderNode
 	if err := json.Unmarshal(raw, &node); err != nil {
 		return "", fmt.Errorf("unmarshal: %w", err)
 	}
-	return nodeToCEL(node, legacy)
+	return nodeToCEL(node, legacy, fields)
 }
 
-func nodeToCEL(node queryBuilderNode, legacy bool) (string, error) {
+func nodeToCEL(node queryBuilderNode, legacy bool, fields FieldSet) (string, error) {
 	if node.Disabled {
 		return "", errors.New("disabled conditions are not supported")
 	}
@@ -568,7 +573,7 @@ func nodeToCEL(node queryBuilderNode, legacy bool) (string, error) {
 			if err := json.Unmarshal(raw, &child); err != nil {
 				return "", err
 			}
-			expr, err := nodeToCEL(child, legacy)
+			expr, err := nodeToCEL(child, legacy, fields)
 			if err != nil {
 				return "", err
 			}
@@ -581,18 +586,24 @@ func nodeToCEL(node queryBuilderNode, legacy bool) (string, error) {
 		return expr, nil
 	}
 
-	return leafToCEL(node, legacy)
+	return leafToCEL(node, legacy, fields)
 }
 
 // leafToCEL handles a node with field + operator + value. The value is coerced
 // to the field's type: the builder often sends numbers as strings, and CEL
 // refuses to compare a double with an int.
-func leafToCEL(node queryBuilderNode, legacy bool) (string, error) {
+func leafToCEL(node queryBuilderNode, legacy bool, fields FieldSet) (string, error) {
 	field := node.Field
 	if field == "" {
 		return "", errors.New("condition has no field")
 	}
 	typ, ok := fieldTypes[field]
+	if fields != nil {
+		typ, ok = fields[field]
+	}
+	if !ok && fields != nil {
+		return "", fmt.Errorf("unknown field: %s", field)
+	}
 	if !ok {
 		removed, isRemoved := removedFields[field]
 		switch {
@@ -603,6 +614,10 @@ func leafToCEL(node queryBuilderNode, legacy bool) (string, error) {
 		default:
 			return "", fmt.Errorf("unknown field: %s", field)
 		}
+	}
+	ident := field
+	if fields != nil {
+		ident = celIdent(field)
 	}
 	if node.ValueSource != "" && node.ValueSource != "value" {
 		return "", fmt.Errorf("unsupported value source: %s", node.ValueSource)
@@ -624,7 +639,7 @@ func leafToCEL(node queryBuilderNode, legacy bool) (string, error) {
 		if node.Operator == "!=" {
 			op = "!="
 		}
-		return fmt.Sprintf("%s %s %s", field, op, lit), nil
+		return fmt.Sprintf("%s %s %s", ident, op, lit), nil
 	case ">", ">=", "<", "<=":
 		if !isNumber {
 			return "", unsupported
@@ -633,7 +648,7 @@ func leafToCEL(node queryBuilderNode, legacy bool) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("%s: %w", field, err)
 		}
-		return fmt.Sprintf("%s %s %s", field, node.Operator, lit), nil
+		return fmt.Sprintf("%s %s %s", ident, node.Operator, lit), nil
 	case "contains":
 		if typ != cel.StringType && !isList {
 			return "", unsupported
@@ -643,9 +658,9 @@ func leafToCEL(node queryBuilderNode, legacy bool) (string, error) {
 			return "", fmt.Errorf("%s: %w", field, err)
 		}
 		if isList {
-			return fmt.Sprintf("%s in %s", lit, field), nil
+			return fmt.Sprintf("%s in %s", lit, ident), nil
 		}
-		return fmt.Sprintf("%s.contains(%s)", field, lit), nil
+		return fmt.Sprintf("%s.contains(%s)", ident, lit), nil
 	case "beginsWith", "endsWith":
 		if typ != cel.StringType {
 			return "", unsupported
@@ -658,7 +673,7 @@ func leafToCEL(node queryBuilderNode, legacy bool) (string, error) {
 		if node.Operator == "endsWith" {
 			method = "endsWith"
 		}
-		return fmt.Sprintf("%s.%s(%s)", field, method, lit), nil
+		return fmt.Sprintf("%s.%s(%s)", ident, method, lit), nil
 	case "in":
 		switch {
 		case isList:
@@ -666,13 +681,13 @@ func leafToCEL(node queryBuilderNode, legacy bool) (string, error) {
 			if err != nil {
 				return "", fmt.Errorf("%s: %w", field, err)
 			}
-			return fmt.Sprintf("%s in %s", lit, field), nil
+			return fmt.Sprintf("%s in %s", lit, ident), nil
 		case typ == cel.StringType:
 			lit, err := celStringList(node.Value)
 			if err != nil {
 				return "", fmt.Errorf("%s: %w", field, err)
 			}
-			return fmt.Sprintf("%s in %s", field, lit), nil
+			return fmt.Sprintf("%s in %s", ident, lit), nil
 		default:
 			return "", unsupported
 		}

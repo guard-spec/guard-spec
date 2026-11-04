@@ -236,6 +236,16 @@ func canonicalLeaf(node queryBuilderNode, legacy bool) (*condNode, error) {
 }
 
 func lookupField(field string, legacy bool) (*cel.Type, error) {
+	return lookupFieldIn(nil, field, legacy)
+}
+
+func lookupFieldIn(fields FieldSet, field string, legacy bool) (*cel.Type, error) {
+	if fields != nil {
+		if typ, ok := fields[field]; ok {
+			return typ, nil
+		}
+		return nil, fmt.Errorf("unknown field: %s", field)
+	}
 	if typ, ok := fieldTypes[field]; ok {
 		return typ, nil
 	}
@@ -314,7 +324,7 @@ func formatGroup(g *condNode, legacy bool) (string, error) {
 // Every other group keeps its parentheses, since they make it a group.
 func formatChild(c, parent *condNode, legacy bool) (string, error) {
 	if !c.isGroup() {
-		return leafToCEL(queryBuilderNode{Field: c.Field, Operator: c.Operator, Value: c.Value}, legacy)
+		return leafToCEL(queryBuilderNode{Field: c.Field, Operator: c.Operator, Value: c.Value}, legacy, nil)
 	}
 	s, err := formatGroup(c, legacy)
 	if err != nil {
@@ -347,6 +357,10 @@ var textParser = func() *parser.Parser {
 // refusal is a *ParseError. The tree is also checked with JSONASTToCEL; the
 // caller still validates the CEL with Engine.ValidateCEL, as for any tree.
 func ParseCondition(text string) (json.RawMessage, error) {
+	return parseCondition(text, nil)
+}
+
+func parseCondition(text string, fields FieldSet) (json.RawMessage, error) {
 	n := utf8.RuneCountInString(text)
 	if n > MaxConditionText {
 		return nil, &ParseError{Message: fmt.Sprintf("condition is longer than %d characters", MaxConditionText),
@@ -366,6 +380,7 @@ func ParseCondition(text string) (json.RawMessage, error) {
 		return nil, &ParseError{Message: "syntax error: " + first.Message, Position: int(pos)}
 	}
 	w := newWalker(text, tree.SourceInfo())
+	w.fields = fields
 	root, err := w.root(tree.Expr())
 	if err != nil {
 		return nil, err
@@ -374,7 +389,7 @@ func ParseCondition(text string) (json.RawMessage, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := JSONASTToCEL(raw); err != nil {
+	if _, err := jsonASTToCELIn(raw, false, fields); err != nil {
 		return nil, &ParseError{Message: err.Error()}
 	}
 	return raw, nil
@@ -389,6 +404,8 @@ type walker struct {
 	at    map[int]int // code point offset -> token index
 	match map[int]int // index of ( [ { -> index of the closing token, and back
 	spans map[int64]tokenSpan
+	// fields replaces the policy fields when set (ParseConditionIn).
+	fields FieldSet
 }
 
 func newWalker(text string, info *ast.SourceInfo) *walker {
@@ -649,7 +666,7 @@ func (w *walker) fieldOf(e ast.Expr) (string, *cel.Type, error) {
 		return "", nil, nil
 	}
 	name := strings.Join(append([]string{x.AsIdent()}, parts...), ".")
-	typ, err := lookupField(name, false)
+	typ, err := lookupFieldIn(w.fields, name, false)
 	if err != nil {
 		return "", nil, w.fail(e, "%s", err.Error())
 	}

@@ -68,6 +68,8 @@ services:
       # Counted per gateway replica.
       RATE_LIMIT_RPM: ${RATE_LIMIT_RPM:-0}
       RATE_LIMIT_TPM: ${RATE_LIMIT_TPM:-0}
+      # Alert events (docs/alerts.md): the flagged score; ALERTS_EVENTS=off stops them.
+      ALERTS_FLAG_THRESHOLD: ${ALERTS_FLAG_THRESHOLD:-0.5}
       # Tracing is on only when an OTLP/HTTP endpoint is set.
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       OTEL_PROPAGATE_UPSTREAM: ${OTEL_PROPAGATE_UPSTREAM:-false}
@@ -124,6 +126,18 @@ services:
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
       # Client secrets of SSO providers; a provider names its variable.
       OIDC_SECRET_GOOGLE: ${OIDC_SECRET_GOOGLE:-}
+      # Alerts (docs/alerts.md). Channel secrets are variables a channel names
+      # in secret_env; ALERTS_SECRET_ORGS says which orgs may name which.
+      ALERTS_SECRET_ORGS: ${ALERTS_SECRET_ORGS:-}
+      ALERTS_ALLOW_PRIVATE_URLS: ${ALERTS_ALLOW_PRIVATE_URLS:-}
+      ALERTS_LANG: ${ALERTS_LANG:-en}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-}
+      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
+      TELEGRAM_POLLING: ${TELEGRAM_POLLING:-}
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
+      SMTP_URL: ${SMTP_URL:-}
+      SMTP_FROM: ${SMTP_FROM:-}
       METRICS_ADDR: ":9091"
       # Audit rows older than this are deleted hourly; 0 keeps them forever.
       AUDIT_RETENTION_DAYS: ${AUDIT_RETENTION_DAYS:-90}

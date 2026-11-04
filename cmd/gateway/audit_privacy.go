@@ -34,11 +34,11 @@ func digest(body string) auditDigest {
 // named upstream (migration 011).
 const auditInsert = `
 INSERT INTO requests
-	(org_id, project_id, model, action, rule_id, injection_label, injection_score,
+	(id, org_id, project_id, model, action, rule_id, injection_label, injection_score,
 	 toxicity_score, anomaly_score, had_tag_chars, had_bidi, latency_ms, pii_entities,
 	 request_sha256, request_bytes, request_content,
 	 response_sha256, response_bytes, response_content, route_target)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,
+VALUES (COALESCE($22, gen_random_uuid()), $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,
 	$15, $16, CASE WHEN ` + storeContent + ` THEN $17::text END,
 	$18, $19, CASE WHEN ` + storeContent + ` THEN $20::text END, $21)`
 
