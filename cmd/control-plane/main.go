@@ -3,16 +3,21 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	"io/fs"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -71,6 +76,11 @@ func main() {
 		os.Exit(1)
 	}
 	secret := []byte(cfg.JWTSecret)
+	mfaBox, err := auth.NewSecretBox(cfg.MFAEncKey)
+	if err != nil && !errors.Is(err, auth.ErrNoMFAKey) {
+		slog.Error("config", "err", err)
+		os.Exit(1)
+	}
 
 	db, err := pgxpool.New(context.Background(), cfg.DatabaseURL)
 	if err != nil {
@@ -88,6 +98,10 @@ func main() {
 		slog.Error("bootstrap admin", "err", err)
 		os.Exit(1)
 	}
+	if err := checkMFAKey(context.Background(), db, mfaBox); err != nil {
+		slog.Error("config", "err", err)
+		os.Exit(1)
+	}
 
 	eng, err := policy.New()
 	if err != nil {
@@ -95,7 +109,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	app := newApp(db, secret, eng, cfg.AllowedOrigins, withEnvUpstream(cfg.UpstreamURL), withKeyOrgs(keyOrgs))
+	app := newApp(db, secret, eng, cfg.AllowedOrigins, withEnvUpstream(cfg.UpstreamURL), withKeyOrgs(keyOrgs),
+		func(s *appSettings) {
+			s.mfaBox, s.publicURL, s.allowPrivate = mfaBox, cfg.PublicBaseURL, cfg.UpstreamAllowPrivate
+			s.trustedProxies = cfg.TrustedProxies
+		})
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -126,6 +144,20 @@ type appSettings struct {
 	// keyOrgs is UPSTREAM_KEY_ORGS: which orgs may name which UPSTREAM_KEY_*
 	// variable as an upstream's api_key_env. The zero value allows none.
 	keyOrgs config.KeyOrgs
+	// mfaBox encrypts TOTP secrets (MFA_ENC_KEY); nil: 2FA cannot be set up.
+	mfaBox *auth.SecretBox
+	// publicURL is PUBLIC_BASE_URL, for SSO callback urls.
+	publicURL string
+	// allowPrivate is UPSTREAM_ALLOW_PRIVATE, for upstream connection tests.
+	allowPrivate bool
+	// For tests: the HTTP client of OIDC calls, a session lookup that needs
+	// no database, and the environment upstream keys are read from.
+	oidcClient    *http.Client
+	sessionLookup auth.SessionLookup
+	// trustedProxies is TRUSTED_PROXIES: whose X-Forwarded-For names the
+	// client (clientip.go).
+	trustedProxies []*net.IPNet
+	getenv         func(string) string
 }
 
 // withKeyOrgs sets the UPSTREAM_KEY_ORGS allowlist.
@@ -154,6 +186,7 @@ func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins 
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 30 * time.Second,
 	})
+	app.Use(clientIPMiddleware(settings.trustedProxies))
 	app.Use(observe())
 	if allowedOrigins != "" {
 		app.Use(cors.New(cors.Config{AllowOrigins: allowedOrigins}))
@@ -166,18 +199,54 @@ func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins 
 	mountUI(app, settings.ui)
 
 	v1 := app.Group("/v1")
+	id := newIdentity(db, secret, settings)
+	perIP := func(max int) fiber.Handler {
+		return limiter.New(limiter.Config{Max: max, Expiration: time.Minute, KeyGenerator: clientIP})
+	}
+	perUser := limiter.New(limiter.Config{Max: 10, Expiration: time.Minute,
+		KeyGenerator: func(c *fiber.Ctx) string { return "user:" + auth.UserID(c).String() }})
 
-	v1.Post("/auth/login", limiter.New(limiter.Config{
-		Max:        10,
-		Expiration: time.Minute,
-	}), login(db, secret))
+	v1.Post("/auth/login", perIP(10), id.login)
 	// The token is the credential here, so it gets the login's limit.
-	v1.Post("/invites/accept", limiter.New(limiter.Config{
-		Max:        10,
-		Expiration: time.Minute,
-	}), acceptInvite(db, secret))
+	v1.Post("/invites/accept", perIP(10), acceptInvite(db, id))
+	// The second step of a login; also 5 attempts per mfa_token.
+	v1.Post("/auth/mfa/verify", perIP(10), id.mfaVerify)
+	v1.Get("/auth/providers", id.publicProviders)
+	v1.Get("/auth/oidc/:id/start", perIP(30), id.oidcStart)
+	v1.Get("/auth/oidc/:id/callback", perIP(30), id.oidcCallback)
+	v1.Post("/auth/oidc/exchange", perIP(10), id.oidcExchange)
+	v1.Get("/providers/catalog", providerCatalogHandler)
+	v1.Get("/permissions", permissions)
 
-	authed := v1.Group("", auth.Required(secret))
+	// 2FA setup takes a session token, or the mfa_token of an enrollment.
+	enroll := v1.Group("/auth/mfa/totp", id.sessionOrEnroll(), perUser)
+	enroll.Post("/setup", id.totpSetup)
+	enroll.Post("/confirm", id.totpConfirm)
+
+	authed := v1.Group("", auth.Required(secret, id.lookup))
+
+	authed.Get("/auth/me", id.me)
+	authed.Post("/auth/logout", id.logout)
+	authed.Get("/auth/sessions", id.listSessions)
+	authed.Delete("/auth/sessions/:id", id.revokeSession)
+	authed.Post("/auth/password", perUser, id.changePassword)
+	authed.Post("/auth/mfa/recovery-codes/regenerate", perUser, id.regenerateRecoveryCodes)
+	authed.Delete("/auth/mfa", perUser, id.disableMFA)
+	authed.Post("/auth/identities/:providerId/link/start", perUser, id.linkStart)
+	authed.Post("/auth/identities/link/complete", perUser, id.linkComplete)
+	authed.Delete("/auth/identities/:providerId", id.unlinkIdentity)
+
+	// Instance administration.
+	instance := authed.Group("/admin", requireInstanceAdmin(db))
+	instance.Get("/users", listAdminUsers(db))
+	instance.Post("/users", createAdminUser(db))
+	instance.Put("/users/:id", updateAdminUser(db, id.sessions))
+	instance.Delete("/users/:id", deleteAdminUser(db, id.sessions))
+	instance.Get("/identity-providers", id.listProviders)
+	instance.Post("/identity-providers", id.createProvider)
+	instance.Put("/identity-providers/:id", id.updateProvider)
+	instance.Delete("/identity-providers/:id", id.deleteProvider)
+	instance.Get("/activity", listInstanceActivity(db))
 
 	authed.Get("/organizations", listMyOrgs(db))
 	authed.Post("/organizations", createOrg(db))
@@ -189,11 +258,21 @@ func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins 
 
 	viewer := auth.RequireRole(db, auth.RoleViewer)
 	admin := auth.RequireRole(db, auth.RoleAdmin)
+	owner := auth.RequireRole(db, auth.RoleOwner)
 
 	authed.Get("/organizations/:orgId", viewer, getOrg(db))
 	authed.Patch("/organizations/:orgId", admin, updateOrgSettings(db))
 	authed.Get("/organizations/:orgId/guard-settings", viewer, getGuardSettings(db))
 	authed.Put("/organizations/:orgId/guard-settings", admin, putGuardSettings(db))
+	authed.Get("/organizations/:orgId/security", admin, getOrgSecurity(db))
+	authed.Put("/organizations/:orgId/security", owner, putOrgSecurity(db))
+	authed.Get("/organizations/:orgId/activity", admin, listOrgActivity(db))
+
+	authed.Get("/organizations/:orgId/members", admin, listMembers(db))
+	authed.Put("/organizations/:orgId/members/:userId", admin, updateMember(db))
+	authed.Delete("/organizations/:orgId/members/:userId", admin, removeMember(db))
+	authed.Post("/organizations/:orgId/members/:userId/reset-mfa", owner, resetMemberMFA(db, id.sessions))
+	authed.Post("/organizations/:orgId/members/:userId/revoke-sessions", admin, revokeMemberSessions(db, id.sessions))
 
 	authed.Get("/organizations/:orgId/api-keys", admin, listAPIKeys(db))
 	authed.Post("/organizations/:orgId/api-keys", admin, createAPIKey(db))
@@ -202,12 +281,18 @@ func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins 
 
 	authed.Get("/organizations/:orgId/projects", viewer, listProjects(db))
 	authed.Post("/organizations/:orgId/projects", admin, createProject(db))
+	authed.Get("/organizations/:orgId/projects/:projectId/members", viewer, listProjectMembers(db))
+	authed.Put("/organizations/:orgId/projects/:projectId/members/:userId", admin, putProjectMember(db))
+	authed.Delete("/organizations/:orgId/projects/:projectId/members/:userId", admin, deleteProjectMember(db))
 
-	// Named upstreams and routing defaults (migration 011).
+	// Named upstreams and routing defaults (migration 011), with model
+	// provider fields (migration 014).
 	authed.Get("/organizations/:orgId/upstreams", viewer, listUpstreams(db))
 	authed.Post("/organizations/:orgId/upstreams", admin, createUpstream(db, settings))
 	authed.Put("/organizations/:orgId/upstreams/:id", admin, updateUpstream(db, settings))
 	authed.Delete("/organizations/:orgId/upstreams/:id", admin, deleteUpstream(db))
+	// Owner only: the test reaches out from the control plane with a key.
+	authed.Post("/organizations/:orgId/upstreams/:id/test", owner, perUser, testUpstream(db, settings))
 	authed.Put("/organizations/:orgId/default-upstream", admin, putOrgDefaultUpstream(db))
 	authed.Put("/organizations/:orgId/projects/:projectId/default-upstream", admin, putProjectDefaultUpstream(db))
 
@@ -255,6 +340,7 @@ func orgID(c *fiber.Ctx) uuid.UUID {
 
 // bootstrapAdmin creates the first owner of the default organization.
 func bootstrapAdmin(ctx context.Context, db *pgxpool.Pool, email, password string) error {
+	email = strings.ToLower(strings.TrimSpace(email))
 	if email == "" || password == "" {
 		return nil
 	}
@@ -263,52 +349,60 @@ func bootstrapAdmin(ctx context.Context, db *pgxpool.Pool, email, password strin
 		return err
 	}
 	return tenant.WithOrg(ctx, db, defaultOrgID, func(tx pgx.Tx) error {
-		var userID uuid.UUID
-		err := tx.QueryRow(ctx,
-			`INSERT INTO users (email, hashed_password) VALUES ($1, $2)
-			 ON CONFLICT (email) DO NOTHING RETURNING id`, email, hash).Scan(&userID)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil // already bootstrapped
-		}
-		if err != nil {
-			return err
-		}
-		_, err = tx.Exec(ctx,
-			`INSERT INTO org_memberships (user_id, org_id, role) VALUES ($1, $2, 'owner')`,
-			userID, defaultOrgID)
-		return err
+		return bootstrapAdminTx(ctx, tx, email, hash)
 	})
 }
 
-func login(db *pgxpool.Pool, secret []byte) fiber.Handler {
-	return func(c *fiber.Ctx) error {
-		var req struct {
-			Email    string `json:"email"`
-			Password string `json:"password"`
-		}
-		if err := c.BodyParser(&req); err != nil {
-			return c.Status(400).JSON(fiber.Map{"error": "invalid body"})
-		}
-		var userID uuid.UUID
-		var hash *string
-		err := db.QueryRow(c.Context(),
-			`SELECT id, hashed_password FROM users WHERE email = $1`, req.Email).Scan(&userID, &hash)
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return serverError(c, err)
-		}
-		stored := ""
-		if hash != nil {
-			stored = *hash
-		}
-		if !auth.CheckPassword(stored, req.Password) {
-			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid credentials"})
-		}
-		token, err := auth.IssueToken(secret, userID)
-		if err != nil {
-			return serverError(c, err)
-		}
-		return c.JSON(fiber.Map{"token": token})
+// bootstrapAdminTx runs the bootstrap in tx, scoped to the default org.
+//
+// It runs once per instance. An instance that already has an administrator
+// is past it; one where it ran before (instance_state) is too, even if that
+// admin was deleted since: restarting with the same ADMIN_EMAIL and
+// ADMIN_PASSWORD must not bring the account back.
+func bootstrapAdminTx(ctx context.Context, tx pgx.Tx, email, hash string) error {
+	var hasAdmin bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM users WHERE is_instance_admin AND disabled_at IS NULL)`).
+		Scan(&hasAdmin); err != nil {
+		return err
 	}
+	tag, err := tx.Exec(ctx,
+		`INSERT INTO instance_state (key, value) VALUES ('bootstrap_admin', $1) ON CONFLICT (key) DO NOTHING`, email)
+	if err != nil {
+		return err
+	}
+	if hasAdmin || tag.RowsAffected() == 0 {
+		return nil
+	}
+	var userID uuid.UUID
+	err = tx.QueryRow(ctx,
+		`INSERT INTO users (email, hashed_password, is_instance_admin) VALUES ($1, $2, true)
+		 ON CONFLICT (email) DO UPDATE SET is_instance_admin = true RETURNING id`, email, hash).Scan(&userID)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx,
+		`INSERT INTO org_memberships (user_id, org_id, role) VALUES ($1, $2, 'owner') ON CONFLICT DO NOTHING`,
+		userID, defaultOrgID)
+	return err
+}
+
+// checkMFAKey refuses to start when users have 2FA but MFA_ENC_KEY is not
+// set: their codes could not be checked, and they could not log in.
+func checkMFAKey(ctx context.Context, db *pgxpool.Pool, box *auth.SecretBox) error {
+	if box != nil {
+		return nil
+	}
+	var n int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM user_mfa WHERE totp_secret_enc IS NOT NULL`).Scan(&n); err != nil {
+		return err
+	}
+	if n > 0 {
+		return fmt.Errorf("MFA_ENC_KEY is not set but %d users have two-factor authentication; "+
+			"set MFA_ENC_KEY to the key their secrets were encrypted with", n)
+	}
+	slog.Warn("MFA_ENC_KEY is not set: two-factor authentication cannot be turned on " +
+		"(generate one with: openssl rand -base64 32)")
+	return nil
 }
 
 func createOrg(db *pgxpool.Pool) fiber.Handler {
@@ -386,18 +480,46 @@ func updateOrgSettings(db *pgxpool.Pool) fiber.Handler {
 		}
 		slog.Info("org audit content storage changed", "org", id, "enabled", *req.AuditStoreContent,
 			"by", auth.UserID(c))
+		logActivity(c, db, &id, "org.settings_changed", "organization",
+			map[string]any{"audit_store_content": *req.AuditStoreContent})
 		return c.JSON(fiber.Map{"id": id, "audit_store_content": *req.AuditStoreContent})
 	}
 }
 
 func listAPIKeys(db *pgxpool.Pool) fiber.Handler {
+	ks := keyset{sort: "created_at", id: "key_prefix", desc: true, idType: "text"}
 	return func(c *fiber.Ctx) error {
 		id := orgID(c)
+		pg, err := parsePage(c, true)
+		if err != nil {
+			return badPage(c, err)
+		}
 		keys := []fiber.Map{}
-		err := tenant.WithOrg(c.Context(), db, id, func(tx pgx.Tx) error {
+		var total int64
+		args := []any{id}
+		filter := ""
+		if q := c.Query("q"); q != "" {
+			args = append(args, likePattern(q))
+			filter += fmt.Sprintf(" AND (alias ILIKE $%[1]d OR key_prefix ILIKE $%[1]d)", len(args))
+		}
+		switch c.Query("revoked") {
+		case "":
+		case "true":
+			filter += " AND revoked_at IS NOT NULL"
+		case "false":
+			filter += " AND revoked_at IS NULL"
+		default:
+			return c.Status(400).JSON(fiber.Map{"error": "revoked must be true or false"})
+		}
+		countArgs := args
+		err = tenant.WithOrg(c.Context(), db, id, func(tx pgx.Tx) error {
+			cond, args, err := ks.where(pg, args)
+			if err != nil {
+				return err
+			}
 			rows, err := tx.Query(c.Context(),
 				`SELECT key_prefix, alias, project_id, rpm_limit::bigint, tpm_limit, created_at, expires_at, revoked_at
-				 FROM api_keys WHERE org_id = $1 ORDER BY created_at DESC`, id)
+				 FROM api_keys WHERE org_id = $1`+filter+cond+ks.orderLimit(pg), args...)
 			if err != nil {
 				return err
 			}
@@ -423,10 +545,25 @@ func listAPIKeys(db *pgxpool.Pool) fiber.Handler {
 					"revoked":    revokedAt != nil,
 				})
 			}
-			return rows.Err()
+			if err := rows.Err(); err != nil {
+				return err
+			}
+			if pg.Enveloped {
+				return tx.QueryRow(c.Context(), `SELECT count(*) FROM api_keys WHERE org_id = $1`+filter, countArgs...).Scan(&total)
+			}
+			return nil
 		})
+		if errors.Is(err, errBadCursor) {
+			return badPage(c, err)
+		}
 		if err != nil {
 			return serverError(c, err)
+		}
+		if pg.Enveloped {
+			items, next := page(keys, pg.Limit, func(m fiber.Map) pageCursor {
+				return timeCursor(m["created_at"].(time.Time), m["key_prefix"].(string))
+			})
+			return pageJSON(c, items, next, total)
 		}
 		return c.JSON(fiber.Map{"data": keys})
 	}
@@ -474,6 +611,7 @@ func createAPIKey(db *pgxpool.Pool) fiber.Handler {
 		if err != nil {
 			return serverError(c, err)
 		}
+		logActivity(c, db, &id, "api_key.created", prefix, map[string]any{"alias": req.Alias, "project_id": req.ProjectID})
 		// Return plaintext key once only — cannot be recovered after this
 		return c.Status(201).JSON(fiber.Map{
 			"key":        raw,
@@ -500,13 +638,19 @@ func revokeAPIKey(db *pgxpool.Pool) fiber.Handler {
 		if err != nil {
 			return serverError(c, err)
 		}
+		logActivity(c, db, &id, "api_key.revoked", c.Params("keyId"), nil)
 		return c.Status(204).Send(nil)
 	}
 }
 
 func listPolicies(db *pgxpool.Pool) fiber.Handler {
+	ks := keyset{sort: "updated_at", id: "id", desc: true}
 	return func(c *fiber.Ctx) error {
 		id := orgID(c)
+		pg, err := parsePage(c, true)
+		if err != nil {
+			return badPage(c, err)
+		}
 		type pRow struct {
 			ID          uuid.UUID       `json:"id"`
 			ProjectID   *uuid.UUID      `json:"project_id"` // null: org-wide
@@ -519,10 +663,15 @@ func listPolicies(db *pgxpool.Pool) fiber.Handler {
 			UpdatedAt   time.Time       `json:"updated_at"`
 		}
 		policies := []pRow{}
-		err := tenant.WithOrg(c.Context(), db, id, func(tx pgx.Tx) error {
+		var total int64
+		err = tenant.WithOrg(c.Context(), db, id, func(tx pgx.Tx) error {
+			cond, args, err := ks.where(pg, []any{id})
+			if err != nil {
+				return err
+			}
 			rows, err := tx.Query(c.Context(),
 				`SELECT id, project_id, name, description, version, enabled, rules, created_at, updated_at
-				 FROM policies WHERE org_id = $1 ORDER BY updated_at DESC`, id)
+				 FROM policies WHERE org_id = $1`+cond+ks.orderLimit(pg), args...)
 			if err != nil {
 				return err
 			}
@@ -535,10 +684,23 @@ func listPolicies(db *pgxpool.Pool) fiber.Handler {
 				}
 				policies = append(policies, p)
 			}
-			return rows.Err()
+			if err := rows.Err(); err != nil {
+				return err
+			}
+			if pg.Enveloped {
+				return tx.QueryRow(c.Context(), `SELECT count(*) FROM policies WHERE org_id = $1`, id).Scan(&total)
+			}
+			return nil
 		})
+		if errors.Is(err, errBadCursor) {
+			return badPage(c, err)
+		}
 		if err != nil {
 			return serverError(c, err)
+		}
+		if pg.Enveloped {
+			items, next := page(policies, pg.Limit, func(p pRow) pageCursor { return timeCursor(p.UpdatedAt, p.ID.String()) })
+			return pageJSON(c, items, next, total)
 		}
 		return c.JSON(fiber.Map{"data": policies})
 	}
@@ -590,6 +752,7 @@ func createPolicy(db *pgxpool.Pool, eng *policy.Engine) fiber.Handler {
 		if err != nil {
 			return serverError(c, err)
 		}
+		logActivity(c, db, &org, "policy.created", req.Name, map[string]any{"id": id})
 		return c.Status(201).JSON(fiber.Map{"id": id})
 	}
 }
@@ -656,6 +819,7 @@ func updatePolicy(db *pgxpool.Pool, eng *policy.Engine) fiber.Handler {
 		if updated == 0 {
 			return c.Status(404).JSON(fiber.Map{"error": "not found"})
 		}
+		logActivity(c, db, &org, "policy.updated", pID.String(), map[string]any{"enabled": req.Enabled, "rules_changed": req.Rules != nil})
 		return c.JSON(fiber.Map{"id": pID, "updated": true})
 	}
 }
@@ -675,6 +839,7 @@ func deletePolicy(db *pgxpool.Pool) fiber.Handler {
 		if err != nil {
 			return serverError(c, err)
 		}
+		logActivity(c, db, &org, "policy.deleted", pID.String(), nil)
 		return c.Status(204).Send(nil)
 	}
 }
@@ -737,10 +902,14 @@ func validateRules(eng *policy.Engine, raw json.RawMessage) (json.RawMessage, []
 func listRequests(db *pgxpool.Pool) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		id := orgID(c)
-		limit := 100
-		if l := c.QueryInt("limit", 100); l > 0 && l <= 1000 {
-			limit = l
+		pg, err := parsePage(c, true)
+		if err != nil {
+			return badPage(c, err)
 		}
+		if !pg.Enveloped {
+			pg.Limit = 100 // the unpaged answer of earlier releases: the newest 100
+		}
+		ks := keyset{sort: "created_at", id: "id", desc: true}
 
 		type row struct {
 			ID             uuid.UUID  `json:"id"`
@@ -767,7 +936,32 @@ func listRequests(db *pgxpool.Pool) fiber.Handler {
 			CreatedAt       time.Time `json:"created_at"`
 		}
 		reqs := []row{}
-		err := tenant.WithOrg(c.Context(), db, id, func(tx pgx.Tx) error {
+		var total int64
+		var capped bool
+		err = tenant.WithOrg(c.Context(), db, id, func(tx pgx.Tx) error {
+			args := []any{id}
+			filter := ""
+			if action := c.Query("action"); action != "" {
+				args = append(args, action)
+				filter += fmt.Sprintf(" AND action = $%d", len(args))
+			}
+			// Search over the row's metadata, never the stored prompt or
+			// response content.
+			if q := c.Query("q"); q != "" {
+				args = append(args, likePattern(q))
+				filter += fmt.Sprintf(` AND (id::text ILIKE $%[1]d OR model ILIKE $%[1]d OR route_target ILIKE $%[1]d
+				  OR action ILIKE $%[1]d OR injection_label ILIKE $%[1]d)`, len(args))
+			}
+			if pg.Enveloped {
+				var err error
+				if total, capped, err = cappedCount(c.Context(), tx, `FROM requests WHERE org_id = $1`+filter, args); err != nil {
+					return err
+				}
+			}
+			cond, args, err := ks.where(pg, args)
+			if err != nil {
+				return err
+			}
 			rows, err := tx.Query(c.Context(),
 				// The scores and flags are nullable columns (rows written by
 				// older gateways or by hand); they read as 0 and false.
@@ -776,8 +970,8 @@ func listRequests(db *pgxpool.Pool) fiber.Handler {
 				        COALESCE(had_tag_chars, false), COALESCE(had_bidi, false), latency_ms,
 				        request_sha256, request_bytes, response_sha256, response_bytes, route_target,
 				        request_content, response_content, created_at
-				 FROM requests WHERE org_id = $1
-				 ORDER BY created_at DESC LIMIT $2`, id, limit)
+				 FROM requests WHERE org_id = $1`+filter+cond+ks.orderLimit(pageReq{Limit: pg.Limit, Enveloped: true}),
+				args...)
 			if err != nil {
 				return err
 			}
@@ -794,8 +988,16 @@ func listRequests(db *pgxpool.Pool) fiber.Handler {
 			}
 			return rows.Err()
 		})
+		if errors.Is(err, errBadCursor) {
+			return badPage(c, err)
+		}
 		if err != nil {
 			return serverError(c, err)
+		}
+		reqs, next := page(reqs, pg.Limit, func(r row) pageCursor { return timeCursor(r.CreatedAt, r.ID.String()) })
+		if pg.Enveloped {
+			// The count stops at cappedTotalLimit rows (total_capped).
+			return c.JSON(fiber.Map{"items": reqs, "next_cursor": next, "total": total, "total_capped": capped})
 		}
 		return c.JSON(fiber.Map{"data": reqs, "total": len(reqs)})
 	}
@@ -813,10 +1015,22 @@ type appConfig struct {
 	// UpstreamURL is the gateway's UPSTREAM_LLM_URL, shown by the simulator
 	// (without credentials). Optional.
 	UpstreamURL string
+	// MFAEncKey (MFA_ENC_KEY) encrypts TOTP secrets: 32 bytes in base64.
+	MFAEncKey string
+	// PublicBaseURL (PUBLIC_BASE_URL) is the external origin of the control
+	// plane, for SSO callback urls.
+	PublicBaseURL string
+	// UpstreamAllowPrivate (UPSTREAM_ALLOW_PRIVATE) lets upstream connection
+	// tests reach private addresses, as it does for the gateway.
+	UpstreamAllowPrivate bool
+	// TrustedProxies (TRUSTED_PROXIES) are reverse proxies whose
+	// X-Forwarded-For is believed.
+	TrustedProxies    []*net.IPNet
+	trustedProxiesErr error
 }
 
 func loadConfig() appConfig {
-	return appConfig{
+	cfg := appConfig{
 		ListenAddr:     getenv("LISTEN_ADDR", ":8081"),
 		DatabaseURL:    os.Getenv("DATABASE_URL"),
 		JWTSecret:      os.Getenv("JWT_SECRET"),
@@ -824,7 +1038,13 @@ func loadConfig() appConfig {
 		AdminPassword:  os.Getenv("ADMIN_PASSWORD"),
 		AllowedOrigins: os.Getenv("ALLOWED_ORIGINS"),
 		UpstreamURL:    redactURL(os.Getenv("UPSTREAM_LLM_URL")),
+		MFAEncKey:      os.Getenv("MFA_ENC_KEY"),
+		PublicBaseURL:  os.Getenv("PUBLIC_BASE_URL"),
+		// Invalid values are refused by check.
+		UpstreamAllowPrivate: strings.EqualFold(os.Getenv("UPSTREAM_ALLOW_PRIVATE"), "true"),
 	}
+	cfg.TrustedProxies, cfg.trustedProxiesErr = parseTrustedProxies(os.Getenv("TRUSTED_PROXIES"))
+	return cfg
 }
 
 // redactURL drops credentials and the query from a URL that is shown to users.
@@ -847,6 +1067,27 @@ func (cfg appConfig) check() error {
 		// Even dev mode needs a key to sign with.
 		return errors.New("JWT_SECRET is not set; set JWT_SECRET to a random value of at least 32 bytes " +
 			"(for example: openssl rand -hex 32)")
+	}
+	if cfg.trustedProxiesErr != nil {
+		return cfg.trustedProxiesErr
+	}
+	if v := os.Getenv("UPSTREAM_ALLOW_PRIVATE"); v != "" {
+		if _, err := strconv.ParseBool(v); err != nil {
+			return errors.New("UPSTREAM_ALLOW_PRIVATE must be true or false")
+		}
+	}
+	if cfg.PublicBaseURL != "" {
+		u, err := url.Parse(cfg.PublicBaseURL)
+		if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || (u.Path != "" && u.Path != "/") ||
+			u.RawQuery != "" || u.User != nil {
+			return errors.New("PUBLIC_BASE_URL must be an origin such as https://guard.example.com")
+		}
+	}
+	// The dev key of docker-compose.override.yml decodes to "dev-only-...".
+	if raw, err := base64.StdEncoding.DecodeString(cfg.MFAEncKey); err == nil && cfg.MFAEncKey != "" &&
+		config.IsKnownDefault(string(raw)) && !config.DevMode() {
+		return errors.New("MFA_ENC_KEY is the development key; set MFA_ENC_KEY to 32 random bytes in base64 " +
+			"(openssl rand -base64 32)")
 	}
 	var c config.Checker
 	c.Secret("JWT_SECRET", cfg.JWTSecret)

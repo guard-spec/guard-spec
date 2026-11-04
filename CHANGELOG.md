@@ -11,6 +11,66 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ### Added
 
+- **Sessions** (migration 013): a `sessions` table; tokens carry `sid` and
+  are checked against it. `GET /v1/auth/me`, `GET`/`DELETE /v1/auth/sessions`,
+  `POST /v1/auth/logout`, `POST /v1/auth/password` (12 characters minimum;
+  ends the other sessions).
+- **Two-factor authentication** (TOTP, RFC 6238) with 10 bcrypt-hashed
+  recovery codes, encrypted with `MFA_ENC_KEY` (AES-256-GCM). Logins answer
+  `mfa_required` or `mfa_enroll_required` with a 5-minute single-use
+  `mfa_token` (5 attempts); `POST /v1/auth/mfa/verify`; replayed codes are
+  refused. The control plane refuses to start without `MFA_ENC_KEY` once
+  users have 2FA.
+- **SSO with OpenID Connect, Google as a preset**: instance-wide providers
+  (`/v1/admin/identity-providers`, secrets in `OIDC_SECRET_*` variables),
+  PKCE, state and nonce, one-time code exchange (`POST /v1/auth/oidc/exchange`),
+  account-takeover protection (`account_exists`), `allowed_domains` and
+  Google's `hd`, auto-provisioning, profile linking. Needs `PUBLIC_BASE_URL`.
+- **Org security policy** (`/v1/organizations/:orgId/security`): require 2FA,
+  SSO satisfies 2FA, allowed login methods, domain join, session lifetime.
+- **User management**: org members (`/members`, role changes with last-owner
+  protection, removal, 2FA reset, session revocation), project members,
+  instance users (`/v1/admin/users`, soft delete) and `GET /v1/permissions`.
+  Instance administrators: `users.is_instance_admin`.
+- **Activity log** of admin actions and logins (`/v1/organizations/:orgId/activity`,
+  `/v1/admin/activity`).
+- **Model providers** (migration 014): upstreams get `provider`,
+  `display_name`, `models` (allowlist; other models are refused with 400
+  `model_not_allowed` and audited), `default_model` (`model` stays as an
+  alias), non-secret `headers`, `api_version` (Azure OpenAI, whose key goes
+  in `api-key`), `max_tokens_cap`, `retries` and `tags`.
+  `GET /v1/providers/catalog` and `POST .../upstreams/:id/test` (same SSRF and
+  `UPSTREAM_KEY_ORGS` rules as the gateway, 5 s, model ids only).
+- **Pagination**: `?limit=&cursor=` on every list endpoint, answering
+  `{"items","next_cursor","total"}` with keyset cursors.
+- `TRUSTED_PROXIES` (control plane): the client address behind reverse
+  proxies, read from the right of `X-Forwarded-For`.
+- Filters: `q` on requests (metadata only, never content) and API keys,
+  `revoked` on API keys, action families (`?action=invite`) on the activity
+  log; `total` (capped at 10,000, `total_capped`) on requests and activity.
+  An unrestricted org's `allowed_login_methods` reads and saves as `null`.
+
+### Security
+
+Fixes from the review of the identity work (migration 015):
+
+- SSO login CSRF: the state is bound to the starting browser by a cookie.
+- SSO link CSRF: a profile link is completed by the linking user's own token
+  (`POST /v1/auth/identities/link/complete`) and never runs `domain_join`.
+- 2FA reset and session revocation need an instance administrator or an
+  owner of every org of the user.
+- Email auto-linking needs the provider's `trust_email_for_linking` and an
+  account without password or identity; emails are stored lower-cased.
+- Per-user 2FA lockout (10 wrong codes: 15 minutes, doubling).
+- The upstream connection test is owner only, does not send a key shared
+  through `*` (outside dev), and compose no longer opens it to private
+  addresses by default.
+- The bootstrap admin is created once; deleted users lose their memberships;
+  disabled owners do not count as owners; migration 013 promotes one admin.
+- `max_tokens_cap` applies to every number form; failed logins store a masked
+  email and login events stay in the instance log; disabled accounts cannot
+  accept invites.
+
 - **Routing to named upstreams** (migration 011). An organization defines
   upstreams (`/v1/organizations/:orgId/upstreams`) and a default for the org
   and for each project. The gateway sends an allowed request to the matching
@@ -89,6 +149,15 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   suppressors.
 
 ### Changed
+
+- Control plane tokens now carry a session id; tokens issued before this
+  release are refused, so users log in again after upgrading.
+- `POST /v1/invites/accept` answers like a login (a session, or the 2FA
+  step) in addition to `user_id`, `org_id` and `role`.
+- List endpoints keep their old `{"data": [...]}` shape only when called
+  without `limit` and `cursor`; this fallback will be removed in the next
+  release. `GET .../requests?limit=` now answers with the envelope (at most
+  200 rows per page).
 
 - The gateway's dialer refuses link-local, multicast and unspecified
   addresses and the cloud metadata addresses `fd00:ec2::254`,

@@ -6,7 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
+	"slices"
+	"strconv"
 	"sync"
 	"time"
 
@@ -54,6 +57,13 @@ type upstreamRow struct {
 	TimeoutMs int
 	Enabled   bool
 	UpdatedAt time.Time
+	// Model provider fields (migration 014).
+	Provider     string
+	Models       []string // allowed models; empty: any
+	Headers      map[string]string
+	APIVersion   string
+	MaxTokensCap *int
+	Retries      int
 }
 
 // errNoSuchUpstream means a route rule names an upstream the org does not have.
@@ -86,11 +96,13 @@ func (s *routeSnapshot) lookup(target string) (*upstreamRow, string, error) {
 // policyRouteLoader returns a request's policies and its route snapshot.
 type policyRouteLoader func(ctx context.Context, orgID, projectID uuid.UUID) ([]policy.Policy, *routeSnapshot, error)
 
-const upstreamColumns = `u.id, u.name, u.base_url, u.model, COALESCE(u.api_key_env, ''), u.timeout_ms, u.enabled, u.updated_at`
+const upstreamColumns = `u.id, u.name, u.base_url, u.model, COALESCE(u.api_key_env, ''), u.timeout_ms, u.enabled, u.updated_at,
+	u.provider, u.models, u.headers, u.api_version, u.max_tokens_cap, u.retries`
 
 func scanUpstream(row pgx.Row, extra ...any) (*upstreamRow, error) {
 	u := &upstreamRow{}
-	dest := append(extra, &u.ID, &u.Name, &u.BaseURL, &u.Model, &u.KeyEnv, &u.TimeoutMs, &u.Enabled, &u.UpdatedAt)
+	dest := append(extra, &u.ID, &u.Name, &u.BaseURL, &u.Model, &u.KeyEnv, &u.TimeoutMs, &u.Enabled, &u.UpdatedAt,
+		&u.Provider, &u.Models, &u.Headers, &u.APIVersion, &u.MaxTokensCap, &u.Retries)
 	if err := row.Scan(dest...); err != nil {
 		return nil, err
 	}
@@ -296,9 +308,17 @@ func (p *upstreamPool) get(org uuid.UUID, u *upstreamRow) (*proxy.Proxy, error) 
 	if err := proxy.ValidateBaseURL(u.BaseURL); err != nil {
 		return nil, err
 	}
+	keyHeader := ""
+	if u.Provider == "azure_openai" {
+		keyHeader = "api-key" // Azure OpenAI keys are not bearer tokens
+	}
 	px, err := proxy.New(proxy.Config{
 		BaseURL:     u.BaseURL,
 		Key:         key,
+		KeyHeader:   keyHeader,
+		APIVersion:  u.APIVersion,
+		Headers:     u.Headers,
+		Retries:     u.Retries,
 		Timeout:     time.Duration(u.TimeoutMs) * time.Millisecond,
 		Propagate:   p.cfg.propagate,
 		DenyPrivate: !p.cfg.allowPrivate,
@@ -317,8 +337,77 @@ func (p *upstreamPool) get(org uuid.UUID, u *upstreamRow) (*proxy.Proxy, error) 
 type route struct {
 	proxy  *proxy.Proxy
 	name   string // the named upstream; "" for env and stub
-	model  string // replaces the request's model when set
+	model  string // the upstream's default model
 	source string
+	// models are the upstream's allowed models; empty allows any.
+	models       []string
+	maxTokensCap *int
+}
+
+// errModelNotAllowed refuses a request for a model the upstream does not allow.
+var errModelNotAllowed = errors.New("model not allowed")
+
+// applyModel sets the model a request is sent with. Without an allowlist the
+// upstream's default model, when set, replaces the requested one (as before
+// migration 014). With one, the requested model must be listed; a request
+// without a model gets the default.
+func (r route) applyModel(requested string) (string, error) {
+	if len(r.models) == 0 {
+		if r.model != "" {
+			return r.model, nil
+		}
+		return requested, nil
+	}
+	if requested == "" {
+		if r.model == "" {
+			return "", errModelNotAllowed
+		}
+		return r.model, nil
+	}
+	if !slices.Contains(r.models, requested) {
+		return "", errModelNotAllowed
+	}
+	return requested, nil
+}
+
+// errBadTokenLimit refuses a max_tokens that is not a finite, non-negative number.
+var errBadTokenLimit = errors.New("max_tokens and max_completion_tokens must be non-negative numbers")
+
+// capTokens lowers max_tokens and max_completion_tokens above the upstream's
+// cap. Every number form counts (5000.0, 1e6): the value is read as a float
+// and floored before the comparison. It reports whether it changed the body,
+// and refuses non-finite or negative values when a cap is set.
+func (r route) capTokens(body map[string]any) (bool, error) {
+	if r.maxTokensCap == nil {
+		return false, nil
+	}
+	changed := false
+	for _, k := range []string{"max_tokens", "max_completion_tokens"} {
+		v, ok := body[k]
+		if !ok || v == nil {
+			continue
+		}
+		var f float64
+		switch x := v.(type) {
+		case json.Number:
+			var err error
+			if f, err = x.Float64(); err != nil {
+				return false, errBadTokenLimit // out of range: ±Inf
+			}
+		case float64:
+			f = x
+		default:
+			return false, errBadTokenLimit
+		}
+		if math.IsNaN(f) || math.IsInf(f, 0) || f < 0 {
+			return false, errBadTokenLimit
+		}
+		if math.Floor(f) > float64(*r.maxTokensCap) {
+			body[k] = json.Number(strconv.Itoa(*r.maxTokensCap))
+			changed = true
+		}
+	}
+	return changed, nil
 }
 
 // errRouteUnavailable fails a request closed with 502.
@@ -366,7 +455,7 @@ func (gw gateway) resolveRoute(entry requestEntry, decision policy.Decision, sna
 		return route{}, err
 	}
 	if up != nil {
-		r := route{name: up.Name, model: up.Model, source: source}
+		r := route{name: up.Name, model: up.Model, source: source, models: up.Models, maxTokensCap: up.MaxTokensCap}
 		if !up.Enabled {
 			return fail(r, errors.New("upstream is disabled"))
 		}
