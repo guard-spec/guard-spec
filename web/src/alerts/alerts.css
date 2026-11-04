@@ -105,6 +105,8 @@
 }
 .bell-body {
   overflow-wrap: anywhere;
+  /* The server joins the summary lines with newlines. */
+  white-space: pre-line;
 }
 .bell-foot {
   padding: 8px 12px;
