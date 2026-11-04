@@ -9,6 +9,55 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ## [Unreleased]
 
+### Added
+
+- **Routing to named upstreams** (migration 011). An organization defines
+  upstreams (`/v1/organizations/:orgId/upstreams`) and a default for the org
+  and for each project. The gateway sends an allowed request to the matching
+  `route` rule's `route_target`, else the project default, else the org
+  default, else `UPSTREAM_LLM_URL`, else the stub. A missing or disabled
+  target, or an unset key variable, fails closed with 502
+  (`route_unavailable`). Keys stay in the gateway's environment
+  (`UPSTREAM_KEY_*`, named by `api_key_env`); no secret is stored. Deleting
+  an upstream in use returns 409 with its references.
+- The **`route` rule action**; `redact` is still refused.
+- **Text rule conditions**: `GET /v1/policy/schema`, `POST /v1/policy/parse`
+  and `POST /v1/policy/format`. Text is parsed with the cel-go parser only and
+  mapped to the condition tree; the stored form and the generated CEL are
+  unchanged. Two new string operators, `beginsWith` and `endsWith`.
+- **Config as code**: `GET`/`PUT /v1/organizations/:orgId/config` (YAML,
+  `?dry_run=true`), applied in one transaction; the file is the whole truth.
+- **Policy simulator**: `POST /v1/organizations/:orgId/policies/simulate`.
+- Audit rows record `route_target`; `GET .../requests` returns it, and the
+  action `route` when a route rule decided.
+- The control plane serves the admin UI at `/ui/` (embedded from `web/dist`,
+  strict CSP, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`) and
+  redirects `/` there. The UI itself is in progress; builds without it show a
+  placeholder.
+- Metric `guardspec_gateway_route_selections_total{source,outcome}`.
+
+- `UPSTREAM_KEY_ORGS` (gateway and control plane): which organizations may
+  name which `UPSTREAM_KEY_*` variable. Empty by default, so no org can use
+  a key until the operator lists it (`UPSTREAM_KEY_MAIN=*` for every org).
+  Refused on save and, for older rows, at request time (502).
+- `UPSTREAM_ALLOW_PRIVATE` (gateway, default `false`): org-defined upstreams
+  may not reach loopback, RFC 1918, unique local or CGNAT addresses unless it
+  is `true`. Compose sets `true` and `UPSTREAM_KEY_ORGS=UPSTREAM_KEY_MAIN=*`.
+
+### Changed
+
+- The gateway's dialer refuses link-local, multicast and unspecified
+  addresses and the cloud metadata addresses `fd00:ec2::254`,
+  `100.100.100.200` and `192.0.0.192` for every upstream, including
+  `UPSTREAM_LLM_URL`.
+- Policy names are unique per organization: create or rename onto a used
+  name returns 409. `GET .../config` returns 409, with the problems and how
+  to fix them, when the stored config would not apply again.
+- The audit `model` column holds the model sent upstream after a named
+  upstream's `model` rewrite.
+- `GET /organizations/:orgId` and the project list include
+  `default_upstream_id`.
+
 ## [0.1.0] - unreleased (release candidate)
 
 First release. Summarises everything since the PromptShield prototype that

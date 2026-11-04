@@ -40,7 +40,7 @@ func newCPHarness(t *testing.T) *cpHarness {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &cpHarness{t: t, db: db, app: newApp(db, testSecret, eng, "")}
+	return &cpHarness{t: t, db: db, app: newApp(db, testSecret, eng, "", withKeyOrgs(testKeyOrgs))}
 }
 
 // org creates an org and a user with role in it, and returns both and a token.
