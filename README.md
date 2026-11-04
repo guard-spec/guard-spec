@@ -127,7 +127,7 @@ What each stage does:
   attack category run on it, with suppressors for meta discussion, quoted
   examples and code literals. L1 always runs and needs no model files.
 - **L2 classifier** (`internal/inference/ml`, `internal/onnx`). Our own
-  `guardspec-classifier-v2`: `intfloat/multilingual-e5-small` fine-tuned on
+  `guardspec-classifier-v3`: `intfloat/multilingual-e5-small` fine-tuned on
   `train/` with an 8-label sigmoid head, INT8 ONNX, run in-process with ONNX
   Runtime. Risk is 1 − p(benign). Long input is scored in 256-token windows
   with a 64-token overlap; the worst window counts.
@@ -305,7 +305,7 @@ see [SECURITY.md](SECURITY.md#verifying-releases).
 | Layer | Files | Where it comes from |
 |---|---|---|
 | L1 | none | built into the binary |
-| L2 | `models/local/guardspec-classifier-v2/` (falls back to `-v1`, then `-v0`) (`model_int8.onnx`, `tokenizer.json`, `config.json`, `thresholds.json`) | **not published yet**: build it with `train/`, or copy the files in |
+| L2 | `models/local/guardspec-classifier-v3/` (falls back to `-v2`, `-v1`, then `-v0`) (`model_int8.onnx`, `tokenizer.json`, `config.json`, `thresholds.json`) | **not published yet**: build it with `train/`, or copy the files in |
 | L3 | `models/cache/multilingual-e5-small/` (`model.onnx`, `tokenizer.json`, `config.json`) | pulled from Hugging Face, pinned by commit and SHA-256 in `models/manifest.yaml` |
 
 The model layers need a gateway built with `-tags onnx` (cgo, ONNX Runtime).
@@ -331,7 +331,7 @@ docker compose --profile models run --rm models-pull   # -> models/cache/multili
 **L2 classifier.** Our classifier is not hosted anywhere yet (publishing it to
 Hugging Face is on the [roadmap](ROADMAP.md)). Two ways to get it:
 
-1. Build it from `train/` (deterministic data build; training takes about 20
+1. Build it from `train/` (deterministic data build; training takes about 40
    minutes on an Apple M3 Max with MPS; see [train/MODEL_CARD.md](train/MODEL_CARD.md)):
 
    ```bash
@@ -339,13 +339,13 @@ Hugging Face is on the [roadmap](ROADMAP.md)). Two ways to get it:
    uv sync
    uv run python data/build_data.py
    uv run python train.py
-   uv run python export.py      # writes ../models/local/guardspec-classifier-v2
+   uv run python export.py      # writes ../models/local/guardspec-classifier-v3
    ```
 
    MPS training is not bit-reproducible, so your weights and numbers can
    differ slightly from ours.
-2. Copy an existing `guardspec-classifier-v2` directory (from a teammate or
-   an earlier build) to `models/local/guardspec-classifier-v2`.
+2. Copy an existing `guardspec-classifier-v3` directory (from a teammate or
+   an earlier build) to `models/local/guardspec-classifier-v3`.
 
 Then restart the gateway (`docker compose up -d gateway`); the log line
 `L3 embeddings loaded` and the absence of `L2:` warnings confirm the layers
@@ -388,7 +388,7 @@ in a second table.
 | `OUTPUT_CANARY` | `off` | `block` or `redact` injects a canary and acts when it leaks |
 | `OUTPUT_REASONING` | `guard` | `drop` removes `reasoning` / `reasoning_content` instead of guarding them |
 | `MODEL_DIR` | `./models` (`/models` in the image) | Root of the model files. `MODELS_PATH` is the older name |
-| `L2_MODEL_DIR` | `$MODEL_DIR/local/guardspec-classifier-v2`, else `-v1`, else `-v0` | Classifier directory |
+| `L2_MODEL_DIR` | `$MODEL_DIR/local/guardspec-classifier-v3`, else `-v2`, `-v1`, `-v0` | Classifier directory |
 | `L3_MODEL_DIR` | `$MODEL_DIR/cache/multilingual-e5-small` | Embedding model directory |
 | `DETECTOR_LAYERS` | `l1,l2,l3` | Layers to run |
 | `DETECTOR_FUSION` | `logreg` | `logreg` or `max` of the calibrated layers |
@@ -790,8 +790,10 @@ English and 1,250 Vietnamese, built deterministically by
 `eval/build/build.py` (see [eval/README.md](eval/README.md)). "Block" is the
 gateway's direct-injection threshold, 0.85.
 
-Classifier v2 is the default L2 (see [train/MODEL_CARD.md](train/MODEL_CARD.md));
-the v1 rows are kept for comparison. All model rows were measured on
+Classifier v3 is the default L2 (see [train/MODEL_CARD.md](train/MODEL_CARD.md));
+its eval-set row is **pending measurement by the coordinator** (measured once,
+after training; the v3 validation and hold-out numbers are in the model card).
+The v2 and v1 rows are kept for comparison. All model rows were measured on
 2026-11-04 with the L1 rules of this release.
 
 | Detector | ROC AUC | TPR at FPR ≤ 1% | TPR at block | FPR at block | EN FPR | VI FPR | VI teencode FPR | VI no-diacritics FPR | Detector latency p50 / p99 |

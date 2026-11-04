@@ -11,6 +11,7 @@ read here.
 
 from __future__ import annotations
 
+import argparse
 import json
 import math
 import random
@@ -93,8 +94,25 @@ def val_metrics(logits, y, labels):
 
 
 def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--seed", type=int, help="override config seed")
+    ap.add_argument("--lr", type=float, help="override train.lr")
+    ap.add_argument("--epochs", type=int, help="override train.epochs")
+    ap.add_argument("--label-smoothing", type=float, help="override train.label_smoothing")
+    ap.add_argument("--run-dir", help="override export.run_dir (relative to train/)")
+    ap.add_argument("--train", help="override data.train (relative to train/), e.g. a GUARD_V3_REALISTIC=0 build")
+    a = ap.parse_args()
     cfg = load_config()
     tc = cfg["train"]
+    if a.seed is not None:
+        cfg["seed"] = a.seed
+    for k in ("lr", "epochs", "label_smoothing"):
+        if getattr(a, k) is not None:
+            tc[k] = getattr(a, k)
+    if a.run_dir:
+        cfg["export"]["run_dir"] = a.run_dir
+    if a.train:
+        cfg["data"]["train"] = a.train
     seed_everything(cfg["seed"])
     labels = cfg["labels"]
     device = torch.device(tc["device"] if (tc["device"] != "mps" or torch.backends.mps.is_available()) else "cpu")
@@ -102,6 +120,13 @@ def main():
     run_dir.mkdir(parents=True, exist_ok=True)
 
     train_rows = read_jsonl(ROOT / cfg["data"]["train"])
+    # v3: repeat some training rows every epoch, keyed "<source>/<lang>/<variant>" -> factor (config
+    # train.oversample), e.g. the realistic formal Vietnamese rows. Validation rows are never repeated.
+    for key, factor in (tc.get("oversample") or {}).items():
+        src, lang, variant = key.rsplit("/", 2)
+        extra = [r for r in train_rows if (r["source"], r["lang"], r["variant"]) == (src, lang, variant)]
+        train_rows += extra * (int(factor) - 1)
+        print(f"oversample {key} x{factor}: +{len(extra) * (int(factor) - 1)} rows", flush=True)
     val_rows = [r for p in cfg["data"]["val"] for r in read_jsonl(ROOT / p)]
     y_tr, y_va = label_matrix(train_rows, labels), label_matrix(val_rows, labels)
 
@@ -125,6 +150,7 @@ def main():
     total = len(tr_loader) * tc["epochs"]
     sched = get_linear_schedule_with_warmup(opt, int(tc["warmup_ratio"] * total), total)
     lossf = torch.nn.BCEWithLogitsLoss()
+    eps = float(tc.get("label_smoothing") or 0.0)
 
     log = dict(config=cfg, device=str(device), n_train=len(train_rows), n_val=len(val_rows), epochs=[])
     best, best_key, bad = None, (-math.inf, -math.inf), 0
@@ -135,6 +161,8 @@ def main():
         for step, batch in enumerate(tr_loader, 1):
             labels_t = batch.pop("labels").to(device)
             out = model(**{k: v.to(device) for k, v in batch.items()})
+            if eps:  # v3: label smoothing of the training targets only
+                labels_t = labels_t * (1 - eps) + eps / 2
             loss = lossf(out.logits, labels_t)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), tc["grad_clip"])

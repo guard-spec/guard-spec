@@ -29,6 +29,7 @@ const (
 	EnvCascadeHigh   = "DETECTOR_CASCADE_HIGH" // default DefaultCascade.High
 	EnvRequireML     = "DETECTOR_REQUIRE_ML"   // true: refuse to start without the ML layers (outside dev)
 	EnvFusion        = "DETECTOR_FUSION"       // logreg (default) or max
+	L2DefaultV3      = "local/guardspec-classifier-v3"
 	L2DefaultV2      = "local/guardspec-classifier-v2"
 	L2DefaultV1      = "local/guardspec-classifier-v1"
 	L2DefaultV0      = "local/guardspec-classifier-v0"
@@ -49,7 +50,7 @@ var DefaultCascade = fusion.Cascade{Low: 0.03, High: 0.965}
 type Config struct {
 	ModelDir string
 	// L2Dir is the classifier directory. Empty: the first of L2Defaults
-	// (ModelDir/local/guardspec-classifier-v2, then -v1, then -v0) that exists.
+	// (ModelDir/local/guardspec-classifier-v3, then -v2, -v1, -v0) that exists.
 	L2Dir string
 	// L3Dir is the embedding model directory. Empty: ModelDir/cache/multilingual-e5-small.
 	L3Dir   string
@@ -296,7 +297,7 @@ func (s *Stack) loadL3(ctx context.Context, cfg Config, tenants TenantStore, thr
 }
 
 // L2Defaults are the classifier directories under MODEL_DIR, newest first.
-var L2Defaults = []string{L2DefaultV2, L2DefaultV1, L2DefaultV0}
+var L2Defaults = []string{L2DefaultV3, L2DefaultV2, L2DefaultV1, L2DefaultV0}
 
 // DefaultL2Dir is the first of L2Defaults under modelDir that holds a
 // classifier, or "" when none does.
