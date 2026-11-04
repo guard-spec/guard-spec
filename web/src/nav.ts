@@ -5,6 +5,8 @@
 // icon per page. Instance admin pages show only to instance admins.
 
 import {
+  Bell,
+  BellRing,
   Building2,
   Cpu,
   FileCode,
@@ -17,10 +19,13 @@ import {
   LayoutDashboard,
   Library,
   Lock,
+  ListChecks,
   ScrollText,
+  Send,
   ShieldCheck,
   UserCog,
   Users,
+  UsersRound,
   Workflow,
   type LucideIcon,
 } from 'lucide-react';
@@ -68,6 +73,17 @@ export const NAV: NavGroup[] = [
     items: [
       { route: 'requests', label: 'nav.requests', icon: ScrollText },
       { route: 'activity', label: 'nav.activity', icon: History, capability: 'activity.read' },
+    ],
+  },
+  {
+    id: 'alerts',
+    label: 'navg.alerts',
+    items: [
+      { route: 'alert-rules', label: 'nav.alertRules', icon: Bell },
+      { route: 'alert-channels', label: 'nav.alertChannels', icon: Send },
+      { route: 'alert-groups', label: 'nav.alertGroups', icon: UsersRound },
+      { route: 'alert-history', label: 'nav.alertHistory', icon: BellRing },
+      { route: 'alert-deliveries', label: 'nav.alertDeliveries', icon: ListChecks, capability: 'alerts.deliveries.read' },
     ],
   },
   {

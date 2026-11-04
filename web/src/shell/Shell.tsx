@@ -7,6 +7,7 @@
 import { ArrowLeftRight, ChevronDown, ChevronRight, ChevronsUpDown, LogOut, Menu, PanelLeftClose, PanelLeftOpen, UserRound, X } from 'lucide-react';
 import { useCallback, useEffect, useId, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { NotificationBell } from '../alerts/notifications';
 import { nonEmpty, useApp } from '../context';
 import type { MessageKey } from '../i18n';
 import { NAV, navEntry, type NavGroup } from '../nav';
@@ -217,6 +218,9 @@ export function Shell({
               {titleKey ? <li aria-current="page">{t(titleKey)}</li> : null}
             </ol>
           </nav>
+          <div className="topbar-actions">
+            <NotificationBell />
+          </div>
         </header>
         <main id="main" className="main" tabIndex={-1}>
           {children}

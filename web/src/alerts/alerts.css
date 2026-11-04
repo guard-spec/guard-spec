@@ -1,0 +1,311 @@
+/* Copyright 2026 The Guard Spec Authors. SPDX-License-Identifier: Apache-2.0 */
+
+/* ── Alerts (RF-35448968): the header bell, switches, pickers, alert pages ── */
+
+.topbar-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.bell {
+  position: relative;
+}
+.bell-button {
+  position: relative;
+}
+.bell-count {
+  position: absolute;
+  top: -2px;
+  right: -4px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
+:root[data-theme='dark'] .bell-count {
+  color: #1a0b0b;
+}
+.bell-live {
+  position: absolute;
+  bottom: 3px;
+  right: 3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--border-strong);
+}
+.bell-live.is-live {
+  background: var(--ok);
+}
+.bell-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  width: min(380px, calc(100vw - 24px));
+  max-height: min(520px, calc(100vh - 80px));
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+  z-index: 40;
+}
+.bell-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.bell-head .btn {
+  margin-left: auto;
+}
+.bell-empty {
+  padding: 16px 12px;
+  margin: 0;
+}
+.bell-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+}
+.bell-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.bell-item.is-unread {
+  background: var(--accent-soft);
+}
+.bell-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--text);
+  text-decoration: none;
+}
+.bell-text:hover strong {
+  text-decoration: underline;
+}
+.bell-item:not(.is-unread) .bell-text strong {
+  font-weight: 500;
+}
+.bell-body {
+  overflow-wrap: anywhere;
+}
+.bell-foot {
+  padding: 8px 12px;
+  font-size: 13px;
+}
+.sev-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.sev-dot.sev-warning {
+  background: var(--warn);
+}
+.sev-dot.sev-critical {
+  background: var(--danger);
+}
+
+/* A checkbox drawn as a switch (the input stays the control). */
+.switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+.switch input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  margin: 0;
+  cursor: inherit;
+  z-index: 1;
+}
+.switch-track {
+  width: 32px;
+  height: 18px;
+  border-radius: 9px;
+  background: var(--border-strong);
+  position: relative;
+  transition: background 0.15s;
+}
+.switch-track::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--surface);
+  transition: transform 0.15s;
+}
+.switch input:checked + .switch-track {
+  background: var(--accent);
+}
+.switch input:checked + .switch-track::after {
+  transform: translateX(14px);
+}
+.switch input:focus-visible + .switch-track {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.switch input:disabled + .switch-track {
+  opacity: 0.55;
+}
+.switch:has(input:disabled) {
+  cursor: default;
+}
+
+.kind-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.col-rule .ellipsis {
+  max-width: clamp(140px, 16vw, 260px);
+}
+.cond-snippet,
+.recip-snippet {
+  max-width: clamp(120px, 13vw, 220px);
+}
+.group-desc {
+  max-width: clamp(160px, 22vw, 380px);
+}
+.group-names {
+  max-width: clamp(140px, 16vw, 280px);
+}
+.col-target .ellipsis {
+  max-width: clamp(140px, 15vw, 260px);
+}
+.num {
+  font-variant-numeric: tabular-nums;
+}
+.row-dead td {
+  background: color-mix(in srgb, var(--danger-soft) 45%, transparent);
+}
+.delivery-error {
+  color: var(--danger);
+  overflow-wrap: anywhere;
+}
+.delivery-error strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.rule-editor .form-grid {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+.dialog fieldset.check-group,
+fieldset.check-group {
+  border: none;
+  padding: 4px 0 8px;
+  margin: 0;
+}
+.dialog fieldset.check-group legend,
+fieldset.check-group legend {
+  padding: 0;
+  font-size: 13px;
+}
+.check-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+}
+.check-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 6px 16px;
+}
+.check-group .check {
+  font-size: 13px;
+}
+.event-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 0 16px;
+}
+.event-groups .check span {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.alert-condition .tabs {
+  margin-bottom: 8px;
+}
+
+.picker-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.picker-list {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 4px 8px;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--input-bg);
+}
+.picker-list li {
+  padding: 4px 0;
+}
+.picker-list .check {
+  align-items: flex-start;
+  font-weight: 400;
+  font-size: 13px;
+}
+.input-with-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.input-with-badge input {
+  flex: 1;
+}
+.sample-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 8px;
+}
+.sample-list li {
+  padding: 6px 0;
+  border-top: 1px solid var(--border);
+}
+.sample-attrs {
+  display: block;
+  margin-top: 2px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.telegram-link .cell-stack {
+  gap: 6px;
+}
+.telegram-link .secret-row {
+  width: 100%;
+}
+.prefs-table {
+  width: auto;
+  min-width: 360px;
+  margin-bottom: 8px;
+}
