@@ -72,7 +72,8 @@ gateway:
     port: 8080
   metricsPort: 9090
   # Extra environment, such as UPSTREAM_LLM_URL, OUTPUT_*, SCAN_ROLES.
-  # Secrets (UPSTREAM_LLM_KEY) belong in extraEnvFrom.
+  # Secrets (UPSTREAM_LLM_KEY, and UPSTREAM_KEY_* for named upstreams) belong
+  # in extraEnvFrom.
   env:
     UPSTREAM_LLM_URL: ""
     AUDIT_STORE_CONTENT: "false"

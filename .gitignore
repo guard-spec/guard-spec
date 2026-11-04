@@ -37,3 +37,6 @@ models/local/
 
 # GoReleaser output
 /dist/
+
+# Admin UI dependencies (web/dist keeps a committed placeholder)
+web/node_modules/
