@@ -8,7 +8,7 @@ import (
 	"github.com/giaplee/guard-spec/internal/onnx"
 )
 
-// TestDefaultL2DirOrder: v3 is the default L2, falling back to v2, v1, then v0.
+// TestDefaultL2DirOrder: v3b is the default L2, falling back to v2, v1, then v0.
 func TestDefaultL2DirOrder(t *testing.T) {
 	root := t.TempDir()
 	if got := DefaultL2Dir(root); got != "" {
@@ -28,7 +28,7 @@ func TestDefaultL2DirOrder(t *testing.T) {
 		{L2DefaultV0, L2DefaultV0},
 		{L2DefaultV1, L2DefaultV1},
 		{L2DefaultV2, L2DefaultV2},
-		{L2DefaultV3, L2DefaultV3},
+		{L2DefaultV3B, L2DefaultV3B},
 	} {
 		install(step.install)
 		if got, want := DefaultL2Dir(root), filepath.Join(root, step.want); got != want {
