@@ -26,6 +26,7 @@ import csv
 import gzip
 import hashlib
 import json
+import os
 import re
 import sys
 import unicodedata
@@ -40,6 +41,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import gen_en  # noqa: E402
 import gen_hardneg  # noqa: E402
+import gen_holdout_v3  # noqa: E402
+import gen_v3  # noqa: E402
 import gen_vi  # noqa: E402
 import gen_vi_v2  # noqa: E402
 from common import (LABELS, fingerprint, leet, normalize_for_fingerprint, rng, shingles,  # noqa: E402
@@ -71,12 +74,80 @@ JAILBREAK = dict(key="jackhhao/jailbreak-classification", license="Apache-2.0",
 OASST2 = dict(key="OpenAssistant/oasst2", license="Apache-2.0",
               revision="179dd21fc55192153d94adb0e0ce8f69e222bf75",
               file="2023-11-05_oasst2_prompts.messages.jsonl.gz")
+# v3: real English prompts (first user turn), CC-BY-4.0 with attribution in DATA_LICENSES.md.
+HELPSTEER2 = dict(key="nvidia/HelpSteer2", license="CC-BY-4.0",
+                  revision="990b2711a36180dd19d9c94b8627844866f8982a", file="train.jsonl.gz")
 PROJECT, PROJECT_LICENSE = "guard-spec", "Apache-2.0"
+# v3: realistic EN/VI rows written row by row by an AI model for this project (data/realistic/README.md),
+# Apache-2.0. GUARD_V3_REALISTIC=0 keeps its rows out of the training split only (the "without" arm of the
+# v3 comparison); the 12% of its scenarios that the group hash sends to `val` stay there in both arms;
+# the hold-out file is always built as `val_realistic_holdout` and never used for selection or calibration.
+REALISTIC_SOURCE = PROJECT + ":realistic-fable"
+REALISTIC_TRAIN = DATA / "realistic" / "realistic_train.jsonl"
+REALISTIC_HOLDOUT = DATA / "realistic" / "realistic_holdout.jsonl"
+USE_REALISTIC = os.environ.get("GUARD_V3_REALISTIC", "1") != "0"
+
+# v3b: external rows read at build time and never committed (owner-supplied data is not redistributed).
+# Each variable is a path to a jsonl file in the DATA_CARD schema (extra fields such as `category`,
+# `entry_point`, `ablate` are ignored); unset or missing files are skipped. Training files are mixed
+# into the pool and split by group hash like every other source; hold-out / probe files become their own
+# splits and are never used for training, selection or calibration. Any of them requires GUARD_BUILD_OUT,
+# an output directory outside train/data (e.g. train/runs/data-v3b), so no external row lands in git.
+EXTERNAL_TRAIN = [("GUARD_OWNER_TRAIN", "guard-spec:owner-supplied"), ("GUARD_OTPKYC_TRAIN", "guard-spec:otpkyc-fable")]
+EXTERNAL_HOLDOUT = [("GUARD_OWNER_HOLDOUT", "user_holdout", "guard-spec:owner-supplied"),
+                    ("GUARD_OTPKYC_PROBE", "otpkyc_probe", "guard-spec:otpkyc-fable")]
+# v3b arm B: leave owner rows marked `ablate: true` (authorization abuse and scams rather than injection)
+# out of the training split; the ones the group hash sends to `val` stay there in both arms.
+DROP_ABLATE = os.environ.get("GUARD_OWNER_DROP_ABLATE", "0") == "1"
+EXTERNAL_SOURCES = {src for _, src in EXTERNAL_TRAIN}
+ABLATE_TEXTS: set[str] = set()
+
+
+def external_path(var):
+    v = os.environ.get(var, "")
+    if not v:
+        return None
+    path = Path(v).expanduser()
+    if not path.exists():
+        print(f"{var}={v}: file not found, skipped", file=sys.stderr)
+        return None
+    return path
+
+
+def output_dir():
+    used = [v for v, *_ in EXTERNAL_TRAIN + EXTERNAL_HOLDOUT if external_path(v)]
+    out = os.environ.get("GUARD_BUILD_OUT", "")
+    if not used:
+        return Path(out).resolve() if out else DATA
+    assert out, f"{', '.join(used)} set: GUARD_BUILD_OUT (outside train/data) is required"
+    out = Path(out).resolve()
+    assert out != DATA and DATA not in out.parents, "GUARD_BUILD_OUT must be outside train/data"
+    return out
+
+
+def add_external(c, path, source, counts, tag):
+    with open(path, encoding="utf-8") as f:
+        for ln in f:
+            r = json.loads(ln)
+            assert set(r) >= {"text", "labels", "lang", "variant", "source", "license", "group"}, r.keys()
+            assert r["lang"] in ("en", "vi") and r["variant"] in VARIANTS and r["source"] == source, r
+            c.add(r["text"], r["labels"], r["lang"], r["variant"], r["source"], r["license"], r["group"])
+            if r.get("ablate"):
+                ABLATE_TEXTS.add(unicodedata.normalize("NFC", r["text"]).strip())
+            counts[f"external:{tag}"] += 1
 
 OASST_EN_N = 3800  # v1: 3200. v2 takes more so that English `orig` reaches TARGET_RATIO without dropping attacks.
 # v2: benign-to-attack ratio that every (language, variant) cell of the training split is brought to
-# (balance_variants). It is about the overall ratio of the v2 training split before balancing.
-TARGET_RATIO = 1.5
+# (balance_variants). v2 used 1.5 everywhere. v3 raises it to 2.0 for English, which gained hard
+# negatives (gen_v3) and real prompts (HelpSteer2), and to 1.75 for Vietnamese, the most its
+# no-diacritics and teencode cells can reach without dropping attacks; every variant of a language
+# keeps the same ratio, so the surface form still carries no label signal.
+TARGET_RATIO = {"en": 2.0, "vi": 1.75}
+HELPSTEER_N = 2500
+# Jailbreak-like role-play to drop from HelpSteer2 prompts (they are labelled benign by us).
+RE_HS_DROP = re.compile(r"\b(no|without( any)?) (moral|ethic|filter|restriction|limit|guideline|rule|censor)\w*|"
+                        r"\bbad AI\b|\bevil\b|\bDAN\b|jailbr|developer mode|\bunfiltered\b|\buncensored\b|"
+                        r"ignore (all|any|your|previous|prior)\b.{0,30}\b(instructions?|rules|guidelines|prompts?)", re.I)
 
 
 def fetch(src) -> Path:
@@ -221,7 +292,32 @@ def load_sources(c: Collector, counts):
     rng("oasst.en").shuffle(en)
     for mid, text in en[:OASST_EN_N]:
         c.add(text, ["benign"], "en", "orig", OASST2["key"] + ":prompts", OASST2["license"], f"oasst.{mid}")
+    load_helpsteer(c, counts)
     return vi
+
+
+def load_helpsteer(c: Collector, counts):
+    """v3: first user turn of nvidia/HelpSteer2 train prompts (real ShareGPT-style requests: role-play,
+    technical and business writing). Benign; jailbreak-like role-play and non-English rows are dropped."""
+    seen, keep = set(), []
+    with gzip.open(fetch(HELPSTEER2), "rt", encoding="utf-8") as f:
+        for line in f:
+            text = json.loads(line)["prompt"].split("<extra_id_1>")[0].strip()
+            if text in seen:
+                continue
+            seen.add(text)
+            if not (12 <= len(text) <= 1500) or not is_english(text):
+                counts["helpsteer_len_or_lang_skipped"] += 1
+                continue
+            if RE_HS_DROP.search(text) or RE_OASST_DROP.search(text):
+                counts["helpsteer_attacklike_skipped"] += 1
+                continue
+            keep.append(text)
+    keep.sort()
+    rng("helpsteer").shuffle(keep)
+    for text in keep[:HELPSTEER_N]:
+        g = "hs2." + hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
+        c.add(text, ["benign"], "en", "orig", HELPSTEER2["key"] + ":train", HELPSTEER2["license"], g)
 
 
 # v1: identical variant rates for benign and attack rows, so that "no diacritics", "teencode",
@@ -296,6 +392,51 @@ def build(c: Collector, counts):
                     leet_frac=0.0, teen2=1.0)
     add_hardneg(c, "train")
     add_vi_variants(c, gen_vi_v2.generate("train"), "v2.vi.train", source=PROJECT + ":v2")
+    add_v3(c, gen_v3.generate("train"), "train", PROJECT + ":v3")
+    add_realistic(c, REALISTIC_TRAIN, counts)
+    for var, src in EXTERNAL_TRAIN:
+        path = external_path(var)
+        if path:
+            add_external(c, path, src, counts, path.stem)
+
+
+VARIANTS = {"orig", "no_diacritics", "teencode", "leet", "partial_diacritics"}
+
+
+def add_realistic(c, path, counts):
+    """v3: realistic rows as written (their no-diacritics and teencode rows are their own texts, so no
+    transforms are added). The schema is checked; group ids are kept, so the train/val split by group
+    hash keeps each scenario on one side."""
+    with open(path, encoding="utf-8") as f:
+        for ln in f:
+            r = json.loads(ln)
+            assert set(r) >= {"id", "text", "labels", "lang", "variant", "source", "license", "group"}, r.keys()
+            assert r["lang"] in ("en", "vi") and r["variant"] in VARIANTS, r
+            assert r["source"] == REALISTIC_SOURCE and r["license"] == "Apache-2.0", r
+            c.add(r["text"], r["labels"], r["lang"], r["variant"], r["source"], r["license"], r["group"])
+            counts[f"realistic:{path.stem}"] += 1
+
+
+def add_v3(c, rows, split, src):
+    """v3 generator rows (gen_v3 sets A/B, gen_holdout_v3 set C). Training: English rows get leet copies
+    at EN_LEET and Vietnamese rows the usual variants. Validation splits: every Vietnamese base gets an
+    orig, a no-diacritics and a teencode (table B, held-out spellings) copy; English rows stay orig."""
+    en = [b for b in rows if b["lang"] == "en"]
+    vi = [b for b in rows if b["lang"] == "vi"]
+    r_l = rng(f"v3.en.leet.{split}")
+    for b in en:
+        c.add(b["text"], b["labels"], "en", "orig", src, PROJECT_LICENSE, b["group"])
+        if split == "train" and r_l.random() < EN_LEET:
+            lab = b["labels"] if b["labels"] == ["benign"] else b["labels"] + ["obfuscation"]
+            c.add(leet(b["text"], b["group"]), lab, "en", "leet", src, PROJECT_LICENSE, b["group"])
+    if split == "train":
+        add_vi_variants(c, vi, f"v3.vi.{split}", source=src)
+        return
+    for b in vi:
+        g = b["group"]
+        c.add(b["text"], b["labels"], "vi", "orig", src, PROJECT_LICENSE, g)
+        c.add(strip_diacritics(b["text"]), b["labels"], "vi", "no_diacritics", src, PROJECT_LICENSE, g)
+        c.add(teencode_v2(b["text"], f"{g}.v3", "B"), b["labels"], "vi", "teencode", src, PROJECT_LICENSE, g)
 
 
 RE_SENT = re.compile(r"(?<=[.!?])\s+")
@@ -311,14 +452,25 @@ def oasst_sentences(bases, max_per=2):
     return out
 
 
-def balance_variants(rows, target, counts, section="balance"):
-    """Bring every (lang, variant) cell to benign:attack == target (v2).
+def drop_priority(x):
+    """v3: which benign rows balance_variants drops first. 0: rows from general-purpose sources
+    (oasst2, HelpSteer2, jailbreak-classification, deepset); 1: project template rows; hard negatives
+    (v1 `hardneg`, v2, v3 generators) are never dropped."""
+    src = x["source"]
+    if src in (PROJECT + ":hardneg", PROJECT + ":v2", PROJECT + ":v3", REALISTIC_SOURCE) or src in EXTERNAL_SOURCES:
+        return 2
+    return 1 if src == PROJECT else 0
 
-    Attack rows are never dropped. A cell with too many benign rows loses benign rows at random
-    (minimal-pair rows are kept, so the pairs stay intact, and so are the L3 exemplar rows of
-    internal/inference/ml/exemplars, which must stay training rows); a cell with too few gets benign
-    transforms of the same language's `orig` benign rows of the split (leet, no diacritics,
-    v2 teencode, partly stripped diacritics), which keep their base row's group.
+
+def balance_variants(rows, target, counts, section="balance"):
+    """Bring every (lang, variant) cell to benign:attack == target[lang] (v2; v3: per language).
+
+    Attack rows are never dropped. A cell with too many benign rows loses benign rows at random,
+    general-purpose source rows first (v3, `drop_priority`); minimal-pair rows are kept, so the pairs
+    stay intact, and so are the L3 exemplar rows of internal/inference/ml/exemplars, which must stay
+    training rows. A cell with too few gets benign transforms of the same language's `orig` benign
+    rows of the split (leet, no diacritics, v2 teencode, partly stripped diacritics), which keep their
+    base row's group.
     """
     r = rng(section)
     keep_ids = {json.loads(ln)["id"] for ln in EXEMPLARS.read_text(encoding="utf-8").splitlines() if ln.strip()}
@@ -334,11 +486,12 @@ def balance_variants(rows, target, counts, section="balance"):
         "partial_diacritics": lambda t, g: partial_diacritics(t, g + ".bal") if "\n" in t else t,
     }
     for (lang, variant), (ben, atk) in sorted(cells.items()):
-        want = round(target * len(atk))
+        want = round(target[lang] * len(atk))
         if len(ben) > want:
-            pool = sorted((x for x in ben if ".pair." not in x["group"] and x["id"] not in keep_ids),
-                          key=lambda x: x["text"])
+            pool = sorted((x for x in ben if ".pair." not in x["group"] and x["id"] not in keep_ids
+                           and drop_priority(x) < 2), key=lambda x: x["text"])
             r.shuffle(pool)
+            pool.sort(key=drop_priority)  # stable: random order within a priority class
             k = min(len(ben) - want, len(pool))
             drop.update(id(x) for x in pool[:k])
             counts[f"balance:{lang}/{variant}:benign_dropped"] += k
@@ -421,7 +574,10 @@ def max_jaccard(train_texts, eval_texts):
     return best
 
 
-def leakage_filter(rows, counts):
+MAX_JACCARD = {}  # v3: highest kept 5-gram Jaccard with any eval text, per tag (stats.json)
+
+
+def leakage_filter(rows, counts, tag=None):
     fps, eval_texts = load_eval()
     kept = []
     for r in rows:
@@ -432,6 +588,11 @@ def leakage_filter(rows, counts):
             kept.append(r)
     jac = max_jaccard([r["text"] for r in kept], eval_texts)
     out = []
+    if tag is not None:
+        for r, j in zip(kept, jac):
+            if j <= JACCARD_MAX:
+                for key in (tag, f"{tag}|{r['source']}"):
+                    MAX_JACCARD[key] = round(max(MAX_JACCARD.get(key, 0.0), float(j)), 4)
     for r, j in zip(kept, jac):
         if j > JACCARD_MAX:
             counts[f"leak_jaccard:{r['source'].split(':')[0]}"] += 1
@@ -468,7 +629,7 @@ def main():
     build(c, counts)
     counts["generated"] = len(c.rows)
     rows = dedupe(c.rows, counts)
-    rows = leakage_filter(rows, counts)
+    rows = leakage_filter(rows, counts, tag="train+val")
     # Restore a deterministic order and assign ids.
     rows.sort(key=lambda r: (r["lang"], r["group"], r["variant"], r["text"]))
     for r in rows:
@@ -477,10 +638,18 @@ def main():
     for r in rows:
         h = int(hashlib.sha256(f"split:{r['group']}".encode()).hexdigest(), 16) % 100
         split["val" if h < VAL_PCT else "train"].append(r)
+    if not USE_REALISTIC:
+        n0 = len(split["train"])
+        split["train"] = [r for r in split["train"] if r["source"] != REALISTIC_SOURCE]
+        counts["realistic_left_out_of_train"] = n0 - len(split["train"])
+    if DROP_ABLATE:
+        n0 = len(split["train"])
+        split["train"] = [r for r in split["train"] if r["text"] not in ABLATE_TEXTS]
+        counts["owner_ablate_left_out_of_train"] = n0 - len(split["train"])
     # v2: every (language, variant) cell of the training split gets the same benign:attack ratio.
     # Rows added here are transforms of training rows; they get the leakage check below.
     kept, added = balance_variants(split["train"], TARGET_RATIO, counts)
-    split["train"] = kept + leakage_filter(added, counts)
+    split["train"] = kept + leakage_filter(added, counts, tag="train+val")
     split["train"].sort(key=lambda r: (r["lang"], r["group"], r["variant"], r["text"]))
     for r in split["train"]:
         r["id"] = f"{r['lang']}-{hashlib.sha256(r['text'].encode('utf-8')).hexdigest()[:12]}"
@@ -489,7 +658,7 @@ def main():
     hv = Collector()
     add_hardneg(hv, "val")
     hcounts = collections.Counter()
-    hrows = leakage_filter(dedupe(hv.rows, hcounts), hcounts)
+    hrows = leakage_filter(dedupe(hv.rows, hcounts), hcounts, tag="val_hard")
     train_texts = {r["text"] for r in rows}
     hrows = [r for r in hrows if r["text"] not in train_texts]
     for k, v in hcounts.items():
@@ -511,7 +680,7 @@ def main():
         for k in range(2):
             vv.add(teencode_v2(b["text"], f"{g}.{k}", "B"), b["labels"], "vi", "teencode", src, PROJECT_LICENSE, g)
     vcounts = collections.Counter()
-    vrows = leakage_filter(dedupe(vv.rows, vcounts), vcounts)
+    vrows = leakage_filter(dedupe(vv.rows, vcounts), vcounts, tag="val_vi_variants")
     seen = train_texts | {r["text"] for r in split["train"]} | {r["text"] for r in hrows}
     vrows = [r for r in vrows if r["text"] not in seen]
     for k, v in vcounts.items():
@@ -520,13 +689,71 @@ def main():
     for r in vrows:
         r["id"] = f"{r['lang']}-{hashlib.sha256(r['text'].encode('utf-8')).hexdigest()[:12]}"
     split["val_vi_variants"] = vrows
+
+    # v3: `val_v3` (gen_v3 template set B; selection and calibration, with the splits above) and
+    # `val_v3_holdout` (gen_holdout_v3 template set C; scored once at the end, never used for
+    # selection or calibration).
+    seen = seen | {r["text"] for r in vrows}
+    for name, gen_rows, src in (("val_v3", gen_v3.generate("val"), PROJECT + ":v3-val"),
+                                ("val_v3_holdout", gen_holdout_v3.generate(), PROJECT + ":v3-holdout")):
+        xc = Collector()
+        add_v3(xc, gen_rows, "val", src)
+        xcounts = collections.Counter()
+        xrows = leakage_filter(dedupe(xc.rows, xcounts), xcounts, tag=name)
+        xrows = [r for r in xrows if r["text"] not in seen]
+        seen = seen | {r["text"] for r in xrows}
+        for k, v in xcounts.items():
+            counts[f"{name}:{k}"] += v
+        xrows.sort(key=lambda r: (r["lang"], r["group"], r["variant"], r["text"]))
+        for r in xrows:
+            r["id"] = f"{r['lang']}-{hashlib.sha256(r['text'].encode('utf-8')).hexdigest()[:12]}"
+        split[name] = xrows
+    # v3: realistic hold-out (data/realistic, disjoint scenarios and organisations), as written.
+    xc = Collector()
+    add_realistic(xc, REALISTIC_HOLDOUT, counts)
+    xcounts = collections.Counter()
+    xrows = leakage_filter(dedupe(xc.rows, xcounts), xcounts, tag="val_realistic_holdout")
+    xrows = [r for r in xrows if r["text"] not in seen]
+    for k, v in xcounts.items():
+        counts[f"val_realistic_holdout:{k}"] += v
+    xrows.sort(key=lambda r: (r["lang"], r["group"], r["variant"], r["text"]))
+    for r in xrows:
+        r["id"] = f"{r['lang']}-{hashlib.sha256(r['text'].encode('utf-8')).hexdigest()[:12]}"
+    split["val_realistic_holdout"] = xrows
+    # v3b: external hold-outs and probes (never committed; written only to GUARD_BUILD_OUT).
+    for var, name, src in EXTERNAL_HOLDOUT:
+        path = external_path(var)
+        if not path:
+            continue
+        xc = Collector()
+        add_external(xc, path, src, counts, name)
+        xcounts = collections.Counter()
+        xrows = leakage_filter(dedupe(xc.rows, xcounts), xcounts, tag=name)
+        xrows = [r for r in xrows if r["text"] not in seen]
+        for k, v in xcounts.items():
+            counts[f"{name}:{k}"] += v
+        xrows.sort(key=lambda r: (r["lang"], r["group"], r["variant"], r["text"]))
+        for r in xrows:
+            r["id"] = f"{r['lang']}-{hashlib.sha256(r['text'].encode('utf-8')).hexdigest()[:12]}"
+        split[name] = xrows
+    # Independence of the hold-outs from everything used for training, selection and calibration
+    # (the realistic training file counts as used even when GUARD_V3_REALISTIC=0).
+    used = [r["text"] for name in ("train", "val", "val_hard", "val_vi_variants", "val_v3") for r in split[name]]
+    used += [json.loads(ln)["text"] for ln in REALISTIC_TRAIN.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    for name in [n for n in ("val_v3_holdout", "val_realistic_holdout", "user_holdout", "otpkyc_probe") if n in split]:
+        hj = max_jaccard([r["text"] for r in split[name]], used)
+        MAX_JACCARD[f"{name}_vs_train_and_val"] = round(float(hj.max()), 4)
+        counts[f"{name}_rows_jaccard_gt_0.8_vs_train_and_val"] = int((hj > JACCARD_MAX).sum())
+    out = output_dir()
+    out.mkdir(parents=True, exist_ok=True)
     for name, rs in split.items():
-        with open(DATA / f"{name}.jsonl", "w", encoding="utf-8", newline="\n") as f:
+        with open(out / f"{name}.jsonl", "w", encoding="utf-8", newline="\n") as f:
             for r in rs:
                 f.write(json.dumps({k: r[k] for k in ("id", "text", "labels", "lang", "variant", "source", "license", "group")},
                                    ensure_ascii=False) + "\n")
 
-    stats = {"counts": dict(sorted(counts.items())), "splits": {}}
+    stats = {"counts": dict(sorted(counts.items())), "max_jaccard_vs_eval": dict(sorted(MAX_JACCARD.items())),
+             "splits": {}}
     for name, rs in split.items():
         per = collections.Counter()
         for r in rs:
@@ -535,9 +762,12 @@ def main():
                 per[f"{r['lang']}/{lb}"] += 1
             per[f"{r['lang']}/variant:{r['variant']}"] += 1
             per[f"source:{r['source'].split(':')[0]}"] += 1
+            per[f"source_full:{r['source']}"] += 1
+            if r["labels"] == ["benign"]:
+                per[f"{r['lang']}/benign/variant:{r['variant']}"] += 1
         stats["splits"][name] = dict(sorted(per.items()))
         stats["splits"][name]["rows"] = len(rs)
-    (DATA / "stats.json").write_text(json.dumps(stats, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    (out / "stats.json").write_text(json.dumps(stats, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print(json.dumps(stats, indent=2, ensure_ascii=False))
 
 

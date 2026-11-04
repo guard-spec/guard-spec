@@ -6,9 +6,246 @@ pipeline_tag: text-classification
 tags: [prompt-injection, jailbreak, guardrail, onnx, int8]
 ---
 
-# guardspec-classifier-v2
+# guardspec-classifier-v3b
 
 Copyright The Guard Spec Authors. Licensed under the Apache License 2.0.
+
+## v3b (2026-11-04): the default classifier
+
+v3b is the v3 recipe (r3, below) retrained with owner-supplied rows and OTP / eKYC rows added (arm A).
+The gateway loads `models/local/guardspec-classifier-v3b` first, then v2, v1, v0. v3 itself never
+shipped: it failed the eval set (see "v3" below).
+
+v3b first failed our pre-eval decision rule on the OTP/KYC probe (below). The eval set then showed
+that our generated hold-outs had been optimistic for v3, and that the owner-written data generalised
+to eval where the generator-heavy data did not. The owner approved v3b-A as the default on the eval
+result.
+
+### Eval set results (measured once by the coordinator, gateway, fused L1+L2+L3 at 0.85)
+
+| | ROC AUC | TPR at FPR ≤ 1% | TPR at block | FPR at block | EN FPR | VI FPR | VI teencode FPR | VI no-diacritics FPR | VI orig FPR | latency p50 / p99 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| v2 | 0.985 | 0.922 | 0.933 | 2.0% | 2.2% | 1.9% | 1.4% | 3.0% | - | 3.8 / 11.0 ms |
+| v3 (not shipped) | - | - | 0.915 | 2.2% | - | - | 4.2% | - | - | - |
+| **v3b** | **0.986** | **0.924** | 0.932 | **1.4%** | **1.7%** | **1.3%** | 3.5% | **0.4%** | 0.4% | 3.7 / 11.1 ms |
+
+`eval/baseline-onnx.json` holds the v3b run, and the README Benchmarks section has the row. Against
+the v2 baseline, 23 eval rows changed for the worse with v3b (v3: 42). The overall FPR target (≤ 1.5%)
+is met, but the per-group target (≤ 2%) is missed for teencode.
+
+### Known weaknesses
+
+- **Vietnamese teencode benign FPR is 3.5%** on eval (v2 1.4%). v3/v3b moved benign mass from teencode
+  towards no-diacritics: no-diacritics fell from 3.0% to 0.4%.
+- **OTP/KYC false positives**: on the benign OTP/KYC probe (120 rows), v3b blocks 3.3% (4 rows; VI
+  3 of 73), v3 0.8%. The OTP/KYC training file has English attacks only and Vietnamese benign rows
+  only, so banking vocabulary carries a language-dependent signal.
+- **English leet recall** is lower on eval (TPR 0.825 vs v2 0.875).
+- The hold-outs we wrote ourselves were optimistic: v3 scored FPR 0.4% / 1.4% on them and 2.2% on
+  eval. Treat the validation and hold-out tables below as development signals, not estimates.
+
+**Provenance (not redistributed).** None of these rows is in this repository; `data/build_data.py`
+reads them from paths at build time (`DATA_CARD.md`, "v3b") into a gitignored directory.
+
+| file | rows | content | use |
+|---|---|---|---|
+| owner `user_train.jsonl` (`guard-spec:owner-supplied`) | 580 (348 attack / 232 benign; EN/VI translation pairs; 200 banking OTP/KYC rows; 60 `ablate`) | supplied by the owner | training, 12% of groups to `val` (517 train / 63 val) |
+| owner `user_holdout.jsonl` | 220 (132 / 88; 60 banking `udbank.*`; 22 `ablate`) | supplied by the owner, split by the owner | hold-out, scored once |
+| `otpkyc_train.jsonl` (`guard-spec:otpkyc-fable`) | 181 (91 EN attacks; 90 benign, 52 of them VI) | AI-written for this project; several slices were stopped by safety systems and not retried (its README) | training (166 train / 15 val) |
+| `otpkyc_probe.jsonl` | 120, all benign banking OTP/KYC (47 EN, 73 VI) | AI-written, disjoint scenarios | false-positive probe, scored once |
+
+Leakage guard on all four files: 0 fingerprint hits, 0 rows above Jaccard 0.8; highest 5-gram
+Jaccard with eval 0.41 (owner train), 0.18 (OTP/KYC train), 0.35 (`user_holdout`), 0.13 (probe);
+the hold-out and probe against everything trained, selected or calibrated on: 0.40 and 0.31.
+
+**Arms** (same recipe, seed and epochs as v3; validation identical for both): A = v3 data + all
+owner training rows + OTP/KYC training rows; B = the same without the 53 `ablate` owner rows that
+landed in the training split. Validation chose **A** (fused out-of-fold log loss 0.0410 vs 0.0469;
+FPR 0.26% vs 0.36% at TPR 0.964 / 0.961). Both were scored on the hold-outs, once.
+
+Fused L1+L2+L3 at 0.85; validation out of fold; hold-outs with each model's calibration fitted on
+validation (v2 and v3: their built-in ones; v3b on the v3b validation, which adds the owner and
+OTP/KYC validation rows):
+
+| group | benign / attack | v2 FPR / TPR | v3 FPR / TPR | v3b-A FPR / TPR | v3b-B FPR / TPR |
+|---|---|---|---|---|---|
+| otpkyc_probe/all | 120 / 0 | 17.5% (21) / - | 0.8% (1) / - | 3.3% (4) / - | 3.3% (4) / - |
+| otpkyc_probe/en | 47 / 0 | 10.6% (5) / - | 0.0% (0) / - | 2.1% (1) / - | 2.1% (1) / - |
+| otpkyc_probe/vi | 73 / 0 | 21.9% (16) / - | 1.4% (1) / - | 4.1% (3) / - | 4.1% (3) / - |
+| user_holdout/ablate | 0 / 22 | - / 0.227 | - / 0.182 | - / 0.773 | - / 0.682 |
+| user_holdout/all | 88 / 132 | 0.0% (0) / 0.439 | 0.0% (0) / 0.386 | 1.1% (1) / 0.864 | 0.0% (0) / 0.803 |
+| user_holdout/banking (udbank.) | 24 / 36 | 0.0% (0) / 0.417 | 0.0% (0) / 0.361 | 0.0% (0) / 0.861 | 0.0% (0) / 0.806 |
+| user_holdout/en | 44 / 66 | 0.0% (0) / 0.485 | 0.0% (0) / 0.379 | 2.3% (1) / 0.939 | 0.0% (0) / 0.894 |
+| user_holdout/vi | 44 / 66 | 0.0% (0) / 0.394 | 0.0% (0) / 0.394 | 0.0% (0) / 0.788 | 0.0% (0) / 0.712 |
+| val_realistic_holdout/all | 366 / 247 | 6.8% (25) / 0.810 | 1.4% (5) / 0.895 | 1.6% (6) / 0.915 | 0.5% (2) / 0.907 |
+| val_realistic_holdout/en | 162 / 120 | 6.2% (10) / 0.750 | 1.2% (2) / 0.825 | 1.9% (3) / 0.850 | 0.6% (1) / 0.867 |
+| val_realistic_holdout/vi/no_diacritics | 26 / 21 | 7.7% (2) / 0.714 | 3.8% (1) / 0.905 | 3.8% (1) / 0.905 | 0.0% (0) / 0.810 |
+| val_realistic_holdout/vi/orig | 169 / 102 | 7.7% (13) / 0.892 | 1.2% (2) / 0.971 | 1.2% (2) / 0.990 | 0.6% (1) / 0.971 |
+| val_realistic_holdout/vi/teencode | 9 / 4 | 0.0% (0) / 1.000 | 0.0% (0) / 1.000 | 0.0% (0) / 1.000 | 0.0% (0) / 1.000 |
+| val_v3_holdout/all | 1173 / 337 | 3.1% (36) / 0.964 | 0.4% (5) / 0.979 | 0.5% (6) / 0.953 | 0.5% (6) / 0.944 |
+| val_v3_holdout/en | 544 / 128 | 4.6% (25) / 0.961 | 0.9% (5) / 0.977 | 0.4% (2) / 0.969 | 0.7% (4) / 0.945 |
+| val_v3_holdout/vi/no_diacritics | 210 / 70 | 1.4% (3) / 0.971 | 0.0% (0) / 0.971 | 1.0% (2) / 0.957 | 0.0% (0) / 0.943 |
+| val_v3_holdout/vi/orig | 210 / 70 | 2.9% (6) / 1.000 | 0.0% (0) / 1.000 | 1.0% (2) / 0.943 | 1.0% (2) / 1.000 |
+| val_v3_holdout/vi/teencode | 209 / 69 | 1.0% (2) / 0.928 | 0.0% (0) / 0.971 | 0.0% (0) / 0.928 | 0.0% (0) / 0.884 |
+| validation/all | 5873 / 1699 | 0.5% (32) / 0.868 | 0.3% (16) / 0.954 | 0.3% (15) / 0.964 | 0.4% (21) / 0.961 |
+| validation/en | 2142 / 712 | 0.8% (18) / 0.883 | 0.4% (8) / 0.951 | 0.3% (6) / 0.956 | 0.2% (5) / 0.963 |
+| validation/owner+otpkyc rows | 33 / 45 | 0.0% (0) / 0.444 | 0.0% (0) / 0.489 | 0.0% (0) / 0.867 | 0.0% (0) / 0.889 |
+| validation/vi/leet | 129 / 47 | 0.0% (0) / 0.511 | 0.0% (0) / 0.957 | 0.0% (0) / 0.915 | 2.3% (3) / 0.872 |
+| validation/vi/no_diacritics | 1038 / 272 | 0.5% (5) / 0.923 | 0.5% (5) / 0.978 | 0.2% (2) / 0.985 | 0.4% (4) / 0.974 |
+| validation/vi/orig | 1120 / 332 | 0.3% (3) / 0.916 | 0.0% (0) / 0.955 | 0.2% (2) / 0.985 | 0.2% (2) / 0.985 |
+| validation/vi/partial_diacritics | 7 / 13 | 0.0% (0) / 0.923 | 0.0% (0) / 1.000 | 0.0% (0) / 1.000 | 0.0% (0) / 1.000 |
+| validation/vi/teencode | 1437 / 323 | 0.4% (6) / 0.789 | 0.2% (3) / 0.938 | 0.3% (5) / 0.944 | 0.5% (7) / 0.929 |
+
+**Pre-eval reading** (kept as written before the eval run). v3b-A raises owner hold-out TPR from 0.386 to 0.864 (banking 0.361 → 0.861, `ablate`
+0.18 → 0.77) and keeps the other hold-outs within about one row per 100, but the benign OTP/KYC probe
+rises from 1 to 4 of 120 blocked rows (Vietnamese 1 → 3 of 73), and `user_holdout` EN gets its first
+false positive (1 of 44). B has the same probe result with lower recall. A likely cause is the
+OTP/KYC training file itself: its attacks are all English and its Vietnamese rows all benign (the
+Vietnamese attack slice was refused while it was being written), so banking vocabulary carries
+language-dependent label signal. Balanced Vietnamese OTP/KYC attacks and benign rows, or more benign
+banking text, are the next step before adopting it.
+
+Fusion calibration for v3b (`cmd/calibrate fit` on the v3b validation, 7,572 rows, built in as
+`ml.BuiltinCalibrations`): Platt A 0.9731, B 0.1567; logreg(L1,L2,L3) W (0.4582, 0.9094, 0.2769),
+B 0.4955; logreg(L1,L2) W (0.4887, 0.9473), B 0.3963. Out of fold: TPR 0.964 at FPR 0.26%.
+
+Reproducing v3b needs the owner rows (not redistributed): build with the `GUARD_OWNER_*`,
+`GUARD_OTPKYC_*` and `GUARD_BUILD_OUT` variables (`DATA_CARD.md`), then
+`uv run python train.py --data-dir <out>` and `uv run python export.py --data-dir <out>`.
+
+SHA-256 of `models/local/guardspec-classifier-v3b/` (the shipped model; same architecture and size as
+v2, 118.5 MB INT8):
+
+```
+87368d45526ae4f3a1830231d9187814577568e894246a284c8689a9a6cc6ae3  model_int8.onnx
+2b95ee17661f8dfbbceaba374f6d277a6b5d8e1898c070a16331622024f58c67  tokenizer.json
+c89d10db99567d790a4a33d551eef09dcd0b0786877d22a67033c09c34cf9f72  config.json
+9589f8de7912f805990eacd0eb1ad0f33eba7e51e20927150b84a75874fb99b6  thresholds.json
+```
+
+## v3 (2026-11-04): not shipped
+
+**v3 failed the eval set** (measured once): FPR 2.2% (v2 2.0%), TPR at block 0.915 (v2 0.933),
+teencode FPR 4.2%, VI direct-injection TPR 0.873 and VI tool-poisoning TPR 0.851, 42 rows worse than
+the v2 baseline. Its validation and hold-out numbers below were much better than that. The likely
+reason is that most v3 additions were machine-generated (our templates and the realistic set),
+and the hold-outs came from the same generators, so they rewarded fitting those generators' style
+rather than the eval distribution. The owner-written rows in v3b generalised better.
+
+
+v3 has the same architecture, labels, export and runtime as v1/v2 (below):
+`intfloat/multilingual-e5-small` at the pinned MIT revision, 8-label sigmoid head, risk
+1 − p(benign), INT8 ONNX, 118.5 MB, same latency. It targets v2's English false positives and
+its Vietnamese no-diacritics regression on `val_hard`, and adds realistic attacks. The data changes
+are in `DATA_CARD.md` ("v3 changes"): English hard negatives and minimal pairs (`data/gen_v3.py`),
+HelpSteer2 prompts (CC-BY-4.0), realistic EN/VI rows (`data/realistic/`), a per-language
+benign:attack ratio (EN 2.0, VI 1.75) and formal Vietnamese with diacritics seen twice per epoch.
+Recipe unchanged (AdamW 5e-5, 5 epochs, batch 32, BCE, v2 augmentation).
+
+The eval-set result is above. Everything below uses training and validation data only, plus two
+hold-outs, and was written before the eval run.
+
+| | v3 |
+|---|---|
+| data | 30,133 train (31,081 rows per epoch with the oversampling); selection/calibration on `val` 4,749 + `val_hard` 829 + `val_vi_variants` 1,408 + `val_v3` 508 = 7,494 rows |
+| hold-outs (never used for selection or calibration) | `val_v3_holdout` 1,510 rows (template set C, written before the training templates); `val_realistic_holdout` 613 rows (disjoint organisations and scenarios) |
+| run | 5 epochs, best epoch 5 by validation loss (0.0813, 0.0426, 0.0296, 0.0296, 0.0247); 42.0 min on Apple M3 Max, MPS |
+| `risk_threshold` | 0.0301 (benign FPR ≤ 1% on the four validation splits combined, INT8; v3 is far more confident on benign rows than v2, whose threshold was 0.9237) |
+| INT8 vs FP32 | ΔAUC −0.0003; p99 \|Δrisk\| 0.11; same decision at the threshold on 99.4% of rows; PyTorch vs ONNX FP32 max \|Δp\| 7e-7 |
+| latency (onnxbench, INT8, M3 Max, 1 stream) | 64 tokens p50 4.0 ms; 256 tokens p50 14.4 ms; 512 tokens p50 35.6 ms (same model size as v2) |
+
+SHA-256 of `models/local/guardspec-classifier-v3/`:
+
+```
+8f4fa2550651a510fef6b7aefb80b9a4132597f208a3598a2b8ab7cfe27194a2  model_int8.onnx
+2b95ee17661f8dfbbceaba374f6d277a6b5d8e1898c070a16331622024f58c67  tokenizer.json
+c89d10db99567d790a4a33d551eef09dcd0b0786877d22a67033c09c34cf9f72  config.json
+c3b33b7cf18f9523f1784078276c21aadc16e7f8d9fd9002596f1923769a6fdd  thresholds.json
+```
+
+Fusion calibration for v3 (`go run -tags onnx ./cmd/calibrate fit`, on the four validation splits,
+built in as `ml.BuiltinCalibrations`): Platt A 0.9853, B 0.3199; logreg(L1,L2,L3) W (0.6047, 0.9279,
+0.2477), B 0.5491. Out-of-fold (5-fold) on the same 7,494 rows: AUC 0.996, TPR@FPR≤1% 0.981, and at
+the gateway's 0.85 block threshold **TPR 0.965 at benign FPR 0.24%**. v2 on the same rows (its
+calibration refitted the same way): TPR 0.888 at FPR 0.48%.
+
+### Validation, fused L1+L2+L3 at 0.85, out-of-fold, per group
+
+Benign FPR (false positives / benign rows) and TPR; L1 and L3 are the same for both models.
+
+| group | benign / attack | v2 FPR | v3 FPR | v2 TPR | v3 TPR |
+|---|---|---|---|---|---|
+| all | 5,840 / 1,654 | 0.55% (32) | **0.24% (14)** | 0.872 | **0.965** |
+| EN | 2,124 / 684 | 0.85% (18) | **0.33% (7)** | 0.895 | **0.963** |
+| VI orig | 1,105 / 315 | 0.27% (3) | **0.00% (0)** | 0.937 | **0.990** |
+| VI no-diacritics | 1,038 / 272 | 0.48% (5) | 0.48% (5) | 0.919 | **0.974** |
+| VI teencode | 1,437 / 323 | 0.42% (6) | **0.14% (2)** | 0.777 | **0.938** |
+| `val` EN | 1,489 / 650 | 1.14% (17) | **0.47% (7)** | 0.894 | 0.971 |
+| `val_hard` VI no-diacritics | 129 / 8 | 0.78% (1) | 1.55% (2) | 0.750 | 0.750 |
+| `val_vi_variants` teencode | 681 / 47 | 0.44% (3) | 0.15% (1) | 0.468 | 0.723 |
+| `val_v3` | 477 / 31 | 0.21% (1) | 0.00% (0) | 1.000 | 0.871 |
+
+The `val_hard` Vietnamese no-diacritics regression of v2 is fixed in the classifier itself: at v2's
+threshold (0.9237) v2 blocked 8.5% of those 129 benign rows and v3 blocks 0.8%; at v3's own
+threshold, 3.1% (`reports/variant_report_v3.json`). Fused, the two models differ by one row there.
+These splits chose the epoch, the threshold and the fusion weights, so they flatter both models.
+
+### Hold-outs, scored once at the end
+
+Fused L1+L2+L3 at 0.85 with each model's calibration fixed beforehand on validation (v2: its
+built-in calibration). "v3 without realistic" is the same recipe trained with
+`GUARD_V3_REALISTIC=0` (and its own validation calibration).
+
+| hold-out / group | benign / attack | v2 FPR / TPR | v3 without realistic FPR / TPR | **v3** FPR / TPR |
+|---|---|---|---|---|
+| `val_v3_holdout` all | 1,173 / 337 | 3.1% / 0.964 | 1.8% / 0.988 | **0.4% / 0.979** |
+| EN | 544 / 128 | 4.6% / 0.961 | 1.7% / 0.992 | **0.9% / 0.977** |
+| VI orig | 210 / 70 | 2.9% / 1.000 | 1.0% / 1.000 | **0.0% / 1.000** |
+| VI no-diacritics | 210 / 70 | 1.4% / 0.971 | 3.3% / 1.000 | **0.0% / 0.971** |
+| VI teencode | 209 / 69 | 1.0% / 0.928 | 1.4% / 0.957 | **0.0% / 0.971** |
+| `val_realistic_holdout` all | 366 / 247 | 6.8% / 0.810 | 4.1% / 0.814 | **1.4% / 0.895** |
+| EN | 162 / 120 | 6.2% / 0.750 | 3.1% / 0.725 | **1.2% / 0.825** |
+| VI orig (formal, diacritics) | 169 / 102 | 7.7% / 0.892 | 4.1% / 0.922 | **1.2% / 0.971** |
+| VI no-diacritics | 26 / 21 | 7.7% / 0.714 | 11.5% / 0.810 | 3.8% (1 row) / 0.905 |
+| VI teencode | 9 / 4 | 0.0% / 1.000 | 0.0% / 0.750 | 0.0% / 1.000 |
+
+AUC (fused): `val_v3_holdout` v2 0.995, v3 0.998; `val_realistic_holdout` v2 0.955, without
+realistic 0.961, v3 0.985. Caveats: both hold-outs are machine-written (set C by the same author
+as the training templates, the realistic hold-out by the same model family as the realistic
+training rows), so they are optimistic about real traffic; small groups (realistic VI
+no-diacritics and teencode) cannot be read row for row.
+
+### What was tried
+
+Five training runs of 30–42 minutes each (the v3 data is about 30% larger than v2's) and one weight average:
+
+| run | data | change | validation: benign FPR at TPR 0.95 (L2 alone, all four splits) | result |
+|---|---|---|---|---|
+| r1 | without realistic | v2 recipe, seed 20261105 | 0.72% (v2: 1.46%) | big EN gain, VI teencode FPs on `val_vi_variants` |
+| r2 | without realistic | seed 20261106 | 0.70% | similar to r1: the data, not the seed |
+| soup(r1, r2) | without realistic | uniform weight average (`soup.py`) | 0.91% | worse than either run; dropped |
+| r3 | **with realistic** | formal VI with diacritics ×2 per epoch | **0.14%** | **chosen as v3** |
+| r4 | with realistic | no upweighting | 0.25% | slightly worse than r3 on every summary |
+| no-realistic re-run | without realistic | r1 recipe, retrained only to score the hold-outs (r1/r2 checkpoints had been deleted) | 0.72% | as r1 |
+
+The realistic data helps even on validation rows that are not from it (FPR at TPR 0.95 0.14% vs
+0.46–0.49%). Label smoothing, a learning-rate sweep and `multilingual-e5-base` were not tried: the
+small model met every validation and hold-out target, so the base model's 2–3× latency was not
+needed.
+
+Reproduce v3:
+
+```sh
+cd train
+uv sync
+uv run python data/build_data.py   # deterministic; GUARD_V3_REALISTIC=0 for the "without" arm
+uv run python train.py             # writes runs/guardspec-classifier-v3/best
+uv run python export.py            # writes ../models/local/guardspec-classifier-v3
+uv run python variant_report.py --model ../models/local/guardspec-classifier-v3
+cd .. && go run -tags onnx ./cmd/calibrate fit   # cgo flags: see the Makefile
+```
+
+The sections below describe v2 and v1.
 
 ## v2 (2026-11-04)
 

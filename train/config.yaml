@@ -1,5 +1,5 @@
-# Guard Spec attack-risk classifier v2 (v1: task N6). Read by train.py, export.py and evaluate.py.
-name: guardspec-classifier-v2
+# Guard Spec attack-risk classifier v3 (v1, v2: task N6). Read by train.py, export.py and evaluate.py.
+name: guardspec-classifier-v3b
 seed: 20261105
 
 base_model: intfloat/multilingual-e5-small
@@ -14,7 +14,9 @@ data:
   # Early stopping and calibration use both validation files: the in-distribution group split and the
   # harder split built from v1 template set B (data/gen_hardneg.py), which training never sees, and (v2) the
   # Vietnamese variant split from template set B of data/gen_vi_v2.py with held-out teencode spellings.
-  val: [data/val.jsonl, data/val_hard.jsonl, data/val_vi_variants.jsonl]
+  # (v3) adds val_v3, template set B of data/gen_v3.py (English hard negatives, Vietnamese admin/meta text).
+  # data/val_v3_holdout.jsonl (template set C) is NOT listed here: it is never used for selection or calibration.
+  val: [data/val.jsonl, data/val_hard.jsonl, data/val_vi_variants.jsonl, data/val_v3.jsonl]
 
 train:
   max_len: 256
@@ -24,6 +26,10 @@ train:
   weight_decay: 0.01
   warmup_ratio: 0.06
   grad_clip: 1.0
+  # v3: realistic formal Vietnamese (data/realistic, with diacritics) seen twice per epoch, benign and attack alike.
+  oversample:
+    "guard-spec:realistic-fable/vi/orig": 2
+  label_smoothing: 0.0          # v3: BCE targets y*(1-e) + e/2 when > 0 (training loss only)
   early_stopping_patience: 1   # epochs without improvement of validation loss (v0 selected on TPR@1%FPR)
   device: mps                   # falls back to cpu when MPS is unavailable
   # v2: rewrite Vietnamese `orig` training rows on the fly, same probability for benign and attack rows.
@@ -36,8 +42,8 @@ calibration:
 
 export:
   opset: 17
-  out_dir: ../models/local/guardspec-classifier-v2
-  run_dir: runs/guardspec-classifier-v2
+  out_dir: ../models/local/guardspec-classifier-v3b
+  run_dir: runs/guardspec-classifier-v3b
 
 compare:
   # The requested protectai/deberta-v3-small-prompt-injection-v2 (rev d7c8842daf06) is gated on Hugging Face

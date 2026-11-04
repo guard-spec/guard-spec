@@ -11,9 +11,9 @@ import (
 )
 
 // Calibrations below are fitted by `go run -tags onnx ./cmd/calibrate fit` on
-// the classifiers' validation splits (train/data/val.jsonl + val_hard.jsonl,
-// 3,258 rows), never on eval/. Those splits also chose v1's threshold and
-// early stopping, so L2 v1 looks a little better on them than on unseen data.
+// each classifier's validation splits (see FittedOn), never on eval/ and never
+// on the hold-out splits. Those splits also chose each model's epoch and
+// threshold, so the L2 layer looks a little better on them than on unseen data.
 
 // CalibrationFile is the calibration of one classifier: the Platt scaling of
 // its risk score and the logistic-regression combiners fitted with it, keyed
@@ -28,6 +28,31 @@ type CalibrationFile struct {
 
 // BuiltinCalibrations are the calibrations of the classifiers we ship.
 var BuiltinCalibrations = map[string]CalibrationFile{
+	// v3b (the default): fitted on val + val_hard + val_vi_variants + val_v3
+	// plus the owner-supplied and OTP/KYC rows that the group hash sends to
+	// validation (7,572 rows; those external rows are not in this repository).
+	"guardspec-classifier-v3b": {
+		Model:    "guardspec-classifier-v3b",
+		FittedOn: "train/data/val.jsonl + val_hard.jsonl + val_vi_variants.jsonl + val_v3.jsonl, with the owner-supplied and OTP/KYC validation rows (7572 rows), 5-fold CV for the method choice",
+		Platt:    fusion.Calibration{A: 0.9731, B: 0.1567},
+		LogReg: map[string]fusion.LogReg{
+			"l1,l2":    {W: [3]float64{0.4887, 0.9473, 0}, B: 0.3963},
+			"l1,l2,l3": {W: [3]float64{0.4582, 0.9094, 0.2769}, B: 0.4955},
+		},
+	},
+	// v3: never shipped (failed the eval set); kept for L2_MODEL_DIR use.
+	// Fitted on val + val_hard + val_vi_variants + val_v3 (7,494 rows;
+	// never val_v3_holdout or val_realistic_holdout); the combiners use the
+	// built-in L1 and L3 scalings, as at run time.
+	"guardspec-classifier-v3": {
+		Model:    "guardspec-classifier-v3",
+		FittedOn: "train/data/val.jsonl + val_hard.jsonl + val_vi_variants.jsonl + val_v3.jsonl (7494 rows), 5-fold CV for the method choice",
+		Platt:    fusion.Calibration{A: 0.9853, B: 0.3199},
+		LogReg: map[string]fusion.LogReg{
+			"l1,l2":    {W: [3]float64{0.6242, 0.9610, 0}, B: 0.4544},
+			"l1,l2,l3": {W: [3]float64{0.6047, 0.9279, 0.2477}, B: 0.5491},
+		},
+	},
 	// v2: fitted on val + val_hard + val_vi_variants (5,885 rows); the
 	// combiners use the built-in L1 and L3 scalings, as at run time.
 	"guardspec-classifier-v2": {
