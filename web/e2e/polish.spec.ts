@@ -9,16 +9,30 @@ import { expect, go, login, openProfile, test } from './fixtures';
 
 test.use({ mockOptions: { rich: true } });
 
-/** Tables that scroll sideways, or a page wider than the viewport. */
+/**
+ * Tables that scroll sideways or come within HEADROOM px of it (font metrics
+ * differ between systems), or a page wider than the viewport.
+ */
+const HEADROOM = 32;
 async function overflows(page: Page): Promise<string[]> {
-  return page.evaluate(() => {
+  return page.evaluate((headroom) => {
     const out: string[] = [];
     document.querySelectorAll<HTMLElement>('.table-wrap').forEach((el) => {
-      if (el.scrollWidth > el.clientWidth + 1) out.push(`table ${el.querySelector('table')?.dataset.testid ?? '?'}: ${el.scrollWidth} > ${el.clientWidth}`);
+      const table = el.querySelector('table');
+      const name = table?.dataset.testid ?? '?';
+      if (el.scrollWidth > el.clientWidth + 1) out.push(`table ${name}: ${el.scrollWidth} > ${el.clientWidth}`);
+      if (table) {
+        // The narrowest the table can get, without the 100% stretch.
+        const before = table.style.width;
+        table.style.width = 'min-content';
+        const min = table.offsetWidth;
+        table.style.width = before;
+        if (min > el.clientWidth - headroom) out.push(`table ${name}: needs ${min}px of ${el.clientWidth}px (headroom ${headroom}px)`);
+      }
     });
     if (document.documentElement.scrollWidth > window.innerWidth + 1) out.push(`page: ${document.documentElement.scrollWidth} > ${window.innerWidth}`);
     return out;
-  });
+  }, HEADROOM);
 }
 
 const PAGES = ['Model providers', 'Request log', 'Activity log', 'Members', 'API keys', 'Exemplars', 'Projects', 'Users', 'Identity providers', 'Instance activity'];

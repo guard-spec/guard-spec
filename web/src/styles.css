@@ -2591,6 +2591,25 @@ tr.has-detail td {
   text-transform: none;
 }
 
+/* Secondary columns (scores, latency, IP, created) only on wide screens;
+   their values stay in the detail views. */
+@media (max-width: 1365px) {
+  .col-wide-only {
+    display: none;
+  }
+}
+.row-detail td {
+  white-space: normal;
+}
+.test-result .test-title {
+  flex: 0 1 auto;
+  max-width: 40%;
+  overflow-wrap: anywhere;
+}
+.test-result .test-body {
+  overflow-wrap: anywhere;
+}
+
 /* 2FA: the secret wraps between groups of four, never inside one. */
 .secret-group {
   white-space: nowrap;

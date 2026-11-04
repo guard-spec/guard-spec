@@ -100,7 +100,7 @@ export function ActivityLog({
       ),
     },
     { key: 'target', header: t('act.target'), className: 'small col-target', cell: (e) => <TargetCell e={e} /> },
-    { key: 'ip', header: t('act.ip'), className: 'mono small', cell: (e) => e.ip ?? '—' },
+    { key: 'ip', header: t('act.ip'), className: 'mono small col-wide-only', cell: (e) => e.ip ?? '—' },
     {
       key: 'details',
       header: t('act.details'),

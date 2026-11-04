@@ -42,7 +42,16 @@ export function RequestLogPage() {
 
   const columns: Column<AuditRow>[] = [
     { key: 'time', header: t('audit.time'), className: 'nowrap', cell: (r) => formatTime(r.created_at) },
-    { key: 'model', header: t('audit.model'), className: 'mono small', cell: (r) => r.model ?? '—' },
+    {
+      key: 'model',
+      header: t('audit.model'),
+      className: 'col-model',
+      cell: (r) => (
+        <span className="mono small ellipsis" title={r.model ?? undefined}>
+          {r.model ?? '—'}
+        </span>
+      ),
+    },
     {
       key: 'action',
       header: t('audit.action'),
@@ -59,14 +68,14 @@ export function RequestLogPage() {
       ),
     },
     { key: 'label', header: t('audit.label'), cell: (r) => normLabel(r.injection_label) ?? '—' },
-    { key: 'score', header: t('audit.score'), cell: (r) => r.injection_score.toFixed(2) },
+    { key: 'score', header: t('audit.score'), className: 'col-wide-only', cell: (r) => r.injection_score.toFixed(2) },
     {
       key: 'rule',
       header: t('audit.rule'),
       className: 'col-rule',
       cell: (r) => (r.rule_id ? <span className="ellipsis" title={`${ruleLabel(r.rule_id)} · ${r.rule_id}`}>{rules.get(r.rule_id)?.rule ?? r.rule_id.slice(0, 8)}</span> : '—'),
     },
-    { key: 'latency', header: t('audit.latency'), cell: (r) => (r.latency_ms !== null ? `${r.latency_ms} ms` : '—') },
+    { key: 'latency', header: t('audit.latency'), className: 'nowrap col-wide-only', cell: (r) => (r.latency_ms !== null ? `${r.latency_ms} ms` : '—') },
     {
       key: 'more',
       header: t('common.actions'),
