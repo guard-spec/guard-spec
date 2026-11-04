@@ -6,7 +6,7 @@
 
 import type { Page } from '@playwright/test';
 import { expect, go, login, openProfile, test } from './fixtures';
-import { pushNotification, TELEGRAM_BOT, TELEGRAM_CODE } from './mockAlerts';
+import { CHANNEL_LINK_CODE, EMAIL_CODE, LINKED_GROUP_CHAT, pushNotification, TELEGRAM_BOT, TELEGRAM_CODE } from './mockAlerts';
 
 async function clearEditor(page: Page) {
   await page.keyboard.press('ControlOrMeta+a');
@@ -129,17 +129,25 @@ test('channels: per-kind forms, env names, secret_set and test results', async (
   await expect(dialog.getByLabel('Secret variable')).toHaveValue('DATABASE_URL');
   await dialog.getByRole('button', { name: 'Save' }).click();
   await expect(dialog.getByText('An https:// URL.')).toBeVisible();
-  await expect(dialog.getByText(/The name must start with one of: GUARDSPEC_ALERT_/)).toBeVisible();
+  await expect(dialog.getByText('For this kind the name must start with one of: WEBHOOK_SECRET_, GUARDSPEC_ALERT_.')).toBeVisible();
+  // The helper names the operator's binding for this kind and org.
+  await expect(dialog.getByText(/ALERTS_SECRET_ORGS, e\.g\. WEBHOOK_SECRET_SIEM=webhook:00000000-0000-0000-0000-000000000001/)).toBeVisible();
   // The private-network switch shows only when the instance allows it.
   await expect(dialog.getByLabel('Allow a private address')).toHaveCount(0);
   await dialog.getByLabel('Endpoint URL').fill('https://soar.acme.example/in');
+  // Not bound to webhook channels of this org in ALERTS_SECRET_ORGS: the server's 400, under the field.
   await dialog.getByLabel('Secret variable').fill('WEBHOOK_SECRET_SOAR');
+  await dialog.getByRole('button', { name: 'Save' }).click();
+  await expect(dialog.getByText(/WEBHOOK_SECRET_SOAR is not listed for webhook channels of this organization in ALERTS_SECRET_ORGS/)).toBeVisible();
+  await dialog.getByLabel('Secret variable').fill('WEBHOOK_SECRET_SOC');
   await dialog.getByRole('button', { name: 'Save' }).click();
   await expect(dialog).toBeHidden();
   const row = table.getByRole('row').filter({ hasText: 'soar' });
   await expect(row).toContainText('https://soar.acme.example/in');
   await expect(row).toContainText('Not set');
-  expect(mock.alerts.channels.at(-1)).toMatchObject({ kind: 'webhook', config: { url: 'https://soar.acme.example/in', allow_private: false }, secret_env: 'WEBHOOK_SECRET_SOAR' });
+  expect(mock.alerts.channels.at(-1)).toMatchObject({ kind: 'webhook', config: { url: 'https://soar.acme.example/in', allow_private: false }, secret_env: 'WEBHOOK_SECRET_SOC' });
+  // Capabilities are asked for this org (allow_private_urls is per org).
+  expect(mock.alerts.capsCalls).toContain(mock.org.id);
 
   // Slack in bot mode needs a channel.
   await page.getByRole('button', { name: 'Edit channel secops-slack' }).click();
@@ -147,6 +155,76 @@ test('channels: per-kind forms, env names, secret_set and test results', async (
   await expect(edit.getByLabel('Kind')).toBeDisabled();
   await edit.getByLabel('Bot token').check();
   await expect(edit.getByText('Slack bot token (xoxb-…), e.g. SLACK_BOT_TOKEN_OPS')).toBeVisible();
+});
+
+test('telegram on the instance bot: created without a chat id, verified with /link', async ({ page, mock }) => {
+  await login(page, 'Channels');
+  const table = page.getByTestId('channels-table');
+  const soc = table.getByRole('row').filter({ hasText: 'soc-group-telegram' }).first();
+  await expect(soc).toContainText('Not verified');
+  // An unverified channel cannot send.
+  await page.getByRole('button', { name: 'Send a test to soc-group-telegram' }).click();
+  await expect(page.getByTestId('channel-test-result').filter({ hasText: 'soc-group-telegram' })).toContainText('not verified');
+
+  await page.getByRole('button', { name: 'New channel' }).click();
+  const dialog = page.getByRole('dialog', { name: 'New channel' });
+  await dialog.getByLabel('Kind').selectOption('telegram');
+  await dialog.getByLabel('Name', { exact: true }).fill('fraud-telegram');
+  await expect(dialog.getByTestId('telegram-instance-help')).toContainText(`@${TELEGRAM_BOT}`);
+  await expect(dialog.getByLabel('Group chat id')).toHaveCount(0);
+  // Its own bot names the chat.
+  await dialog.getByLabel('Secret variable').fill('TELEGRAM_BOT_TOKEN_FRAUD');
+  await expect(dialog.getByLabel('Group chat id')).toBeVisible();
+  await dialog.getByLabel('Secret variable').fill('');
+  await expect(dialog.getByLabel('Group chat id')).toHaveCount(0);
+  await dialog.getByRole('button', { name: 'Save' }).click();
+  const created = mock.calls.filter((c) => c.method === 'POST' && c.path.endsWith('/notification-channels')).at(-1);
+  expect(created?.body).toMatchObject({ kind: 'telegram', config: {}, secret_env: null });
+
+  // Saved: the /link step opens, and the channel is polled until verified.
+  const verify = page.getByRole('dialog', { name: 'Verify fraud-telegram' });
+  await expect(verify.getByTestId('telegram-link-command')).toHaveText(`/link@${TELEGRAM_BOT} ${CHANNEL_LINK_CODE}`);
+  await expect(verify.getByRole('button', { name: 'Copy' })).toBeVisible();
+  await expect(verify).toContainText('Waiting for the group');
+  await expect(verify).toBeHidden({ timeout: 10_000 });
+  await expect(page.getByRole('status').getByText('fraud-telegram is verified.')).toBeVisible();
+  const row = table.getByRole('row').filter({ hasText: 'fraud-telegram' });
+  await expect(row).toContainText(LINKED_GROUP_CHAT);
+  await expect(row).not.toContainText('Not verified');
+
+  // The existing one: the Verify action.
+  await page.getByRole('button', { name: 'Verify soc-group-telegram' }).click();
+  await expect(page.getByRole('dialog', { name: 'Verify soc-group-telegram' }).getByTestId('telegram-link-command')).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Verify soc-group-telegram' })).toBeHidden({ timeout: 10_000 });
+  await expect(soc).not.toContainText('Not verified');
+});
+
+test('email channels: confirmation status and resend', async ({ page, mock }) => {
+  await login(page, 'Channels');
+  const row = page.getByTestId('channels-table').getByRole('row').filter({ hasText: 'security-mailbox' });
+  await expect(row).toContainText('1/2 confirmed');
+  const before = mock.alerts.channels.find((c) => c.name === 'security-mailbox')?.addresses?.[1]?.sent_at;
+  await page.getByRole('button', { name: 'Resend confirmation for security-mailbox' }).click();
+  await expect(page.getByRole('status').getByText('Confirmation links sent to 1 addresses of security-mailbox.')).toBeVisible();
+  expect(mock.calls.some((c) => c.method === 'POST' && c.path.endsWith('/email-confirmations'))).toBe(true);
+  expect(mock.alerts.channels.find((c) => c.name === 'security-mailbox')?.addresses?.[1]?.sent_at).not.toBe(before);
+
+  await page.getByRole('button', { name: 'Edit channel security-mailbox' }).click();
+  const list = page.getByRole('dialog', { name: 'Edit channel' }).getByTestId('email-addresses');
+  await expect(list.getByRole('listitem').filter({ hasText: 'security@acme.example' })).toContainText('Confirmed');
+  await expect(list.getByRole('listitem').filter({ hasText: 'ciso@acme.example' })).toContainText('Waiting for confirmation');
+  await expect(page.getByRole('dialog', { name: 'Edit channel' })).toContainText('at most 500 emails a day');
+});
+
+test('private addresses only for orgs the operator allows', async ({ page, mock }) => {
+  mock.alerts.privateOrg = true;
+  await login(page, 'Channels');
+  await page.getByRole('button', { name: 'New channel' }).click();
+  const dialog = page.getByRole('dialog', { name: 'New channel' });
+  await dialog.getByLabel('Kind').selectOption('webhook');
+  await expect(dialog.getByLabel('Allow a private address')).toBeVisible();
+  await expect(dialog).toContainText('ALERTS_PRIVATE_ORGS');
+  await expect(dialog).toContainText('timestamp + "." + event_id + "." + body');
 });
 
 test('groups: create one and pick its members', async ({ page, mock }) => {
@@ -239,7 +317,7 @@ test('my account: link Telegram with a code, link Slack, set preferences', async
   await card.getByRole('button', { name: 'Save preferences' }).click();
   await expect.poll(() => mock.alerts.prefs).toEqual([
     { channel_kind: 'telegram', enabled: true, min_severity: 'critical' },
-    { channel_kind: 'slack', enabled: false, min_severity: 'warning' },
+    { channel_kind: 'slack', enabled: true, min_severity: 'info' },
     { channel_kind: 'email', enabled: true, min_severity: 'critical' },
   ]);
 
@@ -247,6 +325,44 @@ test('my account: link Telegram with a code, link Slack, set preferences', async
   await page.getByRole('dialog').getByRole('button', { name: 'Unlink' }).click();
   await expect(card.getByRole('button', { name: 'Link Telegram' })).toBeVisible();
   expect(mock.alerts.links.map((l) => l.kind)).toEqual(['slack']);
+});
+
+test('my account: another email address, confirmed with a code', async ({ page, mock }) => {
+  await login(page, null);
+  await page.goto('/ui/account');
+  const row = page.getByTestId('email-link');
+  await expect(row).toContainText(`Sent to ${mock.identity.me.email}`);
+  await row.getByRole('button', { name: 'Use another address' }).click();
+  await row.getByLabel('New email address').fill('ada.oncall@acme.example');
+  await row.getByRole('button', { name: 'Send code' }).click();
+  const pending = row.getByTestId('email-pending');
+  await expect(pending).toContainText('Code sent to ada.oncall@acme.example');
+  expect(mock.calls.find((c) => c.method === 'PUT' && c.path === '/me/channel-links/email')?.body).toEqual({ address: 'ada.oncall@acme.example' });
+  // One code a minute.
+  await pending.getByRole('button', { name: 'Send again' }).click();
+  await expect(row.getByRole('alert')).toContainText('less than a minute ago');
+  // A wrong code, then the right one.
+  await pending.getByLabel('Code from the email').fill('000000');
+  await pending.getByRole('button', { name: 'Confirm' }).click();
+  await expect(row.getByRole('alert')).toContainText('The code was not accepted: wrong, expired or used-up code');
+  await pending.getByLabel('Code from the email').fill(EMAIL_CODE);
+  await pending.getByRole('button', { name: 'Confirm' }).click();
+  await expect(row).toContainText('Sent to ada.oncall@acme.example');
+  await expect(row).toContainText(`Instead of the account address (${mock.identity.me.email})`);
+  await expect(row.getByTestId('email-pending')).toHaveCount(0);
+
+  // A pending address shows next to the verified one.
+  mock.alerts.emailCodeAt = null;
+  await row.getByRole('button', { name: 'Use another address' }).click();
+  await row.getByLabel('New email address').fill('ada.second@acme.example');
+  await row.getByRole('button', { name: 'Send code' }).click();
+  await expect(row).toContainText('Sent to ada.oncall@acme.example');
+  await expect(row.getByTestId('email-pending')).toContainText('ada.second@acme.example');
+
+  // Back to the account address.
+  await row.getByRole('button', { name: 'Use the account address again' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Unlink' }).click();
+  await expect(row).toContainText(`Sent to ${mock.identity.me.email}`);
 });
 
 test('my account hides channels the instance cannot deliver', async ({ page, mock }) => {

@@ -108,7 +108,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
         const token = session.token();
         if (!token) break;
         const started = Date.now();
-        const seen = { event: false };
+        const seen = { event: false, ended: false };
         try {
           const end = await readStream({
             url: STREAM_URL,
@@ -121,6 +121,11 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
             },
             onEvent: (e) => {
               seen.event = true;
+              // The session was revoked or expired: do not reconnect.
+              if (e.event === 'end') {
+                seen.ended = true;
+                return;
+              }
               if (e.event === 'unread') {
                 try {
                   const c = (JSON.parse(e.data) as { count?: unknown }).count;
@@ -138,7 +143,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
               else setUnread((c) => nextUnread(c, { added: r.added, read: Array.isArray(r.read) ? r.read.length : 0 }));
             },
           });
-          if (end !== 'closed') break;
+          if (end !== 'closed' || seen.ended) break;
         } catch {
           if (aborted()) break;
         }

@@ -15,8 +15,10 @@ import type {
   ChannelInput,
   ChannelLink,
   ChannelTest,
+  EmailLinkPending,
   NotificationChannel,
   NotificationPref,
+  TelegramChannelLink,
   TelegramStart,
   UserGroup,
 } from './types';
@@ -47,6 +49,12 @@ export function alertsApi(api: ApiClient) {
       api.request('PATCH', `${org(orgId)}/notification-channels/${enc(id)}`, { body: input }),
     deleteChannel: (orgId: UUID, id: UUID): Promise<void> => api.request('DELETE', `${org(orgId)}/notification-channels/${enc(id)}`),
     testChannel: (orgId: UUID, id: UUID): Promise<ChannelTest> => api.request('POST', `${org(orgId)}/notification-channels/${enc(id)}/test`),
+    getChannel: (orgId: UUID, id: UUID): Promise<NotificationChannel> => api.request('GET', `${org(orgId)}/notification-channels/${enc(id)}`),
+    /** Telegram on the instance bot: a one-time /link command for the group. */
+    telegramChannelLink: (orgId: UUID, id: UUID): Promise<TelegramChannelLink> => api.request('POST', `${org(orgId)}/notification-channels/${enc(id)}/telegram-link`),
+    /** Email: mails new confirmation links to the unconfirmed addresses; returns the channel. */
+    resendEmailConfirmations: (orgId: UUID, id: UUID): Promise<NotificationChannel | undefined> =>
+      api.request('POST', `${org(orgId)}/notification-channels/${enc(id)}/email-confirmations`),
 
     // Groups
     listGroups: (orgId: UUID, q: ListQuery): Promise<unknown> => api.request('GET', `${org(orgId)}/user-groups`, { query: q }),
@@ -78,7 +86,11 @@ export function alertsApi(api: ApiClient) {
     unlink: (kind: string): Promise<void> => api.request('DELETE', `/me/channel-links/${enc(kind)}`),
     startTelegram: (): Promise<TelegramStart> => api.request('POST', '/me/channel-links/telegram/start'),
     linkSlack: (): Promise<ChannelLink | undefined> => api.request('POST', '/me/channel-links/slack'),
-    capabilities: (): Promise<AlertCapabilities> => api.request('GET', '/alerts/capabilities'),
+    /** allow_private_urls is per org: pass the current org. */
+    capabilities: (orgId?: UUID | null): Promise<AlertCapabilities> => api.request('GET', '/alerts/capabilities', { query: { org_id: orgId ?? undefined } }),
+    /** Mails a code to a new personal address: 202 {verified:false, expires_at}; 429 within a minute. */
+    setEmailLink: (address: string): Promise<EmailLinkPending> => api.request('PUT', '/me/channel-links/email', { body: { address } }),
+    confirmEmailLink: (code: string): Promise<ChannelLink> => api.request('POST', '/me/channel-links/email/confirm', { body: { code } }),
 
     // In-app notifications
     listNotifications: (q: ListQuery): Promise<unknown> => api.request('GET', '/notifications', { query: q }),

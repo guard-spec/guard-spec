@@ -95,20 +95,20 @@ export function memberName(m: Pick<Member, 'email' | 'display_name'>): string {
   return m.display_name && m.display_name !== '' ? m.display_name : m.email;
 }
 
-/** GET /v1/alerts/capabilities; null while loading or when the server has none. */
-export function useCapabilities(): AlertCapabilities | null {
+/** GET /v1/alerts/capabilities?org_id= (allow_private_urls is per org); null while loading or when the server has none. */
+export function useCapabilities(orgId: string | null): AlertCapabilities | null {
   const a = useAlertsApi();
   const [caps, setCaps] = useState<AlertCapabilities | null>(null);
   useEffect(() => {
     let live = true;
-    a.capabilities().then(
+    a.capabilities(orgId).then(
       (c) => live && setCaps(c),
       () => live && setCaps(null),
     );
     return () => {
       live = false;
     };
-  }, [a]);
+  }, [a, orgId]);
   return caps;
 }
 

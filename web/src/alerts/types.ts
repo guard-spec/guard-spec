@@ -73,7 +73,32 @@ export interface NotificationChannel {
   /** Whether the named variable is set on the server; never the value. */
   secret_set?: boolean;
   enabled: boolean;
+  /**
+   * Telegram on the instance bot is verified once a group sent the /link
+   * command; email once an address confirmed; other kinds always (docs/alerts.md §4).
+   */
+  verified?: boolean;
+  verified_at?: string | null;
+  /** Email: the double opt-in state of each address of config.to. */
+  addresses?: EmailAddressState[] | null;
   created_at?: string;
+  updated_at?: string;
+}
+
+export interface EmailAddressState {
+  address: string;
+  confirmed: boolean;
+  confirmed_at: string | null;
+  sent_at: string | null;
+}
+
+/** POST /notification-channels/:id/telegram-link. */
+export interface TelegramChannelLink {
+  code: string;
+  /** "/link@<bot> <code>", to send in the group. */
+  command: string;
+  bot_username: string;
+  expires_at: string;
 }
 
 export interface ChannelInput {
@@ -161,7 +186,19 @@ export type PersonalKind = (typeof PERSONAL_KINDS)[number];
 export interface ChannelLink {
   kind: PersonalKind;
   address: string;
+  /** false: a personal email address waiting for its code (with expires_at). */
+  verified?: boolean;
   verified_at: string | null;
+  expires_at?: string | null;
+  created_at?: string;
+}
+
+/** PUT /v1/me/channel-links/email: 202 while the code is out. */
+export interface EmailLinkPending {
+  kind?: 'email';
+  address?: string;
+  verified: false;
+  expires_at: string;
 }
 
 export interface NotificationPref {
@@ -183,5 +220,10 @@ export interface AlertCapabilities {
   a2a?: boolean;
   webhook?: boolean;
   teams?: boolean;
+  /** Per org (GET ?org_id=): the operator listed it in ALERTS_PRIVATE_ORGS. */
   allow_private_urls?: boolean;
+  /** SMTP is set: shared and personal addresses can be confirmed. */
+  email_confirmation?: boolean;
+  /** Emails one org may send per 24 hours. */
+  email_daily_cap?: number;
 }
