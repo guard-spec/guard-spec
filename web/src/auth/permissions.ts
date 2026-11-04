@@ -30,6 +30,9 @@ export const FALLBACK_MATRIX: PermissionMatrix = {
     { key: 'members.reset_mfa', min_role: 'owner', description: "Reset a member's two-factor authentication" },
     { key: 'activity.read', min_role: 'admin', description: 'View the activity log' },
     { key: 'security.read', min_role: 'admin', description: 'View the security policy' },
+    { key: 'alerts.read', min_role: 'viewer', description: 'View alert rules, channels, groups and alert history' },
+    { key: 'alerts.write', min_role: 'admin', description: 'Manage alert rules, notification channels and user groups; send tests' },
+    { key: 'alerts.deliveries.read', min_role: 'admin', description: 'View the notification delivery log' },
     { key: 'security.write', min_role: 'owner', description: 'Change the security policy (2FA, login methods, domain join)' },
   ],
 };

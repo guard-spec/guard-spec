@@ -9,6 +9,7 @@ import type { Page, Route } from '@playwright/test';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { FALLBACK_MATRIX } from '../src/auth/permissions';
 import { conditionText } from '../src/flow/conditionText';
+import { handleAlertsOrg, handleAlertsUser, seedAlerts, type AlertsState } from './mockAlerts';
 import {
   isGroup,
   type ActivityEntry,
@@ -309,6 +310,8 @@ export interface MockState {
   requests: AuditRow[];
   /** The identity contract (N15): users, members, security, activity, SSO. */
   identity: IdentityState;
+  /** The alerts contract (RF-35448968), see mockAlerts.ts. */
+  alerts: AlertsState;
   /** Requests the mock received, for assertions. */
   calls: { method: string; path: string; body: unknown }[];
 }
@@ -431,6 +434,7 @@ export function seedState(rich = false): MockState {
     latency_ms: latency as number,
     created_at: new Date(now - (rich ? Math.round(86_400_000 * ((i / 420) + 0.07 * Math.sin(4 * Math.PI * (i / 420)))) : i * 7 * 60_000)).toISOString(),
   }));
+  const identity = seedIdentity(rich);
   return {
     org: { id: ORG_ID, name: 'Acme Corp', slug: 'acme', tier: 'free', audit_store_content: false, created_at: T0, default_upstream_id: main.id },
     projects: [billing, support],
@@ -469,7 +473,8 @@ export function seedState(rich = false): MockState {
       { id: uuid(), label: 'allow', text: 'Summarize the attached invoice and list the overdue items', source: 'manual', created_at: T0, updated_at: T0 },
     ],
     requests,
-    identity: seedIdentity(rich),
+    identity,
+    alerts: seedAlerts(identity.members, rich),
     calls: [],
   };
 }
@@ -669,6 +674,8 @@ export interface MockOptions {
   role?: Role;
   /** More rows (requests, members, activity) for screenshots and paging. */
   rich?: boolean;
+  /** A control plane without the alerts endpoints (404). */
+  noAlerts?: boolean;
 }
 
 // ── Identity contract (N15): state and seed ────────────────────────────────
@@ -932,6 +939,12 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
     if (method === 'GET' && path === '/permissions') return json(200, PERMISSIONS);
     if (method === 'GET' && path === '/providers/catalog') return json(200, { items: CATALOG });
 
+    // Alerts: self service (alerts contract §6)
+    if (/^\/(notifications|me\/channel-links|alerts\/capabilities)(\/|$)/.test(path)) {
+      if (legacy || opts.noAlerts) return json(404, { error: `Cannot ${method} /v1${path}` });
+      if (await handleAlertsUser(page, route, state.alerts, method, path, url, body, json, auth)) return;
+    }
+
     // Instance admin (identity contract §2, §4)
     if (path === '/admin/users' && method === 'GET') {
       const q = (url.searchParams.get('q') ?? '').toLowerCase();
@@ -1016,6 +1029,11 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
     if (m[1] !== state.org.id) return json(403, { error: 'not a member of this organization' });
     const sub = m[2] ?? '';
     let mm: RegExpExecArray | null;
+
+    if (/^\/(alert-rules|notification-channels|user-groups|alerts|notification-deliveries|me\/notification-prefs)(\/|$)/.test(sub)) {
+      if (legacy || opts.noAlerts) return json(404, { error: `Cannot ${method} /v1${path}` });
+      if (await handleAlertsOrg(state.alerts, id.members, opts.role ?? 'owner', method, sub, url, body, json)) return;
+    }
 
     if (sub === '' && method === 'GET') return json(200, state.org);
     if (sub === '/projects' && method === 'GET') return json(200, listBody(state.projects, url, legacy));
