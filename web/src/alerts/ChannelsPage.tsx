@@ -1,23 +1,44 @@
 // Copyright 2026 The Guard Spec Authors
 // SPDX-License-Identifier: Apache-2.0
 
-// Shared notification channels (contract §4): a form per kind, secrets named
-// by env variable (secret_set says whether it is set, never the value), and
-// "Send test" with its result under the row.
+// Shared notification channels (docs/alerts.md §4): a form per kind, secrets
+// named by env variable (secret_set says whether it is set, never the value),
+// "Send test" with its result under the row, and verification: Telegram on
+// the instance bot links a group with a /link command, email addresses
+// confirm by mail (double opt-in).
 
-import { Eye, Pencil, Plus, Send, Trash2, X, Zap } from 'lucide-react';
-import { useCallback, useState } from 'react';
-import { isNotFound } from '../api';
+import { Eye, MailCheck, Pencil, Plus, Send, ShieldCheck, Trash2, X, Zap } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ApiError, isNotFound } from '../api';
 import { authErrorText } from '../auth/errors';
 import { ChipsInput } from '../components/ChipsInput';
 import { Badge, DataTable, EmptyState, NotAvailable, type Column } from '../components/DataTable';
 import { usePaged } from '../components/usePaged';
-import { ConfirmDialog, Dialog, ErrorBanner, Field, PageHeader, Toggle } from '../components/ui';
+import { ConfirmDialog, CopyButton, Dialog, ErrorBanner, Field, PageHeader, RelativeTime, Toggle } from '../components/ui';
 import { useApp, useOrg } from '../context';
 import type { MessageKey } from '../i18n';
-import { channelBody, channelTarget, defaultConfig, envExample, ENV_PREFIXES, validateChannel, type ChannelErrors } from './model';
+import { channelBody, channelTarget, defaultConfig, envExample, kindPrefixes, onInstanceBot, validateChannel, type ChannelErrors } from './model';
 import { KindLabel, kindLabel, useAlertsApi, useCapabilities } from './shared';
-import { CHANNEL_KINDS, type AlertCapabilities, type ChannelInput, type ChannelKind, type ChannelTest, type NotificationChannel } from './types';
+import {
+  CHANNEL_KINDS,
+  type AlertCapabilities,
+  type ChannelInput,
+  type ChannelKind,
+  type ChannelTest,
+  type EmailAddressState,
+  type NotificationChannel,
+  type TelegramChannelLink,
+} from './types';
+
+/** Email addresses of a channel that still wait for their confirmation. */
+export function unconfirmed(c: Pick<NotificationChannel, 'kind' | 'addresses'>): EmailAddressState[] {
+  return c.kind === 'email' ? (c.addresses ?? []).filter((x) => !x.confirmed) : [];
+}
+
+/** "Verify" applies to Telegram channels on the instance bot. */
+export function needsTelegramLink(c: Pick<NotificationChannel, 'kind' | 'secret_env'>): boolean {
+  return onInstanceBot(c);
+}
 
 type TestState = 'running' | ChannelTest | { error: string } | 'unavailable';
 
@@ -25,10 +46,12 @@ export default function ChannelsPage() {
   const { t, notify } = useApp();
   const { org, can } = useOrg();
   const a = useAlertsApi();
-  const caps = useCapabilities();
+  const caps = useCapabilities(org.id);
   const writable = can('alerts.write');
-  const [editing, setEditing] = useState<{ id: string | null; value: ChannelInput; secretSet?: boolean } | null>(null);
+  const [editing, setEditing] = useState<{ id: string | null; value: ChannelInput; secretSet?: boolean; addresses?: EmailAddressState[] | null } | null>(null);
   const [deleting, setDeleting] = useState<NotificationChannel | null>(null);
+  const [verifying, setVerifying] = useState<NotificationChannel | null>(null);
+  const [resending, setResending] = useState<string | null>(null);
   const [tests, setTests] = useState<Record<string, TestState>>({});
   const fetchPage = useCallback((p: { limit: number; cursor?: string }) => a.listChannels(org.id, p), [a, org.id]);
   const paged = usePaged<NotificationChannel>(fetchPage);
@@ -40,6 +63,19 @@ export default function ChannelsPage() {
       setTests((s) => ({ ...s, [c.id]: r }));
     } catch (e) {
       setTests((s) => ({ ...s, [c.id]: isNotFound(e) ? 'unavailable' : { error: authErrorText(e, t) } }));
+    }
+  };
+
+  const resend = async (c: NotificationChannel) => {
+    setResending(c.id);
+    try {
+      await a.resendEmailConfirmations(org.id, c.id);
+      notify(t('alerts.channel.confirmationsSent', { count: unconfirmed(c).length, name: c.name }));
+      await paged.reload();
+    } catch (e) {
+      notify(e instanceof ApiError && e.status === 429 ? t('alerts.channel.capReached') : authErrorText(e, t), 'error');
+    } finally {
+      setResending(null);
     }
   };
 
@@ -93,6 +129,7 @@ export default function ChannelsPage() {
       cell: (c) => (
         <span className="badges">
           <Badge tone={c.enabled ? 'ok' : 'off'}>{c.enabled ? t('common.enabled') : t('common.disabled')}</Badge>
+          <VerifiedBadge c={c} />
           <TestBadge r={tests[c.id]} />
         </span>
       ),
@@ -116,13 +153,41 @@ export default function ChannelsPage() {
               <Zap size={14} aria-hidden="true" />
             </button>
           ) : null}
+          {writable && needsTelegramLink(c) ? (
+            <button
+              type="button"
+              className={c.verified === false ? 'btn btn-small btn-square btn-attention' : 'btn btn-small btn-square'}
+              aria-label={t('alerts.channel.verifyOf', { name: c.name })}
+              title={t('alerts.channel.verify')}
+              onClick={() => setVerifying(c)}
+            >
+              <ShieldCheck size={14} aria-hidden="true" />
+            </button>
+          ) : null}
+          {writable && unconfirmed(c).length > 0 ? (
+            <button
+              type="button"
+              className="btn btn-small btn-square"
+              aria-label={t('alerts.channel.resendOf', { name: c.name })}
+              title={t('alerts.channel.resend')}
+              disabled={resending === c.id}
+              onClick={() => void resend(c)}
+            >
+              <MailCheck size={14} aria-hidden="true" />
+            </button>
+          ) : null}
           <button
             type="button"
             className="btn btn-small btn-square"
             aria-label={writable ? t('alerts.channel.editOf', { name: c.name }) : t('alerts.viewOf', { name: c.name })}
             title={writable ? t('common.edit') : t('alerts.view')}
             onClick={() =>
-              setEditing({ id: c.id, value: { name: c.name, kind: c.kind, config: { ...defaultConfig(c.kind), ...(c.config ?? {}) }, secret_env: c.secret_env, enabled: c.enabled }, secretSet: c.secret_set })
+              setEditing({
+                id: c.id,
+                value: { name: c.name, kind: c.kind, config: { ...defaultConfig(c.kind), ...(c.config ?? {}) }, secret_env: c.secret_env, enabled: c.enabled },
+                secretSet: c.secret_set,
+                addresses: c.addresses,
+              })
             }
           >
             {writable ? <Pencil size={14} aria-hidden="true" /> : <Eye size={14} aria-hidden="true" />}
@@ -185,11 +250,27 @@ export default function ChannelsPage() {
           id={editing.id}
           initial={editing.value}
           secretSet={editing.secretSet}
+          addresses={editing.addresses ?? null}
           readOnly={!writable}
           caps={caps}
           onClose={() => setEditing(null)}
-          onSaved={async () => {
+          onSaved={async (saved) => {
+            const wasNew = editing.id === null;
             setEditing(null);
+            await paged.reload();
+            // A new group channel on the instance bot goes straight to its /link step.
+            if (wasNew && saved && needsTelegramLink(saved) && saved.verified !== true) setVerifying(saved);
+          }}
+        />
+      ) : null}
+      {verifying ? (
+        <TelegramVerifyDialog
+          key={verifying.id}
+          channel={verifying}
+          onClose={() => setVerifying(null)}
+          onVerified={async () => {
+            setVerifying(null);
+            notify(t('alerts.channel.verifiedMsg', { name: verifying.name }));
             await paged.reload();
           }}
         />
@@ -214,6 +295,132 @@ export default function ChannelsPage() {
         }}
       />
     </div>
+  );
+}
+
+/** Verification (docs/alerts.md §4): shown for the kinds that need it. */
+function VerifiedBadge({ c }: { c: NotificationChannel }) {
+  const { t } = useApp();
+  if (c.kind === 'email' && c.addresses && c.addresses.length > 0) {
+    const ok = c.addresses.filter((x) => x.confirmed).length;
+    return (
+      <Badge tone={ok === c.addresses.length ? 'ok' : ok > 0 ? 'warn' : 'danger'} title={t('alerts.channel.confirmedHelp')}>
+        {t('alerts.channel.confirmedCount', { ok, total: c.addresses.length })}
+      </Badge>
+    );
+  }
+  if (c.verified === false) {
+    return (
+      <Badge tone="warn" title={c.kind === 'telegram' ? t('alerts.channel.unverifiedTelegram') : t('alerts.channel.unverifiedHelp')}>
+        {t('alerts.channel.unverified')}
+      </Badge>
+    );
+  }
+  return null;
+}
+
+const POLL_MS = 2000;
+
+/**
+ * Verify a Telegram group on the instance bot: a one-time /link command to
+ * send in the group, then the channel is polled until it is verified.
+ */
+function TelegramVerifyDialog({ channel, onClose, onVerified }: { channel: NotificationChannel; onClose: () => void; onVerified: () => Promise<void> }) {
+  const { t } = useApp();
+  const { org } = useOrg();
+  const a = useAlertsApi();
+  const [link, setLink] = useState<TelegramChannelLink | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [expired, setExpired] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const done = useRef(onVerified);
+  useEffect(() => {
+    done.current = onVerified;
+  });
+
+  useEffect(() => {
+    let live = true;
+    setLink(null);
+    setExpired(false);
+    setError(null);
+    a.telegramChannelLink(org.id, channel.id).then(
+      (l) => live && setLink(l),
+      (e: unknown) => live && setError(authErrorText(e, t)),
+    );
+    return () => {
+      live = false;
+    };
+  }, [a, org.id, channel.id, attempt, t]);
+
+  useEffect(() => {
+    if (!link) return;
+    let live = true;
+    const expiresAt = Date.parse(link.expires_at);
+    const id = window.setInterval(() => {
+      if (Number.isFinite(expiresAt) && Date.now() > expiresAt) {
+        window.clearInterval(id);
+        setExpired(true);
+        return;
+      }
+      a.getChannel(org.id, channel.id).then(
+        (c) => {
+          if (live && c.verified === true) {
+            window.clearInterval(id);
+            void done.current();
+          }
+        },
+        () => undefined,
+      );
+    }, POLL_MS);
+    return () => {
+      live = false;
+      window.clearInterval(id);
+    };
+  }, [a, org.id, channel.id, link]);
+
+  return (
+    <Dialog
+      open
+      title={t('alerts.channel.verifyTitle', { name: channel.name })}
+      onClose={onClose}
+      footer={
+        <button type="button" className="btn" onClick={onClose}>
+          {t('common.close')}
+        </button>
+      }
+    >
+      <div data-testid="telegram-verify">
+        <ErrorBanner error={error} />
+        {link ? (
+          <>
+            <ol className="steps small">
+              <li>{t('alerts.channel.verifyStep1', { bot: `@${link.bot_username}` })}</li>
+              <li>{t('alerts.channel.verifyStep2')}</li>
+            </ol>
+            <div className="secret-row">
+              <code className="secret" data-testid="telegram-link-command">
+                {link.command}
+              </code>
+              <CopyButton text={link.command} />
+            </div>
+            {expired ? (
+              <p className="field-error" role="alert">
+                {t('alerts.channel.verifyExpired')}{' '}
+                <button type="button" className="btn btn-small" onClick={() => setAttempt((n) => n + 1)}>
+                  {t('alerts.channel.newCode')}
+                </button>
+              </p>
+            ) : (
+              <p className="muted small" role="status">
+                {t('alerts.channel.verifyWaiting')} · {t('notif.expires')} <RelativeTime value={link.expires_at} />
+              </p>
+            )}
+          </>
+        ) : error ? null : (
+          <p className="muted small">{t('app.loading')}</p>
+        )}
+      </div>
+    </Dialog>
   );
 }
 
@@ -283,6 +490,7 @@ function ChannelEditor({
   id,
   initial,
   secretSet,
+  addresses,
   readOnly,
   caps,
   onClose,
@@ -291,10 +499,11 @@ function ChannelEditor({
   id: string | null;
   initial: ChannelInput;
   secretSet: boolean | undefined;
+  addresses: EmailAddressState[] | null;
   readOnly: boolean;
   caps: AlertCapabilities | null;
   onClose: () => void;
-  onSaved: () => Promise<void>;
+  onSaved: (saved: NotificationChannel | null) => Promise<void>;
 }) {
   const { t, notify } = useApp();
   const { org } = useOrg();
@@ -302,10 +511,15 @@ function ChannelEditor({
   const [v, setV] = useState<ChannelInput>(initial);
   const [touched, setTouched] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // A 400 about the secret (not listed in ALERTS_SECRET_ORGS for this kind
+  // and org, wrong prefix, ...) shows under its field, as the server words it.
+  const [secretError, setSecretError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const allowPrivate = caps?.allow_private_urls === true;
-  const errors: ChannelErrors = touched ? validateChannel(v, allowPrivate) : {};
-  const err = (k: keyof ChannelErrors) => (errors[k] ? t(`alerts.err.${errors[k]}` as MessageKey, { prefixes: ENV_PREFIXES.join(', ') }) : undefined);
+  // Without capabilities (older server) assume the instance bot exists: the server decides.
+  const instanceTelegram = caps?.telegram?.enabled !== false;
+  const errors: ChannelErrors = touched ? validateChannel(v, allowPrivate, instanceTelegram) : {};
+  const err = (k: keyof ChannelErrors) => (errors[k] ? t(`alerts.err.${errors[k]}` as MessageKey, { prefixes: kindPrefixes(v.kind).join(', ') }) : undefined);
   const cfg = v.config;
   const cs = (k: string) => (typeof cfg[k] === 'string' ? cfg[k] : '');
   const setCfg = (patch: Record<string, unknown>) => setV((x) => ({ ...x, config: { ...x.config, ...patch } }));
@@ -314,27 +528,37 @@ function ChannelEditor({
   const save = async () => {
     setTouched(true);
     setError(null);
-    if (Object.keys(validateChannel(v, allowPrivate)).length > 0) return;
+    setSecretError(null);
+    if (Object.keys(validateChannel(v, allowPrivate, instanceTelegram)).length > 0) return;
     setSaving(true);
     try {
       const body = channelBody(v);
+      let saved: NotificationChannel;
       if (id) {
         // The kind of a channel does not change.
-        await a.updateChannel(org.id, id, { name: body.name, config: body.config, secret_env: body.secret_env, enabled: body.enabled });
-      } else await a.createChannel(org.id, body);
+        saved = await a.updateChannel(org.id, id, { name: body.name, config: body.config, secret_env: body.secret_env, enabled: body.enabled });
+      } else saved = await a.createChannel(org.id, body);
       notify(t('common.saved'));
-      await onSaved();
+      await onSaved(saved);
     } catch (e) {
-      setError(authErrorText(e, t));
+      const msg = authErrorText(e, t);
+      if (e instanceof ApiError && e.status === 400 && /secret_env|ALERTS_SECRET_ORGS/.test(e.message)) setSecretError(e.message);
+      else setError(msg);
     } finally {
       setSaving(false);
     }
   };
 
   const secretHelp = (): string => {
+    const bound = ' ' + t('alerts.channel.envBound', { line: `${envExample(v.kind, slackMode)}=${v.kind}:${org.id}` });
+    return secretHelpOf() + bound;
+  };
+  const secretHelpOf = (): string => {
     switch (v.kind) {
       case 'telegram':
-        return t('alerts.channel.envTelegram', { example: envExample('telegram') });
+        return instanceTelegram
+          ? t('alerts.channel.envTelegramOptional', { example: envExample('telegram'), bot: caps?.telegram?.bot_username ? `@${caps.telegram.bot_username}` : t('alerts.channel.instanceBot') })
+          : t('alerts.channel.envTelegram', { example: envExample('telegram') });
       case 'slack':
         return slackMode === 'bot' ? t('alerts.channel.envSlackBot', { example: envExample('slack', 'bot') }) : t('alerts.channel.envSlackWebhook', { example: envExample('slack', 'webhook') });
       case 'teams':
@@ -410,10 +634,21 @@ function ChannelEditor({
         </fieldset>
         <fieldset disabled={readOnly}>
           <legend>{t('alerts.channel.settings')}</legend>
-          {v.kind === 'telegram' ? (
+          {v.kind === 'telegram' && !onInstanceBot(v) ? (
             <Field label={t('alerts.channel.chatId')} help={t('alerts.channel.chatIdHelp')} error={err('chat_id')}>
               {(p) => <input {...p} className="mono" value={cs('chat_id')} placeholder="-1001234567890" onChange={(e) => setCfg({ chat_id: e.target.value })} />}
             </Field>
+          ) : null}
+          {v.kind === 'telegram' && onInstanceBot(v) ? (
+            <p className="banner banner-info small" data-testid="telegram-instance-help">
+              {t('alerts.channel.instanceBotHelp', { bot: caps?.telegram?.bot_username ? `@${caps.telegram.bot_username}` : t('alerts.channel.instanceBot') })}
+              {initial.config.chat_id && initial.secret_env === v.secret_env ? (
+                <>
+                  {' '}
+                  {t('alerts.channel.linkedChat', { chat: cs('chat_id') })}
+                </>
+              ) : null}
+            </p>
           ) : null}
           {v.kind === 'slack' ? (
             <>
@@ -460,11 +695,25 @@ function ChannelEditor({
                 help={t('alerts.channel.toHelp')}
               />
               {err('to') ? <small className="field-error">{err('to')}</small> : null}
+              <p className="muted small">
+                {t('alerts.channel.optInHelp')}
+                {caps?.email_daily_cap ? ` ${t('alerts.channel.dailyCap', { cap: caps.email_daily_cap })}` : ''}
+              </p>
+              {addresses && addresses.length > 0 ? <AddressList addresses={addresses} /> : null}
+              <Field label={t('alerts.channel.lang')}>
+                {(p) => (
+                  <select {...p} value={cs('lang')} onChange={(e) => setCfg({ lang: e.target.value || undefined })}>
+                    <option value="">{t('alerts.channel.langDefault')}</option>
+                    <option value="en">English</option>
+                    <option value="vi">Tiếng Việt</option>
+                  </select>
+                )}
+              </Field>
             </>
           ) : null}
           {v.kind === 'teams' ? <p className="muted small">{t('alerts.channel.teamsHelp')}</p> : null}
           {v.kind !== 'email' ? (
-            <Field label={t('alerts.channel.secretEnv')} help={secretHelp()} error={err('secret_env')}>
+            <Field label={t('alerts.channel.secretEnv')} help={secretHelp()} error={err('secret_env') ?? secretError ?? undefined}>
               {(p) => (
                 <div className="input-with-badge">
                   <input
@@ -474,7 +723,10 @@ function ChannelEditor({
                     placeholder={envExample(v.kind, slackMode)}
                     autoComplete="off"
                     spellCheck={false}
-                    onChange={(e) => setV((x) => ({ ...x, secret_env: e.target.value.toUpperCase() }))}
+                    onChange={(e) => {
+                      setSecretError(null);
+                      setV((x) => ({ ...x, secret_env: e.target.value.toUpperCase() }));
+                    }}
                   />
                   {id && v.secret_env === initial.secret_env ? <SecretBadge set={secretSet} /> : null}
                 </div>
@@ -486,5 +738,31 @@ function ChannelEditor({
         <button type="submit" hidden />
       </form>
     </Dialog>
+  );
+}
+
+/** The double opt-in state of each address of an email channel. */
+function AddressList({ addresses }: { addresses: EmailAddressState[] }) {
+  const { t } = useApp();
+  return (
+    <ul className="address-list" data-testid="email-addresses">
+      {addresses.map((x) => (
+        <li key={x.address}>
+          <span className="mono small">{x.address}</span>
+          {x.confirmed ? (
+            <Badge tone="ok">{t('alerts.channel.addrConfirmed')}</Badge>
+          ) : (
+            <span className="badges">
+              <Badge tone="warn">{t('alerts.channel.addrPending')}</Badge>
+              {x.sent_at ? (
+                <span className="muted small">
+                  {t('alerts.channel.addrSent')} <RelativeTime value={x.sent_at} />
+                </span>
+              ) : null}
+            </span>
+          )}
+        </li>
+      ))}
+    </ul>
   );
 }

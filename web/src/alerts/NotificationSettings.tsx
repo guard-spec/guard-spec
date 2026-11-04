@@ -1,12 +1,15 @@
 // Copyright 2026 The Guard Spec Authors
 // SPDX-License-Identifier: Apache-2.0
 
-// My account → Notifications (contract §3, §6): personal Telegram, Slack and
-// email channels, and per channel whether it is on and from which severity.
-// Options the instance cannot deliver (GET /v1/alerts/capabilities) are hidden.
+// My account → Notifications (docs/alerts.md §3, §6): personal Telegram,
+// Slack and email channels, and per channel whether it is on and from which
+// severity. Options the instance cannot deliver (GET /v1/alerts/capabilities)
+// are hidden. Another email address than the account's is confirmed with a
+// mailed code.
 
-import { BellRing, ExternalLink, Link2, Send, Unlink } from 'lucide-react';
+import { BellRing, ExternalLink, Link2, Mail, Send, Unlink } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { ApiError } from '../api';
 import { authErrorText } from '../auth/errors';
 import { Badge, NotAvailable } from '../components/DataTable';
 import { ConfirmDialog, CopyButton, ErrorBanner, Loading, RelativeTime } from '../components/ui';
@@ -16,15 +19,25 @@ import { prefs as localPrefs, session } from '../session';
 import { alertsApi } from './api';
 import { PERSONAL_KINDS, SEVERITIES, type AlertCapabilities, type ChannelLink, type NotificationPref, type PersonalKind, type Severity, type TelegramStart } from './types';
 
+/** A link in effect: verified (a pending personal email is listed with verified:false). */
+export function activeLink(links: ChannelLink[], kind: PersonalKind): ChannelLink | null {
+  return links.find((l) => l.kind === kind && l.verified !== false) ?? null;
+}
+
+/** A personal email address waiting for its code. */
+export function pendingEmail(links: ChannelLink[]): ChannelLink | null {
+  return links.find((l) => l.kind === 'email' && l.verified === false) ?? null;
+}
+
 /** The personal kinds this instance can deliver. */
 export function availableKinds(caps: AlertCapabilities | null): PersonalKind[] {
   if (!caps) return [];
   return PERSONAL_KINDS.filter((k) => (k === 'telegram' ? caps.telegram?.enabled === true : k === 'slack' ? caps.slack_bot === true : caps.smtp === true));
 }
 
-/** Prefs for every kind shown, filling in the defaults (off until linked, warning and up). */
+/** Prefs for every kind shown; without a row a kind is on from info (docs/alerts.md §3). */
 export function fillPrefs(kinds: PersonalKind[], stored: NotificationPref[]): NotificationPref[] {
-  return kinds.map((k) => stored.find((p) => p.channel_kind === k) ?? { channel_kind: k, enabled: k === 'email', min_severity: 'warning' });
+  return kinds.map((k) => stored.find((p) => p.channel_kind === k) ?? { channel_kind: k, enabled: true, min_severity: 'info' });
 }
 
 const POLL_MS = 2000;
@@ -57,7 +70,7 @@ export function NotificationSettings() {
 
   useEffect(() => {
     let live = true;
-    a.capabilities().then(
+    a.capabilities(orgId).then(
       (c) => live && setCaps(c),
       () => live && setCaps('none'),
     );
@@ -65,7 +78,7 @@ export function NotificationSettings() {
     return () => {
       live = false;
     };
-  }, [a, loadLinks]);
+  }, [a, loadLinks, orgId]);
 
   const kinds = useMemo(() => availableKinds(caps === 'none' ? null : caps), [caps]);
 
@@ -104,7 +117,7 @@ export function NotificationSettings() {
         return;
       }
       void loadLinks().then((l) => {
-        if (live && l?.some((x) => x.kind === 'telegram')) {
+        if (live && l && activeLink(l, 'telegram')) {
           window.clearInterval(id);
           setTelegram(null);
           notify(t('notif.telegramLinked'));
@@ -126,7 +139,7 @@ export function NotificationSettings() {
     );
   }
 
-  const link = (k: PersonalKind) => links.find((l) => l.kind === k) ?? null;
+  const link = (k: PersonalKind) => activeLink(links, k);
   const startTelegram = async () => {
     setError(null);
     setExpired(false);
@@ -241,13 +254,14 @@ export function NotificationSettings() {
           </li>
         ) : null}
         {kinds.includes('email') ? (
-          <li>
-            <div className="cell-stack">
-              <strong>{t('alerts.kind.email')}</strong>
-              <span className="muted small">{t('notif.emailTo', { email: link('email')?.address ?? me?.email ?? '' })}</span>
-            </div>
-            <Badge tone="ok">{t('notif.emailReady')}</Badge>
-          </li>
+          <EmailRow
+            current={link('email')}
+            pending={pendingEmail(links)}
+            accountEmail={me?.email ?? ''}
+            canChange={caps.email_confirmation !== false}
+            onChanged={loadLinks}
+            onUnlink={() => setUnlinking('email')}
+          />
         ) : null}
       </ul>
 
@@ -316,7 +330,7 @@ export function NotificationSettings() {
       <ConfirmDialog
         open={unlinking !== null}
         title={t('account.unlink')}
-        body={t('notif.confirmUnlink', { kind: unlinking ? t(`alerts.kind.${unlinking}` as MessageKey) : '' })}
+        body={unlinking === 'email' ? t('notif.confirmEmailReset', { email: me?.email ?? '' }) : t('notif.confirmUnlink', { kind: unlinking ? t(`alerts.kind.${unlinking}` as MessageKey) : '' })}
         confirmLabel={t('account.unlink')}
         danger
         onClose={() => setUnlinking(null)}
@@ -348,12 +362,151 @@ function Section({ children }: { children: ReactNode }) {
   );
 }
 
-function UnlinkButton({ onClick, label }: { onClick: () => void; label: string }) {
+function UnlinkButton({ onClick, label, text }: { onClick: () => void; label: string; text?: string }) {
   const { t } = useApp();
   return (
     <button type="button" className="btn btn-small btn-icon-text" aria-label={label} onClick={onClick}>
       <Unlink size={14} aria-hidden="true" />
-      <span>{t('account.unlink')}</span>
+      <span>{text ?? t('account.unlink')}</span>
     </button>
+  );
+}
+
+/**
+ * Personal email: the account address, or another one confirmed with a code
+ * (PUT /v1/me/channel-links/email, then POST …/email/confirm). A pending
+ * address shows next to the verified one until its code is entered.
+ */
+function EmailRow({
+  current,
+  pending,
+  accountEmail,
+  canChange,
+  onChanged,
+  onUnlink,
+}: {
+  current: ChannelLink | null;
+  pending: ChannelLink | null;
+  accountEmail: string;
+  canChange: boolean;
+  onChanged: () => Promise<unknown>;
+  onUnlink: () => void;
+}) {
+  const { api, t, notify } = useApp();
+  const a = useMemo(() => alertsApi(api), [api]);
+  const [editing, setEditing] = useState(false);
+  const [address, setAddress] = useState('');
+  const [code, setCode] = useState('');
+  // The server answered 202; kept here too in case its list does not show it yet.
+  const [sent, setSent] = useState<{ address: string; expires_at: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const waiting = pending ? { address: pending.address, expires_at: pending.expires_at ?? '' } : sent;
+
+  const sendCode = async (to: string) => {
+    setError(null);
+    setBusy(true);
+    try {
+      const r = await a.setEmailLink(to.trim());
+      setSent({ address: r.address ?? to.trim(), expires_at: r.expires_at });
+      setEditing(false);
+      setCode('');
+      await onChanged();
+    } catch (e) {
+      setError(e instanceof ApiError && e.status === 429 ? t('notif.emailWait') : authErrorText(e, t));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const confirm = async () => {
+    setError(null);
+    setBusy(true);
+    try {
+      const l = await a.confirmEmailLink(code.trim());
+      setSent(null);
+      setCode('');
+      await onChanged();
+      notify(t('notif.emailConfirmed', { email: l.address }));
+    } catch (e) {
+      setError(e instanceof ApiError && e.status === 400 ? t('notif.emailBadCode', { error: e.message }) : authErrorText(e, t));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <li className="email-row" data-testid="email-link">
+      <div className="cell-stack">
+        <strong>
+          <Mail size={14} aria-hidden="true" /> {t('alerts.kind.email')}
+        </strong>
+        <span className="muted small">{t('notif.emailTo', { email: current?.address ?? accountEmail })}</span>
+        {current ? <span className="muted small">{t('notif.emailOverride', { account: accountEmail })}</span> : null}
+        {waiting ? (
+          <div className="email-confirm" data-testid="email-pending">
+            <span className="small" role="status">
+              {t('notif.emailCodeSent', { email: waiting.address })}
+              {waiting.expires_at ? (
+                <>
+                  {' '}
+                  · {t('notif.expires')} <RelativeTime value={waiting.expires_at} />
+                </>
+              ) : null}
+            </span>
+            <form
+              className="inline-form"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void confirm();
+              }}
+            >
+              <label className="sr-only" htmlFor="email-code">
+                {t('notif.emailCode')}
+              </label>
+              <input id="email-code" className="mono code-input" inputMode="numeric" autoComplete="one-time-code" placeholder={t('notif.emailCode')} value={code} onChange={(e) => setCode(e.target.value)} />
+              <button type="submit" className="btn btn-small btn-primary" disabled={busy || code.trim() === ''}>
+                {t('notif.emailConfirm')}
+              </button>
+              <button type="button" className="btn btn-small" disabled={busy} onClick={() => void sendCode(waiting.address)}>
+                {t('notif.emailResend')}
+              </button>
+            </form>
+          </div>
+        ) : null}
+        {editing ? (
+          <form
+            className="inline-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void sendCode(address);
+            }}
+          >
+            <label className="sr-only" htmlFor="email-new">
+              {t('notif.emailNew')}
+            </label>
+            <input id="email-new" type="email" required placeholder={t('notif.emailNew')} value={address} onChange={(e) => setAddress(e.target.value)} />
+            <button type="submit" className="btn btn-small btn-primary" disabled={busy || address.trim() === ''}>
+              {t('notif.emailSendCode')}
+            </button>
+            <button type="button" className="btn btn-small" onClick={() => setEditing(false)}>
+              {t('common.cancel')}
+            </button>
+          </form>
+        ) : null}
+        {error ? (
+          <span className="field-error" role="alert">
+            {error}
+          </span>
+        ) : null}
+      </div>
+      <span className="row-buttons">
+        {current ? <UnlinkButton onClick={onUnlink} label={t('notif.emailUseAccount')} text={t('notif.emailUseAccountShort')} /> : <Badge tone="ok">{t('notif.emailReady')}</Badge>}
+        {canChange && !editing ? (
+          <button type="button" className="btn btn-small" onClick={() => setEditing(true)}>
+            {t('notif.emailChange')}
+          </button>
+        ) : null}
+      </span>
+    </li>
   );
 }

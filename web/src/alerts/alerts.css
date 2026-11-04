@@ -311,3 +311,53 @@ fieldset.check-group legend {
   min-width: 360px;
   margin-bottom: 8px;
 }
+
+/* Channel verification and personal email (docs/alerts.md §4, §6). */
+.btn-attention {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+.steps {
+  margin: 0 0 8px;
+  padding-left: 20px;
+}
+.address-list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+}
+.address-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 0;
+  border-top: 1px solid var(--border);
+}
+.inline-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+.inline-form input {
+  width: auto;
+  min-width: 0;
+  flex: 1 1 200px;
+}
+.inline-form .code-input {
+  flex: 0 1 140px;
+}
+.email-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+}
+.row-buttons {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}

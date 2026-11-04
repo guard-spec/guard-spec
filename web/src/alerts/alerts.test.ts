@@ -8,6 +8,7 @@ import { NAV } from '../nav';
 import { PATHS, resolve } from '../router';
 import { asNotification } from './api';
 import { ALERT_SCHEMA, alertConditionText, ConditionParseError, parseAlertCondition } from './condition';
+import { needsTelegramLink, unconfirmed } from './ChannelsPage';
 import { groupMemberCount, groupMemberIds } from './GroupsPage';
 import {
   channelBody,
@@ -21,7 +22,7 @@ import {
   validateChannel,
   validateRule,
 } from './model';
-import { availableKinds, fillPrefs } from './NotificationSettings';
+import { activeLink, availableKinds, fillPrefs, pendingEmail } from './NotificationSettings';
 import { applyEvent } from './notifications';
 import { backoffDelay, readStream, SseParser } from './sse';
 import type { AppNotification, ChannelInput } from './types';
@@ -133,6 +134,12 @@ describe('channels', () => {
     expect(envNameProblem('slack_token')).toBe('format');
     expect(envNameProblem('SL')).toBe('format');
     expect(envNameProblem(`SLACK_${'A'.repeat(60)}`)).toBe('format');
+    // Bound to the kind's prefix (or GUARDSPEC_ALERT_); never the instance tokens.
+    expect(envNameProblem('SLACK_SOC', 'a2a')).toBe('prefix');
+    expect(envNameProblem('A2A_SOC', 'a2a')).toBeNull();
+    expect(envNameProblem('GUARDSPEC_ALERT_SOC', 'webhook')).toBeNull();
+    expect(envNameProblem('SLACK_BOT_TOKEN', 'slack')).toBe('instance');
+    expect(envNameProblem('TELEGRAM_BOT_TOKEN', 'telegram')).toBe('instance');
   });
 
   it('validates per kind', () => {
@@ -142,7 +149,12 @@ describe('channels', () => {
     expect(validateChannel(ch({ secret_env: 'DATABASE_URL' })).secret_env).toBe('envPrefix');
     expect(validateChannel(ch({ kind: 'slack', config: { mode: 'bot' }, secret_env: 'SLACK_BOT_TOKEN_OPS' })).channel).toBe('required');
     expect(validateChannel(ch({ kind: 'telegram', config: { chat_id: 'abc' }, secret_env: 'TELEGRAM_BOT_TOKEN_OPS' })).chat_id).toBe('chatId');
-    expect(validateChannel(ch({ kind: 'telegram', config: { chat_id: '-1001234567890' }, secret_env: '' })).secret_env).toBe('required');
+    // The instance bot: no secret, no chat id (set by /link); its own bot needs both.
+    expect(validateChannel(ch({ kind: 'telegram', config: {}, secret_env: '' }))).toEqual({});
+    expect(validateChannel(ch({ kind: 'telegram', config: {}, secret_env: 'TELEGRAM_BOT_TOKEN_OPS' })).chat_id).toBe('required');
+    expect(validateChannel(ch({ kind: 'telegram', config: {}, secret_env: '' }), false, false).secret_env).toBe('noInstanceBot');
+    expect(validateChannel(ch({ kind: 'webhook', secret_env: 'SLACK_X' })).secret_env).toBe('envPrefix');
+    expect(validateChannel(ch({ kind: 'slack', config: { mode: 'webhook' }, secret_env: 'SLACK_BOT_TOKEN' })).secret_env).toBe('envInstance');
     expect(validateChannel(ch({ kind: 'a2a', config: { agent_card_url: 'https://agent.example.com' }, secret_env: '' }))).toEqual({});
     expect(validateChannel(ch({ kind: 'email', config: { to: ['a@b.co', 'nope'] }, secret_env: null })).to).toBe('email');
   });
@@ -156,6 +168,22 @@ describe('channels', () => {
     expect(validateChannel(ch({ kind: 'a2a', config: { agent_card_url: 'http://10.0.0.7:9000', allow_private: true }, secret_env: '' }), true).agent_card_url).toBeUndefined();
     expect(validateChannel(ch({ kind: 'a2a', config: { agent_card_url: 'http://10.0.0.7:9000' }, secret_env: '' }), true).agent_card_url).toBe('https');
     expect(channelTarget('email', { to: ['a@b.co', 'c@d.co'] })).toBe('a@b.co, c@d.co');
+    // The instance bot refuses a chat_id from the client.
+    expect(channelBody(ch({ kind: 'telegram', config: { chat_id: '-100123' }, secret_env: '' })).config).toEqual({});
+    expect(channelBody(ch({ kind: 'telegram', config: { chat_id: ' -100123 ' }, secret_env: 'TELEGRAM_BOT_TOKEN_OPS' })).config).toEqual({ chat_id: '-100123' });
+    expect(channelBody(ch({ kind: 'email', config: { to: ['a@b.co'], lang: 'vi' }, secret_env: null })).config).toEqual({ to: ['a@b.co'], lang: 'vi' });
+  });
+
+  it('knows which channels need verification steps', () => {
+    expect(needsTelegramLink({ kind: 'telegram', secret_env: null })).toBe(true);
+    expect(needsTelegramLink({ kind: 'telegram', secret_env: 'TELEGRAM_BOT_TOKEN_OPS' })).toBe(false);
+    expect(needsTelegramLink({ kind: 'slack', secret_env: null })).toBe(false);
+    const addresses = [
+      { address: 'a@b.co', confirmed: true, confirmed_at: 'x', sent_at: 'x' },
+      { address: 'c@d.co', confirmed: false, confirmed_at: null, sent_at: 'x' },
+    ];
+    expect(unconfirmed({ kind: 'email', addresses }).map((x) => x.address)).toEqual(['c@d.co']);
+    expect(unconfirmed({ kind: 'email', addresses: null })).toEqual([]);
   });
 });
 
@@ -230,8 +258,21 @@ describe('personal notification settings', () => {
   it('fills missing prefs with defaults', () => {
     expect(fillPrefs(['telegram', 'email'], [{ channel_kind: 'telegram', enabled: true, min_severity: 'critical' }])).toEqual([
       { channel_kind: 'telegram', enabled: true, min_severity: 'critical' },
-      { channel_kind: 'email', enabled: true, min_severity: 'warning' },
+      { channel_kind: 'email', enabled: true, min_severity: 'info' },
     ]);
+  });
+
+  it('tells a verified link from a pending email address', () => {
+    const links = [
+      { kind: 'email' as const, address: 'old@acme.example', verified: true, verified_at: 'x' },
+      { kind: 'email' as const, address: 'new@acme.example', verified: false, verified_at: null, expires_at: 'y' },
+      { kind: 'telegram' as const, address: 'chat', verified_at: 'x' },
+    ];
+    expect(activeLink(links, 'email')?.address).toBe('old@acme.example');
+    expect(pendingEmail(links)?.address).toBe('new@acme.example');
+    // Older servers send no verified flag: the link counts.
+    expect(activeLink(links, 'telegram')?.address).toBe('chat');
+    expect(activeLink(links.slice(1, 2), 'email')).toBeNull();
   });
 
   it('reads group members in either shape', () => {

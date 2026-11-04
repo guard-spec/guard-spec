@@ -29,6 +29,9 @@ import type { Member, Role } from '../src/types';
 export const STREAM_HOLD_MS = 6000;
 export const TELEGRAM_CODE = 'GS-4F7K2Q';
 export const TELEGRAM_BOT = 'guardspec_alerts_bot';
+export const CHANNEL_LINK_CODE = 'k7Qp2Z';
+export const EMAIL_CODE = '482913';
+export const LINKED_GROUP_CHAT = '-1009876543210';
 
 export interface AlertsState {
   rules: AlertRule[];
@@ -49,6 +52,16 @@ export interface AlertsState {
   telegramPending: number | null;
   /** Env variables the mock control plane "has" (secret_set). */
   env: Set<string>;
+  /** ALERTS_SECRET_ORGS of the mock: variable name to the one kind it is bound to (for this org). */
+  secretOrgs: Record<string, string>;
+  /** Telegram group verification: polls of GET /notification-channels/:id per channel since /telegram-link. */
+  channelLinkPending: Record<string, number>;
+  /** The org is in ALERTS_PRIVATE_ORGS (capabilities with ?org_id=). */
+  privateOrg: boolean;
+  /** Capabilities requests, with their org_id. */
+  capsCalls: (string | null)[];
+  /** When the last personal email code was sent (429 within a minute). */
+  emailCodeAt: number | null;
 }
 
 const T = (minAgo: number) => new Date(Date.parse('2026-11-04T08:00:00Z') - minAgo * 60_000).toISOString();
@@ -61,9 +74,24 @@ export function seedAlerts(members: Member[], rich: boolean): AlertsState {
   const channels: NotificationChannel[] = [
     { id: id('ch'), name: 'secops-slack', kind: 'slack', config: { mode: 'webhook', channel: '#secops-alerts' }, secret_env: 'SLACK_WEBHOOK_SECOPS', enabled: true, created_at: T(9000) },
     { id: id('ch'), name: 'siem-webhook', kind: 'webhook', config: { url: 'https://siem.acme.example/hooks/guardspec', allow_private: false }, secret_env: 'WEBHOOK_SECRET_SIEM', enabled: true, created_at: T(8000) },
-    { id: id('ch'), name: 'oncall-telegram', kind: 'telegram', config: { chat_id: '-1001234567890' }, secret_env: 'TELEGRAM_BOT_TOKEN_ONCALL', enabled: true, created_at: T(7000) },
+    { id: id('ch'), name: 'oncall-telegram', kind: 'telegram', config: { chat_id: '-1001234567890' }, secret_env: 'TELEGRAM_BOT_TOKEN_ONCALL', enabled: true, verified: true, verified_at: T(7000), created_at: T(7000) },
     { id: id('ch'), name: 'it-teams', kind: 'teams', config: {}, secret_env: 'TEAMS_WEBHOOK_IT', enabled: false, created_at: T(6000) },
-    { id: id('ch'), name: 'security-mailbox', kind: 'email', config: { to: ['security@acme.example', 'ciso@acme.example'] }, secret_env: null, enabled: true, created_at: T(5000) },
+    {
+      id: id('ch'),
+      name: 'security-mailbox',
+      kind: 'email',
+      config: { to: ['security@acme.example', 'ciso@acme.example'] },
+      secret_env: null,
+      enabled: true,
+      verified: true,
+      verified_at: T(4900),
+      addresses: [
+        { address: 'security@acme.example', confirmed: true, confirmed_at: T(4900), sent_at: T(5000) },
+        { address: 'ciso@acme.example', confirmed: false, confirmed_at: null, sent_at: T(5000) },
+      ],
+      created_at: T(5000),
+    },
+    { id: id('ch'), name: 'soc-group-telegram', kind: 'telegram', config: {}, secret_env: null, enabled: true, verified: false, verified_at: null, created_at: T(4000) },
   ];
   const m = (i: number) => members[i]?.user_id ?? members[0]?.user_id ?? 'u';
   const groups = [
@@ -172,7 +200,7 @@ export function seedAlerts(members: Member[], rich: boolean): AlertsState {
       channel_id: c?.id ?? null,
       channel_name: c?.name ?? null,
       user_id: null,
-      target: c ? (c.kind === 'slack' ? '#secops-alerts' : c.kind === 'telegram' ? '-1001234567890' : 'https://siem.acme.example/hooks/guardspec') : null,
+      target: c ? (c.kind === 'slack' ? '#secops-alerts' : c.kind === 'telegram' ? '-1001234567890' : 'https://siem.acme.example') : null,
       state: s,
       attempts: s === 'dead' ? 1 : s === 'failed' ? 3 : s === 'pending' ? 0 : 1,
       next_attempt_at: s === 'failed' ? T(-4) : s === 'pending' ? T(-1) : null,
@@ -195,16 +223,21 @@ export function seedAlerts(members: Member[], rich: boolean): AlertsState {
     notifications,
     links: [],
     prefs: [{ channel_kind: 'email', enabled: true, min_severity: 'critical' }],
-    caps: { telegram: { enabled: true, bot_username: TELEGRAM_BOT }, slack_bot: true, smtp: true, a2a: true, webhook: true, teams: true, allow_private_urls: false },
+    caps: { telegram: { enabled: true, bot_username: TELEGRAM_BOT }, slack_bot: true, smtp: true, email_confirmation: true, email_daily_cap: 500, a2a: true, webhook: true, teams: true, allow_private_urls: false },
     streamQueue: [],
     streams: [],
     telegramPending: null,
     env,
+    secretOrgs: { SLACK_WEBHOOK_SECOPS: 'slack', WEBHOOK_SECRET_SIEM: 'webhook', TELEGRAM_BOT_TOKEN_ONCALL: 'telegram', TEAMS_WEBHOOK_IT: 'teams', WEBHOOK_SECRET_SOC: 'webhook' },
+    channelLinkPending: {},
+    privateOrg: false,
+    capsCalls: [],
+    emailCodeAt: null,
   };
 }
 
 function withSecret(s: AlertsState, c: NotificationChannel): NotificationChannel {
-  return { ...c, secret_set: c.secret_env ? s.env.has(c.secret_env) : false };
+  return { ...c, secret_set: c.secret_env ? s.env.has(c.secret_env) : false, verified: c.verified ?? true };
 }
 
 function page(items: unknown[], url: URL): unknown {
@@ -217,11 +250,16 @@ function page(items: unknown[], url: URL): unknown {
 }
 
 const ENV = /^[A-Z][A-Z0-9_]{2,63}$/;
-const PREFIXES = ['GUARDSPEC_ALERT_', 'TELEGRAM_BOT_TOKEN_', 'SLACK_', 'TEAMS_', 'WEBHOOK_SECRET_', 'A2A_'];
+const KIND_PREFIX: Record<string, string> = { telegram: 'TELEGRAM_BOT_TOKEN_', slack: 'SLACK_', teams: 'TEAMS_', webhook: 'WEBHOOK_SECRET_', a2a: 'A2A_' };
 
-function envRefused(name: string | null | undefined): string | null {
+/** docs/alerts.md §4: shape, the kind's prefix, and the ALERTS_SECRET_ORGS binding. */
+function envRefused(s: AlertsState, kind: string, name: string | null | undefined): string | null {
   if (!name) return null;
-  if (!ENV.test(name) || !PREFIXES.some((p) => name.startsWith(p))) return `secret_env ${name} is not allowed: use a name starting with ${PREFIXES.join(', ')}`;
+  const prefix = KIND_PREFIX[kind] ?? '';
+  if (!ENV.test(name) || name === 'TELEGRAM_BOT_TOKEN' || name === 'SLACK_BOT_TOKEN' || !(name.startsWith(prefix) || name.startsWith('GUARDSPEC_ALERT_'))) {
+    return `secret_env ${name} is not allowed for a ${kind} channel: use a name starting with ${prefix} or GUARDSPEC_ALERT_`;
+  }
+  if (s.secretOrgs[name] !== kind) return `secret_env ${name} is not listed for ${kind} channels of this organization in ALERTS_SECRET_ORGS (${name}=${kind}:<org-id>)`;
   return null;
 }
 
@@ -244,7 +282,11 @@ type Json = (status: number, data?: unknown) => Promise<void>;
  * Returns true when it answered.
  */
 export async function handleAlertsUser(page_: Page, route: Route, s: AlertsState, method: string, path: string, url: URL, body: unknown, json: Json, auth: string | null): Promise<boolean> {
-  if (path === '/alerts/capabilities' && method === 'GET') return json(200, s.caps).then(() => true);
+  if (path === '/alerts/capabilities' && method === 'GET') {
+    const orgId = url.searchParams.get('org_id');
+    s.capsCalls.push(orgId);
+    return json(200, { ...s.caps, allow_private_urls: orgId !== null && s.privateOrg }).then(() => true);
+  }
   if (path === '/notifications/stream' && method === 'GET') {
     s.streams.push({ auth, url: url.toString() });
     const until = Date.now() + STREAM_HOLD_MS;
@@ -272,7 +314,7 @@ export async function handleAlertsUser(page_: Page, route: Route, s: AlertsState
       s.telegramPending += 1;
       // The user pressed Start in Telegram on the second poll.
       if (s.telegramPending >= 2) {
-        s.links = [...s.links.filter((l) => l.kind !== 'telegram'), { kind: 'telegram', address: '@ada_admin (chat 551234987)', verified_at: new Date().toISOString() }];
+        s.links = [...s.links.filter((l) => l.kind !== 'telegram'), { kind: 'telegram', address: '@ada_admin (chat 551234987)', verified: true, verified_at: new Date().toISOString() }];
         s.telegramPending = null;
       }
     }
@@ -284,8 +326,24 @@ export async function handleAlertsUser(page_: Page, route: Route, s: AlertsState
     return json(200, { code: TELEGRAM_CODE, deep_link: `https://t.me/${TELEGRAM_BOT}?start=${TELEGRAM_CODE}`, expires_at: new Date(Date.now() + 10 * 60_000).toISOString() }).then(() => true);
   }
   if (path === '/me/channel-links/slack' && method === 'POST') {
-    const link: ChannelLink = { kind: 'slack', address: 'U07ADAADMIN', verified_at: new Date().toISOString() };
+    const link: ChannelLink = { kind: 'slack', address: 'U07ADAADMIN', verified: true, verified_at: new Date().toISOString() };
     s.links = [...s.links.filter((l) => l.kind !== 'slack'), link];
+    return json(200, link).then(() => true);
+  }
+  if (path === '/me/channel-links/email' && method === 'PUT') {
+    const address = (body as { address?: string }).address ?? '';
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) return json(400, { error: 'address is not a valid email address' }).then(() => true);
+    if (s.emailCodeAt !== null && Date.now() - s.emailCodeAt < 60_000) return json(429, { error: 'a code was sent less than a minute ago' }).then(() => true);
+    s.emailCodeAt = Date.now();
+    const pending: ChannelLink = { kind: 'email', address, verified: false, verified_at: null, expires_at: new Date(Date.now() + 30 * 60_000).toISOString() };
+    s.links = [...s.links.filter((l) => !(l.kind === 'email' && l.verified === false)), pending];
+    return json(202, { kind: 'email', address, verified: false, expires_at: pending.expires_at }).then(() => true);
+  }
+  if (path === '/me/channel-links/email/confirm' && method === 'POST') {
+    const pending = s.links.find((l) => l.kind === 'email' && l.verified === false);
+    if (!pending || (body as { code?: string }).code !== EMAIL_CODE) return json(400, { error: 'wrong, expired or used-up code' }).then(() => true);
+    const link: ChannelLink = { kind: 'email', address: pending.address, verified: true, verified_at: new Date().toISOString() };
+    s.links = [...s.links.filter((l) => l.kind !== 'email'), link];
     return json(200, link).then(() => true);
   }
   const mm = /^\/me\/channel-links\/([a-z]+)$/.exec(path);
@@ -354,25 +412,61 @@ export async function handleAlertsOrg(s: AlertsState, members: Member[], role: R
   if (sub === '/notification-channels' && method === 'GET') return done(200, page(s.channels.map((c) => withSecret(s, c)), url));
   if (sub === '/notification-channels' && method === 'POST') {
     const b = body as NotificationChannel;
-    const refused = envRefused(b.secret_env);
+    const refused = envRefused(s, b.kind, b.secret_env);
     if (refused) return done(400, { error: refused });
+    if (b.kind === 'telegram' && !b.secret_env && b.config && 'chat_id' in b.config) return done(400, { error: 'chat_id: on the instance bot the chat is set by /link, not by the client' });
     if (s.channels.some((c) => c.name === b.name)) return done(409, { error: 'a channel with this name exists' });
-    const c: NotificationChannel = { ...b, id: id('ch'), created_at: new Date().toISOString() };
+    const now = new Date().toISOString();
+    const instanceBot = b.kind === 'telegram' && !b.secret_env;
+    const to = b.kind === 'email' && Array.isArray(b.config?.to) ? (b.config.to as string[]) : [];
+    const c: NotificationChannel = {
+      ...b,
+      id: id('ch'),
+      created_at: now,
+      verified: !instanceBot && b.kind !== 'email',
+      verified_at: instanceBot || b.kind === 'email' ? null : now,
+      ...(b.kind === 'email' ? { addresses: to.map((address) => ({ address, confirmed: false, confirmed_at: null, sent_at: now })) } : {}),
+    };
     s.channels.push(c);
     return done(201, withSecret(s, c));
   }
-  if ((m = /^\/notification-channels\/([^/]+)(\/test)?$/.exec(sub))) {
+  if ((m = /^\/notification-channels\/([^/]+)(\/test|\/telegram-link|\/email-confirmations)?$/.exec(sub))) {
     const c = s.channels.find((x) => x.id === m?.[1]);
     if (!c) return done(404, { error: 'channel not found' });
-    if (m[2] && method === 'POST') {
+    if (m[2] === '/telegram-link' && method === 'POST') {
+      if (c.kind !== 'telegram' || c.secret_env) return done(400, { error: 'only telegram channels on the instance bot are linked' });
+      s.channelLinkPending[c.id] = 0;
+      return done(200, { code: CHANNEL_LINK_CODE, command: `/link@${TELEGRAM_BOT} ${CHANNEL_LINK_CODE}`, bot_username: TELEGRAM_BOT, expires_at: new Date(Date.now() + 10 * 60_000).toISOString() });
+    }
+    if (m[2] === '/email-confirmations' && method === 'POST') {
+      if (c.kind !== 'email') return done(400, { error: 'not an email channel' });
+      const now = new Date().toISOString();
+      c.addresses = (c.addresses ?? []).map((x) => (x.confirmed ? x : { ...x, sent_at: now }));
+      return done(200, withSecret(s, c));
+    }
+    if (m[2] === '/test' && method === 'POST') {
+      if (c.verified === false) return done(200, { ok: false, status: null, latency_ms: null, error: 'not verified: send the /link command in the group first' });
       if (c.secret_env && !s.env.has(c.secret_env)) return done(200, { ok: false, status: null, latency_ms: null, error: `${c.secret_env} is not set on the control plane` });
       if (c.kind === 'webhook') return done(200, { ok: false, status: 502, latency_ms: 341, error: 'HTTP 502 from siem.acme.example (path redacted)' });
       return done(200, { ok: true, status: 200, latency_ms: c.kind === 'email' ? 912 : 183 });
     }
-    if (method === 'GET') return done(200, withSecret(s, c));
+    if (method === 'GET') {
+      const polls = s.channelLinkPending[c.id];
+      if (polls !== undefined) {
+        // Someone sent /link in the group by the second poll.
+        s.channelLinkPending[c.id] = polls + 1;
+        if (polls + 1 >= 2) {
+          s.channelLinkPending = Object.fromEntries(Object.entries(s.channelLinkPending).filter(([k]) => k !== c.id));
+          c.verified = true;
+          c.verified_at = new Date().toISOString();
+          c.config = { chat_id: LINKED_GROUP_CHAT };
+        }
+      }
+      return done(200, withSecret(s, c));
+    }
     if (method === 'PATCH') {
       const b = body as Partial<NotificationChannel>;
-      const refused = envRefused(b.secret_env);
+      const refused = envRefused(s, c.kind, b.secret_env);
       if (refused) return done(400, { error: refused });
       Object.assign(c, b);
       return done(200, withSecret(s, c));

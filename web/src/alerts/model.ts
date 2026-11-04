@@ -117,15 +117,47 @@ export function envExample(kind: ChannelKind, slackMode: 'bot' | 'webhook' = 'bo
   }
 }
 
-export function envNameProblem(name: string): 'format' | 'prefix' | null {
+/** The prefix a kind's variable must have (or GUARDSPEC_ALERT_, docs/alerts.md §4). */
+export const KIND_PREFIX: Record<Exclude<ChannelKind, 'email'>, string> = {
+  telegram: 'TELEGRAM_BOT_TOKEN_',
+  slack: 'SLACK_',
+  teams: 'TEAMS_',
+  webhook: 'WEBHOOK_SECRET_',
+  a2a: 'A2A_',
+};
+/** The instance tokens, never usable by a channel. */
+const INSTANCE_TOKENS = ['TELEGRAM_BOT_TOKEN', 'SLACK_BOT_TOKEN'];
+
+/** The prefixes a variable of this kind may have. */
+export function kindPrefixes(kind: ChannelKind): string[] {
+  return kind === 'email' ? [] : [KIND_PREFIX[kind], 'GUARDSPEC_ALERT_'];
+}
+
+/**
+ * Whether name can be a channel secret: the shape, then the prefix of the
+ * kind (any allowed prefix without a kind). The server also checks that the
+ * operator bound it to this kind and org in ALERTS_SECRET_ORGS.
+ */
+export function envNameProblem(name: string, kind?: ChannelKind): 'format' | 'prefix' | 'instance' | null {
   if (!ENV_NAME.test(name)) return 'format';
-  if (!ENV_PREFIXES.some((p) => name.startsWith(p))) return 'prefix';
+  if (INSTANCE_TOKENS.includes(name)) return 'instance';
+  const prefixes = kind ? kindPrefixes(kind) : [...ENV_PREFIXES];
+  if (!prefixes.some((p) => name.startsWith(p))) return 'prefix';
   return null;
 }
 
-/** Kinds whose secret is required (the others: email has none, a2a only if the card asks). */
-export function secretRequired(kind: ChannelKind): boolean {
-  return kind === 'telegram' || kind === 'slack' || kind === 'teams' || kind === 'webhook';
+/**
+ * Kinds whose secret is required. Email has none; A2A only if its card asks;
+ * Telegram without one uses the instance bot (when the instance has one).
+ */
+export function secretRequired(kind: ChannelKind, instanceTelegram = true): boolean {
+  if (kind === 'telegram') return !instanceTelegram;
+  return kind === 'slack' || kind === 'teams' || kind === 'webhook';
+}
+
+/** A Telegram channel on the instance bot (no secret of its own): verified with /link, no chat_id from the client. */
+export function onInstanceBot(c: { kind: ChannelKind; secret_env: string | null }): boolean {
+  return c.kind === 'telegram' && (c.secret_env ?? '').trim() === '';
 }
 
 export type ChannelErrors = Partial<Record<'name' | 'secret_env' | 'url' | 'agent_card_url' | 'to' | 'chat_id' | 'channel', string>>;
@@ -141,22 +173,26 @@ function httpsUrl(s: string, allowHttp: boolean): boolean {
   }
 }
 
-export function validateChannel(c: ChannelInput, allowPrivate = false): ChannelErrors {
+export function validateChannel(c: ChannelInput, allowPrivate = false, instanceTelegram = true): ChannelErrors {
   const e: ChannelErrors = {};
   if (c.name.trim() === '') e.name = 'required';
   const env = c.secret_env?.trim() ?? '';
   if (c.kind !== 'email') {
-    if (env === '' && secretRequired(c.kind)) e.secret_env = 'required';
+    if (env === '' && secretRequired(c.kind, instanceTelegram)) e.secret_env = c.kind === 'telegram' ? 'noInstanceBot' : 'required';
     else if (env !== '') {
-      const p = envNameProblem(env);
-      if (p) e.secret_env = p === 'format' ? 'envFormat' : 'envPrefix';
+      const p = envNameProblem(env, c.kind);
+      if (p) e.secret_env = p === 'format' ? 'envFormat' : p === 'instance' ? 'envInstance' : 'envPrefix';
     }
   }
   const cfg = c.config;
   const str = (k: string) => (typeof cfg[k] === 'string' ? cfg[k].trim() : '');
   switch (c.kind) {
     case 'telegram':
-      if (str('chat_id') && !/^-?\d+$|^@\w{4,}$/.test(str('chat_id'))) e.chat_id = 'chatId';
+      // Its own bot names the chat; the instance bot gets it from /link.
+      if (env !== '') {
+        if (!str('chat_id')) e.chat_id = 'required';
+        else if (!/^-?\d+$|^@\w{4,}$/.test(str('chat_id'))) e.chat_id = 'chatId';
+      }
       break;
     case 'slack':
       if (cfg.mode === 'bot' && !str('channel')) e.channel = 'required';
@@ -202,7 +238,8 @@ export function channelBody(c: ChannelInput): ChannelInput {
   let config: Record<string, unknown> = {};
   switch (c.kind) {
     case 'telegram':
-      config = s('chat_id') ? { chat_id: s('chat_id') } : {};
+      // The instance bot refuses a chat_id from the client (400): /link sets it.
+      config = onInstanceBot(c) ? {} : { chat_id: s('chat_id') };
       break;
     case 'slack':
       config = cfg.mode === 'bot' ? { mode: 'bot', channel: s('channel') } : { mode: 'webhook', ...(s('channel') ? { channel: s('channel') } : {}) };
@@ -214,7 +251,7 @@ export function channelBody(c: ChannelInput): ChannelInput {
       config = { agent_card_url: s('agent_card_url'), allow_private: cfg.allow_private === true };
       break;
     case 'email':
-      config = { to: Array.isArray(cfg.to) ? (cfg.to as string[]) : [] };
+      config = { to: Array.isArray(cfg.to) ? (cfg.to as string[]) : [], ...(cfg.lang === 'en' || cfg.lang === 'vi' ? { lang: cfg.lang } : {}) };
       break;
     case 'teams':
       config = {};
