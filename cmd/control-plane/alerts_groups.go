@@ -32,6 +32,7 @@ type groupRow struct {
 	Name        string        `json:"name"`
 	Description string        `json:"description"`
 	MemberIDs   []uuid.UUID   `json:"member_ids"`
+	UserIDs     []uuid.UUID   `json:"user_ids"` // the same ids, the name the UI reads
 	MemberCount int           `json:"member_count"`
 	Members     []groupMember `json:"members,omitempty"`
 	CreatedAt   time.Time     `json:"created_at"`
@@ -48,7 +49,7 @@ func scanGroup(r pgx.Row) (groupRow, error) {
 	if g.MemberIDs == nil {
 		g.MemberIDs = []uuid.UUID{}
 	}
-	g.MemberCount = len(g.MemberIDs)
+	g.MemberCount, g.UserIDs = len(g.MemberIDs), g.MemberIDs
 	return g, err
 }
 
@@ -426,6 +427,7 @@ type deliveryView struct {
 	RuleName      *string    `json:"rule_name"`
 	ChannelKind   string     `json:"channel_kind"`
 	ChannelID     *uuid.UUID `json:"channel_id"`
+	ChannelName   *string    `json:"channel_name"`
 	UserID        *uuid.UUID `json:"user_id"`
 	Target        string     `json:"target"`
 	State         string     `json:"state"`
@@ -478,7 +480,7 @@ func (rt *alertsRuntime) listDeliveries(c *fiber.Ctx) error {
 			return err
 		}
 		rows, err := tx.Query(c.Context(),
-			`SELECT id, alert_id, rule_id, rule_name, channel_kind, channel_id, user_id, target, state, attempts,
+			`SELECT id, alert_id, rule_id, rule_name, channel_kind, channel_id, channel_name, user_id, target, state, attempts,
 			        next_attempt_at, last_error, last_status, remote_id, created_at, sent_at
 			 FROM notification_deliveries WHERE org_id = $1`+filter+cond+ks.orderLimit(pg), qargs...)
 		if err != nil {
@@ -486,7 +488,7 @@ func (rt *alertsRuntime) listDeliveries(c *fiber.Ctx) error {
 		}
 		list, err = pgx.CollectRows(rows, func(r pgx.CollectableRow) (deliveryView, error) {
 			var d deliveryView
-			return d, r.Scan(&d.ID, &d.AlertID, &d.RuleID, &d.RuleName, &d.ChannelKind, &d.ChannelID, &d.UserID, &d.Target,
+			return d, r.Scan(&d.ID, &d.AlertID, &d.RuleID, &d.RuleName, &d.ChannelKind, &d.ChannelID, &d.ChannelName, &d.UserID, &d.Target,
 				&d.State, &d.Attempts, &d.NextAttemptAt, &d.LastError, &d.LastStatus, &d.RemoteID, &d.CreatedAt, &d.SentAt)
 		})
 		return err

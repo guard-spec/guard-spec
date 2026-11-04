@@ -267,17 +267,18 @@ has verify snippets for Go, Python and Node.
 
 | Method & path | Role | Notes |
 |---|---|---|
-| GET/POST `/alert-rules`, GET/PATCH/DELETE `/alert-rules/:id` | read: member, write: admin | condition validated (400 with parse error and `position`) |
+| GET/POST `/alert-rules`, GET/PATCH/DELETE `/alert-rules/:id` | read: viewer, write: admin | condition validated (400 with parse error and `position`) |
 | POST `/alert-rules/:id/test` | admin | emits a synthetic `alert.test` that goes through the full pipeline; returns `{alert_id}` |
-| GET/POST `/notification-channels`, GET/PATCH/DELETE `/:id` | read: member, write: admin | returns `secret_set` |
+| GET/POST `/notification-channels`, GET/PATCH/DELETE `/:id` | read: viewer, write: admin | returns `secret_set` |
 | POST `/notification-channels/:id/test` | admin | synchronous send; `{ok, status, latency_ms, error?}` |
-| GET/POST `/user-groups`, GET/PATCH/DELETE `/:id`, PUT `/:id/members {user_ids[]}` | read: member, write: admin | |
-| GET `/alerts?state=&rule_id=` , GET `/alerts/:id` | member | history |
+| GET/POST `/user-groups`, GET/PATCH/DELETE `/:id`, PUT `/:id/members {user_ids[]}` | read: viewer, write: admin | |
+| GET `/alerts?state=&rule_id=` , GET `/alerts/:id` | viewer | history |
 | GET `/notification-deliveries?state=&channel_kind=&rule_id=` | admin | delivery log |
 | GET/PUT `/me/notification-prefs` | self (any role) | `[{channel_kind, enabled, min_severity}]` |
 | GET `/v1/me/channel-links`, DELETE `/v1/me/channel-links/:kind` | self | |
 | POST `/v1/me/channel-links/telegram/start` | self | `{code, deep_link:"https://t.me/<bot>?start=<code>", expires_at}`; single use, 10 min |
 | POST `/v1/me/channel-links/slack` | self | links by looking up the user's email via `users.lookupByEmail` (instance-level `SLACK_BOT_TOKEN`) |
+| PUT `/v1/me/channel-links/email {address}` | self | the address personal email goes to; must be in the account email's domain |
 | POST `/v1/integrations/telegram/webhook` | Telegram secret header | handles `/start <code>`; verified with `X-Telegram-Bot-Api-Secret-Token` = env `TELEGRAM_WEBHOOK_SECRET`. A long-polling fallback runs when `TELEGRAM_POLLING=1`. |
 | GET `/v1/notifications?unread=1`, POST `/v1/notifications/read {ids[]\|all}` | self | |
 | GET `/v1/notifications/stream` | self | SSE (`text/event-stream`, heartbeat every 25 s). Auth by Bearer via fetch-stream (no token in the URL). |
@@ -300,20 +301,22 @@ Response details:
   are refused (400); another org's ids return 404.
 - Channels: `{id, name, kind, config, secret_env, secret_set, enabled,
   created_at, updated_at}`. `kind` cannot change.
-- Groups: `{id, name, description, member_ids, member_count, created_at,
-  updated_at}`; GET `/:id` adds `members [{user_id, email, display_name}]`.
+- Groups: `{id, name, description, user_ids, member_ids, member_count,
+  created_at, updated_at}` (`member_ids` is the same list as `user_ids`); GET
+  `/:id` adds `members [{user_id, email, display_name}]`.
 - Alerts: `{id, rule_id, rule_name, dedupe_key, group, project_id, state,
   severity, first_at, last_at, count, resolved_at, sample_event_ids,
   suppressed, test}`; GET `/:id` adds `samples [{event_id, type, severity,
   occurred_at, attrs}]` and `deliveries {state: count}`.
 - Deliveries: `{id, alert_id, rule_id, rule_name, channel_kind, channel_id,
-  user_id, target, state, attempts, next_attempt_at, last_error, last_status,
+  channel_name, user_id, target, state, attempts, next_attempt_at, last_error, last_status,
   remote_id, created_at, sent_at}`.
 - Links: `{kind, address, verified_at, created_at}` (envelope).
 - Notifications: `{id, org_id, alert_id, title, body, severity, read_at,
   created_at}`; only orgs the user still belongs to.
-- SSE events: `unread {count}` on connect and after every change,
-  `notification {…}` for each new notification, `end {reason}` when the
+- SSE events: `notification {…}` (the notification JSON) for each new
+  notification, `read {ids}` or `read {all:true}` when notifications are
+  marked read in any tab, `unread {count}` on connect and after every change, `end {reason}` when the
   session is revoked or expires (checked at every heartbeat), and a
   `: heartbeat` comment every 25 s. At most 5 streams per user.
 - Rate limits: rule and channel tests, Telegram codes and Slack links allow
@@ -532,9 +535,10 @@ with their events. The gateway's p99 is unchanged by events
 
 ## 13. Differences from the agreed contract
 
-- **Reads need member.** As written in §6, GET of rules, channels, groups
-  and alerts needs the member role; viewers get 403 there. "Viewers see
-  read-only pages" (§7) can only show what a member may read.
+- **Reads need viewer, not member** (aligned with the UI, PR #31): GET of
+  rules, channels, groups and alert history needs `alerts.read` (viewer).
+  Channels show `secret_env` names and `secret_set`, never secret values. The
+  delivery log stays admin (`alerts.deliveries.read`).
 - **`ALERTS_SECRET_ORGS` and per-kind prefixes** (security review): a
   channel's `secret_env` must also start with its own kind's prefix (or
   `GUARDSPEC_ALERT_`), may not be `TELEGRAM_BOT_TOKEN`/`SLACK_BOT_TOKEN`, and
@@ -548,10 +552,28 @@ with their events. The gateway's p99 is unchanged by events
   that declare protocol 0.3.
 - **Telegram channels need `chat_id`**: a shared channel without one has
   nowhere to post.
-- **Email has no link endpoint**: personal email uses the account address;
-  §6 has no endpoint to set another one (an unverified address could be used
-  to mail third parties).
+- **`PUT /v1/me/channel-links/email {address}`** (added for the UI): the
+  address must be in the account email's domain, since it is not confirmed
+  by a mail and could otherwise point alerts at a third party's mailbox.
 - **Additions**: `activity.<action>` event types; `position` on condition
   errors; `test` on payloads and alerts; `rule_id`, `last_status`,
-  `remote_id` on deliveries; `member_ids`/`member_count` on groups; the SSE
-  `end` event; the 1000/minute per-org delivery cap; retention (section 12).
+  `remote_id`, `channel_name` on deliveries; `user_ids`, `member_ids`,
+  `member_count` on groups; the SSE `read`, `unread` and `end` events; the
+  1000/minute per-org delivery cap; retention (section 12).
+
+## 14. What the admin UI relies on
+
+The mapping between the UI (PR #31) and this backend.
+
+| UI need | Backend |
+|---|---|
+| Gating | `GET /v1/permissions` lists `alerts.read` (viewer), `alerts.write` (admin), `alerts.deliveries.read` (admin). The routes enforce the same roles. |
+| Read-only pages for viewers | Rules, channels, groups and alert history are readable by viewers; channels carry `secret_env` and `secret_set`, never a secret. |
+| Bell, live | `GET /v1/notifications/stream` (Bearer): `event: notification` with the notification JSON, `event: read` with `{ids}` or `{all:true}`, `event: unread` with `{count}`. |
+| Unread count | `GET /v1/notifications?unread=1&limit=1` returns `total` (capped at 10 000, `total_capped`). |
+| Mark read | `POST /v1/notifications/read` with `{ids:[…]}` or `{all:true}`; every open stream of the user gets `read` and `unread`. |
+| Group editor | `GET /user-groups/:id` returns `user_ids[]` (and `members[]` with emails); lists return `member_count`. `PUT /user-groups/:id/members {user_ids}` replaces the members. |
+| History and delivery log | Alerts and deliveries carry `rule_name`; deliveries carry `channel_name` (null for personal channels, which carry `user_id`); alert detail carries `samples[]`. |
+| Personal preferences | `PUT /organizations/:orgId/me/notification-prefs` takes a bare JSON array `[{channel_kind, enabled, min_severity}]` and returns the full list. |
+| Condition editor | `POST`/`PATCH /alert-rules` validate the condition against the alert event fields (`type`, `severity`, `project_id`, `attrs.*`, section 2) and answer 400 `{error: "condition: …", position}` with a readable parse error. `/policy/parse` is not needed. |
+| Personal email | `PUT /v1/me/channel-links/email {address}` (same domain as the account email); without it email goes to the account address. `DELETE /v1/me/channel-links/email` returns to it. |

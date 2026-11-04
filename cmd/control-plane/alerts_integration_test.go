@@ -338,6 +338,9 @@ func TestAlertsAcceptance(t *testing.T) {
 		t.Fatalf("deliveries %v", deliveries)
 	}
 	for _, d := range deliveries["items"].([]any) {
+		if dm := d.(map[string]any); dm["channel_kind"] == "webhook" && dm["channel_name"] != "SIEM" {
+			t.Fatalf("delivery channel_name %v", dm["channel_name"])
+		}
 		if tgt := d.(map[string]any)["target"].(string); strings.Contains(tgt, "/hook") {
 			t.Fatalf("delivery target shows the URL path: %s", tgt)
 		}
@@ -354,7 +357,7 @@ func TestAlertsAcceptance(t *testing.T) {
 		t.Fatal("a removed member still receives alerts")
 	}
 	g := h.expect(200, "GET", base+"/user-groups/"+gid, admin, "")
-	if g["member_count"].(float64) != 1 {
+	if g["member_count"].(float64) != 1 || len(g["user_ids"].([]any)) != 1 {
 		t.Fatalf("removed member still in the group: %v", g)
 	}
 }
@@ -403,7 +406,7 @@ func TestAlertsRolesAndIsolation(t *testing.T) {
 		`{"name":"mail","kind":"email","config":{"to":["sec@example.com"]}}`)["id"].(string)
 	groupA := h.expect(201, "POST", a+"/user-groups", adminA, `{"name":"g"}`)["id"].(string)
 
-	// A viewer cannot write (nor read: reads need member).
+	// A viewer reads (alerts.read) but cannot write.
 	for _, w := range []struct{ method, path, body string }{
 		{"POST", a + "/alert-rules", ruleBody},
 		{"PATCH", a + "/alert-rules/" + ruleA, `{"enabled":false}`},
@@ -412,12 +415,14 @@ func TestAlertsRolesAndIsolation(t *testing.T) {
 		{"POST", a + "/notification-channels", `{"name":"x","kind":"teams","secret_env":"TEAMS_X"}`},
 		{"POST", a + "/user-groups", `{"name":"x"}`},
 		{"PUT", a + "/user-groups/" + groupA + "/members", `{"user_ids":[]}`},
-		{"GET", a + "/alert-rules", ""},
 		{"GET", a + "/notification-deliveries", ""},
 	} {
 		if code, _ := h.do(w.method, w.path, viewer, w.body); code != 403 {
 			t.Errorf("viewer %s %s: %d, want 403", w.method, w.path, code)
 		}
+	}
+	for _, p := range []string{"/alert-rules", "/alert-rules/" + ruleA, "/notification-channels", "/user-groups", "/alerts"} {
+		h.expect(200, "GET", a+p, viewer, "")
 	}
 	// A member reads but does not write.
 	h.expect(200, "GET", a+"/alert-rules", member, "")
@@ -571,6 +576,15 @@ func TestTelegramLinking(t *testing.T) {
 		t.Fatal("expired code worked")
 	}
 	h.expect(200, "POST", "/v1/me/channel-links/slack", token, "")
+	var account string
+	if err := h.db.QueryRow(context.Background(), `SELECT email FROM users WHERE id = $1`, user).Scan(&account); err != nil {
+		t.Fatal(err)
+	}
+	h.expect(200, "PUT", "/v1/me/channel-links/email", token, `{"address":"alerts-`+account+`"}`)
+	if code, _ := h.do("PUT", "/v1/me/channel-links/email", token, `{"address":"victim@other.example.net"}`); code != 400 {
+		t.Fatalf("email outside the account domain: %d", code)
+	}
+	h.expect(204, "DELETE", "/v1/me/channel-links/email", token, "")
 	h.expect(204, "DELETE", "/v1/me/channel-links/telegram", token, "")
 	links = h.expect(200, "GET", "/v1/me/channel-links", token, "")
 	if len(links["items"].([]any)) != 1 || links["items"].([]any)[0].(map[string]any)["kind"] != "slack" {
@@ -648,6 +662,12 @@ func TestNotificationStream(t *testing.T) {
 		t.Fatalf("notifications %v", notes)
 	}
 	h.expect(200, "POST", "/v1/notifications/read", token, `{"all":true}`)
+	if e := next(); e != "read" {
+		t.Fatalf("event %q, want read", e)
+	}
+	if e := next(); e != "unread" {
+		t.Fatalf("event %q, want unread after read", e)
+	}
 	if notes := h.expect(200, "GET", "/v1/notifications?unread=1", token, ""); notes["total"].(float64) != 0 {
 		t.Fatalf("still unread %v", notes)
 	}

@@ -175,7 +175,7 @@ func (rt *alertsRuntime) bot() string {
 
 // registerAlertRoutes mounts the alert API.
 func registerAlertRoutes(v1, authed fiber.Router, db *pgxpool.Pool, rt *alertsRuntime, perIP func(int) fiber.Handler) {
-	member := auth.RequireRole(db, auth.RoleMember)
+	// Reads are open to viewers (alerts.read); channels never show secrets.
 	viewer := auth.RequireRole(db, auth.RoleViewer)
 	admin := auth.RequireRole(db, auth.RoleAdmin)
 	perUser := limiter.New(limiter.Config{Max: 10, Expiration: time.Minute,
@@ -184,6 +184,7 @@ func registerAlertRoutes(v1, authed fiber.Router, db *pgxpool.Pool, rt *alertsRu
 	authed.Get("/alerts/capabilities", rt.capabilities)
 	authed.Get("/me/channel-links", rt.listLinks)
 	authed.Delete("/me/channel-links/:kind", rt.deleteLink)
+	authed.Put("/me/channel-links/email", perUser, rt.emailLink)
 	authed.Post("/me/channel-links/telegram/start", perUser, rt.telegramStart)
 	authed.Post("/me/channel-links/slack", perUser, rt.slackLink)
 	authed.Get("/notifications", rt.listNotifications)
@@ -191,29 +192,29 @@ func registerAlertRoutes(v1, authed fiber.Router, db *pgxpool.Pool, rt *alertsRu
 	authed.Get("/notifications/stream", rt.stream)
 
 	org := "/organizations/:orgId"
-	authed.Get(org+"/alert-rules", member, rt.listRules)
+	authed.Get(org+"/alert-rules", viewer, rt.listRules)
 	authed.Post(org+"/alert-rules", admin, rt.createRule)
-	authed.Get(org+"/alert-rules/:id", member, rt.getRule)
+	authed.Get(org+"/alert-rules/:id", viewer, rt.getRule)
 	authed.Patch(org+"/alert-rules/:id", admin, rt.updateRule)
 	authed.Delete(org+"/alert-rules/:id", admin, rt.deleteRule)
 	authed.Post(org+"/alert-rules/:id/test", admin, perUser, rt.testRule)
 
-	authed.Get(org+"/notification-channels", member, rt.listChannels)
+	authed.Get(org+"/notification-channels", viewer, rt.listChannels)
 	authed.Post(org+"/notification-channels", admin, rt.createChannel)
-	authed.Get(org+"/notification-channels/:id", member, rt.getChannel)
+	authed.Get(org+"/notification-channels/:id", viewer, rt.getChannel)
 	authed.Patch(org+"/notification-channels/:id", admin, rt.updateChannel)
 	authed.Delete(org+"/notification-channels/:id", admin, rt.deleteChannel)
 	authed.Post(org+"/notification-channels/:id/test", admin, perUser, rt.testChannel)
 
-	authed.Get(org+"/user-groups", member, rt.listGroups)
+	authed.Get(org+"/user-groups", viewer, rt.listGroups)
 	authed.Post(org+"/user-groups", admin, rt.createGroup)
-	authed.Get(org+"/user-groups/:id", member, rt.getGroup)
+	authed.Get(org+"/user-groups/:id", viewer, rt.getGroup)
 	authed.Patch(org+"/user-groups/:id", admin, rt.updateGroup)
 	authed.Delete(org+"/user-groups/:id", admin, rt.deleteGroup)
 	authed.Put(org+"/user-groups/:id/members", admin, rt.putGroupMembers)
 
-	authed.Get(org+"/alerts", member, rt.listAlerts)
-	authed.Get(org+"/alerts/:id", member, rt.getAlert)
+	authed.Get(org+"/alerts", viewer, rt.listAlerts)
+	authed.Get(org+"/alerts/:id", viewer, rt.getAlert)
 	authed.Get(org+"/notification-deliveries", admin, rt.listDeliveries)
 
 	authed.Get(org+"/me/notification-prefs", viewer, rt.getPrefs)
