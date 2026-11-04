@@ -84,13 +84,18 @@ export default function ChannelsPage() {
       key: 'name',
       header: t('common.name'),
       className: 'col-name',
+      // The kind under the name: one column less, so the table fits at 1280px.
       cell: (c) => (
-        <strong className="ellipsis" title={c.name}>
-          {c.name}
-        </strong>
+        <div className="cell-stack">
+          <strong className="ellipsis" title={c.name}>
+            {c.name}
+          </strong>
+          <span className="muted small nowrap">
+            <KindLabel kind={c.kind} />
+          </span>
+        </div>
       ),
     },
-    { key: 'kind', header: t('alerts.channel.kind'), className: 'nowrap', cell: (c) => <KindLabel kind={c.kind} /> },
     {
       key: 'target',
       header: t('alerts.channel.target'),
@@ -125,7 +130,8 @@ export default function ChannelsPage() {
     {
       key: 'status',
       header: t('prov.status'),
-      className: 'nowrap',
+      // Badges wrap (enabled, verification, test): no nowrap.
+      className: 'col-status',
       cell: (c) => (
         <span className="badges">
           <Badge tone={c.enabled ? 'ok' : 'off'}>{c.enabled ? t('common.enabled') : t('common.disabled')}</Badge>

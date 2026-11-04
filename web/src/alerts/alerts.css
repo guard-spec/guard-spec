@@ -361,3 +361,7 @@ fieldset.check-group legend {
   justify-content: flex-end;
   gap: 6px;
 }
+
+.col-status .badges {
+  max-width: 220px;
+}
