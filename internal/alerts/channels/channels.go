@@ -197,6 +197,11 @@ type httpResult struct {
 func do(client *http.Client, req *http.Request, secrets ...string) (httpResult, error) {
 	resp, err := client.Do(req)
 	if err != nil {
+		if errors.Is(err, proxy.ErrAddressNotAllowed) {
+			// Never the resolved address: it would turn the test button into
+			// a DNS and network probe.
+			return httpResult{}, permanent(0, "address not allowed")
+		}
 		return httpResult{}, &Error{Msg: Redact(err.Error(), secrets...)}
 	}
 	defer func() { _ = resp.Body.Close() }()
@@ -263,24 +268,28 @@ func configBool(cfg map[string]any, key string) bool {
 // Guard holds the HTTP clients of org-defined URLs (webhooks, A2A agents,
 // Slack and Teams webhooks): both refuse redirects, metadata, link-local
 // and multicast addresses (internal/proxy); Strict also refuses loopback,
-// private and CGNAT addresses. Private is used only when the instance allows
-// it (ALERTS_ALLOW_PRIVATE_URLS=1) and the channel asks (allow_private).
+// private and CGNAT addresses. Private is used only for an org the operator
+// lists (ALERTS_PRIVATE_ORGS) whose channel asks for it (allow_private).
 type Guard struct {
 	Strict, Private *http.Client
-	AllowPrivate    bool
+	// PrivateOrgs are the org ids allowed private addresses.
+	PrivateOrgs map[string]bool
 }
 
 // NewGuard builds a Guard with Timeout.
-func NewGuard(allowPrivate bool) Guard {
-	return Guard{Strict: proxy.SafeClient(true, Timeout), Private: proxy.SafeClient(false, Timeout), AllowPrivate: allowPrivate}
+func NewGuard(privateOrgs map[string]bool) Guard {
+	return Guard{Strict: proxy.SafeClient(true, Timeout), Private: proxy.SafeClient(false, Timeout), PrivateOrgs: privateOrgs}
 }
 
-// Private reports whether a channel asking for private URLs gets them.
-func (g Guard) private(asked bool) bool { return g.AllowPrivate && asked }
+// AllowsPrivate reports whether channels of org may ask for private addresses.
+func (g Guard) AllowsPrivate(org string) bool { return g.PrivateOrgs[org] }
 
-// pick returns the client and the URL check for a channel.
-func (g Guard) pick(askedPrivate bool) (*http.Client, func(string) error) {
-	private := g.private(askedPrivate)
+// private reports whether a channel of org asking for private URLs gets them.
+func (g Guard) private(asked bool, org string) bool { return asked && g.PrivateOrgs[org] }
+
+// pick returns the client and the URL check for a channel of org.
+func (g Guard) pick(askedPrivate bool, org string) (*http.Client, func(string) error) {
+	private := g.private(askedPrivate, org)
 	c := g.Strict
 	if private {
 		c = g.Private
@@ -292,8 +301,8 @@ func (g Guard) pick(askedPrivate bool) (*http.Client, func(string) error) {
 }
 
 // CheckURL validates a channel URL as Send will.
-func (g Guard) CheckURL(u string, askedPrivate bool) error {
-	return proxy.ValidateTargetURL(u, g.private(askedPrivate))
+func (g Guard) CheckURL(u string, askedPrivate bool, org string) error {
+	return proxy.ValidateTargetURL(u, g.private(askedPrivate, org))
 }
 
 func configString(cfg map[string]any, key string) string {

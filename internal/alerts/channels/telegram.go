@@ -152,6 +152,24 @@ func (u *TelegramUpdate) StartCode() (chat string, code string) {
 	return strconv.FormatInt(u.Message.Chat.ID, 10), f[1]
 }
 
+// LinkCode returns the chat and code of a "/link <code>" message sent in a
+// group, supergroup or private chat (it verifies a shared channel), or "".
+func (u *TelegramUpdate) LinkCode() (chat string, code string) {
+	if u.Message == nil {
+		return "", ""
+	}
+	switch u.Message.Chat.Type {
+	case "group", "supergroup", "private":
+	default:
+		return "", ""
+	}
+	f := strings.Fields(u.Message.Text)
+	if len(f) != 2 || (f[0] != "/link" && !strings.HasPrefix(f[0], "/link@")) || len(f[1]) > 64 {
+		return "", ""
+	}
+	return strconv.FormatInt(u.Message.Chat.ID, 10), f[1]
+}
+
 // GetUpdates long-polls for updates after offset (the polling fallback).
 func (t *Telegram) GetUpdates(ctx context.Context, token string, offset int64, wait time.Duration) ([]TelegramUpdate, error) {
 	var out []TelegramUpdate

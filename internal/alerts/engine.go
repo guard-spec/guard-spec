@@ -222,6 +222,11 @@ func (e *Engine) pruneDue(org uuid.UUID, now time.Time) bool {
 	return true
 }
 
+// PruneOrg runs the retention of org now (tests; the worker prunes on its own).
+func PruneOrg(ctx context.Context, db *pgxpool.Pool, org uuid.UUID, now time.Time) error {
+	return tenant.WithOrg(ctx, db, org, func(tx pgx.Tx) error { return prune(ctx, tx, org, now) })
+}
+
 // prune deletes old rule hits, processed events, finished deliveries and
 // read in-app notifications of org.
 func prune(ctx context.Context, tx pgx.Tx, org uuid.UUID, now time.Time) error {
@@ -233,7 +238,7 @@ func prune(ctx context.Context, tx pgx.Tx, org uuid.UUID, now time.Time) error {
 		{`DELETE FROM events WHERE id IN (SELECT id FROM events WHERE org_id = $1 AND processed_at IS NOT NULL
 		   AND occurred_at < $2 LIMIT ` + fmt.Sprint(pruneBatch) + `)`, EventRetention},
 		{`DELETE FROM notification_outbox WHERE id IN (SELECT id FROM notification_outbox WHERE org_id = $1
-		   AND state IN (sent, dead) AND created_at < $2 LIMIT ` + fmt.Sprint(pruneBatch) + `)`, DeliveryRetention},
+		   AND state IN ('sent', 'dead') AND created_at < $2 LIMIT ` + fmt.Sprint(pruneBatch) + `)`, DeliveryRetention},
 		{`DELETE FROM notifications WHERE id IN (SELECT id FROM notifications WHERE org_id = $1
 		   AND read_at IS NOT NULL AND created_at < $2 LIMIT ` + fmt.Sprint(pruneBatch) + `)`, NotificationRetention},
 	}

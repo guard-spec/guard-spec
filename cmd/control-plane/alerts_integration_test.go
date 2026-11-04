@@ -78,7 +78,7 @@ func newFakeReceivers(t *testing.T) *fakeReceivers {
 		case r.URL.Path == "/hook":
 			rec.kind = "webhook"
 			err := channels.Verify([]byte(webhookSecret), r.Header.Get(channels.HeaderTimestamp),
-				r.Header.Get(channels.HeaderSignature), body, time.Now())
+				r.Header.Get(channels.HeaderEventID), r.Header.Get(channels.HeaderSignature), body, time.Now())
 			f.mu.Lock()
 			f.sigs = append(f.sigs, err)
 			f.mu.Unlock()
@@ -128,6 +128,10 @@ type alertsHarness struct {
 	rt   *alertsRuntime
 	fake *fakeReceivers
 	em   *events.Emitter
+	smtp *fakeMailer
+	// private are org ids listed in ALERTS_PRIVATE_ORGS (the fakes listen on
+	// loopback); privateOrg creates them.
+	private []uuid.UUID
 }
 
 // newAlertsHarness starts the control plane with fake Telegram and Slack
@@ -138,13 +142,20 @@ func newAlertsHarness(t *testing.T) *alertsHarness {
 	fake := newFakeReceivers(t)
 	env := map[string]string{"WEBHOOK_SECRET_SEC": webhookSecret}
 	getenv := func(k string) string { return env[k] }
+	mailer := newFakeMailer(t)
+	private := []uuid.UUID{uuid.New(), uuid.New(), uuid.New()}
+	privateOrgs := alerts.PrivateOrgs{}
+	for _, id := range private {
+		privateOrgs[id.String()] = true
+	}
 	cfg := alertsConfig{
-		getenv: getenv, allowPrivate: true,
+		getenv: getenv, privateOrgs: privateOrgs, emailDailyCap: 50,
+		smtp:          channels.SMTPConfig{URL: "smtp://" + mailer.addr, From: "Guard Spec <alerts@example.com>"},
 		telegramToken: fakeTelegramToken, telegramBot: "guard_test_bot", telegramSecret: telegramHookKey,
 		slackToken: fakeSlackToken, lang: "en", telegramAPI: fake.URL, slackAPI: fake.URL,
 	}
 	var err error
-	if cfg.secretOrgs, err = alerts.ParseSecretOrgs("WEBHOOK_SECRET_SEC=*;A2A_ONLY_B=" + uuid.Nil.String()); err != nil {
+	if cfg.secretOrgs, err = alerts.ParseSecretOrgs("WEBHOOK_SECRET_SEC=webhook:*;A2A_ONLY_B=a2a:" + uuid.Nil.String()); err != nil {
 		t.Fatal(err)
 	}
 	var settings *appSettings
@@ -164,7 +175,24 @@ func newAlertsHarness(t *testing.T) *alertsHarness {
 		cancel()
 		<-done
 	})
-	return &alertsHarness{cpHarness: h, rt: rt, fake: fake, em: em}
+	return &alertsHarness{cpHarness: h, rt: rt, fake: fake, em: em, smtp: mailer, private: private}
+}
+
+// privateOrg creates the next org listed in ALERTS_PRIVATE_ORGS, with an
+// admin, and returns its id and the admin's token.
+func (h *alertsHarness) privateOrg() (uuid.UUID, string) {
+	h.t.Helper()
+	id := h.private[0]
+	h.private = h.private[1:]
+	err := tenant.WithOrg(context.Background(), h.db, id, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(), `INSERT INTO organizations (id, name, slug) VALUES ($1, 'p', $2)`, id, id.String())
+		return err
+	})
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	_, token := h.member(id, auth.RoleAdmin)
+	return id, token
 }
 
 func (h *alertsHarness) member(org uuid.UUID, role auth.Role) (uuid.UUID, string) {
@@ -217,7 +245,7 @@ func (h *alertsHarness) blocked(org, project uuid.UUID, category string) {
 // critical → group Security via telegram + slack + webhook".
 func TestAlertsAcceptance(t *testing.T) {
 	h := newAlertsHarness(t)
-	org, _, admin := h.org(auth.RoleAdmin)
+	org, admin := h.privateOrg()
 	base := "/v1/organizations/" + org.String()
 	projectX, projectY := h.project(org), h.project(org)
 	alice, _ := h.member(org, auth.RoleMember)
@@ -334,7 +362,8 @@ func TestAlertsAcceptance(t *testing.T) {
 		t.Fatalf("a non-recipient got notifications: %v", notes)
 	}
 	deliveries := h.expect(200, "GET", base+"/notification-deliveries?state=sent", admin, "")
-	if deliveries["total"].(float64) != 4 {
+	// telegram ×2, slack, webhook, and the account email of both recipients.
+	if deliveries["total"].(float64) != 6 {
 		t.Fatalf("deliveries %v", deliveries)
 	}
 	for _, d := range deliveries["items"].([]any) {
@@ -365,7 +394,7 @@ func TestAlertsAcceptance(t *testing.T) {
 // TestAlertsLatency measures event to delivery attempt over 20 alerts.
 func TestAlertsLatency(t *testing.T) {
 	h := newAlertsHarness(t)
-	org, _, admin := h.org(auth.RoleAdmin)
+	org, admin := h.privateOrg()
 	base := "/v1/organizations/" + org.String()
 	project := h.project(org)
 	ch := h.expect(201, "POST", base+"/notification-channels", admin, jsonBody(map[string]any{
@@ -506,8 +535,8 @@ func TestAlertsRolesAndIsolation(t *testing.T) {
 		}
 	}
 	caps := h.expect(200, "GET", "/v1/alerts/capabilities", viewer, "")
-	if caps["telegram"].(map[string]any)["enabled"] != true || caps["slack_bot"] != true || caps["smtp"] != false ||
-		caps["allow_private_urls"] != true {
+	if caps["telegram"].(map[string]any)["enabled"] != true || caps["slack_bot"] != true || caps["smtp"] != true ||
+		caps["allow_private_urls"] != false {
 		t.Errorf("capabilities %v", caps)
 	}
 }
@@ -576,14 +605,9 @@ func TestTelegramLinking(t *testing.T) {
 		t.Fatal("expired code worked")
 	}
 	h.expect(200, "POST", "/v1/me/channel-links/slack", token, "")
-	var account string
-	if err := h.db.QueryRow(context.Background(), `SELECT email FROM users WHERE id = $1`, user).Scan(&account); err != nil {
-		t.Fatal(err)
-	}
-	h.expect(200, "PUT", "/v1/me/channel-links/email", token, `{"address":"alerts-`+account+`"}`)
-	if code, _ := h.do("PUT", "/v1/me/channel-links/email", token, `{"address":"victim@other.example.net"}`); code != 400 {
-		t.Fatalf("email outside the account domain: %d", code)
-	}
+	// A pending address is removed with DELETE (TestPersonalEmailConfirmation
+	// covers the code).
+	h.expect(202, "PUT", "/v1/me/channel-links/email", token, `{"address":"victim@other.example.net"}`)
 	h.expect(204, "DELETE", "/v1/me/channel-links/email", token, "")
 	h.expect(204, "DELETE", "/v1/me/channel-links/telegram", token, "")
 	links = h.expect(200, "GET", "/v1/me/channel-links", token, "")
