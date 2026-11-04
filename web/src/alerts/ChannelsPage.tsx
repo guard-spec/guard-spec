@@ -441,9 +441,14 @@ function ChannelEditor({
             </>
           ) : null}
           {v.kind === 'a2a' ? (
-            <Field label={t('alerts.channel.agentCard')} help={t('alerts.channel.agentCardHelp')} error={err('agent_card_url')}>
-              {(p) => <input {...p} className="mono" type="url" value={cs('agent_card_url')} placeholder="https://agent.example.com" onChange={(e) => setCfg({ agent_card_url: e.target.value })} />}
-            </Field>
+            <>
+              <Field label={t('alerts.channel.agentCard')} help={t('alerts.channel.agentCardHelp')} error={err('agent_card_url')}>
+                {(p) => <input {...p} className="mono" type="url" value={cs('agent_card_url')} placeholder="https://agent.example.com" onChange={(e) => setCfg({ agent_card_url: e.target.value })} />}
+              </Field>
+              {allowPrivate ? (
+                <Toggle label={t('alerts.channel.allowPrivate')} help={t('alerts.channel.allowPrivateHelp')} checked={cfg.allow_private === true} disabled={readOnly} onChange={(on) => setCfg({ allow_private: on })} />
+              ) : null}
+            </>
           ) : null}
           {v.kind === 'email' ? (
             <>
