@@ -55,7 +55,7 @@ Model layers (L2/L3):
 ```bash
 make onnx-deps                   # libonnxruntime + libtokenizers.a into .onnx/, SHA-256 checked
 go run ./cmd/models pull -dir models/cache    # multilingual-e5-small
-# classifier: build with train/ or copy into models/local/guardspec-classifier-v3 (README "Models")
+# classifier: build with train/ or copy into models/local/guardspec-classifier-v3b (README "Models")
 ```
 
 ## Tests

@@ -28,7 +28,20 @@ type CalibrationFile struct {
 
 // BuiltinCalibrations are the calibrations of the classifiers we ship.
 var BuiltinCalibrations = map[string]CalibrationFile{
-	// v3: fitted on val + val_hard + val_vi_variants + val_v3 (7,494 rows;
+	// v3b (the default): fitted on val + val_hard + val_vi_variants + val_v3
+	// plus the owner-supplied and OTP/KYC rows that the group hash sends to
+	// validation (7,572 rows; those external rows are not in this repository).
+	"guardspec-classifier-v3b": {
+		Model:    "guardspec-classifier-v3b",
+		FittedOn: "train/data/val.jsonl + val_hard.jsonl + val_vi_variants.jsonl + val_v3.jsonl, with the owner-supplied and OTP/KYC validation rows (7572 rows), 5-fold CV for the method choice",
+		Platt:    fusion.Calibration{A: 0.9731, B: 0.1567},
+		LogReg: map[string]fusion.LogReg{
+			"l1,l2":    {W: [3]float64{0.4887, 0.9473, 0}, B: 0.3963},
+			"l1,l2,l3": {W: [3]float64{0.4582, 0.9094, 0.2769}, B: 0.4955},
+		},
+	},
+	// v3: never shipped (failed the eval set); kept for L2_MODEL_DIR use.
+	// Fitted on val + val_hard + val_vi_variants + val_v3 (7,494 rows;
 	// never val_v3_holdout or val_realistic_holdout); the combiners use the
 	// built-in L1 and L3 scalings, as at run time.
 	"guardspec-classifier-v3": {

@@ -6,17 +6,43 @@ pipeline_tag: text-classification
 tags: [prompt-injection, jailbreak, guardrail, onnx, int8]
 ---
 
-# guardspec-classifier-v3
+# guardspec-classifier-v3b
 
 Copyright The Guard Spec Authors. Licensed under the Apache License 2.0.
 
-## v3b experiment (2026-11-04): not adopted, v3 stays the default
+## v3b (2026-11-04): the default classifier
 
-v3b retrains the v3 recipe (r3) with owner-supplied rows and OTP / eKYC rows added. It **did not pass
-the decision rule** (better `user_holdout` and banking TPR *without* raising FPR on any hold-out group
-or the probe by more than 1 row per 100), so the gateway keeps loading v3. The checkpoint of arm A is
-kept locally as `models/local/guardspec-classifier-v3b/` with its own `calibration.json`; the gateway
-does not load it by default (`L2_MODEL_DIR` can point at it).
+v3b is the v3 recipe (r3, below) retrained with owner-supplied rows and OTP / eKYC rows added (arm A).
+The gateway loads `models/local/guardspec-classifier-v3b` first, then v2, v1, v0. v3 itself never
+shipped: it failed the eval set (see "v3" below).
+
+v3b first failed our pre-eval decision rule on the OTP/KYC probe (below). The eval set then showed
+that our generated hold-outs had been optimistic for v3, and that the owner-written data generalised
+to eval where the generator-heavy data did not. The owner approved v3b-A as the default on the eval
+result.
+
+### Eval set results (measured once by the coordinator, gateway, fused L1+L2+L3 at 0.85)
+
+| | ROC AUC | TPR at FPR ≤ 1% | TPR at block | FPR at block | EN FPR | VI FPR | VI teencode FPR | VI no-diacritics FPR | VI orig FPR | latency p50 / p99 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| v2 | 0.985 | 0.922 | 0.933 | 2.0% | 2.2% | 1.9% | 1.4% | 3.0% | - | 3.8 / 11.0 ms |
+| v3 (not shipped) | - | - | 0.915 | 2.2% | - | - | 4.2% | - | - | - |
+| **v3b** | **0.986** | **0.924** | 0.932 | **1.4%** | **1.7%** | **1.3%** | 3.5% | **0.4%** | 0.4% | 3.7 / 11.1 ms |
+
+`eval/baseline-onnx.json` holds the v3b run, and the README Benchmarks section has the row. Against
+the v2 baseline, 23 eval rows changed for the worse with v3b (v3: 42). The overall FPR target (≤ 1.5%)
+is met, but the per-group target (≤ 2%) is missed for teencode.
+
+### Known weaknesses
+
+- **Vietnamese teencode benign FPR is 3.5%** on eval (v2 1.4%). v3/v3b moved benign mass from teencode
+  towards no-diacritics: no-diacritics fell from 3.0% to 0.4%.
+- **OTP/KYC false positives**: on the benign OTP/KYC probe (120 rows), v3b blocks 3.3% (4 rows; VI
+  3 of 73), v3 0.8%. The OTP/KYC training file has English attacks only and Vietnamese benign rows
+  only, so banking vocabulary carries a language-dependent signal.
+- **English leet recall** is lower on eval (TPR 0.825 vs v2 0.875).
+- The hold-outs we wrote ourselves were optimistic: v3 scored FPR 0.4% / 1.4% on them and 2.2% on
+  eval. Treat the validation and hold-out tables below as development signals, not estimates.
 
 **Provenance (not redistributed).** None of these rows is in this repository; `data/build_data.py`
 reads them from paths at build time (`DATA_CARD.md`, "v3b") into a gitignored directory.
@@ -70,7 +96,7 @@ OTP/KYC validation rows):
 | validation/vi/partial_diacritics | 7 / 13 | 0.0% (0) / 0.923 | 0.0% (0) / 1.000 | 0.0% (0) / 1.000 | 0.0% (0) / 1.000 |
 | validation/vi/teencode | 1437 / 323 | 0.4% (6) / 0.789 | 0.2% (3) / 0.938 | 0.3% (5) / 0.944 | 0.5% (7) / 0.929 |
 
-**Reading.** v3b-A raises owner hold-out TPR from 0.386 to 0.864 (banking 0.361 → 0.861, `ablate`
+**Pre-eval reading** (kept as written before the eval run). v3b-A raises owner hold-out TPR from 0.386 to 0.864 (banking 0.361 → 0.861, `ablate`
 0.18 → 0.77) and keeps the other hold-outs within about one row per 100, but the benign OTP/KYC probe
 rises from 1 to 4 of 120 blocked rows (Vietnamese 1 → 3 of 73), and `user_holdout` EN gets its first
 false positive (1 of 44). B has the same probe result with lower recall. A likely cause is the
@@ -79,17 +105,33 @@ Vietnamese attack slice was refused while it was being written), so banking voca
 language-dependent label signal. Balanced Vietnamese OTP/KYC attacks and benign rows, or more benign
 banking text, are the next step before adopting it.
 
-SHA-256 of `models/local/guardspec-classifier-v3b/` (arm A, not the default):
+Fusion calibration for v3b (`cmd/calibrate fit` on the v3b validation, 7,572 rows, built in as
+`ml.BuiltinCalibrations`): Platt A 0.9731, B 0.1567; logreg(L1,L2,L3) W (0.4582, 0.9094, 0.2769),
+B 0.4955; logreg(L1,L2) W (0.4887, 0.9473), B 0.3963. Out of fold: TPR 0.964 at FPR 0.26%.
+
+Reproducing v3b needs the owner rows (not redistributed): build with the `GUARD_OWNER_*`,
+`GUARD_OTPKYC_*` and `GUARD_BUILD_OUT` variables (`DATA_CARD.md`), then
+`uv run python train.py --data-dir <out>` and `uv run python export.py --data-dir <out>`.
+
+SHA-256 of `models/local/guardspec-classifier-v3b/` (the shipped model; same architecture and size as
+v2, 118.5 MB INT8):
 
 ```
 87368d45526ae4f3a1830231d9187814577568e894246a284c8689a9a6cc6ae3  model_int8.onnx
-9589f8de7912f805990eacd0eb1ad0f33eba7e51e20927150b84a75874fb99b6  thresholds.json
-09ef5f180c2f061db75e410c7197f7fcab9e18e698cc37d275ae578d32acafcf  calibration.json
-c89d10db99567d790a4a33d551eef09dcd0b0786877d22a67033c09c34cf9f72  config.json
 2b95ee17661f8dfbbceaba374f6d277a6b5d8e1898c070a16331622024f58c67  tokenizer.json
+c89d10db99567d790a4a33d551eef09dcd0b0786877d22a67033c09c34cf9f72  config.json
+9589f8de7912f805990eacd0eb1ad0f33eba7e51e20927150b84a75874fb99b6  thresholds.json
 ```
 
-## v3 (2026-11-04)
+## v3 (2026-11-04): not shipped
+
+**v3 failed the eval set** (measured once): FPR 2.2% (v2 2.0%), TPR at block 0.915 (v2 0.933),
+teencode FPR 4.2%, VI direct-injection TPR 0.873 and VI tool-poisoning TPR 0.851, 42 rows worse than
+the v2 baseline. Its validation and hold-out numbers below were much better than that. The likely
+reason is that most v3 additions were machine-generated (our templates and the realistic set),
+and the hold-outs came from the same generators, so they rewarded fitting those generators' style
+rather than the eval distribution. The owner-written rows in v3b generalised better.
+
 
 v3 has the same architecture, labels, export and runtime as v1/v2 (below):
 `intfloat/multilingual-e5-small` at the pinned MIT revision, 8-label sigmoid head, risk
@@ -100,8 +142,8 @@ HelpSteer2 prompts (CC-BY-4.0), realistic EN/VI rows (`data/realistic/`), a per-
 benign:attack ratio (EN 2.0, VI 1.75) and formal Vietnamese with diacritics seen twice per epoch.
 Recipe unchanged (AdamW 5e-5, 5 epochs, batch 32, BCE, v2 augmentation).
 
-**The eval-set results are pending measurement by the coordinator** (measured once, after this
-work). Everything below uses training and validation data only, plus two hold-outs.
+The eval-set result is above. Everything below uses training and validation data only, plus two
+hold-outs, and was written before the eval run.
 
 | | v3 |
 |---|---|

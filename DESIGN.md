@@ -77,7 +77,7 @@ client ──► gateway (Go, Fiber) ──────────────�
      homoglyphs, fullwidth, leet, spelled-out letters, repeats, Vietnamese
      teencode), weighted phrase and co-occurrence rules per category, with
      suppressors for meta discussion, quotes and code.
-   - L2 classifier (`ml`, `onnx`): `guardspec-classifier-v3`, an 8-label
+   - L2 classifier (`ml`, `onnx`): `guardspec-classifier-v3b`, an 8-label
      sigmoid head on `intfloat/multilingual-e5-small`, INT8 ONNX; risk is
      1 − p(benign); 256-token windows with 64-token overlap.
    - L3 similarity: e5 embeddings against built-in and per-org exemplars.
