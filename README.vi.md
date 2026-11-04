@@ -233,6 +233,24 @@ Control plane (cổng 8081, compose mở ra 18081): đăng nhập, tổ chức, 
 project, policy, guard settings, exemplar, lời mời, audit log. Bảng đầy đủ và
 ví dụ curl ở mục [APIs](README.md#apis).
 
+### Giao diện quản trị
+
+Control plane phục vụ giao diện quản trị tại `/ui/` (với compose:
+<http://localhost:18081/ui/>), bằng tiếng Việt hoặc tiếng Anh, giao diện sáng
+hoặc tối. Đăng nhập bằng tài khoản control plane rồi mở tổ chức theo id (tổ
+chức tạo khi cài đặt là `00000000-0000-0000-0000-000000000001`).
+
+Trang **Luồng xử lý** vẽ đường đi của một request qua gateway: khóa API, lớp
+L0, các lớp phát hiện L1, L2, L3, các luật theo đúng thứ tự của gateway, các
+kết quả Chặn, Ghi log, Cho phép và các upstream. Sửa điều kiện của luật bằng
+bộ dựng trực quan hoặc dạng văn bản, kéo để đổi thứ tự, kéo từ điểm "khớp" của
+luật đến một upstream để định tuyến, và thử request bằng bộ mô phỏng. Ngoài ra
+có các trang Upstream, Cấu hình dạng mã (YAML: kiểm tra, xem khác biệt, áp
+dụng), Thiết lập bảo vệ, Khóa API, Dự án, Mẫu tham chiếu và Nhật ký kiểm tra.
+Chi tiết ở mục [Admin UI](README.md#admin-ui).
+
+![Luồng xử lý, giao diện tối](docs/images/admin-flow-dark-vi.png)
+
 ## Benchmark
 
 Đo ngày **2026-11-04**, commit `2275698`, trên **Apple M3 Max (14 nhân,

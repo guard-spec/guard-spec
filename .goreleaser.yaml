@@ -19,6 +19,11 @@ project_name: guard-spec
 before:
   hooks:
     - go mod tidy -diff
+    # The admin UI, embedded by the control plane (web/embed.go). Hooks run
+    # after GoReleaser's clean-tree check, so replacing the committed
+    # placeholder web/dist/index.html here is fine.
+    - npm --prefix web ci --no-audit --no-fund
+    - npm --prefix web run build
     - go test ./...
 
 builds:
@@ -139,7 +144,7 @@ release:
     | `ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/guard-spec-gateway:{{ .Version }}` | L1 + L2 + L3 | Built with `-tags onnx`, ships libonnxruntime. Mount the models at `/models` (read-only is fine); without them it runs L1 only and logs a warning. `GET /readyz` lists the active layers. |
     | `guard-spec_{{ .Version }}_linux_<arch>_onnx.tar.gz` | L1 + L2 + L3 | Gateway built with `-tags onnx` plus `libonnxruntime.so`. Linux, glibc 2.36 or newer; set `ONNXRUNTIME_LIB` and `MODEL_DIR`. |
     | `guard-spec_{{ .Version }}_<os>_<arch>.tar.gz` | **L1 only** | Static binaries (`CGO_ENABLED=0`), no ONNX Runtime. |
-    | `ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/guard-spec-control-plane:{{ .Version }}` | n/a | Static, no cgo. |
+    | `ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/guard-spec-control-plane:{{ .Version }}` | n/a | Static, no cgo. Serves the admin UI at `/ui/`. |
 
     Models are never baked into images or archives; fetch them with `models pull` (see README).
 

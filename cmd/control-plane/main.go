@@ -179,6 +179,7 @@ func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins 
 
 	authed := v1.Group("", auth.Required(secret))
 
+	authed.Get("/organizations", listMyOrgs(db))
 	authed.Post("/organizations", createOrg(db))
 	authed.Post("/cel/validate", validateCEL(eng))
 	// Rule editing helpers; they read no org data.
@@ -551,6 +552,9 @@ func createPolicy(db *pgxpool.Pool, eng *policy.Engine) fiber.Handler {
 			Description string          `json:"description"`
 			Rules       json.RawMessage `json:"rules"`
 			ProjectID   *uuid.UUID      `json:"project_id"` // null or absent: org-wide
+			// Absent: enabled. A policy created disabled is never live, not
+			// even between a create and a second PUT.
+			Enabled *bool `json:"enabled"`
 		}
 		if err := c.BodyParser(&req); err != nil || req.Name == "" {
 			return c.Status(400).JSON(fiber.Map{"error": "name and rules are required"})
@@ -571,8 +575,9 @@ func createPolicy(db *pgxpool.Pool, eng *policy.Engine) fiber.Handler {
 				return err
 			}
 			_, err := tx.Exec(c.Context(),
-				`INSERT INTO policies (id, org_id, project_id, name, description, rules) VALUES ($1,$2,$3,$4,$5,$6)`,
-				id, org, req.ProjectID, req.Name, req.Description, rules)
+				`INSERT INTO policies (id, org_id, project_id, name, description, rules, enabled)
+				 VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+				id, org, req.ProjectID, req.Name, req.Description, rules, req.Enabled == nil || *req.Enabled)
 			return err
 		})
 		var unknownTarget *unknownTargetError
@@ -764,8 +769,11 @@ func listRequests(db *pgxpool.Pool) fiber.Handler {
 		reqs := []row{}
 		err := tenant.WithOrg(c.Context(), db, id, func(tx pgx.Tx) error {
 			rows, err := tx.Query(c.Context(),
-				`SELECT id, model, action, rule_id, injection_label, injection_score, toxicity_score, anomaly_score,
-				        had_tag_chars, had_bidi, latency_ms,
+				// The scores and flags are nullable columns (rows written by
+				// older gateways or by hand); they read as 0 and false.
+				`SELECT id, model, action, rule_id, injection_label,
+				        COALESCE(injection_score, 0), COALESCE(toxicity_score, 0), COALESCE(anomaly_score, 0),
+				        COALESCE(had_tag_chars, false), COALESCE(had_bidi, false), latency_ms,
 				        request_sha256, request_bytes, response_sha256, response_bytes, route_target,
 				        request_content, response_content, created_at
 				 FROM requests WHERE org_id = $1
