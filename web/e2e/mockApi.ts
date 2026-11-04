@@ -61,9 +61,11 @@ export const SCHEMA: PolicySchema = {
   operators: {
     double: ['=', '!=', '>', '>=', '<', '<='],
     int: ['=', '!=', '>', '>=', '<', '<='],
-    string: ['=', '!=', 'contains', 'beginsWith', 'endsWith', 'in', 'notIn'],
-    bool: ['='],
-    list: ['contains'],
+    // As the control plane (internal/policy/schema.go): no notIn; a negated
+    // group expresses it.
+    string: ['=', '!=', 'contains', 'beginsWith', 'endsWith', 'in'],
+    bool: ['=', '!='],
+    list: ['contains', 'in'],
   },
   actions: ['allow', 'block', 'log', 'route'],
 };
@@ -141,12 +143,12 @@ export function parseExpression(src: string): ConditionNode {
   const literal = (f: string, t: Tok): unknown => {
     const type = TYPES[f];
     if (type === 'double' || type === 'int') {
-      if (t.kind !== 'num') throw new ParseError(`${f} needs a number`, t.pos);
-      return t.text;
+      if (t.kind !== 'num') throw new ParseError(`${f} is a number`, t.pos);
+      return Number(t.text);
     }
     if (type === 'bool') {
       if (t.text !== 'true' && t.text !== 'false') throw new ParseError(`${f} needs true or false`, t.pos);
-      return t.text;
+      return t.text === 'true';
     }
     if (t.kind !== 'str') throw new ParseError(`${f} needs a string`, t.pos);
     return t.text;
@@ -185,7 +187,7 @@ export function parseExpression(src: string): ConditionNode {
         if (peek().text === ',') next();
       }
       expect(']');
-      return { field: f, operator: 'in', value: items.join(',') };
+      return { field: f, operator: 'in', value: items };
     }
     throw new ParseError(`expected a comparison after ${f}`, op.pos);
   };
@@ -312,7 +314,7 @@ export function seedState(): MockState {
     base_url: 'https://api.openai.com/v1',
     model: '',
     api_key_env: 'UPSTREAM_KEY_MAIN',
-    timeout_ms: 60000,
+    timeout_ms: 300000,
     enabled: true,
     created_at: T0,
     updated_at: T0,
@@ -509,7 +511,7 @@ export function exportConfig(state: MockState): string {
       base_url: u.base_url,
       ...(u.model ? { model: u.model } : {}),
       ...(u.api_key_env ? { api_key_env: u.api_key_env } : {}),
-      ...(u.timeout_ms !== 60000 ? { timeout_ms: u.timeout_ms } : {}),
+      ...(u.timeout_ms !== 300000 ? { timeout_ms: u.timeout_ms } : {}),
       ...(u.enabled ? {} : { enabled: false }),
     })),
     policies: state.policies.map((p) => ({
@@ -598,7 +600,7 @@ function importConfig(state: MockState, text: string, dryRun: boolean) {
         base_url: u.base_url,
         model: u.model ?? '',
         api_key_env: u.api_key_env ?? '',
-        timeout_ms: u.timeout_ms ?? 60000,
+        timeout_ms: u.timeout_ms ?? 300000,
         enabled: u.enabled ?? true,
       };
     });

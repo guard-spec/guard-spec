@@ -23,10 +23,8 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-      # The control plane embeds web/dist; without web/package.json the
-      # committed placeholder is embedded.
-      - name: Build the admin UI
-        run: if [ -f web/package.json ]; then npm --prefix web ci --no-audit --no-fund && npm --prefix web run build; fi
+      # Built with the committed placeholder in web/dist: go build needs no
+      # Node. The web job builds the control plane with the real UI.
       - run: go build ./...
       - run: go vet ./...
       - run: go vet -tags integration ./...
@@ -203,6 +201,14 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      # The control plane embeds the real build (web/embed.go) and serves it.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: go build -o /dev/null ./cmd/control-plane/
+        working-directory: .
+      - run: go test ./cmd/control-plane/ -run 'TestUI'
+        working-directory: .
       # The e2e tests run the build under the control plane's CSP, against a
       # mocked API (web/e2e/mockApi.ts): no backend needed.
       - run: npx playwright install --with-deps chromium

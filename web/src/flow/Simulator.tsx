@@ -7,6 +7,15 @@ import { errorText, useApp } from '../context';
 import type { MessageKey } from '../i18n';
 import type { PolicySchema, SchemaField, SimulateRequest, SimulateResponse, SimValue } from '../types';
 
+/**
+ * The index of the trace entry that decided: the first match of an allow,
+ * block or route rule. The control plane lists every rule's outcome, so later
+ * entries were not reached by the gateway. -1 when no rule decided.
+ */
+export function decidingIndex(trace: SimulateResponse['trace']): number {
+  return trace.findIndex((e) => e.matched && e.action !== 'log');
+}
+
 /** Converts the form's strings to typed vars; empty fields are left out. */
 export function simVars(schema: PolicySchema, form: Record<string, string>): Record<string, SimValue> {
   const out: Record<string, SimValue> = {};
@@ -172,14 +181,20 @@ export function Simulator({ orgId, schema, makeRequest, result, onResult }: Simu
             <p className="muted">{t('sim.noTrace')}</p>
           ) : (
             <ol className="trace">
-              {result.trace.map((e, i) => (
-                <li key={`${e.rule_id ?? ''}-${i}`} className={e.matched ? 'trace-hit' : ''}>
-                  <span className="trace-name">{e.rule_name}</span>{' '}
-                  <span className={e.matched ? 'badge badge-accent' : 'badge badge-off'}>{e.matched ? t('sim.matched') : t('sim.notMatched')}</span>{' '}
-                  <span className={`action action-${e.action}`}>{e.action}</span>
-                  {e.error ? <div className="field-error">{e.error}</div> : null}
-                </li>
-              ))}
+              {result.trace.map((e, i) => {
+                const decided = decidingIndex(result.trace);
+                const after = decided >= 0 && i > decided;
+                return (
+                  <li key={`${e.rule_id ?? ''}-${i}`} className={[e.matched && !after ? 'trace-hit' : '', after ? 'trace-after' : ''].join(' ')}>
+                    <span className="trace-name">{e.rule_name}</span>{' '}
+                    <span className={e.matched ? 'badge badge-accent' : 'badge badge-off'}>{e.matched ? t('sim.matched') : t('sim.notMatched')}</span>{' '}
+                    <span className={`action action-${e.action}`}>{e.action}</span>
+                    {i === decided ? <span className="badge badge-warn">{t('sim.decides')}</span> : null}
+                    {after ? <span className="muted small"> · {t('sim.notReached')}</span> : null}
+                    {e.error ? <div className="field-error">{e.error}</div> : null}
+                  </li>
+                );
+              })}
             </ol>
           )}
         </div>

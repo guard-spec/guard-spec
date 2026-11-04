@@ -179,6 +179,8 @@ export const en = {
   'sim.source.stub': 'stub answer',
   'sim.failed': 'Simulation failed: {error}',
   'sim.noTrace': 'No rule was evaluated.',
+  'sim.decides': 'decides',
+  'sim.notReached': 'not reached by the gateway',
 
   'up.title': 'Upstreams',
   'up.help': 'Models the gateway can send a request to. Route rules and the defaults name them.',

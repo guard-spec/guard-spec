@@ -15,7 +15,12 @@ import type { MessageKey } from '../i18n';
 import { ACTIONS, type Action, type ConditionNode, type PolicySchema } from '../types';
 import { conditionText } from './conditionText';
 import { asGroup, type EditableRule } from './model';
-import { fieldTypesOf, operatorsFor } from './schema';
+import { cleanCondition, fieldTypesOf, operatorsFor } from './schema';
+
+/** Equal trees, ignoring the builder's ids and a single leaf wrapped in a group. */
+export function sameCondition(a: ConditionNode, b: ConditionNode): boolean {
+  return JSON.stringify(cleanCondition(asGroup(a))) === JSON.stringify(cleanCondition(asGroup(b)));
+}
 
 const OPERATOR_LABELS: Record<string, string> = {
   '=': '=',
@@ -91,7 +96,11 @@ export function RulePanel(props: RulePanelProps) {
   const fields = useMemo(() => builderFields(schema), [schema]);
   const fieldNames = useMemo(() => schema.fields.map((f) => f.name), [schema]);
   const query = useMemo(() => asGroup(rule.condition) as RuleGroupType, [rule.condition]);
-  const timer = useRef<number | undefined>(undefined);
+  // Separate timers: a format must never cancel a pending parse, or the
+  // reverse. seq makes only the newest request's answer count.
+  const formatTimer = useRef<number | undefined>(undefined);
+  const parseTimer = useRef<number | undefined>(undefined);
+  const mounted = useRef(false);
   const seq = useRef(0);
   // Last condition that came from the text tab: not formatted back into it.
   const fromText = useRef<ConditionNode | null>(null);
@@ -123,19 +132,34 @@ export function RulePanel(props: RulePanelProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // A change from the visual tab or elsewhere: format it into the text tab.
+  // A change from the visual tab or elsewhere (not the mount, not the text
+  // tab itself): format it into the text tab.
   useEffect(() => {
+    if (!mounted.current) {
+      mounted.current = true;
+      return;
+    }
     if (fromText.current === rule.condition) return;
-    window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => void format(rule.condition), 300);
-    return () => window.clearTimeout(timer.current);
+    window.clearTimeout(formatTimer.current);
+    formatTimer.current = window.setTimeout(() => void format(rule.condition), 300);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rule.condition]);
 
+  useEffect(
+    () => () => {
+      window.clearTimeout(formatTimer.current);
+      window.clearTimeout(parseTimer.current);
+    },
+    [],
+  );
+
   const onText = (value: string) => {
     setText(value);
-    window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => {
+    // The user is typing: a pending or running format must not overwrite it.
+    window.clearTimeout(formatTimer.current);
+    seq.current += 1;
+    window.clearTimeout(parseTimer.current);
+    parseTimer.current = window.setTimeout(() => {
       const my = ++seq.current;
       setSyncing(true);
       api
@@ -254,6 +278,9 @@ export function RulePanel(props: RulePanelProps) {
             fields={fields}
             query={query}
             onQueryChange={(q) => {
+              // The builder reports its prepared query (with ids) on mount:
+              // only a real change edits the rule.
+              if (sameCondition(q as ConditionNode, rule.condition)) return;
               fromText.current = null;
               props.onChange({ condition: q as ConditionNode });
             }}

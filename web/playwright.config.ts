@@ -21,12 +21,18 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } },
-      testIgnore: /screenshots\.spec\.ts/,
+      testIgnore: /(screenshots|live)\.spec\.ts/,
     },
     {
       name: 'screenshots',
       use: { ...devices['Desktop Chrome'], viewport: { width: 1600, height: 1000 }, deviceScaleFactor: 1 },
       testMatch: /screenshots\.spec\.ts/,
+    },
+    {
+      // A real control plane at LIVE_URL (see e2e/live.spec.ts).
+      name: 'live',
+      use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } },
+      testMatch: /live\.spec\.ts/,
     },
   ],
   webServer: {

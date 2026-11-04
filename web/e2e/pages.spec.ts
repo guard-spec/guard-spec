@@ -72,7 +72,7 @@ test.describe('Upstreams', () => {
     await expect(page.getByRole('dialog')).toBeHidden();
     await expect(page.getByRole('cell', { name: 'fallback', exact: true })).toBeVisible();
     const created = mock.calls.find((c) => c.method === 'POST' && c.path.endsWith('/upstreams'));
-    expect(created?.body).toMatchObject({ name: 'fallback', api_key_env: 'UPSTREAM_KEY_FALLBACK', enabled: true, timeout_ms: 60000 });
+    expect(created?.body).toMatchObject({ name: 'fallback', api_key_env: 'UPSTREAM_KEY_FALLBACK', enabled: true, timeout_ms: 300000 });
 
     await page.getByRole('button', { name: 'Edit upstream fallback' }).click();
     await page.getByRole('dialog').getByLabel('Model').fill('gpt-4o-mini');

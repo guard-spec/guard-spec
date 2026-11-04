@@ -180,6 +180,8 @@ export const vi: Messages = {
   'sim.source.stub': 'câu trả lời giả',
   'sim.failed': 'Mô phỏng thất bại: {error}',
   'sim.noTrace': 'Không có luật nào được đánh giá.',
+  'sim.decides': 'quyết định',
+  'sim.notReached': 'gateway không xét đến',
 
   'up.title': 'Upstream',
   'up.help': 'Các mô hình mà gateway có thể gửi request đến. Luật định tuyến và giá trị mặc định tham chiếu đến chúng.',
