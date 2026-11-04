@@ -87,6 +87,55 @@ REALISTIC_TRAIN = DATA / "realistic" / "realistic_train.jsonl"
 REALISTIC_HOLDOUT = DATA / "realistic" / "realistic_holdout.jsonl"
 USE_REALISTIC = os.environ.get("GUARD_V3_REALISTIC", "1") != "0"
 
+# v3b: external rows read at build time and never committed (owner-supplied data is not redistributed).
+# Each variable is a path to a jsonl file in the DATA_CARD schema (extra fields such as `category`,
+# `entry_point`, `ablate` are ignored); unset or missing files are skipped. Training files are mixed
+# into the pool and split by group hash like every other source; hold-out / probe files become their own
+# splits and are never used for training, selection or calibration. Any of them requires GUARD_BUILD_OUT,
+# an output directory outside train/data (e.g. train/runs/data-v3b), so no external row lands in git.
+EXTERNAL_TRAIN = [("GUARD_OWNER_TRAIN", "guard-spec:owner-supplied"), ("GUARD_OTPKYC_TRAIN", "guard-spec:otpkyc-fable")]
+EXTERNAL_HOLDOUT = [("GUARD_OWNER_HOLDOUT", "user_holdout", "guard-spec:owner-supplied"),
+                    ("GUARD_OTPKYC_PROBE", "otpkyc_probe", "guard-spec:otpkyc-fable")]
+# v3b arm B: leave owner rows marked `ablate: true` (authorization abuse and scams rather than injection)
+# out of the training split; the ones the group hash sends to `val` stay there in both arms.
+DROP_ABLATE = os.environ.get("GUARD_OWNER_DROP_ABLATE", "0") == "1"
+EXTERNAL_SOURCES = {src for _, src in EXTERNAL_TRAIN}
+ABLATE_TEXTS: set[str] = set()
+
+
+def external_path(var):
+    v = os.environ.get(var, "")
+    if not v:
+        return None
+    path = Path(v).expanduser()
+    if not path.exists():
+        print(f"{var}={v}: file not found, skipped", file=sys.stderr)
+        return None
+    return path
+
+
+def output_dir():
+    used = [v for v, *_ in EXTERNAL_TRAIN + EXTERNAL_HOLDOUT if external_path(v)]
+    out = os.environ.get("GUARD_BUILD_OUT", "")
+    if not used:
+        return Path(out).resolve() if out else DATA
+    assert out, f"{', '.join(used)} set: GUARD_BUILD_OUT (outside train/data) is required"
+    out = Path(out).resolve()
+    assert out != DATA and DATA not in out.parents, "GUARD_BUILD_OUT must be outside train/data"
+    return out
+
+
+def add_external(c, path, source, counts, tag):
+    with open(path, encoding="utf-8") as f:
+        for ln in f:
+            r = json.loads(ln)
+            assert set(r) >= {"text", "labels", "lang", "variant", "source", "license", "group"}, r.keys()
+            assert r["lang"] in ("en", "vi") and r["variant"] in VARIANTS and r["source"] == source, r
+            c.add(r["text"], r["labels"], r["lang"], r["variant"], r["source"], r["license"], r["group"])
+            if r.get("ablate"):
+                ABLATE_TEXTS.add(unicodedata.normalize("NFC", r["text"]).strip())
+            counts[f"external:{tag}"] += 1
+
 OASST_EN_N = 3800  # v1: 3200. v2 takes more so that English `orig` reaches TARGET_RATIO without dropping attacks.
 # v2: benign-to-attack ratio that every (language, variant) cell of the training split is brought to
 # (balance_variants). v2 used 1.5 everywhere. v3 raises it to 2.0 for English, which gained hard
@@ -345,6 +394,10 @@ def build(c: Collector, counts):
     add_vi_variants(c, gen_vi_v2.generate("train"), "v2.vi.train", source=PROJECT + ":v2")
     add_v3(c, gen_v3.generate("train"), "train", PROJECT + ":v3")
     add_realistic(c, REALISTIC_TRAIN, counts)
+    for var, src in EXTERNAL_TRAIN:
+        path = external_path(var)
+        if path:
+            add_external(c, path, src, counts, path.stem)
 
 
 VARIANTS = {"orig", "no_diacritics", "teencode", "leet", "partial_diacritics"}
@@ -404,7 +457,7 @@ def drop_priority(x):
     (oasst2, HelpSteer2, jailbreak-classification, deepset); 1: project template rows; hard negatives
     (v1 `hardneg`, v2, v3 generators) are never dropped."""
     src = x["source"]
-    if src in (PROJECT + ":hardneg", PROJECT + ":v2", PROJECT + ":v3", REALISTIC_SOURCE):
+    if src in (PROJECT + ":hardneg", PROJECT + ":v2", PROJECT + ":v3", REALISTIC_SOURCE) or src in EXTERNAL_SOURCES:
         return 2
     return 1 if src == PROJECT else 0
 
@@ -589,6 +642,10 @@ def main():
         n0 = len(split["train"])
         split["train"] = [r for r in split["train"] if r["source"] != REALISTIC_SOURCE]
         counts["realistic_left_out_of_train"] = n0 - len(split["train"])
+    if DROP_ABLATE:
+        n0 = len(split["train"])
+        split["train"] = [r for r in split["train"] if r["text"] not in ABLATE_TEXTS]
+        counts["owner_ablate_left_out_of_train"] = n0 - len(split["train"])
     # v2: every (language, variant) cell of the training split gets the same benign:attack ratio.
     # Rows added here are transforms of training rows; they get the leakage check below.
     kept, added = balance_variants(split["train"], TARGET_RATIO, counts)
@@ -663,16 +720,34 @@ def main():
     for r in xrows:
         r["id"] = f"{r['lang']}-{hashlib.sha256(r['text'].encode('utf-8')).hexdigest()[:12]}"
     split["val_realistic_holdout"] = xrows
+    # v3b: external hold-outs and probes (never committed; written only to GUARD_BUILD_OUT).
+    for var, name, src in EXTERNAL_HOLDOUT:
+        path = external_path(var)
+        if not path:
+            continue
+        xc = Collector()
+        add_external(xc, path, src, counts, name)
+        xcounts = collections.Counter()
+        xrows = leakage_filter(dedupe(xc.rows, xcounts), xcounts, tag=name)
+        xrows = [r for r in xrows if r["text"] not in seen]
+        for k, v in xcounts.items():
+            counts[f"{name}:{k}"] += v
+        xrows.sort(key=lambda r: (r["lang"], r["group"], r["variant"], r["text"]))
+        for r in xrows:
+            r["id"] = f"{r['lang']}-{hashlib.sha256(r['text'].encode('utf-8')).hexdigest()[:12]}"
+        split[name] = xrows
     # Independence of the hold-outs from everything used for training, selection and calibration
     # (the realistic training file counts as used even when GUARD_V3_REALISTIC=0).
     used = [r["text"] for name in ("train", "val", "val_hard", "val_vi_variants", "val_v3") for r in split[name]]
     used += [json.loads(ln)["text"] for ln in REALISTIC_TRAIN.read_text(encoding="utf-8").splitlines() if ln.strip()]
-    for name in ("val_v3_holdout", "val_realistic_holdout"):
+    for name in [n for n in ("val_v3_holdout", "val_realistic_holdout", "user_holdout", "otpkyc_probe") if n in split]:
         hj = max_jaccard([r["text"] for r in split[name]], used)
         MAX_JACCARD[f"{name}_vs_train_and_val"] = round(float(hj.max()), 4)
         counts[f"{name}_rows_jaccard_gt_0.8_vs_train_and_val"] = int((hj > JACCARD_MAX).sum())
+    out = output_dir()
+    out.mkdir(parents=True, exist_ok=True)
     for name, rs in split.items():
-        with open(DATA / f"{name}.jsonl", "w", encoding="utf-8", newline="\n") as f:
+        with open(out / f"{name}.jsonl", "w", encoding="utf-8", newline="\n") as f:
             for r in rs:
                 f.write(json.dumps({k: r[k] for k in ("id", "text", "labels", "lang", "variant", "source", "license", "group")},
                                    ensure_ascii=False) + "\n")
@@ -692,7 +767,7 @@ def main():
                 per[f"{r['lang']}/benign/variant:{r['variant']}"] += 1
         stats["splits"][name] = dict(sorted(per.items()))
         stats["splits"][name]["rows"] = len(rs)
-    (DATA / "stats.json").write_text(json.dumps(stats, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    (out / "stats.json").write_text(json.dumps(stats, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print(json.dumps(stats, indent=2, ensure_ascii=False))
 
 

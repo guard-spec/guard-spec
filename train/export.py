@@ -55,11 +55,16 @@ def sha256(path):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--run-dir", help="override export.run_dir (relative to train/)")
+    ap.add_argument("--data-dir", help="read the validation files (and, in train.py, the training file) from this "
+                    "directory instead of data/, e.g. a GUARD_BUILD_OUT build with external rows")
     ap.add_argument("--out-dir", help="override export.out_dir (relative to train/)")
     a = ap.parse_args()
     cfg = load_config()
     if a.run_dir:
         cfg["export"]["run_dir"] = a.run_dir
+    if a.data_dir:
+        cfg["data"]["val"] = [f"{a.data_dir}/{Path(v).name}" for v in cfg["data"]["val"]]
+        cfg["data"]["train"] = f"{a.data_dir}/{Path(cfg['data']['train']).name}"
     if a.out_dir:
         cfg["export"]["out_dir"] = a.out_dir
     labels = cfg["labels"]
