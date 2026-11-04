@@ -134,11 +134,14 @@ func memberChange(ctx context.Context, tx pgx.Tx, org, target uuid.UUID, caller 
 	}
 	if current == auth.RoleOwner && newRole != auth.RoleOwner {
 		var owners int
-		if err := tx.QueryRow(ctx, `SELECT count(*) FROM org_memberships WHERE org_id = $1 AND role = 'owner'`, org).
+		// Disabled owners do not count: they cannot log in to manage the org.
+		if err := tx.QueryRow(ctx,
+			`SELECT count(*) FROM org_memberships m JOIN users u ON u.id = m.user_id
+			 WHERE m.org_id = $1 AND m.role = 'owner' AND u.disabled_at IS NULL AND m.user_id <> $2`, org, target).
 			Scan(&owners); err != nil {
 			return current, err
 		}
-		if owners <= 1 {
+		if owners == 0 {
 			return current, errLastOwner
 		}
 	}
@@ -264,6 +267,9 @@ func resetMemberMFA(db *pgxpool.Pool, sessions *auth.Sessions) fiber.Handler {
 		if err := memberAction(c.Context(), db, org, target, auth.CallerRole(c)); err != nil {
 			return memberError(c, err)
 		}
+		if answered, err := requireSoleAuthority(c, db, target); answered {
+			return err
+		}
 		if err := clearMFA(c.Context(), db, target); err != nil {
 			return serverError(c, err)
 		}
@@ -285,6 +291,9 @@ func revokeMemberSessions(db *pgxpool.Pool, sessions *auth.Sessions) fiber.Handl
 		if err := memberAction(c.Context(), db, org, target, auth.CallerRole(c)); err != nil {
 			return memberError(c, err)
 		}
+		if answered, err := requireSoleAuthority(c, db, target); answered {
+			return err
+		}
 		n, err := sessions.RevokeAll(c.Context(), target, uuid.Nil)
 		if err != nil {
 			return serverError(c, err)
@@ -292,6 +301,45 @@ func revokeMemberSessions(db *pgxpool.Pool, sessions *auth.Sessions) fiber.Handl
 		logActivity(c, db, &org, "member.sessions_revoked", target.String(), map[string]any{"sessions": n})
 		return c.JSON(fiber.Map{"revoked": n})
 	}
+}
+
+// errNotSoleAuthority answers a 2FA reset or session revocation the caller may
+// not make: 2FA and sessions belong to the user, across organizations.
+var errNotSoleAuthority = errors.New("this user also belongs to organizations you do not own; an instance administrator " +
+	"or an owner of every one of their organizations can do this")
+
+// soleAuthority reports whether caller may reset target's 2FA or end target's
+// sessions: caller is an active instance administrator, or an owner of every
+// organization target belongs to. Anyone can create an organization, so being
+// an owner of one shared organization is not enough.
+func soleAuthority(ctx context.Context, db *pgxpool.Pool, caller, target uuid.UUID) (bool, error) {
+	var admin bool
+	err := db.QueryRow(ctx, `SELECT is_instance_admin AND disabled_at IS NULL FROM users WHERE id = $1`, caller).Scan(&admin)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return false, err
+	}
+	if admin {
+		return true, nil
+	}
+	var outside int
+	err = db.QueryRow(ctx,
+		`SELECT count(*) FROM user_organizations($1) t
+		 WHERE NOT EXISTS (SELECT 1 FROM user_organizations($2) c WHERE c.id = t.id AND c.role = 'owner')`,
+		target, caller).Scan(&outside)
+	return outside == 0, err
+}
+
+// requireSoleAuthority answers the request (answered true) unless the caller
+// has sole authority over target.
+func requireSoleAuthority(c *fiber.Ctx, db *pgxpool.Pool, target uuid.UUID) (answered bool, err error) {
+	ok, err := soleAuthority(c.Context(), db, auth.UserID(c), target)
+	if err != nil {
+		return true, serverError(c, err)
+	}
+	if !ok {
+		return true, auth.Deny(c, fiber.StatusForbidden, "not_sole_authority", errNotSoleAuthority.Error())
+	}
+	return false, nil
 }
 
 // ── Project members ──────────────────────────────────────────────────────────
@@ -576,6 +624,11 @@ func updateAdminUser(db *pgxpool.Pool, sessions *auth.Sessions) fiber.Handler {
 		}
 		var u adminUserRow
 		err = pgx.BeginFunc(c.Context(), db, func(tx pgx.Tx) error {
+			if req.Disabled != nil && *req.Disabled {
+				if err := checkNotSoleOwner(c.Context(), tx, target); err != nil {
+					return err
+				}
+			}
 			if (req.Disabled != nil && *req.Disabled) || (req.IsInstanceAdmin != nil && !*req.IsInstanceAdmin) {
 				last, err := lastInstanceAdmin(c.Context(), tx, target)
 				if err != nil {
@@ -606,6 +659,8 @@ func updateAdminUser(db *pgxpool.Pool, sessions *auth.Sessions) fiber.Handler {
 			return c.Status(404).JSON(fiber.Map{"error": "not found"})
 		case errors.Is(err, errLastInstanceAdmin):
 			return auth.Deny(c, fiber.StatusConflict, "last_instance_admin", err.Error())
+		case errors.As(err, new(*soleOwnerError)):
+			return auth.Deny(c, fiber.StatusConflict, "last_owner", err.Error())
 		case err != nil:
 			return serverError(c, err)
 		}
@@ -618,6 +673,30 @@ func updateAdminUser(db *pgxpool.Pool, sessions *auth.Sessions) fiber.Handler {
 			map[string]any{"disabled": req.Disabled, "is_instance_admin": req.IsInstanceAdmin})
 		return c.JSON(u)
 	}
+}
+
+// soleOwnerError refuses to disable or delete the only active owner of
+// organizations, which would leave them without anyone to manage them.
+type soleOwnerError struct{ orgs []uuid.UUID }
+
+func (e *soleOwnerError) Error() string {
+	return fmt.Sprintf("this user is the only active owner of %d organizations (%v); make someone else owner first",
+		len(e.orgs), e.orgs)
+}
+
+func checkNotSoleOwner(ctx context.Context, tx pgx.Tx, target uuid.UUID) error {
+	rows, err := tx.Query(ctx, `SELECT org_id FROM sole_owner_orgs($1) ORDER BY org_id`, target)
+	if err != nil {
+		return err
+	}
+	orgs, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	if err != nil {
+		return err
+	}
+	if len(orgs) > 0 {
+		return &soleOwnerError{orgs: orgs}
+	}
+	return nil
 }
 
 func ptrOr[T any](p *T, def T) T {
@@ -644,6 +723,13 @@ func deleteAdminUser(db *pgxpool.Pool, sessions *auth.Sessions) fiber.Handler {
 			if last {
 				return errLastInstanceAdmin
 			}
+			if err := checkNotSoleOwner(c.Context(), tx, target); err != nil {
+				return err
+			}
+			// Memberships go: a deleted user holds no role anywhere.
+			if _, err := tx.Exec(c.Context(), `SELECT delete_user_memberships($1)`, target); err != nil {
+				return err
+			}
 			if _, err := tx.Exec(c.Context(),
 				`UPDATE users SET disabled_at = COALESCE(disabled_at, NOW()), email = 'deleted-' || id::text || '@invalid',
 				   display_name = NULL, hashed_password = NULL, oidc_sub = NULL, is_instance_admin = false
@@ -666,6 +752,8 @@ func deleteAdminUser(db *pgxpool.Pool, sessions *auth.Sessions) fiber.Handler {
 			return c.Status(404).JSON(fiber.Map{"error": "not found"})
 		case errors.Is(err, errLastInstanceAdmin):
 			return auth.Deny(c, fiber.StatusConflict, "last_instance_admin", err.Error())
+		case errors.As(err, new(*soleOwnerError)):
+			return auth.Deny(c, fiber.StatusConflict, "last_owner", err.Error())
 		case err != nil:
 			return serverError(c, err)
 		}

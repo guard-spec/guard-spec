@@ -73,6 +73,11 @@ func (k KeyOrgs) Allows(name string, org uuid.UUID) bool {
 	return k.all[name] || k.orgs[name][org]
 }
 
+// Explicit reports whether org is listed by id for name, not only through "*".
+func (k KeyOrgs) Explicit(name string, org uuid.UUID) bool {
+	return UpstreamKeyVarRe.MatchString(name) && k.orgs[name][org]
+}
+
 // Check returns an error explaining why org may not use name, or nil.
 func (k KeyOrgs) Check(name string, org uuid.UUID) error {
 	if name == "" || k.Allows(name, org) {

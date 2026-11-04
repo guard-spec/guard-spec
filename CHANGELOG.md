@@ -43,6 +43,29 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   `UPSTREAM_KEY_ORGS` rules as the gateway, 5 s, model ids only).
 - **Pagination**: `?limit=&cursor=` on every list endpoint, answering
   `{"items","next_cursor","total"}` with keyset cursors.
+- `TRUSTED_PROXIES` (control plane): the client address behind reverse
+  proxies, read from the right of `X-Forwarded-For`.
+
+### Security
+
+Fixes from the review of the identity work (migration 015):
+
+- SSO login CSRF: the state is bound to the starting browser by a cookie.
+- SSO link CSRF: a profile link is completed by the linking user's own token
+  (`POST /v1/auth/identities/link/complete`) and never runs `domain_join`.
+- 2FA reset and session revocation need an instance administrator or an
+  owner of every org of the user.
+- Email auto-linking needs the provider's `trust_email_for_linking` and an
+  account without password or identity; emails are stored lower-cased.
+- Per-user 2FA lockout (10 wrong codes: 15 minutes, doubling).
+- The upstream connection test is owner only, does not send a key shared
+  through `*` (outside dev), and compose no longer opens it to private
+  addresses by default.
+- The bootstrap admin is created once; deleted users lose their memberships;
+  disabled owners do not count as owners; migration 013 promotes one admin.
+- `max_tokens_cap` applies to every number form; failed logins store a masked
+  email and login events stay in the instance log; disabled accounts cannot
+  accept invites.
 
 - **Routing to named upstreams** (migration 011). An organization defines
   upstreams (`/v1/organizations/:orgId/upstreams`) and a default for the org

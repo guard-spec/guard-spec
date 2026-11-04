@@ -132,6 +132,10 @@ type ProbeResult struct {
 	Status    int      `json:"status"`
 	Models    []string `json:"models_found"`
 	Error     string   `json:"error"`
+	// KeySent reports whether the upstream's key went with the request; the
+	// caller sets it and Note.
+	KeySent bool   `json:"key_sent"`
+	Note    string `json:"note,omitempty"`
 }
 
 // Probe sends GET {base}/models with the upstream's credentials and headers,

@@ -193,10 +193,11 @@ func revokeInvite(db *pgxpool.Pool) fiber.Handler {
 }
 
 var (
-	errInviteInvalid  = errors.New("invalid, expired or already used invite")
-	errAlreadyMember  = errors.New("already a member of this organization")
-	errWrongPassword  = errors.New("an account with this email exists; use its password to accept")
-	errDuplicateEmail = errors.New("duplicate email")
+	errInviteInvalid   = errors.New("invalid, expired or already used invite")
+	errAlreadyMember   = errors.New("already a member of this organization")
+	errWrongPassword   = errors.New("an account with this email exists; use its password to accept")
+	errDuplicateEmail  = errors.New("duplicate email")
+	errAccountDisabled = errors.New("this account is disabled")
 )
 
 // acceptInvite needs no session: the token is the credential.
@@ -269,6 +270,14 @@ func acceptInvite(db *pgxpool.Pool, id *identity) fiber.Handler {
 				if !auth.CheckPassword(h, req.Password) {
 					return errWrongPassword
 				}
+				var disabled bool
+				if err := tx.QueryRow(ctx, `SELECT disabled_at IS NOT NULL FROM users WHERE id = $1`, userID).
+					Scan(&disabled); err != nil {
+					return err
+				}
+				if disabled {
+					return errAccountDisabled
+				}
 			}
 			tag, err := tx.Exec(ctx,
 				`INSERT INTO org_memberships (user_id, org_id, role, invited_by) VALUES ($1, $2, $3::org_role, $4)
@@ -287,6 +296,8 @@ func acceptInvite(db *pgxpool.Pool, id *identity) fiber.Handler {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": errInviteInvalid.Error()})
 		case errors.Is(err, errWrongPassword):
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": errWrongPassword.Error()})
+		case errors.Is(err, errAccountDisabled):
+			return auth.Deny(c, fiber.StatusForbidden, "account_disabled", err.Error())
 		case errors.Is(err, errAlreadyMember):
 			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": errAlreadyMember.Error()})
 		case errors.Is(err, errDuplicateEmail):
@@ -296,7 +307,7 @@ func acceptInvite(db *pgxpool.Pool, id *identity) fiber.Handler {
 		}
 		slog.Info("invite accepted", "org", org, "user", userID, "role", role)
 		writeActivity(c.Context(), db, activityEntry{Org: &org, ActorID: userID, Action: "invite.accepted",
-			Target: userID.String(), IP: c.IP(), Details: map[string]any{"role": role}})
+			Target: userID.String(), IP: clientIP(c), Details: map[string]any{"role": role}})
 		// Logged in as by a password login: a session, or the 2FA step when
 		// the account has 2FA or an organization requires it.
 		c.Status(201)

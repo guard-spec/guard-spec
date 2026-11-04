@@ -17,12 +17,14 @@ ALTER TABLE users
     ADD COLUMN disabled_at       TIMESTAMPTZ,
     ADD COLUMN last_login_at     TIMESTAMPTZ;
 
--- The owners of the default organization (seeded by 002, owned by the
--- bootstrap admin) become instance administrators; the control plane also
--- promotes ADMIN_EMAIL at startup while no instance administrator exists.
+-- One instance administrator: the earliest owner of the default organization
+-- (seeded by 002), which is the bootstrap admin (ADMIN_EMAIL) on an instance
+-- set up by the control plane. Other owners are not promoted. The control
+-- plane promotes ADMIN_EMAIL at startup if no instance administrator exists.
 UPDATE users SET is_instance_admin = true
-WHERE id IN (SELECT user_id FROM org_memberships
-             WHERE org_id = '00000000-0000-0000-0000-000000000001' AND role = 'owner');
+WHERE id = (SELECT user_id FROM org_memberships
+            WHERE org_id = '00000000-0000-0000-0000-000000000001' AND role = 'owner'
+            ORDER BY joined_at, user_id LIMIT 1);
 
 -- One row per login. The JWT carries the id as "sid"; a revoked or expired
 -- row ends the session before the token does.
