@@ -1,8 +1,11 @@
 // Copyright 2026 The Guard Spec Authors
 // SPDX-License-Identifier: Apache-2.0
 
+import { Key, Plus } from 'lucide-react';
 import { useCallback, useState } from 'react';
-import { ConfirmDialog, CopyButton, Dialog, ErrorBanner, Field, formatTime, Loading, PageHeader, useLoad } from '../components/ui';
+import { Badge, DataTable, EmptyState, SearchBox, type Column } from '../components/DataTable';
+import { usePaged } from '../components/usePaged';
+import { ConfirmDialog, CopyButton, Dialog, ErrorBanner, Field, formatTime, PageHeader, useDebounced } from '../components/ui';
 import { errorText, useApp, useOrg } from '../context';
 import type { ApiKey, CreatedApiKey, NewApiKey } from '../types';
 
@@ -12,8 +15,22 @@ function limit(v: string): number | null {
 
 export function KeysPage() {
   const { api, t, notify } = useApp();
-  const { org, projects } = useOrg();
-  const { data, error, loading, reload } = useLoad(useCallback(() => api.listApiKeys(org.id), [api, org.id]));
+  const { org, projects, can } = useOrg();
+  const [q, setQ] = useState('');
+  const [showRevoked, setShowRevoked] = useState(true);
+  const query = useDebounced(q);
+  const fetchPage = useCallback(
+    (p: { limit: number; cursor?: string }) => api.listApiKeysPage(org.id, { ...p, q: query || undefined, revoked: showRevoked ? undefined : false }),
+    [api, org.id, query, showRevoked],
+  );
+  const needle = query.trim().toLowerCase();
+  const paged = usePaged<ApiKey>(fetchPage, {
+    clientFilter:
+      needle || !showRevoked
+        ? (k) => (showRevoked || !k.revoked) && (!needle || `${k.alias ?? ''} ${k.key_prefix}`.toLowerCase().includes(needle))
+        : undefined,
+  });
+  const reload = paged.reload;
   const [form, setForm] = useState<{ alias: string; project: string; rpm: string; tpm: string; expires: string } | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [secret, setSecret] = useState<CreatedApiKey | null>(null);
@@ -35,68 +52,62 @@ export function KeysPage() {
   };
 
   const projectName = (id: string | null) => (id ? (projects.find((p) => p.id === id)?.name ?? id) : '—');
+  const writable = can('api_keys.manage');
+
+  const columns: Column<ApiKey>[] = [
+    { key: 'alias', header: t('keys.alias'), cell: (k) => k.alias ?? '—' },
+    { key: 'prefix', header: t('keys.prefix'), className: 'mono', cell: (k) => `${k.key_prefix}…` },
+    { key: 'project', header: t('keys.project'), cell: (k) => projectName(k.project_id) },
+    { key: 'rpm', header: t('keys.rpm'), cell: (k) => k.rpm_limit ?? '—' },
+    { key: 'tpm', header: t('keys.tpm'), cell: (k) => k.tpm_limit ?? '—' },
+    { key: 'created', header: t('common.created'), className: 'nowrap small', cell: (k) => formatTime(k.created_at) },
+    { key: 'expires', header: t('keys.expires'), className: 'nowrap small', cell: (k) => (k.expires_at ? formatTime(k.expires_at) : t('keys.never')) },
+    { key: 'status', header: t('keys.status'), cell: (k) => <Badge tone={k.revoked ? 'off' : 'ok'}>{k.revoked ? t('keys.revoked') : t('keys.active')}</Badge> },
+    {
+      key: 'actions',
+      header: t('common.actions'),
+      hiddenHeader: true,
+      className: 'row-actions',
+      cell: (k) =>
+        !k.revoked && writable ? (
+          <button type="button" className="btn btn-small btn-danger" aria-label={`${t('keys.revoke')} ${k.key_prefix}`} onClick={() => setRevoking(k)}>
+            {t('keys.revoke')}
+          </button>
+        ) : null,
+    },
+  ];
 
   return (
     <div>
       <PageHeader
         title={t('keys.title')}
+        help={t('keys.help')}
         actions={
-          <button type="button" className="btn btn-primary" onClick={() => setForm({ alias: '', project: '', rpm: '', tpm: '', expires: '' })}>
-            + {t('keys.new')}
-          </button>
+          writable ? (
+            <button type="button" className="btn btn-primary btn-icon-text" onClick={() => setForm({ alias: '', project: '', rpm: '', tpm: '', expires: '' })}>
+              <Plus size={16} aria-hidden="true" />
+              <span>{t('keys.new')}</span>
+            </button>
+          ) : null
         }
       />
-      <ErrorBanner error={error} />
-      {loading && !data ? <Loading /> : null}
-      <div className="card table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th scope="col">{t('keys.alias')}</th>
-              <th scope="col">{t('keys.prefix')}</th>
-              <th scope="col">{t('keys.project')}</th>
-              <th scope="col">{t('keys.rpm')}</th>
-              <th scope="col">{t('keys.tpm')}</th>
-              <th scope="col">{t('common.created')}</th>
-              <th scope="col">{t('keys.expires')}</th>
-              <th scope="col">{t('keys.status')}</th>
-              <th scope="col">
-                <span className="sr-only">{t('common.actions')}</span>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {data?.length === 0 ? (
-              <tr>
-                <td colSpan={9} className="muted">
-                  {t('common.empty')}
-                </td>
-              </tr>
-            ) : null}
-            {data?.map((k) => (
-              <tr key={k.key_prefix} className={k.revoked ? 'row-muted' : ''}>
-                <td>{k.alias ?? '—'}</td>
-                <td className="mono">{k.key_prefix}…</td>
-                <td>{projectName(k.project_id)}</td>
-                <td>{k.rpm_limit ?? '—'}</td>
-                <td>{k.tpm_limit ?? '—'}</td>
-                <td>{formatTime(k.created_at)}</td>
-                <td>{k.expires_at ? formatTime(k.expires_at) : t('keys.never')}</td>
-                <td>
-                  <span className={k.revoked ? 'badge badge-off' : 'badge badge-ok'}>{k.revoked ? t('keys.revoked') : t('keys.active')}</span>
-                </td>
-                <td className="row-actions">
-                  {!k.revoked ? (
-                    <button type="button" className="btn btn-small btn-danger" aria-label={`${t('keys.revoke')} ${k.key_prefix}`} onClick={() => setRevoking(k)}>
-                      {t('keys.revoke')}
-                    </button>
-                  ) : null}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <DataTable
+        columns={columns}
+        paged={paged}
+        rowKey={(k) => k.key_prefix}
+        rowClassName={(k) => (k.revoked ? 'row-muted' : '')}
+        testId="keys-table"
+        toolbar={
+          <>
+            <SearchBox value={q} onChange={setQ} label={t('keys.search')} />
+            <label className="check">
+              <input type="checkbox" checked={showRevoked} onChange={(e) => setShowRevoked(e.target.checked)} />
+              <span>{t('keys.showRevoked')}</span>
+            </label>
+          </>
+        }
+        empty={<EmptyState icon={Key} title={t('keys.emptyTitle')} body={t('keys.emptyBody')} />}
+      />
 
       <Dialog
         open={form !== null}

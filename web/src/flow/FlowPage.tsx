@@ -77,7 +77,8 @@ export default function FlowPage() {
 
 function FlowPageInner() {
   const { api, t, theme, notify } = useApp();
-  const { org, projects, upstreams, upstreamError } = useOrg();
+  const { org, projects, upstreams, upstreamError, can } = useOrg();
+  const writable = can('policies.write');
   const [original, setOriginal] = useState<EditablePolicy[] | null>(null);
   const [policies, setPolicies] = useState<EditablePolicy[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -382,10 +383,10 @@ function FlowPageInner() {
             <option value="TB">{t('flow.layoutTB')}</option>
           </select>
         </div>
-        <button type="button" className="btn" onClick={onAddRule}>
+        <button type="button" className="btn" onClick={onAddRule} disabled={!writable}>
           + {t('flow.addRule')}
         </button>
-        <button type="button" className="btn" onClick={() => setNewPolicy({ name: '', project: projectId ?? '' })}>
+        <button type="button" className="btn" onClick={() => setNewPolicy({ name: '', project: projectId ?? '' })} disabled={!writable}>
           + {t('flow.addPolicy')}
         </button>
       </div>
@@ -492,7 +493,7 @@ function FlowPageInner() {
                     <span className="muted small">{t('policy.rules', { count: p.rules.length })}</span>
                     {p.dirty ? <span className="badge badge-warn">•</span> : null}
                     <span className="spacer" />
-                    <button type="button" className="btn btn-small" aria-pressed={p.key === activePolicy} onClick={() => setActivePolicy(p.key)}>
+                    <button type="button" className="btn btn-small" aria-pressed={p.key === activePolicy} disabled={!writable} onClick={() => setActivePolicy(p.key)}>
                       + {t('flow.addRule')}
                     </button>
                     <button

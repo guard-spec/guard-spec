@@ -16,7 +16,7 @@ test.describe('config export problems', () => {
     await expect(list).toContainText('field was removed');
     await expect(list).toContainText('replace the rule with PUT');
     await list.getByRole('link', { name: 'Policy baseline · high l2' }).click();
-    await expect(page.getByRole('heading', { name: 'Flow', level: 1 })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Policy flow', level: 1 })).toBeVisible();
     await expect(page.getByTestId('rule-panel')).toContainText('Rule: high l2');
     await expect(page).not.toHaveURL(/policy=/);
   });
@@ -41,12 +41,13 @@ test('refuses a duplicate policy name and renames a policy', async ({ page, mock
 
 test('shows a refused key variable at the field, with the operator setting', async ({ page }) => {
   await login(page);
-  await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Upstreams' }).click();
-  await page.getByRole('button', { name: '+ New upstream' }).click();
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Model providers' }).click();
+  await page.getByRole('button', { name: 'Add provider' }).click();
+  await page.getByTestId('provider-catalog').getByRole('button', { name: /^OpenAI-compatible https/ }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog.getByText('UPSTREAM_KEY_MAIN=*;UPSTREAM_KEY_X=<org-id>')).toBeVisible();
   await expect(dialog.getByText(/UPSTREAM_ALLOW_PRIVATE=true/)).toBeVisible();
-  await dialog.getByLabel('Name').fill('other');
+  await dialog.getByLabel('Name', { exact: true }).fill('other');
   await dialog.getByLabel('Base URL').fill('https://other.example.com/v1');
   await dialog.getByLabel('API key environment variable').fill('UPSTREAM_KEY_FORBIDDEN');
   await dialog.getByRole('button', { name: 'Save' }).click();

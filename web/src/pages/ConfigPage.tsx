@@ -19,7 +19,8 @@ type Check = { kind: 'ok'; changes: ConfigChange[] } | { kind: 'errors'; errors:
 
 export default function ConfigPage() {
   const { api, t, notify } = useApp();
-  const { org, reload: reloadOrg } = useOrg();
+  const { org, reload: reloadOrg, can } = useOrg();
+  const writable = can('config.write');
   const [loaded, setLoaded] = useState<string | null>(null);
   const [text, setText] = useState('');
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -124,7 +125,8 @@ export default function ConfigPage() {
             <button
               type="button"
               className="btn btn-primary"
-              disabled={busy}
+              disabled={busy || !writable}
+              title={writable ? undefined : t('forbidden.readOnly')}
               onClick={async () => {
                 const changes = await dryRun();
                 if (changes) setConfirm(changes);
