@@ -10,6 +10,57 @@ tags: [prompt-injection, jailbreak, guardrail, onnx, int8]
 
 Copyright The Guard Spec Authors. Licensed under the Apache License 2.0.
 
+## v3d experiment (2026-11-05): owner batch 2, not adopted
+
+Owner batch 2 (`user2_train.jsonl` 1,140 rows / `user2_holdout.jsonl` 460 rows, a superset of batch 1;
+new rows: `ud2teen` 400 Vietnamese teencode / no-diacritics rows, `ud2bank` 400 Vietnamese OTP/KYC /
+account / transfer rows; 30% hold-out per stratum, split by the owner; not redistributed). Leakage
+guard: 0 fingerprint hits, 0 rows above Jaccard 0.8, highest 0.41 (train) / 0.35 (hold-out) against
+eval. Arms (v3b-A recipe, identical validation): D1 = v3b-A data with batch 2; D2 = D1 without the
+136 `ablate` training rows; D3 = D1 + the `gen_teen_v3c.py` benign rows. Fused out-of-fold log loss on
+validation: v3b 0.0491, D1 0.0540, D2 0.0509, **D3 0.0503 (validation pick)**.
+
+| group | benign / attack | v3b FPR / TPR | D1 FPR / TPR | D2 FPR / TPR | D3 FPR / TPR |
+|---|---|---|---|---|---|
+| holdouts teencode (all splits) | 251 / 105 | 0.0% (0) / 0.762 | 0.8% (2) / 0.771 | 0.8% (2) / 0.714 | 1.6% (4) / 0.781 |
+| otpkyc_probe/all | 120 / 0 | 3.3% (4) / - | 5.0% (6) / - | 4.2% (5) / - | 3.3% (4) / - |
+| otpkyc_probe/en | 47 / 0 | 2.1% (1) / - | 4.3% (2) / - | 4.3% (2) / - | 2.1% (1) / - |
+| otpkyc_probe/vi | 73 / 0 | 4.1% (3) / - | 5.5% (4) / - | 4.1% (3) / - | 4.1% (3) / - |
+| user_holdout/ablate | 0 / 64 | - / 0.578 | - / 0.750 | - / 0.453 | - / 0.625 |
+| user_holdout/all | 184 / 276 | 1.6% (3) / 0.714 | 2.2% (4) / 0.822 | 1.1% (2) / 0.728 | 2.7% (5) / 0.772 |
+| user_holdout/banking (udbank. + ud2bank) | 72 / 108 | 0.0% (0) / 0.778 | 1.4% (1) / 0.880 | 1.4% (1) / 0.769 | 1.4% (1) / 0.815 |
+| user_holdout/batch ud1 | 88 / 132 | 1.1% (1) / 0.864 | 0.0% (0) / 0.902 | 0.0% (0) / 0.871 | 1.1% (1) / 0.841 |
+| user_holdout/batch ud2bank | 48 / 72 | 0.0% (0) / 0.736 | 2.1% (1) / 0.833 | 2.1% (1) / 0.708 | 2.1% (1) / 0.778 |
+| user_holdout/batch ud2teen | 48 / 72 | 4.2% (2) / 0.417 | 6.2% (3) / 0.667 | 2.1% (1) / 0.486 | 6.2% (3) / 0.639 |
+| user_holdout/en | 44 / 66 | 2.3% (1) / 0.939 | 0.0% (0) / 0.939 | 0.0% (0) / 0.939 | 0.0% (0) / 0.879 |
+| user_holdout/vi | 140 / 210 | 1.4% (2) / 0.643 | 2.9% (4) / 0.786 | 1.4% (2) / 0.662 | 3.6% (5) / 0.738 |
+| val_realistic_holdout/all | 366 / 247 | 1.6% (6) / 0.915 | 1.1% (4) / 0.919 | 1.1% (4) / 0.879 | 1.1% (4) / 0.874 |
+| val_realistic_holdout/en | 162 / 120 | 1.9% (3) / 0.850 | 0.6% (1) / 0.875 | 1.2% (2) / 0.800 | 1.2% (2) / 0.808 |
+| val_realistic_holdout/vi/no_diacritics | 26 / 21 | 3.8% (1) / 0.905 | 0.0% (0) / 0.905 | 3.8% (1) / 0.810 | 0.0% (0) / 0.810 |
+| val_realistic_holdout/vi/orig | 169 / 102 | 1.2% (2) / 0.990 | 1.8% (3) / 0.980 | 0.6% (1) / 0.980 | 1.2% (2) / 0.961 |
+| val_realistic_holdout/vi/teencode | 9 / 4 | 0.0% (0) / 1.000 | 0.0% (0) / 0.750 | 0.0% (0) / 1.000 | 0.0% (0) / 1.000 |
+| val_v3_holdout/all | 1173 / 337 | 0.5% (6) / 0.953 | 1.0% (12) / 0.941 | 0.6% (7) / 0.932 | 0.4% (5) / 0.926 |
+| val_v3_holdout/en | 544 / 128 | 0.4% (2) / 0.969 | 1.5% (8) / 0.984 | 0.4% (2) / 1.000 | 0.0% (0) / 0.922 |
+| val_v3_holdout/vi/no_diacritics | 210 / 70 | 1.0% (2) / 0.957 | 0.5% (1) / 0.886 | 1.0% (2) / 0.886 | 1.0% (2) / 0.943 |
+| val_v3_holdout/vi/orig | 210 / 70 | 1.0% (2) / 0.943 | 1.0% (2) / 0.986 | 1.0% (2) / 0.929 | 1.0% (2) / 0.971 |
+| val_v3_holdout/vi/teencode | 209 / 69 | 0.0% (0) / 0.928 | 0.5% (1) / 0.870 | 0.5% (1) / 0.855 | 0.5% (1) / 0.870 |
+| validation teencode (all splits) | 1447 / 329 | 0.6% (9) / 0.930 | 0.8% (11) / 0.912 | 0.7% (10) / 0.924 | 0.7% (10) / 0.921 |
+| validation/all | 5896 / 1737 | 0.4% (21) / 0.956 | 0.5% (27) / 0.953 | 0.4% (26) / 0.957 | 0.5% (28) / 0.955 |
+| validation/en | 2142 / 712 | 0.2% (5) / 0.956 | 0.4% (8) / 0.961 | 0.4% (8) / 0.962 | 0.4% (9) / 0.966 |
+| validation/owner+otpkyc rows | 56 / 83 | 12.5% (7) / 0.771 | 10.7% (6) / 0.855 | 12.5% (7) / 0.771 | 7.1% (4) / 0.795 |
+| validation/vi/leet | 130 / 49 | 0.8% (1) / 0.898 | 0.0% (0) / 0.837 | 0.0% (0) / 0.918 | 2.3% (3) / 0.918 |
+| validation/vi/no_diacritics | 1040 / 280 | 0.4% (4) / 0.975 | 0.5% (5) / 0.964 | 0.5% (5) / 0.971 | 0.5% (5) / 0.968 |
+| validation/vi/orig | 1130 / 354 | 0.2% (2) / 0.972 | 0.3% (3) / 0.980 | 0.3% (3) / 0.969 | 0.1% (1) / 0.958 |
+| validation/vi/partial_diacritics | 7 / 13 | 0.0% (0) / 1.000 | 0.0% (0) / 1.000 | 0.0% (0) / 1.000 | 0.0% (0) / 1.000 |
+| validation/vi/teencode | 1447 / 329 | 0.6% (9) / 0.930 | 0.8% (11) / 0.912 | 0.7% (10) / 0.924 | 0.7% (10) / 0.921 |
+
+**Decision: v3b stays.** D3 (the validation pick) raises `user2_holdout` recall (0.714 → 0.772) but
+blocks more benign rows: `ud2teen` 3 of 48 (v3b 2), all owner benign 5 of 184 (v3b 3), and 4 of 251
+hold-out teencode rows (v3b 0). D2 is the closest to passing: `ud2teen` benign 1 of 48, owner FPR
+1.1%, `ud2teen` recall 0.486 (v3b 0.417), probe 5 of 120 (v3b 4), but it loses recall on
+`val_v3_holdout` (0.932 vs 0.953) and `val_realistic_holdout` (0.879 vs 0.915), and validation does not
+separate it from D3.
+
 ## v3c experiment (2026-11-04): not adopted, v3b stays the default
 
 Goal: lower the teencode benign FPR (3.5% on eval) and remove the OTP/KYC language skew, keeping
