@@ -60,6 +60,8 @@ one. Any of them requires `GUARD_BUILD_OUT`, an output directory outside `train/
 | `GUARD_OWNER_HOLDOUT` | owner-supplied hold-out | its own split `user_holdout`; never trained, selected or calibrated on |
 | `GUARD_OTPKYC_PROBE` | benign OTP / eKYC banking text | its own split `otpkyc_probe`, a false-positive probe; never trained on |
 | `GUARD_OWNER_DROP_ABLATE=1` | - | arm B: owner rows marked `ablate: true` stay out of the training split (they stay in `val`) |
+| `GUARD_OTPKYC_TRAIN_MODE=all\|benign\|none` | - | v3c: which OTP/KYC rows stay in the training split (validation rows stay in `val`) |
+| `GUARD_V3C_TEEN=1` | - | v3c: add `data/gen_teen_v3c.py` benign chat-style Vietnamese rows to the training split only |
 
 Extra fields (`category`, `entry_point`, `ablate`) are ignored by the training schema. These rows are
 never dropped by the ratio balancing, and they pass the same leakage guard (see `MODEL_CARD.md`, v3b).

@@ -42,6 +42,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gen_en  # noqa: E402
 import gen_hardneg  # noqa: E402
 import gen_holdout_v3  # noqa: E402
+import gen_teen_v3c  # noqa: E402
 import gen_v3  # noqa: E402
 import gen_vi  # noqa: E402
 import gen_vi_v2  # noqa: E402
@@ -99,6 +100,15 @@ EXTERNAL_HOLDOUT = [("GUARD_OWNER_HOLDOUT", "user_holdout", "guard-spec:owner-su
 # v3b arm B: leave owner rows marked `ablate: true` (authorization abuse and scams rather than injection)
 # out of the training split; the ones the group hash sends to `val` stay there in both arms.
 DROP_ABLATE = os.environ.get("GUARD_OWNER_DROP_ABLATE", "0") == "1"
+# v3c: which GUARD_OTPKYC_TRAIN rows stay in the training split: "all" (v3b), "benign" or "none" (its
+# attacks are all English and its Vietnamese rows all benign, so banking words carried a
+# language-dependent label signal). The rows the group hash sends to `val` stay there in every mode, so
+# the arms are selected on identical validation rows.
+OTPKYC_TRAIN_MODE = os.environ.get("GUARD_OTPKYC_TRAIN_MODE", "all")
+assert OTPKYC_TRAIN_MODE in ("all", "benign", "none"), OTPKYC_TRAIN_MODE
+# v3c: add benign Vietnamese chat-style rows (data/gen_teen_v3c.py) to the training split only (so the
+# validation rows stay identical across arms); they get the leakage guard like every row.
+USE_TEEN_V3C = os.environ.get("GUARD_V3C_TEEN", "0") == "1"
 EXTERNAL_SOURCES = {src for _, src in EXTERNAL_TRAIN}
 ABLATE_TEXTS: set[str] = set()
 
@@ -400,6 +410,7 @@ def build(c: Collector, counts):
             add_external(c, path, src, counts, path.stem)
 
 
+B_LABEL = ["benign"]
 VARIANTS = {"orig", "no_diacritics", "teencode", "leet", "partial_diacritics"}
 
 
@@ -457,7 +468,8 @@ def drop_priority(x):
     (oasst2, HelpSteer2, jailbreak-classification, deepset); 1: project template rows; hard negatives
     (v1 `hardneg`, v2, v3 generators) are never dropped."""
     src = x["source"]
-    if src in (PROJECT + ":hardneg", PROJECT + ":v2", PROJECT + ":v3", REALISTIC_SOURCE) or src in EXTERNAL_SOURCES:
+    if src in (PROJECT + ":hardneg", PROJECT + ":v2", PROJECT + ":v3", PROJECT + ":v3c", REALISTIC_SOURCE) \
+            or src in EXTERNAL_SOURCES:
         return 2
     return 1 if src == PROJECT else 0
 
@@ -646,6 +658,25 @@ def main():
         n0 = len(split["train"])
         split["train"] = [r for r in split["train"] if r["text"] not in ABLATE_TEXTS]
         counts["owner_ablate_left_out_of_train"] = n0 - len(split["train"])
+    if USE_TEEN_V3C:
+        tc = Collector()
+        r_t = rng("v3c.teen.copy")
+        for b in gen_teen_v3c.generate():
+            tc.add(b["text"], B_LABEL, "vi", "teencode", PROJECT + ":v3c", PROJECT_LICENSE, b["group"])
+            if r_t.random() < 0.5:
+                tc.add(teencode_v2(b["text"], b["group"], "A"), B_LABEL, "vi", "teencode", PROJECT + ":v3c",
+                       PROJECT_LICENSE, b["group"])
+        have = {r["text"] for r in rows}
+        trows = [r for r in leakage_filter(dedupe(tc.rows, counts), counts, tag="v3c_teen") if r["text"] not in have]
+        for r in trows:
+            r["id"] = f"{r['lang']}-{hashlib.sha256(r['text'].encode('utf-8')).hexdigest()[:12]}"
+        split["train"] += trows
+        counts["v3c_teen_added_to_train"] = len(trows)
+    if OTPKYC_TRAIN_MODE != "all":
+        n0 = len(split["train"])
+        split["train"] = [r for r in split["train"] if r["source"] != "guard-spec:otpkyc-fable"
+                          or (OTPKYC_TRAIN_MODE == "benign" and r["labels"] == ["benign"])]
+        counts["otpkyc_left_out_of_train"] = n0 - len(split["train"])
     # v2: every (language, variant) cell of the training split gets the same benign:attack ratio.
     # Rows added here are transforms of training rows; they get the leakage check below.
     kept, added = balance_variants(split["train"], TARGET_RATIO, counts)
