@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -71,15 +72,40 @@ func (in *exemplarInput) validate(create bool) error {
 func listExemplars(db *pgxpool.Pool) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		id := orgID(c)
+		pg, err := parsePage(c, true)
+		if err != nil {
+			return badPage(c, err)
+		}
+		ks := keyset{sort: "created_at", id: "id"}
 		out := []exemplarRow{}
-		var version int64
-		err := tenant.WithOrg(c.Context(), db, id, func(tx pgx.Tx) error {
+		var version, total int64
+		err = tenant.WithOrg(c.Context(), db, id, func(tx pgx.Tx) error {
 			if err := tx.QueryRow(c.Context(), `SELECT exemplars_version FROM organizations WHERE id = $1`, id).Scan(&version); err != nil {
+				return err
+			}
+			args := []any{id}
+			filter := ""
+			if label := c.Query("label"); label != "" {
+				args = append(args, label)
+				filter += fmt.Sprintf(" AND label = $%d", len(args))
+			}
+			if q := c.Query("q"); q != "" {
+				args = append(args, likePattern(q))
+				filter += fmt.Sprintf(" AND text ILIKE $%d", len(args))
+			}
+			if pg.Enveloped {
+				if err := tx.QueryRow(c.Context(), `SELECT count(*) FROM org_exemplars WHERE org_id = $1`+filter, args...).
+					Scan(&total); err != nil {
+					return err
+				}
+			}
+			cond, args, err := ks.where(pg, args)
+			if err != nil {
 				return err
 			}
 			rows, err := tx.Query(c.Context(),
 				`SELECT id, label, text, source, created_at, updated_at FROM org_exemplars
-				 WHERE org_id = $1 ORDER BY created_at, id`, id)
+				 WHERE org_id = $1`+filter+cond+ks.orderLimit(pg), args...)
 			if err != nil {
 				return err
 			}
@@ -93,8 +119,15 @@ func listExemplars(db *pgxpool.Pool) fiber.Handler {
 			}
 			return rows.Err()
 		})
+		if errors.Is(err, errBadCursor) {
+			return badPage(c, err)
+		}
 		if err != nil {
 			return serverError(c, err)
+		}
+		if pg.Enveloped {
+			items, next := page(out, pg.Limit, func(r exemplarRow) pageCursor { return timeCursor(r.CreatedAt, r.ID.String()) })
+			return c.JSON(fiber.Map{"items": items, "next_cursor": next, "total": total, "version": version})
 		}
 		return c.JSON(fiber.Map{"data": out, "version": version})
 	}

@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/giaplee/guard-spec/internal/auth"
 	"github.com/giaplee/guard-spec/internal/config"
@@ -41,15 +43,44 @@ type upstream struct {
 	ID        uuid.UUID `json:"id"`
 	Name      string    `json:"name"`
 	BaseURL   string    `json:"base_url"`
-	Model     string    `json:"model"`
+	Model     string    `json:"model"` // alias of default_model for one release
 	APIKeyEnv string    `json:"api_key_env"`
 	TimeoutMs int       `json:"timeout_ms"`
 	Enabled   bool      `json:"enabled"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	// Model provider fields (migration 014).
+	Provider     string            `json:"provider"`
+	DisplayName  string            `json:"display_name"`
+	Models       []string          `json:"models"` // allowed models; empty: any
+	DefaultModel string            `json:"default_model"`
+	Headers      map[string]string `json:"headers"`
+	APIVersion   string            `json:"api_version"`
+	MaxTokensCap *int              `json:"max_tokens_cap"`
+	Retries      int               `json:"retries"`
+	Tags         []string          `json:"tags"`
+	CreatedAt    time.Time         `json:"created_at"`
+	UpdatedAt    time.Time         `json:"updated_at"`
+}
+
+var (
+	providers = map[string]bool{"openai": true, "anthropic": true, "azure_openai": true, "gemini": true,
+		"ollama": true, "vllm": true, "openai_compatible": true}
+	apiVersionRe = regexp.MustCompile(`^[A-Za-z0-9.-]{1,32}$`)
+	tagRe        = regexp.MustCompile(`^[a-z0-9][a-z0-9_.-]{0,31}$`)
+)
+
+const (
+	maxUpstreamModels = 100
+	maxUpstreamTags   = 20
+	maxDisplayName    = 100
+	maxTokensCapLimit = 10_000_000
+)
+
+func validModelName(m string) bool {
+	return m != "" && len(m) <= maxModelLen && strings.IndexFunc(m, unicode.IsControl) < 0
 }
 
 // validate checks the fields an admin sets; a zero timeout becomes the default.
+// model and default_model are one field: the caller copies one into the other.
 func (u *upstream) validate() error {
 	if !policy.ValidUpstreamName(u.Name) {
 		return errors.New("name must be 1-63 lowercase letters, digits and dashes, starting with a letter or digit")
@@ -69,15 +100,80 @@ func (u *upstream) validate() error {
 	if u.TimeoutMs < minTimeoutMs || u.TimeoutMs > maxTimeoutMs {
 		return fmt.Errorf("timeout_ms must be between %d and %d", minTimeoutMs, maxTimeoutMs)
 	}
+	if u.Provider == "" {
+		u.Provider = "openai_compatible"
+	}
+	if !providers[u.Provider] {
+		return errors.New("provider must be openai, anthropic, azure_openai, gemini, ollama, vllm or openai_compatible")
+	}
+	u.DisplayName = strings.TrimSpace(u.DisplayName)
+	if utf8.RuneCountInString(u.DisplayName) > maxDisplayName || strings.IndexFunc(u.DisplayName, unicode.IsControl) >= 0 {
+		return fmt.Errorf("display_name must be at most %d characters", maxDisplayName)
+	}
+	if len(u.Models) > maxUpstreamModels {
+		return fmt.Errorf("at most %d models", maxUpstreamModels)
+	}
+	seen := map[string]bool{}
+	models := []string{}
+	for _, m := range u.Models {
+		m = strings.TrimSpace(m)
+		if !validModelName(m) {
+			return fmt.Errorf("models: each must be 1 to %d characters without control characters", maxModelLen)
+		}
+		if !seen[m] {
+			seen[m] = true
+			models = append(models, m)
+		}
+	}
+	u.Models = models
+	if u.Model != "" && len(u.Models) > 0 && !seen[u.Model] {
+		return errors.New("default_model must be one of models")
+	}
+	if u.Headers == nil {
+		u.Headers = map[string]string{}
+	}
+	if err := proxy.ValidateHeaders(u.Headers); err != nil {
+		return fmt.Errorf("headers: %w", err)
+	}
+	if u.APIVersion != "" {
+		if u.Provider != "azure_openai" {
+			return errors.New("api_version is only used with provider azure_openai")
+		}
+		if !apiVersionRe.MatchString(u.APIVersion) {
+			return errors.New("api_version must be 1 to 32 letters, digits, dots and dashes")
+		}
+	}
+	if u.MaxTokensCap != nil && (*u.MaxTokensCap < 1 || *u.MaxTokensCap > maxTokensCapLimit) {
+		return fmt.Errorf("max_tokens_cap must be between 1 and %d, or null", maxTokensCapLimit)
+	}
+	if u.Retries < 0 || u.Retries > 3 {
+		return errors.New("retries must be between 0 and 3")
+	}
+	if len(u.Tags) > maxUpstreamTags {
+		return fmt.Errorf("at most %d tags", maxUpstreamTags)
+	}
+	if u.Tags == nil {
+		u.Tags = []string{}
+	}
+	for _, t := range u.Tags {
+		if !tagRe.MatchString(t) {
+			return errors.New("tags must be 1 to 32 lowercase letters, digits, dots, dashes and underscores")
+		}
+	}
 	return nil
 }
 
-const upstreamSelect = `SELECT id, name, base_url, model, COALESCE(api_key_env, ''), timeout_ms, enabled, created_at, updated_at
-	FROM upstreams`
+const upstreamColumnsCP = `id, name, base_url, model, COALESCE(api_key_env, ''), timeout_ms, enabled,
+	provider, display_name, models, headers, api_version, max_tokens_cap, retries, tags, created_at, updated_at`
+
+const upstreamSelect = `SELECT ` + upstreamColumnsCP + ` FROM upstreams`
 
 func scanUpstreamRow(row pgx.Row) (upstream, error) {
 	var u upstream
-	err := row.Scan(&u.ID, &u.Name, &u.BaseURL, &u.Model, &u.APIKeyEnv, &u.TimeoutMs, &u.Enabled, &u.CreatedAt, &u.UpdatedAt)
+	err := row.Scan(&u.ID, &u.Name, &u.BaseURL, &u.Model, &u.APIKeyEnv, &u.TimeoutMs, &u.Enabled,
+		&u.Provider, &u.DisplayName, &u.Models, &u.Headers, &u.APIVersion, &u.MaxTokensCap, &u.Retries, &u.Tags,
+		&u.CreatedAt, &u.UpdatedAt)
+	u.DefaultModel = u.Model
 	return u, err
 }
 
@@ -116,18 +212,77 @@ func isForeignKeyViolation(err error) bool {
 }
 
 func listUpstreams(db *pgxpool.Pool) fiber.Handler {
+	ks := keyset{sort: "created_at", id: "id"}
 	return func(c *fiber.Ctx) error {
 		org := orgID(c)
+		pg, err := parsePage(c, true)
+		if err != nil {
+			return badPage(c, err)
+		}
 		var list []upstream
-		err := tenant.WithOrg(c.Context(), db, org, func(tx pgx.Tx) error {
-			var err error
-			list, err = loadUpstreams(c.Context(), tx, org)
-			return err
+		var total int64
+		err = tenant.WithOrg(c.Context(), db, org, func(tx pgx.Tx) error {
+			if !pg.Enveloped {
+				var err error
+				list, err = loadUpstreams(c.Context(), tx, org)
+				return err
+			}
+			args := []any{org}
+			filter := ""
+			if q := c.Query("q"); q != "" {
+				args = append(args, likePattern(q))
+				filter += fmt.Sprintf(" AND (name ILIKE $%[1]d OR display_name ILIKE $%[1]d)", len(args))
+			}
+			if p := c.Query("provider"); p != "" {
+				args = append(args, p)
+				filter += fmt.Sprintf(" AND provider = $%d", len(args))
+			}
+			if err := tx.QueryRow(c.Context(), `SELECT count(*) FROM upstreams WHERE org_id = $1`+filter, args...).
+				Scan(&total); err != nil {
+				return err
+			}
+			cond, args, err := ks.where(pg, args)
+			if err != nil {
+				return err
+			}
+			rows, err := tx.Query(c.Context(), upstreamSelect+` WHERE org_id = $1`+filter+cond+ks.orderLimit(pg), args...)
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+			list = []upstream{}
+			for rows.Next() {
+				u, err := scanUpstreamRow(rows)
+				if err != nil {
+					return err
+				}
+				list = append(list, u)
+			}
+			return rows.Err()
 		})
+		if errors.Is(err, errBadCursor) {
+			return badPage(c, err)
+		}
 		if err != nil {
 			return serverError(c, err)
 		}
+		if pg.Enveloped {
+			items, next := page(list, pg.Limit, func(u upstream) pageCursor { return timeCursor(u.CreatedAt, u.ID.String()) })
+			return pageJSON(c, items, next, total)
+		}
 		return c.JSON(fiber.Map{"data": list})
+	}
+}
+
+// upstreamModelAlias reconciles model and default_model in a request body.
+func upstreamModelAlias(model, defaultModel *string) (*string, error) {
+	switch {
+	case model != nil && defaultModel != nil && *model != *defaultModel:
+		return nil, errors.New("model and default_model differ; send default_model only")
+	case defaultModel != nil:
+		return defaultModel, nil
+	default:
+		return model, nil
 	}
 }
 
@@ -137,6 +292,19 @@ func createUpstream(db *pgxpool.Pool, settings *appSettings) fiber.Handler {
 		var u upstream
 		if err := json.Unmarshal(c.Body(), &u); err != nil {
 			return c.Status(400).JSON(fiber.Map{"error": "invalid body"})
+		}
+		var aliases struct {
+			Model        *string `json:"model"`
+			DefaultModel *string `json:"default_model"`
+		}
+		_ = json.Unmarshal(c.Body(), &aliases)
+		m, err := upstreamModelAlias(aliases.Model, aliases.DefaultModel)
+		if err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+		}
+		u.Model = ""
+		if m != nil {
+			u.Model = *m
 		}
 		u.Enabled = true
 		var enabled struct {
@@ -152,13 +320,15 @@ func createUpstream(db *pgxpool.Pool, settings *appSettings) fiber.Handler {
 		if err := settings.keyOrgs.Check(u.APIKeyEnv, org); err != nil {
 			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
 		}
-		err := tenant.WithOrg(c.Context(), db, org, func(tx pgx.Tx) error {
+		err = tenant.WithOrg(c.Context(), db, org, func(tx pgx.Tx) error {
 			var err error
 			u, err = scanUpstreamRow(tx.QueryRow(c.Context(),
-				`INSERT INTO upstreams (org_id, name, base_url, model, api_key_env, timeout_ms, enabled)
-				 VALUES ($1, $2, $3, $4, $5, $6, $7)
-				 RETURNING id, name, base_url, model, COALESCE(api_key_env, ''), timeout_ms, enabled, created_at, updated_at`,
-				org, u.Name, u.BaseURL, u.Model, nullString(u.APIKeyEnv), u.TimeoutMs, u.Enabled))
+				`INSERT INTO upstreams (org_id, name, base_url, model, api_key_env, timeout_ms, enabled,
+				   provider, display_name, models, headers, api_version, max_tokens_cap, retries, tags)
+				 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+				 RETURNING `+upstreamColumnsCP,
+				org, u.Name, u.BaseURL, u.Model, nullString(u.APIKeyEnv), u.TimeoutMs, u.Enabled,
+				u.Provider, u.DisplayName, u.Models, u.Headers, u.APIVersion, u.MaxTokensCap, u.Retries, u.Tags))
 			return err
 		})
 		if isUniqueViolation(err) {
@@ -168,18 +338,49 @@ func createUpstream(db *pgxpool.Pool, settings *appSettings) fiber.Handler {
 			return serverError(c, err)
 		}
 		slog.Info("upstream created", "org", org, "upstream", u.Name, "by", auth.UserID(c))
+		logActivity(c, db, &org, "upstream.created", u.Name, fiber.Map{"id": u.ID, "provider": u.Provider})
 		return c.Status(201).JSON(u)
 	}
 }
 
 // upstreamPatch is a PUT body: absent fields keep their value.
 type upstreamPatch struct {
-	Name      *string `json:"name"`
-	BaseURL   *string `json:"base_url"`
-	Model     *string `json:"model"`
-	APIKeyEnv *string `json:"api_key_env"`
-	TimeoutMs *int    `json:"timeout_ms"`
-	Enabled   *bool   `json:"enabled"`
+	Name         *string            `json:"name"`
+	BaseURL      *string            `json:"base_url"`
+	Model        *string            `json:"model"`
+	DefaultModel *string            `json:"default_model"`
+	APIKeyEnv    *string            `json:"api_key_env"`
+	TimeoutMs    *int               `json:"timeout_ms"`
+	Enabled      *bool              `json:"enabled"`
+	Provider     *string            `json:"provider"`
+	DisplayName  *string            `json:"display_name"`
+	Models       *[]string          `json:"models"`
+	Headers      *map[string]string `json:"headers"`
+	APIVersion   *string            `json:"api_version"`
+	MaxTokensCap optInt             `json:"max_tokens_cap"`
+	Retries      *int               `json:"retries"`
+	Tags         *[]string          `json:"tags"`
+}
+
+// optInt is a nullable number in a request body: absent leaves the stored
+// value alone, null clears it.
+type optInt struct {
+	Set   bool
+	Value *int
+}
+
+func (o *optInt) UnmarshalJSON(b []byte) error {
+	o.Set = true
+	if string(b) == "null" {
+		o.Value = nil
+		return nil
+	}
+	var v int
+	if err := json.Unmarshal(b, &v); err != nil {
+		return errors.New("expected a whole number or null")
+	}
+	o.Value = &v
+	return nil
 }
 
 func (p upstreamPatch) apply(u *upstream) {
@@ -191,7 +392,26 @@ func (p upstreamPatch) apply(u *upstream) {
 	set(&u.Name, p.Name)
 	set(&u.BaseURL, p.BaseURL)
 	set(&u.Model, p.Model)
+	set(&u.Model, p.DefaultModel)
 	set(&u.APIKeyEnv, p.APIKeyEnv)
+	set(&u.Provider, p.Provider)
+	set(&u.DisplayName, p.DisplayName)
+	set(&u.APIVersion, p.APIVersion)
+	if p.Models != nil {
+		u.Models = *p.Models
+	}
+	if p.Headers != nil {
+		u.Headers = *p.Headers
+	}
+	if p.MaxTokensCap.Set {
+		u.MaxTokensCap = p.MaxTokensCap.Value
+	}
+	if p.Retries != nil {
+		u.Retries = *p.Retries
+	}
+	if p.Tags != nil {
+		u.Tags = *p.Tags
+	}
 	if p.TimeoutMs != nil {
 		u.TimeoutMs = *p.TimeoutMs
 	}
@@ -310,6 +530,9 @@ func updateUpstream(db *pgxpool.Pool, settings *appSettings) fiber.Handler {
 		if err := json.Unmarshal(c.Body(), &patch); err != nil {
 			return c.Status(400).JSON(fiber.Map{"error": "invalid body"})
 		}
+		if _, err := upstreamModelAlias(patch.Model, patch.DefaultModel); err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+		}
 		var u upstream
 		var oldName string
 		var invalid error
@@ -349,10 +572,12 @@ func updateUpstream(db *pgxpool.Pool, settings *appSettings) fiber.Handler {
 			}
 			u, err = scanUpstreamRow(tx.QueryRow(c.Context(),
 				`UPDATE upstreams SET name = $3, base_url = $4, model = $5, api_key_env = $6, timeout_ms = $7,
-				   enabled = $8, updated_at = NOW()
+				   enabled = $8, provider = $9, display_name = $10, models = $11, headers = $12, api_version = $13,
+				   max_tokens_cap = $14, retries = $15, tags = $16, updated_at = NOW()
 				 WHERE id = $1 AND org_id = $2
-				 RETURNING id, name, base_url, model, COALESCE(api_key_env, ''), timeout_ms, enabled, created_at, updated_at`,
-				id, org, u.Name, u.BaseURL, u.Model, nullString(u.APIKeyEnv), u.TimeoutMs, u.Enabled))
+				 RETURNING `+upstreamColumnsCP,
+				id, org, u.Name, u.BaseURL, u.Model, nullString(u.APIKeyEnv), u.TimeoutMs, u.Enabled,
+				u.Provider, u.DisplayName, u.Models, u.Headers, u.APIVersion, u.MaxTokensCap, u.Retries, u.Tags))
 			return err
 		})
 		var inUse *upstreamInUse
@@ -369,6 +594,7 @@ func updateUpstream(db *pgxpool.Pool, settings *appSettings) fiber.Handler {
 			return serverError(c, err)
 		}
 		slog.Info("upstream updated", "org", org, "upstream", u.Name, "enabled", u.Enabled, "by", auth.UserID(c))
+		logActivity(c, db, &org, "upstream.updated", u.Name, fiber.Map{"id": u.ID, "enabled": u.Enabled})
 		return c.JSON(u)
 	}
 }
@@ -409,6 +635,7 @@ func deleteUpstream(db *pgxpool.Pool) fiber.Handler {
 			return serverError(c, err)
 		}
 		slog.Info("upstream deleted", "org", org, "upstream", name, "by", auth.UserID(c))
+		logActivity(c, db, &org, "upstream.deleted", name, fiber.Map{"id": id})
 		return c.Status(204).Send(nil)
 	}
 }
@@ -465,6 +692,7 @@ func putOrgDefaultUpstream(db *pgxpool.Pool) fiber.Handler {
 			return serverError(c, err)
 		}
 		slog.Info("org default upstream changed", "org", org, "upstream", id, "by", auth.UserID(c))
+		logActivity(c, db, &org, "upstream.default_changed", "organization", fiber.Map{"upstream_id": id})
 		return c.JSON(fiber.Map{"id": org, "default_upstream_id": id})
 	}
 }
@@ -500,6 +728,7 @@ func putProjectDefaultUpstream(db *pgxpool.Pool) fiber.Handler {
 			return c.Status(404).JSON(fiber.Map{"error": "project not found"})
 		}
 		slog.Info("project default upstream changed", "org", org, "project", project, "upstream", id, "by", auth.UserID(c))
+		logActivity(c, db, &org, "upstream.default_changed", "project:"+project.String(), fiber.Map{"upstream_id": id})
 		return c.JSON(fiber.Map{"id": project, "default_upstream_id": id})
 	}
 }

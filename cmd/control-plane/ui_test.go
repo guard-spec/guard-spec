@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/giaplee/guard-spec/internal/auth"
 	"github.com/giaplee/guard-spec/internal/policy"
@@ -128,12 +129,45 @@ func TestUIPlaceholderEmbedded(t *testing.T) {
 	}
 }
 
-func TestPolicyTextEndpoints(t *testing.T) {
-	app := offlineApp(t)
-	token, err := auth.IssueToken(unitSecret, uuid.New())
+// staticSessions is a session store without a database.
+type staticSessions map[uuid.UUID]auth.Session
+
+func (s staticSessions) Lookup(_ context.Context, sid uuid.UUID) (auth.Session, error) {
+	if x, ok := s[sid]; ok {
+		return x, nil
+	}
+	return auth.Session{}, auth.ErrNoSession
+}
+
+// offlineToken returns an app whose sessions need no database, and a token
+// of one of them.
+func offlineToken(t *testing.T) (*fiber.App, string) {
+	t.Helper()
+	user, sid := uuid.New(), uuid.New()
+	sessions := staticSessions{sid: {ID: sid, UserID: user, Method: auth.MethodPassword}}
+	app := offlineApp(t, func(s *appSettings) { s.sessionLookup = sessions })
+	token, err := auth.IssueSessionToken(unitSecret, user, sid, time.Now().Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
+	return app, token
+}
+
+func TestRevokedSessionRefused(t *testing.T) {
+	app, _ := offlineToken(t)
+	// A well-signed token whose session the store does not know.
+	other, err := auth.IssueSessionToken(unitSecret, uuid.New(), uuid.New(), time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status, _, body := get(t, app, "GET", "/v1/policy/schema", other, ""); status != 401 ||
+		!strings.Contains(body, "session_revoked") {
+		t.Errorf("unknown session: %d %s", status, body)
+	}
+}
+
+func TestPolicyTextEndpoints(t *testing.T) {
+	app, token := offlineToken(t)
 	if status, _, _ := get(t, app, "GET", "/v1/policy/schema", "", ""); status != 401 {
 		t.Errorf("schema without token: %d", status)
 	}
