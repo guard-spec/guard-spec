@@ -756,8 +756,9 @@ tbody tr:last-child td {
 .rule-list li,
 .policy-list li {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 4px 8px;
   padding: 6px 8px;
   border-radius: 6px;
 }
@@ -778,7 +779,7 @@ tbody tr:last-child td {
   flex: none;
 }
 .rule-name {
-  flex: 1;
+  flex: 1 1 9em;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -877,6 +878,9 @@ tbody tr:last-child td {
 }
 .trace-hit .trace-name {
   font-weight: 600;
+}
+.trace-after {
+  opacity: 0.6;
 }
 
 /* Diagram nodes */

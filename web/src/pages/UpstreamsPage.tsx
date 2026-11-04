@@ -6,7 +6,7 @@ import { ConfirmDialog, Dialog, ErrorBanner, Field, PageHeader } from '../compon
 import { errorText, useApp, useOrg } from '../context';
 import { API_KEY_ENV_RE, UPSTREAM_NAME_RE, type Upstream, type UpstreamInput } from '../types';
 
-const EMPTY: UpstreamInput = { name: '', base_url: '', model: '', api_key_env: '', timeout_ms: 60000, enabled: true };
+const EMPTY: UpstreamInput = { name: '', base_url: '', model: '', api_key_env: '', timeout_ms: 300000, enabled: true };
 
 export function validateUpstream(u: UpstreamInput): Partial<Record<keyof UpstreamInput, 'name' | 'url' | 'env'>> {
   const errs: Partial<Record<keyof UpstreamInput, 'name' | 'url' | 'env'>> = {};

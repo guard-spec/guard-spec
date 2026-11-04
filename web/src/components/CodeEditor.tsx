@@ -143,6 +143,7 @@ export function CodeEditor(props: CodeEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   const onChange = useRef(props.onChange);
+  const external = useRef(false);
   useLayoutEffect(() => {
     onChange.current = props.onChange;
   });
@@ -170,7 +171,8 @@ export function CodeEditor(props: CodeEditorProps) {
       keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
       EditorView.contentAttributes.of({ 'aria-label': props.ariaLabel, ...(props.testId ? { 'data-testid': props.testId } : {}) }),
       EditorView.updateListener.of((u) => {
-        if (u.docChanged) onChange.current?.(u.state.doc.toString());
+        // Only user edits: a value set from outside is not reported back.
+        if (u.docChanged && !external.current) onChange.current?.(u.state.doc.toString());
       }),
       c.lang.of(props.mode === 'yaml' ? yaml() : expressionLanguage),
       c.complete.of(props.mode === 'expression' ? autocompletion({ override: [fieldCompletions(props.fields ?? [])] }) : []),
@@ -197,7 +199,12 @@ export function CodeEditor(props: CodeEditorProps) {
     if (!v) return;
     const cur = v.state.doc.toString();
     if (cur !== props.value) {
-      v.dispatch({ changes: { from: 0, to: cur.length, insert: props.value } });
+      external.current = true;
+      try {
+        v.dispatch({ changes: { from: 0, to: cur.length, insert: props.value } });
+      } finally {
+        external.current = false;
+      }
     }
   }, [props.value]);
 

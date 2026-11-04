@@ -47,6 +47,11 @@ test.describe('Flow page', () => {
     await page.getByRole('button', { name: 'Edit high l2' }).click();
     const panel = page.getByTestId('rule-panel');
     await expect(panel).toBeVisible();
+    // Opening a rule (and formatting it as text) changes nothing.
+    await panel.getByRole('tab', { name: 'Text' }).click();
+    await expect(panel.getByTestId('condition-text')).toContainText('scores.l2 > 0.9');
+    await panel.getByRole('tab', { name: 'Visual' }).click();
+    await expect(page.locator('.badge-warn', { hasText: 'unsaved' })).toHaveCount(0);
     await panel.getByLabel('Name').fill('very high l2');
 
     // Text tab: shows the formatted condition, parses edits back.
@@ -68,7 +73,7 @@ test.describe('Flow page', () => {
     const put = mock.calls.find((c) => c.method === 'PUT' && c.path.includes('/policies/'));
     const rules = (put?.body as { rules: { name: string; condition: { rules: { operator: string; value: string }[] } }[] }).rules;
     expect(rules[0]?.name).toBe('very high l2');
-    expect(rules[0]?.condition.rules[1]).toMatchObject({ operator: 'in', value: 'jailbreak,exfiltration' });
+    expect(rules[0]?.condition.rules[1]).toMatchObject({ operator: 'in', value: ['jailbreak', 'exfiltration'] });
     // Builder ids are not stored.
     expect(JSON.stringify(rules)).not.toContain('"id":"r-');
   });

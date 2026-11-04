@@ -10,7 +10,8 @@ import { NODE } from './ids';
 import { bounds, initialViewport, layoutGraph, PIPELINE } from './layout';
 import { gatewayChain, toEditable } from './model';
 import { FALLBACK_SCHEMA } from './schema';
-import { simVars } from './Simulator';
+import { sameCondition } from './RulePanel';
+import { decidingIndex, simVars } from './Simulator';
 import { baseline, t, upstream } from './testdata';
 
 describe('conditionText', () => {
@@ -101,6 +102,22 @@ describe('simVars', () => {
       'anomaly.has_bidi': true,
       'mcp.is_tool_response': false,
     });
+  });
+});
+
+describe('sameCondition', () => {
+  it('ignores builder ids and a leaf wrapped in a group', () => {
+    const leaf = { field: 'scores.l2', operator: '>', value: 0.9 };
+    expect(sameCondition({ id: 'g', combinator: 'and', not: false, rules: [{ ...leaf, id: 'r', valueSource: 'value' }] }, leaf)).toBe(true);
+    expect(sameCondition({ combinator: 'and', rules: [{ ...leaf, value: 0.8 }] }, leaf)).toBe(false);
+  });
+});
+
+describe('decidingIndex', () => {
+  it('finds the first allow, block or route match; log matches do not decide', () => {
+    const e = (matched: boolean, action: 'allow' | 'block' | 'log' | 'route') => ({ rule_name: 'r', matched, action });
+    expect(decidingIndex([e(false, 'block'), e(true, 'log'), e(true, 'route'), e(true, 'block')])).toBe(2);
+    expect(decidingIndex([e(true, 'log'), e(false, 'allow')])).toBe(-1);
   });
 });
 
