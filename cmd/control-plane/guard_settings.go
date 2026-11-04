@@ -54,6 +54,7 @@ func putGuardSettings(db *pgxpool.Pool) fiber.Handler {
 			return serverError(c, err)
 		}
 		slog.Info("org guard settings changed", "org", id, "settings", string(raw), "by", auth.UserID(c))
+		logActivity(c, db, &id, "guard_settings.changed", "organization", nil)
 		return c.JSON(s)
 	}
 }

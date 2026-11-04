@@ -1,6 +1,9 @@
 package main
 
 import (
+	"errors"
+	"fmt"
+
 	"github.com/giaplee/guard-spec/internal/auth"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -14,16 +17,40 @@ import (
 // (migration 012), a SECURITY DEFINER function that returns only the rows of
 // the user it is given. The user id comes from the verified token, never from
 // the request.
+//
+// Paged by (name, id); q filters by name or slug.
 func listMyOrgs(db *pgxpool.Pool) fiber.Handler {
+	ks := keyset{sort: "name", id: "id", textSort: true}
 	return func(c *fiber.Ctx) error {
+		pg, err := parsePage(c, true)
+		if err != nil {
+			return badPage(c, err)
+		}
 		type orgRow struct {
 			ID   uuid.UUID `json:"id"`
 			Name string    `json:"name"`
 			Slug string    `json:"slug"`
 			Role string    `json:"role"`
 		}
+		args := []any{auth.UserID(c)}
+		filter := ""
+		if q := c.Query("q"); q != "" {
+			args = append(args, likePattern(q))
+			filter = fmt.Sprintf(" AND (name ILIKE $%[1]d OR slug ILIKE $%[1]d)", len(args))
+		}
+		var total int64
+		if pg.Enveloped {
+			if err := db.QueryRow(c.Context(), `SELECT count(*) FROM user_organizations($1) WHERE true`+filter, args...).
+				Scan(&total); err != nil {
+				return serverError(c, err)
+			}
+		}
+		cond, args, err := ks.where(pg, args)
+		if err != nil {
+			return badPage(c, err)
+		}
 		rows, err := db.Query(c.Context(),
-			`SELECT id, name, slug, role FROM user_organizations($1) ORDER BY name, id`, auth.UserID(c))
+			`SELECT id, name, slug, role FROM user_organizations($1) WHERE true`+filter+cond+ks.orderLimit(pg), args...)
 		if err != nil {
 			return serverError(c, err)
 		}
@@ -37,7 +64,14 @@ func listMyOrgs(db *pgxpool.Pool) fiber.Handler {
 			orgs = append(orgs, o)
 		}
 		if err := rows.Err(); err != nil {
+			if errors.Is(err, errBadCursor) {
+				return badPage(c, err)
+			}
 			return serverError(c, err)
+		}
+		if pg.Enveloped {
+			items, next := page(orgs, pg.Limit, func(o orgRow) pageCursor { return stringCursor(o.Name, o.ID.String()) })
+			return pageJSON(c, items, next, total)
 		}
 		return c.JSON(fiber.Map{"data": orgs})
 	}

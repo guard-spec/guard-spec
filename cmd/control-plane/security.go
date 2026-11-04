@@ -1,0 +1,197 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"slices"
+	"strings"
+
+	"github.com/giaplee/guard-spec/internal/auth"
+	"github.com/giaplee/guard-spec/internal/tenant"
+	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+// An organization's security policy (org_security, migration 013): 2FA
+// requirement, allowed login methods, domain join for SSO users and the
+// session lifetime. auth.RequireRole applies it to every org endpoint.
+
+type domainJoinRule struct {
+	Domain     string    `json:"domain"`
+	ProviderID uuid.UUID `json:"provider_id"`
+	Role       string    `json:"role"`
+}
+
+type orgSecurity struct {
+	RequireMFA           bool             `json:"require_mfa"`
+	SSOSatisfiesMFA      bool             `json:"sso_satisfies_mfa"`
+	AllowedLoginMethods  []string         `json:"allowed_login_methods"`
+	DomainJoin           []domainJoinRule `json:"domain_join"`
+	SessionLifetimeHours int              `json:"session_lifetime_hours"`
+}
+
+// allLoginMethods lists password and every enabled provider's method.
+func allLoginMethods(ctx context.Context, db *pgxpool.Pool) ([]string, error) {
+	rows, err := db.Query(ctx,
+		`SELECT DISTINCT CASE WHEN type = 'google' THEN 'google' ELSE 'oidc:' || id::text END FROM identity_providers
+		 ORDER BY 1`)
+	if err != nil {
+		return nil, err
+	}
+	methods, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	return append([]string{auth.MethodPassword}, methods...), err
+}
+
+func loadOrgSecurity(ctx context.Context, db *pgxpool.Pool, org uuid.UUID) (orgSecurity, error) {
+	s := orgSecurity{SessionLifetimeHours: 12, DomainJoin: []domainJoinRule{}}
+	var methods []string
+	var joins []byte
+	err := tenant.WithOrg(ctx, db, org, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx,
+			`SELECT require_mfa, sso_satisfies_mfa, allowed_login_methods, domain_join, session_lifetime_hours
+			 FROM org_security WHERE org_id = $1`, org).
+			Scan(&s.RequireMFA, &s.SSOSatisfiesMFA, &methods, &joins, &s.SessionLifetimeHours)
+	})
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return s, err
+	}
+	if len(joins) > 0 {
+		if err := json.Unmarshal(joins, &s.DomainJoin); err != nil {
+			return s, err
+		}
+	}
+	if methods == nil {
+		// Not restricted: every method there is.
+		if methods, err = allLoginMethods(ctx, db); err != nil {
+			return s, err
+		}
+	}
+	s.AllowedLoginMethods = methods
+	return s, nil
+}
+
+func getOrgSecurity(db *pgxpool.Pool) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		s, err := loadOrgSecurity(c.Context(), db, orgID(c))
+		if err != nil {
+			return serverError(c, err)
+		}
+		return c.JSON(s)
+	}
+}
+
+// validate checks a policy against the instance's providers.
+func (s *orgSecurity) validate(ctx context.Context, db *pgxpool.Pool) error {
+	if s.SessionLifetimeHours == 0 {
+		s.SessionLifetimeHours = 12
+	}
+	if s.SessionLifetimeHours < 1 || s.SessionLifetimeHours > 12 {
+		return errors.New("session_lifetime_hours must be between 1 and 12")
+	}
+	known, err := allLoginMethods(ctx, db)
+	if err != nil {
+		return err
+	}
+	if s.AllowedLoginMethods != nil {
+		if len(s.AllowedLoginMethods) == 0 {
+			return errors.New("allowed_login_methods must allow at least one method (omit it to allow all)")
+		}
+		for _, m := range s.AllowedLoginMethods {
+			if !slices.Contains(known, m) {
+				return fmt.Errorf("allowed_login_methods: %q is not a login method of this instance (%s)", m,
+					strings.Join(known, ", "))
+			}
+		}
+	}
+	if s.DomainJoin == nil {
+		s.DomainJoin = []domainJoinRule{}
+	}
+	if len(s.DomainJoin) > 50 {
+		return errors.New("at most 50 domain_join rules")
+	}
+	for i := range s.DomainJoin {
+		r := &s.DomainJoin[i]
+		r.Domain = strings.ToLower(strings.TrimSpace(r.Domain))
+		if !domainRe.MatchString(r.Domain) {
+			return fmt.Errorf("domain_join[%d]: %q is not a domain", i, r.Domain)
+		}
+		if r.Role != "viewer" && r.Role != "member" && r.Role != "admin" {
+			return fmt.Errorf("domain_join[%d]: role must be viewer, member or admin", i)
+		}
+		// An org can claim only a domain the instance administrator allowed
+		// for that provider: otherwise any org could pull in the users of
+		// someone else's domain.
+		var domains []string
+		err := db.QueryRow(ctx, `SELECT allowed_domains FROM identity_providers WHERE id = $1`, r.ProviderID).Scan(&domains)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("domain_join[%d]: provider_id does not name an identity provider", i)
+		}
+		if err != nil {
+			return err
+		}
+		if !slices.Contains(domains, r.Domain) {
+			return fmt.Errorf("domain_join[%d]: %s is not in the provider's allowed_domains; an instance administrator must allow it first", i, r.Domain)
+		}
+	}
+	return nil
+}
+
+func putOrgSecurity(db *pgxpool.Pool) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		org := orgID(c)
+		var s orgSecurity
+		if err := json.Unmarshal(c.Body(), &s); err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": "invalid body"})
+		}
+		var invalid error
+		if err := s.validate(c.Context(), db); err != nil {
+			invalid = err
+		}
+		if invalid != nil {
+			return c.Status(400).JSON(fiber.Map{"error": invalid.Error()})
+		}
+		// The caller must not lock themselves out with this very request.
+		if sess, ok := auth.CurrentSession(c); ok && s.AllowedLoginMethods != nil && !slices.Contains(s.AllowedLoginMethods, sess.Method) {
+			return auth.Deny(c, fiber.StatusConflict, "would_lock_out",
+				"allowed_login_methods must include the method of your current session ("+sess.Method+")")
+		}
+		if sess, ok := auth.CurrentSession(c); ok && s.RequireMFA && !sess.MFA &&
+			!(s.SSOSatisfiesMFA && auth.IsSSOMethod(sess.Method)) {
+			return auth.Deny(c, fiber.StatusConflict, "would_lock_out",
+				"turn on 2FA for your own account and log in with it before requiring 2FA")
+		}
+		joins, err := json.Marshal(s.DomainJoin)
+		if err != nil {
+			return serverError(c, err)
+		}
+		err = tenant.WithOrg(c.Context(), db, org, func(tx pgx.Tx) error {
+			_, err := tx.Exec(c.Context(),
+				`INSERT INTO org_security (org_id, require_mfa, sso_satisfies_mfa, allowed_login_methods, domain_join,
+				   session_lifetime_hours)
+				 VALUES ($1, $2, $3, $4, $5, $6)
+				 ON CONFLICT (org_id) DO UPDATE SET require_mfa = EXCLUDED.require_mfa,
+				   sso_satisfies_mfa = EXCLUDED.sso_satisfies_mfa, allowed_login_methods = EXCLUDED.allowed_login_methods,
+				   domain_join = EXCLUDED.domain_join, session_lifetime_hours = EXCLUDED.session_lifetime_hours,
+				   updated_at = NOW()`,
+				org, s.RequireMFA, s.SSOSatisfiesMFA, s.AllowedLoginMethods, joins, s.SessionLifetimeHours)
+			return err
+		})
+		if err != nil {
+			return serverError(c, err)
+		}
+		logActivity(c, db, &org, "security.updated", "organization", map[string]any{
+			"require_mfa": s.RequireMFA, "sso_satisfies_mfa": s.SSOSatisfiesMFA,
+			"allowed_login_methods": s.AllowedLoginMethods, "domain_join": s.DomainJoin,
+			"session_lifetime_hours": s.SessionLifetimeHours,
+		})
+		out, err := loadOrgSecurity(c.Context(), db, org)
+		if err != nil {
+			return serverError(c, err)
+		}
+		return c.JSON(out)
+	}
+}

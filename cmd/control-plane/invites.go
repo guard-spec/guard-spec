@@ -98,6 +98,7 @@ func createInvite(db *pgxpool.Pool) fiber.Handler {
 			return serverError(c, err)
 		}
 		slog.Info("invite created", "org", org, "invite", inv.ID, "role", role, "by", inviter)
+		logActivity(c, db, &org, "invite.created", email, map[string]any{"invite_id": inv.ID, "role": role})
 		// The token is shown once only.
 		return c.Status(201).JSON(fiber.Map{
 			"id": inv.ID, "email": inv.Email, "role": inv.Role,
@@ -109,15 +110,33 @@ func createInvite(db *pgxpool.Pool) fiber.Handler {
 func listInvites(db *pgxpool.Pool) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		org := orgID(c)
+		pg, err := parsePage(c, true)
+		if err != nil {
+			return badPage(c, err)
+		}
+		if !pg.Enveloped {
+			pg.Limit = 1000 // the unpaged answer of earlier releases
+		}
+		ks := keyset{sort: "created_at", id: "id", desc: true}
 		invites := []inviteRow{}
-		err := tenant.WithOrg(c.Context(), db, org, func(tx pgx.Tx) error {
+		var total int64
+		err = tenant.WithOrg(c.Context(), db, org, func(tx pgx.Tx) error {
+			if pg.Enveloped {
+				if err := tx.QueryRow(c.Context(), `SELECT count(*) FROM invites WHERE org_id = $1`, org).Scan(&total); err != nil {
+					return err
+				}
+			}
+			cond, args, err := ks.where(pg, []any{org})
+			if err != nil {
+				return err
+			}
 			rows, err := tx.Query(c.Context(),
 				`SELECT id, email, role::text, invited_by, expires_at, accepted_at, revoked_at, created_at,
 				        CASE WHEN accepted_at IS NOT NULL THEN 'accepted'
 				             WHEN revoked_at IS NOT NULL THEN 'revoked'
 				             WHEN expires_at <= NOW() THEN 'expired'
 				             ELSE 'pending' END
-				 FROM invites WHERE org_id = $1 ORDER BY created_at DESC LIMIT 1000`, org)
+				 FROM invites WHERE org_id = $1`+cond+ks.orderLimit(pageReq{Limit: pg.Limit, Enveloped: true}), args...)
 			if err != nil {
 				return err
 			}
@@ -132,8 +151,15 @@ func listInvites(db *pgxpool.Pool) fiber.Handler {
 			}
 			return rows.Err()
 		})
+		if errors.Is(err, errBadCursor) {
+			return badPage(c, err)
+		}
 		if err != nil {
 			return serverError(c, err)
+		}
+		invites, next := page(invites, pg.Limit, func(r inviteRow) pageCursor { return timeCursor(r.CreatedAt, r.ID.String()) })
+		if pg.Enveloped {
+			return pageJSON(c, invites, next, total)
 		}
 		return c.JSON(fiber.Map{"data": invites})
 	}
@@ -161,6 +187,7 @@ func revokeInvite(db *pgxpool.Pool) fiber.Handler {
 			return c.Status(404).JSON(fiber.Map{"error": "no pending invite with this id"})
 		}
 		slog.Info("invite revoked", "org", org, "invite", id, "by", auth.UserID(c))
+		logActivity(c, db, &org, "invite.revoked", id.String(), nil)
 		return c.Status(204).Send(nil)
 	}
 }
@@ -173,7 +200,7 @@ var (
 )
 
 // acceptInvite needs no session: the token is the credential.
-func acceptInvite(db *pgxpool.Pool, secret []byte) fiber.Handler {
+func acceptInvite(db *pgxpool.Pool, id *identity) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		var req struct {
 			Token       string `json:"token"`
@@ -267,11 +294,12 @@ func acceptInvite(db *pgxpool.Pool, secret []byte) fiber.Handler {
 		case err != nil:
 			return serverError(c, err)
 		}
-		token, err := auth.IssueToken(secret, userID)
-		if err != nil {
-			return serverError(c, err)
-		}
 		slog.Info("invite accepted", "org", org, "user", userID, "role", role)
-		return c.Status(201).JSON(fiber.Map{"user_id": userID, "org_id": org, "role": role, "token": token})
+		writeActivity(c.Context(), db, activityEntry{Org: &org, ActorID: userID, Action: "invite.accepted",
+			Target: userID.String(), IP: c.IP(), Details: map[string]any{"role": role}})
+		// Logged in as by a password login: a session, or the 2FA step when
+		// the account has 2FA or an organization requires it.
+		c.Status(201)
+		return id.completeLogin(c, userID, auth.MethodPassword, fiber.Map{"user_id": userID, "org_id": org, "role": role})
 	}
 }
