@@ -336,8 +336,9 @@ func (p *upstreamPool) get(org uuid.UUID, u *upstreamRow) (*proxy.Proxy, error) 
 // route is where an allowed request goes. A nil proxy means the stub answer.
 type route struct {
 	proxy  *proxy.Proxy
-	name   string // the named upstream; "" for env and stub
-	model  string // the upstream's default model
+	id     uuid.UUID // the named upstream; uuid.Nil for env and stub
+	name   string    // the named upstream; "" for env and stub
+	model  string    // the upstream's default model
 	source string
 	// models are the upstream's allowed models; empty allows any.
 	models       []string
@@ -455,7 +456,7 @@ func (gw gateway) resolveRoute(entry requestEntry, decision policy.Decision, sna
 		return route{}, err
 	}
 	if up != nil {
-		r := route{name: up.Name, model: up.Model, source: source, models: up.Models, maxTokensCap: up.MaxTokensCap}
+		r := route{id: up.ID, name: up.Name, model: up.Model, source: source, models: up.Models, maxTokensCap: up.MaxTokensCap}
 		if !up.Enabled {
 			return fail(r, errors.New("upstream is disabled"))
 		}

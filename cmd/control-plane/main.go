@@ -109,20 +109,37 @@ func main() {
 		os.Exit(1)
 	}
 
+	alertsCfg, err := loadAlertsConfig(os.Getenv)
+	if err != nil {
+		slog.Error("config", "err", err)
+		os.Exit(1)
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	var settings *appSettings
 	app := newApp(db, secret, eng, cfg.AllowedOrigins, withEnvUpstream(cfg.UpstreamURL), withKeyOrgs(keyOrgs),
 		func(s *appSettings) {
 			s.mfaBox, s.publicURL, s.allowPrivate = mfaBox, cfg.PublicBaseURL, cfg.UpstreamAllowPrivate
 			s.trustedProxies = cfg.TrustedProxies
-		})
-
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
+			s.alertsBase = ctx
+			s.alertsCfg = &alertsCfg
+		},
+		func(s *appSettings) { settings = s })
+	rt := settings.alertsRT // built by newApp
 
 	if err := metrics.Serve(ctx, ops.MetricsAddr); err != nil {
 		slog.Error("metrics listener", "addr", ops.MetricsAddr, "err", err)
 		os.Exit(1)
 	}
 	go retention.Run(ctx, db, ops.Retention)
+	// The alert worker, the SSE hub and the Telegram polling fallback.
+	alertsDone := make(chan struct{})
+	go func() {
+		defer close(alertsDone)
+		rt.run(ctx)
+	}()
 
 	go func() {
 		slog.Info("control-plane listening", "addr", cfg.ListenAddr)
@@ -133,7 +150,8 @@ func main() {
 
 	<-ctx.Done()
 	slog.Info("shutting down")
-	_ = app.Shutdown()
+	_ = app.ShutdownWithTimeout(10 * time.Second)
+	<-alertsDone
 }
 
 // appSettings are optional settings of newApp.
@@ -158,6 +176,13 @@ type appSettings struct {
 	// client (clientip.go).
 	trustedProxies []*net.IPNet
 	getenv         func(string) string
+	// Alerts (alerts.go): the configuration (nil: from the environment), the
+	// context that ends SSE streams, whether the activity log emits no
+	// events (tests), and the runtime newApp builds.
+	alertsCfg     *alertsConfig
+	alertsBase    context.Context
+	noAlertEvents bool
+	alertsRT      *alertsRuntime
 }
 
 // withKeyOrgs sets the UPSTREAM_KEY_ORGS allowlist.
@@ -222,6 +247,12 @@ func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins 
 	enroll := v1.Group("/auth/mfa/totp", id.sessionOrEnroll(), perUser)
 	enroll.Post("/setup", id.totpSetup)
 	enroll.Post("/confirm", id.totpConfirm)
+
+	// Alerts (alerts.go, docs/alerts.md). The Telegram webhook authenticates
+	// with its own secret header, so it is mounted before the session check.
+	settings.alertsRT = newAlertsRuntime(db, settings, id.lookup)
+	v1.Post("/integrations/telegram/webhook", perIP(120), settings.alertsRT.telegramWebhook)
+	v1.Get("/integrations/email/confirm", perIP(30), settings.alertsRT.confirmEmail)
 
 	authed := v1.Group("", auth.Required(secret, id.lookup))
 
@@ -314,6 +345,9 @@ func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins 
 	authed.Post("/organizations/:orgId/exemplars", admin, createExemplar(db))
 	authed.Put("/organizations/:orgId/exemplars/:id", admin, updateExemplar(db))
 	authed.Delete("/organizations/:orgId/exemplars/:id", admin, deleteExemplar(db))
+
+	// Real-time alerts and notifications (alerts.go, docs/alerts.md).
+	registerAlertRoutes(v1, authed, db, settings.alertsRT, perIP)
 
 	// Invites, also under the short /orgs prefix.
 	for _, prefix := range []string{"/organizations/:orgId", "/orgs/:orgId"} {

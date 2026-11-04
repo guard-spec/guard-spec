@@ -175,6 +175,18 @@ func privateIP(ip net.IP) bool {
 	return ip.IsLoopback() || ip.IsPrivate() || cgnat.Contains(ip)
 }
 
+// ErrAddressNotAllowed matches (errors.Is) a dial the address rules refused.
+var ErrAddressNotAllowed = errors.New("address not allowed")
+
+// addressError is a refused dial; its text names the address, for operators.
+type addressError struct{ host string }
+
+func (e *addressError) Error() string {
+	return fmt.Sprintf("upstream address %s is not allowed", e.host)
+}
+
+func (e *addressError) Is(target error) bool { return target == ErrAddressNotAllowed }
+
 // dialControl refuses denied addresses after name resolution, and private
 // ones too when denyPrivate is set.
 func dialControl(denyPrivate bool) func(string, string, syscall.RawConn) error {
@@ -188,7 +200,7 @@ func dialControl(denyPrivate bool) func(string, string, syscall.RawConn) error {
 			return nil
 		}
 		if deniedIP(ip) || (denyPrivate && privateIP(ip)) {
-			return fmt.Errorf("upstream address %s is not allowed", host)
+			return &addressError{host: host}
 		}
 		return nil
 	}
