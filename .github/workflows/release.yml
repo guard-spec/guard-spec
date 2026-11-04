@@ -3,7 +3,8 @@ name: Release
 # On a v* tag:
 #   release        GoReleaser: L1-only binaries (CGO_ENABLED=0), archive SBOMs, the
 #                  signed checksum file, the draft GitHub release with its notes,
-#                  and the control-plane image (static, no cgo).
+#                  and the control-plane image (static, no cgo). Its before hooks
+#                  build the admin UI (web/), which the control plane embeds.
 #   gateway-image  per arch, on a native runner (no QEMU): the gateway image from
 #                  build/gateway.Dockerfile with -tags onnx and libonnxruntime
 #                  (L1+L2+L3), pushed by digest with a BuildKit SBOM and SLSA
@@ -38,6 +39,13 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+      # GoReleaser's before hooks build the admin UI (web/) that the
+      # control-plane binaries and image embed.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
       - uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
       # The control-plane image only copies a prebuilt static binary (no RUN), so
