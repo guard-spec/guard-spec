@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/giaplee/guard-spec/internal/config"
 	"github.com/giaplee/guard-spec/internal/policy"
 	"github.com/google/uuid"
 )
@@ -43,7 +44,7 @@ func planFor(t *testing.T, text string) (*configPlan, []configError) {
 	if len(errs) > 0 {
 		return nil, errs
 	}
-	return validateConfig(eng, doc)
+	return validateConfig(eng, doc, config.MustParseKeyOrgs("UPSTREAM_KEY_MAIN=*"), uuid.New())
 }
 
 func TestConfigContractExample(t *testing.T) {
@@ -217,5 +218,55 @@ func TestPolicyOrder(t *testing.T) {
 	order = p.policyOrder([]*configPolicyRow{b, a, nil}, base.Add(time.Hour))
 	if !order[0].Equal(b.CreatedAt) || !order[1].After(order[0]) || !order[2].After(order[1]) {
 		t.Errorf("swapped: %v", order)
+	}
+}
+
+// A key variable the operator did not allow for the org is refused on save.
+func TestConfigRefusesKeyOfAnotherOrg(t *testing.T) {
+	eng, err := policy.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	acme, other := uuid.New(), uuid.New()
+	keys := config.MustParseKeyOrgs("UPSTREAM_KEY_ACME=" + acme.String())
+	doc, errs := decodeConfig([]byte("version: 1\nupstreams:\n  - name: x\n    base_url: https://attacker.example/v1\n" +
+		"    api_key_env: UPSTREAM_KEY_ACME\npolicies: []\n"))
+	if len(errs) > 0 {
+		t.Fatal(errs)
+	}
+	if _, errs := validateConfig(eng, doc, keys, acme); len(errs) != 0 {
+		t.Errorf("allowed org refused: %+v", errs)
+	}
+	_, errs = validateConfig(eng, doc, keys, other)
+	if len(errs) != 1 || errs[0].Path != "upstreams[0].api_key_env" || !strings.Contains(errs[0].Message, "UPSTREAM_KEY_ORGS") {
+		t.Errorf("other org: %+v", errs)
+	}
+	if _, errs := validateConfig(eng, doc, config.KeyOrgs{}, acme); len(errs) != 1 {
+		t.Errorf("empty allowlist: %+v", errs)
+	}
+}
+
+// GET /config refuses (409) what a PUT of its own output would refuse.
+func TestExportProblems(t *testing.T) {
+	eng, err := policy.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ok, _ := policy.ParseCondition("scores.l2 > 0.5")
+	removed := json.RawMessage(`{"field":"toxicity.score","operator":">","value":0.5}`)
+	org, a, b, c := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	s := &storedConfig{policies: []configPolicyRow{
+		{ID: a, Name: "p", Rules: []policy.Rule{{ID: uuid.New(), Name: "fine", Action: policy.ActionBlock, Condition: ok}}},
+		{ID: b, Name: "p"},
+		{ID: c, Name: "legacy", Rules: []policy.Rule{{ID: uuid.New(), Name: "toxic", Action: policy.ActionBlock, Condition: removed}}},
+	}}
+	problems := s.exportProblems(eng, org)
+	if len(problems) != 2 || problems[0].PolicyID != b || problems[1].PolicyID != c ||
+		!strings.Contains(problems[1].Message, "toxicity.score") || !strings.Contains(problems[1].Fix, c.String()) {
+		t.Errorf("problems = %+v", problems)
+	}
+	s.policies = s.policies[:1]
+	if p := s.exportProblems(eng, org); len(p) != 0 {
+		t.Errorf("clean config: %+v", p)
 	}
 }

@@ -6,12 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"regexp"
 	"strings"
 	"time"
 	"unicode"
 
 	"github.com/giaplee/guard-spec/internal/auth"
+	"github.com/giaplee/guard-spec/internal/config"
 	"github.com/giaplee/guard-spec/internal/policy"
 	"github.com/giaplee/guard-spec/internal/proxy"
 	"github.com/giaplee/guard-spec/internal/tenant"
@@ -28,7 +28,7 @@ import (
 
 // keyEnvRe limits api_key_env to variables meant for upstream keys, so that an
 // org admin cannot make the gateway send another variable (JWT_SECRET) upstream.
-var keyEnvRe = regexp.MustCompile(`^UPSTREAM_KEY_[A-Z0-9_]{1,64}$`)
+var keyEnvRe = config.UpstreamKeyVarRe
 
 const (
 	defaultTimeoutMs = 300_000 // proxy.DefaultTimeout
@@ -131,7 +131,7 @@ func listUpstreams(db *pgxpool.Pool) fiber.Handler {
 	}
 }
 
-func createUpstream(db *pgxpool.Pool) fiber.Handler {
+func createUpstream(db *pgxpool.Pool, settings *appSettings) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		org := orgID(c)
 		var u upstream
@@ -147,6 +147,9 @@ func createUpstream(db *pgxpool.Pool) fiber.Handler {
 			u.Enabled = *enabled.Enabled
 		}
 		if err := u.validate(); err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+		}
+		if err := settings.keyOrgs.Check(u.APIKeyEnv, org); err != nil {
 			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
 		}
 		err := tenant.WithOrg(c.Context(), db, org, func(tx pgx.Tx) error {
@@ -296,7 +299,7 @@ func lockUpstream(ctx context.Context, tx pgx.Tx, org, id uuid.UUID) (upstream, 
 	return u, err
 }
 
-func updateUpstream(db *pgxpool.Pool) fiber.Handler {
+func updateUpstream(db *pgxpool.Pool, settings *appSettings) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		org := orgID(c)
 		id, err := uuid.Parse(c.Params("id"))
@@ -319,6 +322,14 @@ func updateUpstream(db *pgxpool.Pool) fiber.Handler {
 			patch.apply(&u)
 			if invalid = u.validate(); invalid != nil {
 				return invalid
+			}
+			// The key goes where base_url points: changing either needs the
+			// allowlist. Other changes (disabling, say) do not, so that an
+			// upstream left over from a narrower allowlist can still be managed.
+			if patch.APIKeyEnv != nil || patch.BaseURL != nil {
+				if invalid = settings.keyOrgs.Check(u.APIKeyEnv, org); invalid != nil {
+					return invalid
+				}
 			}
 			if u.Name != oldName {
 				refs, err := upstreamRefs(c.Context(), tx, org, id, oldName)

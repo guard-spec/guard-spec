@@ -372,6 +372,8 @@ in a second table.
 | `UPSTREAM_LLM_KEY` | empty | Bearer token for the upstream; not sent when empty |
 | `UPSTREAM_LLM_TIMEOUT` | `5m` | Longest wait for the first byte and for any later silence |
 | `UPSTREAM_KEY_*` | empty | Keys of named upstreams: an upstream with `api_key_env: UPSTREAM_KEY_MAIN` sends the value of that variable as its bearer token. Only names matching `^UPSTREAM_KEY_[A-Z0-9_]{1,64}$` are read. See [Routing](#routing) |
+| `UPSTREAM_KEY_ORGS` | empty (compose: `UPSTREAM_KEY_MAIN=*`) | Which orgs may use which key variable: `UPSTREAM_KEY_MAIN=*;UPSTREAM_KEY_ACME=<org-uuid>,<org-uuid>`. A variable not listed for the org fails the request closed (502). Empty: no org may use any. Set the same value on the control plane |
+| `UPSTREAM_ALLOW_PRIVATE` | `false` (compose: `true`) | `true` lets org-defined upstreams reach loopback, RFC 1918, unique local (fc00::/7) and CGNAT (100.64.0.0/10) addresses. Checked when the gateway connects. `UPSTREAM_LLM_URL` is never restricted |
 | `CLIENT_HALF_CLOSE` | `cancel` | `wait` keeps the upstream call running when a client half-closes its socket |
 | `AUDIT_STORE_CONTENT` | `false` | `true` stores prompt and response content in audit rows for every org |
 | `SCAN_ROLES` | `user,tool,tool_descriptions` | Parts to classify: `user`, `tool`, `system`, `tool_calls`, `tool_descriptions`, or `all` / `none` |
@@ -411,6 +413,7 @@ in a second table.
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | empty | First owner of the default organization, created on start when both are set |
 | `ALLOWED_ORIGINS` | empty (compose: `http://localhost:3000`) | CORS origins; empty disables CORS. The UI at `/ui/` is same-origin and needs none |
 | `UPSTREAM_LLM_URL` | empty | The gateway's value, so that the policy simulator can show the `env` step; credentials in it are not shown |
+| `UPSTREAM_KEY_ORGS` | empty (compose: `UPSTREAM_KEY_MAIN=*`) | As on the gateway. Saving an upstream (or a config file) that names a key variable not allowed for the org is refused |
 | `METRICS_ADDR` | `:9091` | Metrics listener; `off` disables it |
 | `AUDIT_RETENTION_DAYS` | `90` | Delete audit rows older than this; `0` keeps them |
 | `AUDIT_RETENTION_INTERVAL` | `1h` | Time between retention runs, at least `1m` |
@@ -506,8 +509,8 @@ needs `Authorization: Bearer <token from /v1/auth/login>`. Roles are `owner`,
 | `PUT`, `DELETE /organizations/:orgId/upstreams/:id` (409 while a rule or default uses it) | admin |
 | `PUT /organizations/:orgId/default-upstream` (`{"upstream_id": id or null}`) | admin |
 | `PUT /organizations/:orgId/projects/:projectId/default-upstream` | admin |
-| `GET`, `PUT /organizations/:orgId/config[?dry_run=true]` (YAML) | viewer, admin |
-| `GET`, `POST /organizations/:orgId/policies` | viewer, admin |
+| `GET`, `PUT /organizations/:orgId/config[?dry_run=true]` (YAML; `GET` is 409 when the stored config would not apply again) | viewer, admin |
+| `GET`, `POST /organizations/:orgId/policies` (409 on a name the org already uses) | viewer, admin |
 | `POST /organizations/:orgId/policies/simulate` | viewer |
 | `PUT`, `DELETE /organizations/:orgId/policies/:id` | admin |
 | `GET /organizations/:orgId/requests?limit=100` (includes `route_target`) | viewer |
@@ -577,11 +580,14 @@ request the guard allowed, the gateway picks one in this order:
 5. the stub answer.
 
 A target or default that is missing, disabled, or whose key variable is not
-set fails the request closed with 502 (`route_unavailable`); the gateway never
-falls back to another upstream. The audit row records the upstream's name in
-`route_target` (null for `UPSTREAM_LLM_URL` and the stub) and the action
-`route` when a route rule decided. Upstreams are read per request, like
-policies, so a change applies to the next request.
+set or not allowed for the org fails the request closed with 502
+(`route_unavailable`); the gateway never falls back to another upstream. The
+audit row records the upstream's name in `route_target` (null for
+`UPSTREAM_LLM_URL` and the stub), the action `route` when a route rule
+decided, and in `model` the model actually sent upstream (the upstream's
+`model` when it rewrote the request; policies still see the requested one).
+Upstreams are read per request in the same transaction as the policies, so a
+change applies to the next request.
 
 An upstream is `{"name", "base_url", "model", "api_key_env", "timeout_ms",
 "enabled"}`. `name` is lowercase letters, digits and dashes, unique per org.
@@ -589,13 +595,34 @@ When `model` is set, the gateway replaces the request's `model` with it.
 `timeout_ms` defaults to 300000. No secret is stored: `api_key_env` names a
 gateway environment variable (`UPSTREAM_KEY_[A-Z0-9_]{1,64}`) that holds the
 key, so set it in the gateway's environment (compose: add it under
-`gateway.environment`). `base_url` must be http(s) without credentials, a
-query or a fragment, and may not be a link-local, multicast or unspecified
-address or a cloud metadata name; the gateway's dialer refuses those
-addresses after DNS as well. Any other host the gateway can reach is allowed,
-including private ones (an Ollama next to it, for example), so an org admin
-can point the gateway at internal services: restrict the gateway's egress if
-your org admins are not trusted with that.
+`gateway.environment`).
+
+**Which org may use which key** is the operator's decision, in
+`UPSTREAM_KEY_ORGS` on both services:
+
+```
+UPSTREAM_KEY_ORGS=UPSTREAM_KEY_MAIN=*;UPSTREAM_KEY_ACME=<org-uuid>,<org-uuid>
+```
+
+`*` means every organization and has to be written out; the default is
+empty, so no org can name any key variable. Without this, any user could
+create an org, point an upstream at a host they control with
+`api_key_env: UPSTREAM_KEY_MAIN`, and receive your key. The control plane
+refuses an upstream or config file that names a variable not allowed for the
+org (400, or 422 for the file), and the gateway checks again on every
+request, so rows saved before you narrowed the list fail closed (502).
+
+**Addresses.** `base_url` must be http(s) without credentials, a query or a
+fragment. Link-local, multicast and unspecified addresses and the cloud
+metadata addresses (`169.254.0.0/16`, `fd00:ec2::254`, `100.100.100.200`,
+`192.0.0.192`, `metadata.google.internal`) are always refused, also after
+DNS when the gateway connects. Loopback, RFC 1918, unique local (fc00::/7)
+and CGNAT (100.64.0.0/10) addresses are refused at connect time unless
+`UPSTREAM_ALLOW_PRIVATE=true`. The trade-off: with `true`, org admins can
+reach anything on the gateway's network (an Ollama next to it, but also
+internal services); with `false`, org upstreams must be public. Your own
+`UPSTREAM_LLM_URL` is never restricted. Compose sets `true` so that Ollama on
+the host works.
 
 ```bash
 # An upstream, the org default, and a rule that sends suspicious requests to a local model
@@ -665,6 +692,14 @@ parsed like `/policy/parse` and validated like a saved rule; a `when` that
 starts with `!` must be quoted, since YAML reads `!` as a tag. Errors come back
 as 422 `{"errors":[{"path":"policies[0].rules[1].when","message":"..."}]}` and
 nothing is written; success is `{"applied":true,"changes":[{"kind","name","op"}]}`.
+
+`GET` refuses with 409 when the stored config would not apply again: two
+policies with the same name (the file names policies by name), or rules that
+no longer validate, such as rules naming a removed field. The body lists each
+problem with the policy's id and the policy API call that fixes it
+(`{"error", "problems": [{"policy_id", "policy", "message", "fix"}]}`).
+Policy names are unique per org: creating a policy, or renaming one, onto a
+name another policy has returns 409.
 
 ```bash
 curl -s $CP/organizations/$ORG/config -H "$AUTH" > guard.yaml
@@ -760,6 +795,17 @@ What it does **not** protect against:
   bare URLs by your UI is not handled yet (on the roadmap).
 - **A compromised upstream or a malicious operator.** Anyone with database
   or admin access can change policies and read audit rows.
+- **Org admins and named upstreams.** Any signed-in user can create an
+  organization, and an org admin chooses where its upstreams point. Two
+  operator settings bound that (see [Routing](#routing)):
+  `UPSTREAM_KEY_ORGS` decides which org may use which `UPSTREAM_KEY_*`
+  variable (empty by default, so no org can make the gateway send one of your
+  keys to a host it chose), and `UPSTREAM_ALLOW_PRIVATE` (false by default)
+  keeps org upstreams off loopback, private, unique local and CGNAT
+  addresses. Cloud metadata addresses are always refused. The compose file
+  sets `UPSTREAM_KEY_ORGS=UPSTREAM_KEY_MAIN=*` and
+  `UPSTREAM_ALLOW_PRIVATE=true` for a single-team setup with Ollama on the
+  host; change both before letting untrusted users create orgs.
 - **Volume attacks.** Rate limits are per gateway replica and in memory; put
   a proper rate limiter or WAF in front for abuse protection.
 

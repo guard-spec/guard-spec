@@ -94,6 +94,24 @@ func TestUpstreamLoader(t *testing.T) {
 		t.Errorf("no default: %+v %v", up, err)
 	}
 
+	// Policies and the upstreams they may need come from one transaction.
+	setup(org, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `INSERT INTO policies (org_id, name, rules) VALUES ($1, 'routing',
+			'[{"id":"`+uuid.NewString()+`","name":"r","action":"route","route_target":"named","condition":{"field":"scores.l2","operator":">","value":0.5}}]')`, org)
+		return err
+	})
+	policies, snap, err := dbPolicyRouteLoader(db)(ctx, org, project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(policies) != 1 || snap.named["named"] == nil || len(snap.named) != 1 ||
+		snap.def == nil || snap.def.Name != "proj-up" || snap.defSource != sourceProject {
+		t.Errorf("policies %d, snapshot %+v", len(policies), snap)
+	}
+	if _, snap, _ := dbPolicyRouteLoader(db)(ctx, other, uuid.Nil); snap == nil || snap.def != nil || len(snap.named) != 0 {
+		t.Errorf("other org snapshot %+v", snap)
+	}
+
 	// The audit row keeps the route target.
 	logRequest(db, false, requestEntry{OrgID: org, Action: actionRoute, RouteTarget: "named"})
 	var target *string

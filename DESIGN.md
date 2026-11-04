@@ -113,10 +113,17 @@ client ──► gateway (Go, Fiber) ──────────────�
    `UPSTREAM_LLM_URL`, else a stub response. A missing or disabled target, or
    an unset `UPSTREAM_KEY_*` variable, fails closed with 502; there is no
    fallback to another upstream. Keys never reach the database: an upstream
-   names the gateway variable that holds its key. One proxy (and connection
-   pool) per upstream is cached until the row's `updated_at` changes. Defaults
-   reference upstreams through composite foreign keys that include `org_id`,
-   since foreign keys are checked without RLS.
+   names the gateway variable that holds its key, and the operator's
+   `UPSTREAM_KEY_ORGS` says which org may name which variable (checked on
+   save by the control plane and again per request by the gateway, since an
+   org admin controls `base_url`). Org upstreams may not reach cloud metadata
+   addresses, nor loopback/private/CGNAT ones unless
+   `UPSTREAM_ALLOW_PRIVATE=true`, checked by the dialer after DNS. The
+   upstreams a request may need are read in the policies' transaction. One
+   proxy (and connection pool) per upstream is cached until the row's
+   `updated_at` changes. Defaults reference upstreams through composite
+   foreign keys that include `org_id`, since foreign keys are checked without
+   RLS.
 9. **Output guard** (`internal/outputguard`): link/image allowlist, PII
    redaction (e-mail, Vietnamese phone, CCCD, Luhn-valid cards, optional
    IPv4), canary, reasoning fields, refusals and tool-call arguments; whole

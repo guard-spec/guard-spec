@@ -65,6 +65,11 @@ func main() {
 		slog.Error("config", "err", err)
 		os.Exit(1)
 	}
+	keyOrgs, err := config.ParseKeyOrgs(os.Getenv("UPSTREAM_KEY_ORGS"))
+	if err != nil {
+		slog.Error("config", "err", err)
+		os.Exit(1)
+	}
 	secret := []byte(cfg.JWTSecret)
 
 	db, err := pgxpool.New(context.Background(), cfg.DatabaseURL)
@@ -90,7 +95,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	app := newApp(db, secret, eng, cfg.AllowedOrigins, withEnvUpstream(cfg.UpstreamURL))
+	app := newApp(db, secret, eng, cfg.AllowedOrigins, withEnvUpstream(cfg.UpstreamURL), withKeyOrgs(keyOrgs))
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -118,6 +123,14 @@ type appSettings struct {
 	// envUpstreamURL is UPSTREAM_LLM_URL, for the simulator's env step.
 	envUpstreamURL string
 	ui             fs.FS // the admin UI; nil: web.Dist()
+	// keyOrgs is UPSTREAM_KEY_ORGS: which orgs may name which UPSTREAM_KEY_*
+	// variable as an upstream's api_key_env. The zero value allows none.
+	keyOrgs config.KeyOrgs
+}
+
+// withKeyOrgs sets the UPSTREAM_KEY_ORGS allowlist.
+func withKeyOrgs(k config.KeyOrgs) appOption {
+	return func(s *appSettings) { s.keyOrgs = k }
 }
 
 type appOption func(*appSettings)
@@ -191,15 +204,15 @@ func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins 
 
 	// Named upstreams and routing defaults (migration 011).
 	authed.Get("/organizations/:orgId/upstreams", viewer, listUpstreams(db))
-	authed.Post("/organizations/:orgId/upstreams", admin, createUpstream(db))
-	authed.Put("/organizations/:orgId/upstreams/:id", admin, updateUpstream(db))
+	authed.Post("/organizations/:orgId/upstreams", admin, createUpstream(db, settings))
+	authed.Put("/organizations/:orgId/upstreams/:id", admin, updateUpstream(db, settings))
 	authed.Delete("/organizations/:orgId/upstreams/:id", admin, deleteUpstream(db))
 	authed.Put("/organizations/:orgId/default-upstream", admin, putOrgDefaultUpstream(db))
 	authed.Put("/organizations/:orgId/projects/:projectId/default-upstream", admin, putProjectDefaultUpstream(db))
 
 	// Config as code: the org's upstreams, defaults and policies as one YAML file.
-	authed.Get("/organizations/:orgId/config", viewer, getConfig(db))
-	authed.Put("/organizations/:orgId/config", admin, putConfig(db, eng))
+	authed.Get("/organizations/:orgId/config", viewer, getConfig(db, eng))
+	authed.Put("/organizations/:orgId/config", admin, putConfig(db, eng, settings))
 
 	authed.Get("/organizations/:orgId/policies", viewer, listPolicies(db))
 	// Before /policies/:id, which would take "simulate" as an id.
@@ -551,6 +564,9 @@ func createPolicy(db *pgxpool.Pool, eng *policy.Engine) fiber.Handler {
 			if err := checkProject(c.Context(), tx, org, req.ProjectID); err != nil {
 				return err
 			}
+			if err := checkPolicyName(c.Context(), tx, org, req.Name, uuid.Nil); err != nil {
+				return err
+			}
 			if err := checkRouteTargets(c.Context(), tx, org, targets); err != nil {
 				return err
 			}
@@ -562,6 +578,9 @@ func createPolicy(db *pgxpool.Pool, eng *policy.Engine) fiber.Handler {
 		var unknownTarget *unknownTargetError
 		if errors.Is(err, errUnknownProject) || errors.As(err, &unknownTarget) {
 			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+		}
+		if errors.Is(err, errDuplicatePolicyName) {
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": err.Error()})
 		}
 		if err != nil {
 			return serverError(c, err)
@@ -598,6 +617,9 @@ func updatePolicy(db *pgxpool.Pool, eng *policy.Engine) fiber.Handler {
 			if err := checkProject(c.Context(), tx, org, req.ProjectID.Value); err != nil {
 				return err
 			}
+			if err := checkPolicyName(c.Context(), tx, org, req.Name, pID); err != nil {
+				return err
+			}
 			if err := checkRouteTargets(c.Context(), tx, org, targets); err != nil {
 				return err
 			}
@@ -619,6 +641,9 @@ func updatePolicy(db *pgxpool.Pool, eng *policy.Engine) fiber.Handler {
 		var unknownTarget *unknownTargetError
 		if errors.Is(err, errUnknownProject) || errors.As(err, &unknownTarget) {
 			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+		}
+		if errors.Is(err, errDuplicatePolicyName) {
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": err.Error()})
 		}
 		if err != nil {
 			return serverError(c, err)
@@ -666,6 +691,30 @@ func validateCEL(eng *policy.Engine) fiber.Handler {
 		}
 		return c.JSON(fiber.Map{"valid": true, "cel_expression": celExpr})
 	}
+}
+
+var errDuplicatePolicyName = errors.New("a policy with this name already exists in this organization")
+
+// checkPolicyName refuses a name another policy of org (other than self)
+// already has: the config file names policies by name. The org row lock
+// serializes concurrent saves, as a config apply does; older databases may
+// still hold duplicates, so there is no unique index.
+func checkPolicyName(ctx context.Context, tx pgx.Tx, org uuid.UUID, name string, self uuid.UUID) error {
+	if name == "" {
+		return nil // an update that keeps the name
+	}
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM organizations WHERE id = $1 FOR UPDATE`, org); err != nil {
+		return err
+	}
+	var taken bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM policies WHERE org_id = $1 AND name = $2 AND id <> $3)`,
+		org, name, self).Scan(&taken); err != nil {
+		return err
+	}
+	if taken {
+		return errDuplicatePolicyName
+	}
+	return nil
 }
 
 // validateRules checks each rule and returns the list to store, with rule IDs

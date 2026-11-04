@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/giaplee/guard-spec/internal/auth"
+	"github.com/giaplee/guard-spec/internal/config"
 	"github.com/giaplee/guard-spec/internal/policy"
 	"github.com/giaplee/guard-spec/internal/tenant"
 	"github.com/gofiber/fiber/v2"
@@ -188,7 +189,39 @@ func (s *storedConfig) projectSlug(id *uuid.UUID) *string {
 
 // ── GET ───────────────────────────────────────────────────────────────────────
 
-func getConfig(db *pgxpool.Pool) fiber.Handler {
+// exportProblem is something in the stored config that a PUT of the exported
+// file would refuse, with how to fix it through the policy API.
+type exportProblem struct {
+	PolicyID uuid.UUID `json:"policy_id"`
+	Policy   string    `json:"policy"`
+	Message  string    `json:"message"`
+	Fix      string    `json:"fix"`
+}
+
+// exportProblems lists what keeps the stored config from round-tripping:
+// policy names used twice (the file names policies by name) and rules that
+// fail validation, such as rules naming a removed field.
+func (s *storedConfig) exportProblems(eng *policy.Engine, org uuid.UUID) []exportProblem {
+	problems := []exportProblem{}
+	path := func(id uuid.UUID) string { return fmt.Sprintf("/v1/organizations/%s/policies/%s", org, id) }
+	first := map[string]uuid.UUID{}
+	for _, p := range s.policies {
+		if id, dup := first[p.Name]; dup {
+			problems = append(problems, exportProblem{PolicyID: p.ID, Policy: p.Name,
+				Message: fmt.Sprintf("policy name %q is also used by policy %s", p.Name, id),
+				Fix:     fmt.Sprintf(`rename it with PUT %s {"name": "..."} or delete it with DELETE %s`, path(p.ID), path(p.ID))})
+		} else {
+			first[p.Name] = p.ID
+		}
+		for _, err := range eng.CheckRules(p.Rules) {
+			problems = append(problems, exportProblem{PolicyID: p.ID, Policy: p.Name, Message: err.Error(),
+				Fix: fmt.Sprintf(`replace the rule with PUT %s {"rules": [...]}`, path(p.ID))})
+		}
+	}
+	return problems
+}
+
+func getConfig(db *pgxpool.Pool, eng *policy.Engine) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		org := orgID(c)
 		var stored *storedConfig
@@ -199,6 +232,12 @@ func getConfig(db *pgxpool.Pool) fiber.Handler {
 		})
 		if err != nil {
 			return serverError(c, err)
+		}
+		if problems := stored.exportProblems(eng, org); len(problems) > 0 {
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{
+				"error":    "the stored config cannot be exported as a file that applies again; fix these policies first",
+				"problems": problems,
+			})
 		}
 		doc, err := stored.document()
 		if err != nil {
@@ -265,7 +304,7 @@ type configInvalid struct{ errs []configError }
 
 func (e *configInvalid) Error() string { return "invalid config" }
 
-func putConfig(db *pgxpool.Pool, eng *policy.Engine) fiber.Handler {
+func putConfig(db *pgxpool.Pool, eng *policy.Engine, settings *appSettings) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		org := orgID(c)
 		dryRun := c.QueryBool("dry_run", false)
@@ -278,7 +317,7 @@ func putConfig(db *pgxpool.Pool, eng *policy.Engine) fiber.Handler {
 			return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"errors": errs})
 		}
 		// Conditions and fields that need no database are checked first.
-		plan, errs := validateConfig(eng, doc)
+		plan, errs := validateConfig(eng, doc, settings.keyOrgs, org)
 		if len(errs) > 0 {
 			return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"errors": errs})
 		}
@@ -339,7 +378,7 @@ type configPlan struct {
 	projects  map[string]*uuid.UUID // slug -> id, filled by resolveProjects
 }
 
-func validateConfig(eng *policy.Engine, doc *configDoc) (*configPlan, []configError) {
+func validateConfig(eng *policy.Engine, doc *configDoc, keyOrgs config.KeyOrgs, org uuid.UUID) (*configPlan, []configError) {
 	var errs []configError
 	add := func(path, format string, args ...any) {
 		errs = append(errs, configError{Path: path, Message: fmt.Sprintf(format, args...)})
@@ -361,6 +400,8 @@ func validateConfig(eng *policy.Engine, doc *configDoc) (*configPlan, []configEr
 			TimeoutMs: cu.TimeoutMs, Enabled: cu.Enabled == nil || *cu.Enabled}
 		if err := u.validate(); err != nil {
 			add(path, "%s", err.Error())
+		} else if err := keyOrgs.Check(u.APIKeyEnv, org); err != nil {
+			add(path+".api_key_env", "%s", err.Error())
 		}
 		if names[u.Name] {
 			add(path+".name", "upstream %q is listed twice", u.Name)
