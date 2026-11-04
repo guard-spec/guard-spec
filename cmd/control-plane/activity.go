@@ -57,6 +57,7 @@ func writeActivity(ctx context.Context, db *pgxpool.Pool, e activityEntry) {
 	if err != nil {
 		slog.Warn("activity log write failed", "action", e.Action, "err", err)
 	}
+	emitActivity(ctx, db, e)
 }
 
 // withInstanceScope runs fn in a transaction that can see instance-level

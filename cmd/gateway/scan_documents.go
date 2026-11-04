@@ -160,6 +160,9 @@ func scanHandler(gw gateway) fiber.Handler {
 		resp["blocked"] = blocked
 		resp["verdict"] = verdictName(blocked)
 		entry.Action = verdictName(blocked)
+		if blocked {
+			entry.Detected = layerScan
+		}
 		entry.LatencyMs = int(time.Since(start).Milliseconds())
 		gw.audit.record(entry)
 		return c.JSON(resp)

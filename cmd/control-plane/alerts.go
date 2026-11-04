@@ -1,0 +1,268 @@
+// Copyright 2026 The Guard Spec Authors
+// SPDX-License-Identifier: Apache-2.0
+
+package main
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"log/slog"
+	"os"
+	"strings"
+	"sync/atomic"
+	"time"
+
+	"github.com/giaplee/guard-spec/internal/alerts"
+	"github.com/giaplee/guard-spec/internal/alerts/channels"
+	"github.com/giaplee/guard-spec/internal/auth"
+	"github.com/giaplee/guard-spec/internal/events"
+	"github.com/giaplee/guard-spec/internal/proxy"
+	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/limiter"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+// Real-time alerts and notifications (docs/alerts.md): the API of rules,
+// channels, groups, alert history, deliveries, personal preferences and
+// links, in-app notifications and their SSE stream, and the Telegram
+// webhook. The worker that evaluates rules and delivers runs in main.
+
+// alertsConfig is the instance configuration of alerts, from the
+// environment. Secrets stay here and in channel secret_env variables; none
+// is stored in the database.
+type alertsConfig struct {
+	getenv          func(string) string
+	allowPrivate    bool   // ALERTS_ALLOW_PRIVATE_URLS=1
+	telegramToken   string // TELEGRAM_BOT_TOKEN: personal chats and the /start link
+	telegramBot     string // TELEGRAM_BOT_USERNAME, for deep links
+	telegramSecret  string // TELEGRAM_WEBHOOK_SECRET
+	telegramPolling bool   // TELEGRAM_POLLING=1
+	slackToken      string // SLACK_BOT_TOKEN: personal DMs and lookupByEmail
+	smtp            channels.SMTPConfig
+	lang            string // ALERTS_LANG: en (default) or vi
+	// API origins; tests point them at fakes.
+	telegramAPI, slackAPI string
+}
+
+func loadAlertsConfig(getenv func(string) string) alertsConfig {
+	lang := getenv("ALERTS_LANG")
+	if lang != "vi" {
+		lang = "en"
+	}
+	return alertsConfig{
+		getenv:          getenv,
+		allowPrivate:    getenv("ALERTS_ALLOW_PRIVATE_URLS") == "1",
+		telegramToken:   getenv(alerts.EnvTelegramToken),
+		telegramBot:     strings.TrimPrefix(getenv("TELEGRAM_BOT_USERNAME"), "@"),
+		telegramSecret:  getenv("TELEGRAM_WEBHOOK_SECRET"),
+		telegramPolling: getenv("TELEGRAM_POLLING") == "1",
+		slackToken:      getenv(alerts.EnvSlackToken),
+		smtp:            channels.SMTPConfig{URL: getenv("SMTP_URL"), From: getenv("SMTP_FROM")},
+		lang:            lang,
+		telegramAPI:     channels.TelegramAPI,
+		slackAPI:        channels.SlackAPI,
+	}
+}
+
+// alertsRuntime holds what the alert handlers and the worker share.
+type alertsRuntime struct {
+	db        *pgxpool.Pool
+	cfg       alertsConfig
+	publicURL string
+	engine    *alerts.Engine
+	disp      *alerts.Dispatcher
+	hub       *alerts.Hub
+	emitter   *events.Emitter
+	tg        *channels.Telegram
+	slack     *channels.Slack
+	guard     channels.Guard
+	sessions  auth.SessionLookup
+	// base ends open SSE streams at shutdown.
+	base    context.Context
+	botName atomic.Pointer[string]
+}
+
+func newAlertsRuntime(db *pgxpool.Pool, s *appSettings, sessions auth.SessionLookup) *alertsRuntime {
+	cfg := s.alertsCfg
+	if cfg == nil {
+		getenv := s.getenv
+		if getenv == nil {
+			getenv = os.Getenv
+		}
+		c := loadAlertsConfig(getenv)
+		cfg = &c
+	}
+	api := proxy.SafeClient(false, channels.Timeout) // fixed operator origins
+	guard := channels.NewGuard(cfg.allowPrivate)
+	tg := &channels.Telegram{Base: cfg.telegramAPI, Client: api}
+	slack := &channels.Slack{Base: cfg.slackAPI, Client: api, Guard: guard}
+	caps := alerts.Caps{Telegram: cfg.telegramToken != "", Slack: cfg.slackToken != "", SMTP: cfg.smtp.Enabled()}
+	base := s.alertsBase
+	if base == nil {
+		base = context.Background()
+	}
+	rt := &alertsRuntime{
+		db: db, cfg: *cfg, publicURL: s.publicURL, hub: alerts.NewHub(), tg: tg, slack: slack, guard: guard,
+		sessions: sessions, base: base,
+		engine: &alerts.Engine{DB: db, PublicURL: s.publicURL, Caps: caps, Lang: cfg.lang},
+		disp: &alerts.Dispatcher{DB: db, Getenv: cfg.getenv, Lang: cfg.lang, Senders: map[string]channels.Sender{
+			channels.KindTelegram: tg,
+			channels.KindSlack:    slack,
+			channels.KindTeams:    &channels.Teams{Guard: guard},
+			channels.KindWebhook:  &channels.Webhook{Guard: guard},
+			channels.KindA2A:      &channels.A2A{Guard: guard},
+			channels.KindEmail:    &channels.Email{SMTP: cfg.smtp},
+		}},
+	}
+	if !s.noAlertEvents {
+		rt.emitter = events.New(db, events.Config{Source: "control_plane"})
+		activityEmitter.Store(rt.emitter)
+	}
+	return rt
+}
+
+// worker returns the alert worker of this runtime.
+func (rt *alertsRuntime) worker() *alerts.Worker {
+	return &alerts.Worker{DB: rt.db, Engine: rt.engine, Dispatcher: rt.disp}
+}
+
+// run starts the worker, the SSE hub and the Telegram polling fallback
+// until ctx ends.
+func (rt *alertsRuntime) run(ctx context.Context) {
+	go rt.hub.Run(ctx, rt.db)
+	if rt.cfg.telegramPolling && rt.cfg.telegramToken != "" {
+		go rt.pollTelegram(ctx)
+	}
+	if rt.cfg.telegramToken != "" && rt.cfg.telegramBot == "" {
+		go func() {
+			cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			defer cancel()
+			if name, err := rt.tg.GetMe(cctx, rt.cfg.telegramToken); err == nil {
+				rt.setBotName(name)
+			} else {
+				slog.Warn("telegram getMe failed; set TELEGRAM_BOT_USERNAME", "err", channels.Redact(err.Error(), rt.cfg.telegramToken))
+			}
+		}()
+	}
+	rt.worker().Run(ctx)
+	closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	rt.emitter.Close(closeCtx)
+}
+
+func (rt *alertsRuntime) setBotName(name string) { rt.botName.Store(&name) }
+
+// bot is the Telegram bot username: TELEGRAM_BOT_USERNAME or getMe.
+func (rt *alertsRuntime) bot() string {
+	if rt.cfg.telegramBot != "" {
+		return rt.cfg.telegramBot
+	}
+	if p := rt.botName.Load(); p != nil {
+		return *p
+	}
+	return ""
+}
+
+// registerAlertRoutes mounts the alert API.
+func registerAlertRoutes(v1, authed fiber.Router, db *pgxpool.Pool, rt *alertsRuntime, perIP func(int) fiber.Handler) {
+	member := auth.RequireRole(db, auth.RoleMember)
+	viewer := auth.RequireRole(db, auth.RoleViewer)
+	admin := auth.RequireRole(db, auth.RoleAdmin)
+	perUser := limiter.New(limiter.Config{Max: 10, Expiration: time.Minute,
+		KeyGenerator: func(c *fiber.Ctx) string { return "alerts:" + auth.UserID(c).String() }})
+
+	v1.Post("/integrations/telegram/webhook", perIP(120), rt.telegramWebhook)
+
+	authed.Get("/alerts/capabilities", rt.capabilities)
+	authed.Get("/me/channel-links", rt.listLinks)
+	authed.Delete("/me/channel-links/:kind", rt.deleteLink)
+	authed.Post("/me/channel-links/telegram/start", perUser, rt.telegramStart)
+	authed.Post("/me/channel-links/slack", perUser, rt.slackLink)
+	authed.Get("/notifications", rt.listNotifications)
+	authed.Post("/notifications/read", rt.readNotifications)
+	authed.Get("/notifications/stream", rt.stream)
+
+	org := "/organizations/:orgId"
+	authed.Get(org+"/alert-rules", member, rt.listRules)
+	authed.Post(org+"/alert-rules", admin, rt.createRule)
+	authed.Get(org+"/alert-rules/:id", member, rt.getRule)
+	authed.Patch(org+"/alert-rules/:id", admin, rt.updateRule)
+	authed.Delete(org+"/alert-rules/:id", admin, rt.deleteRule)
+	authed.Post(org+"/alert-rules/:id/test", admin, perUser, rt.testRule)
+
+	authed.Get(org+"/notification-channels", member, rt.listChannels)
+	authed.Post(org+"/notification-channels", admin, rt.createChannel)
+	authed.Get(org+"/notification-channels/:id", member, rt.getChannel)
+	authed.Patch(org+"/notification-channels/:id", admin, rt.updateChannel)
+	authed.Delete(org+"/notification-channels/:id", admin, rt.deleteChannel)
+	authed.Post(org+"/notification-channels/:id/test", admin, perUser, rt.testChannel)
+
+	authed.Get(org+"/user-groups", member, rt.listGroups)
+	authed.Post(org+"/user-groups", admin, rt.createGroup)
+	authed.Get(org+"/user-groups/:id", member, rt.getGroup)
+	authed.Patch(org+"/user-groups/:id", admin, rt.updateGroup)
+	authed.Delete(org+"/user-groups/:id", admin, rt.deleteGroup)
+	authed.Put(org+"/user-groups/:id/members", admin, rt.putGroupMembers)
+
+	authed.Get(org+"/alerts", member, rt.listAlerts)
+	authed.Get(org+"/alerts/:id", member, rt.getAlert)
+	authed.Get(org+"/notification-deliveries", admin, rt.listDeliveries)
+
+	authed.Get(org+"/me/notification-prefs", viewer, rt.getPrefs)
+	authed.Put(org+"/me/notification-prefs", viewer, rt.putPrefs)
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+// withUser runs fn in a transaction scoped to user (app.user_id): the
+// user's own links, link codes and notifications across orgs.
+func withUser(ctx context.Context, db *pgxpool.Pool, user uuid.UUID, fn func(pgx.Tx) error) error {
+	return pgx.BeginFunc(ctx, db, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `SELECT set_config('app.user_id', $1, true)`, user.String()); err != nil {
+			return err
+		}
+		return fn(tx)
+	})
+}
+
+// strictJSON decodes body into v, refusing unknown fields.
+func strictJSON(body []byte, v any) error {
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(v); err != nil {
+		return errors.New("invalid body: " + err.Error())
+	}
+	return nil
+}
+
+func badRequest(c *fiber.Ctx, msg string) error {
+	return c.Status(400).JSON(fiber.Map{"error": msg})
+}
+
+func notFound(c *fiber.Ctx) error { return c.Status(404).JSON(fiber.Map{"error": "not found"}) }
+
+func idParam(c *fiber.Ctx) (uuid.UUID, error) { return uuid.Parse(c.Params("id")) }
+
+// envelope writes the list envelope of the contract.
+func envelope[T any](c *fiber.Ctx, items []T, next *string, total int64, capped bool) error {
+	return c.JSON(fiber.Map{"items": items, "next_cursor": next, "total": total, "total_capped": capped})
+}
+
+// capabilities answers GET /v1/alerts/capabilities.
+func (rt *alertsRuntime) capabilities(c *fiber.Ctx) error {
+	tgEnabled := rt.cfg.telegramToken != "" && rt.bot() != "" &&
+		(rt.cfg.telegramSecret != "" || rt.cfg.telegramPolling)
+	return c.JSON(fiber.Map{
+		"telegram":           fiber.Map{"enabled": tgEnabled, "bot_username": rt.bot()},
+		"slack_bot":          rt.cfg.slackToken != "",
+		"smtp":               rt.cfg.smtp.Enabled(),
+		"a2a":                true,
+		"webhook":            true,
+		"teams":              true,
+		"allow_private_urls": rt.cfg.allowPrivate,
+	})
+}
