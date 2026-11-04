@@ -3,6 +3,7 @@
 
 import { CircleCheck, CircleX, X } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type ComponentType } from 'react';
+import { NotificationsProvider } from './alerts/notifications';
 import { ApiClient, isNotFound } from './api';
 import { can as canDo } from './auth/permissions';
 import { Loading } from './components/ui';
@@ -36,6 +37,11 @@ const SimulatorPage = lazy(() => import('./pages/SimulatorPage'));
 const AccountPage = lazy(() => import('./pages/AccountPage'));
 const AdminUsersPage = lazy(() => import('./pages/AdminUsersPage'));
 const IdentityProvidersPage = lazy(() => import('./pages/IdentityProvidersPage'));
+const AlertRulesPage = lazy(() => import('./alerts/RulesPage'));
+const ChannelsPage = lazy(() => import('./alerts/ChannelsPage'));
+const GroupsPage = lazy(() => import('./alerts/GroupsPage'));
+const AlertHistoryPage = lazy(() => import('./alerts/HistoryPage'));
+const DeliveriesPage = lazy(() => import('./alerts/DeliveriesPage'));
 
 /** Pages of an organization. */
 const ORG_PAGES: Partial<Record<Route, ComponentType>> = {
@@ -54,6 +60,11 @@ const ORG_PAGES: Partial<Record<Route, ComponentType>> = {
   security: SecurityPage,
   config: ConfigPage,
   organization: OrganizationPage,
+  'alert-rules': AlertRulesPage,
+  'alert-channels': ChannelsPage,
+  'alert-groups': GroupsPage,
+  'alert-history': AlertHistoryPage,
+  'alert-deliveries': DeliveriesPage,
 };
 
 /** Pages that need no organization. */
@@ -202,7 +213,11 @@ export function App() {
       />
     );
   } else {
-    content = <Authed route={route} />;
+    content = (
+      <NotificationsProvider key={token}>
+        <Authed route={route} />
+      </NotificationsProvider>
+    );
   }
 
   return (

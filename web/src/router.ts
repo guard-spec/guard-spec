@@ -16,6 +16,8 @@ import { useEffect, useState } from 'react';
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
 const CHANGED = 'gs:route';
+/** The window event sent after an in-app navigation. */
+export const ROUTE_CHANGED = CHANGED;
 
 export const PATHS = {
   dashboard: 'dashboard',
@@ -33,6 +35,11 @@ export const PATHS = {
   security: 'security',
   config: 'config',
   organization: 'organization',
+  'alert-rules': 'alerts/rules',
+  'alert-channels': 'alerts/channels',
+  'alert-groups': 'alerts/groups',
+  'alert-history': 'alerts/history',
+  'alert-deliveries': 'alerts/deliveries',
   'admin-users': 'admin/users',
   'admin-idps': 'admin/identity-providers',
   'admin-activity': 'admin/activity',
@@ -56,6 +63,8 @@ export const ALIASES: Readonly<Record<string, Route>> = {
   users: 'members',
   settings: 'organization',
   profile: 'account',
+  alerts: 'alert-rules',
+  notifications: 'alert-history',
 };
 
 export const DEFAULT_ROUTE: Route = 'dashboard';
