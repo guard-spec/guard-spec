@@ -22,10 +22,8 @@ before:
     # The admin UI, embedded by the control plane (web/embed.go). Hooks run
     # after GoReleaser's clean-tree check, so replacing the committed
     # placeholder web/dist/index.html here is fine.
-    - cmd: npm ci --no-audit --no-fund
-      dir: web
-    - cmd: npm run build
-      dir: web
+    - npm --prefix web ci --no-audit --no-fund
+    - npm --prefix web run build
     - go test ./...
 
 builds:
