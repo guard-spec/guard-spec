@@ -89,7 +89,7 @@ func (s *Slack) Send(ctx context.Context, m *Message) (Result, error) {
 		if hook == "" {
 			return Result{}, permanent(0, "slack: webhook url is not set")
 		}
-		client, check := s.Guard.pick(true)
+		client, check := s.Guard.pick(true, m.Payload.OrgID)
 		if err := check(hook); err != nil {
 			return Result{}, permanent(0, "%s", Redact("slack webhook: "+err.Error(), hook))
 		}

@@ -129,7 +129,8 @@ services:
       # Alerts (docs/alerts.md). Channel secrets are variables a channel names
       # in secret_env; ALERTS_SECRET_ORGS says which orgs may name which.
       ALERTS_SECRET_ORGS: ${ALERTS_SECRET_ORGS:-}
-      ALERTS_ALLOW_PRIVATE_URLS: ${ALERTS_ALLOW_PRIVATE_URLS:-}
+      ALERTS_PRIVATE_ORGS: ${ALERTS_PRIVATE_ORGS:-}
+      ALERTS_EMAIL_DAILY_CAP: ${ALERTS_EMAIL_DAILY_CAP:-500}
       ALERTS_LANG: ${ALERTS_LANG:-en}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-}

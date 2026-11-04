@@ -17,24 +17,48 @@ import (
 
 	"github.com/giaplee/guard-spec/internal/alerts"
 	"github.com/giaplee/guard-spec/internal/alerts/channels"
-	"github.com/giaplee/guard-spec/internal/tenant"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
 
 // channelView is a channel as the API shows it: secret_set, never the value.
+// verified: a Telegram channel on the instance bot whose chat sent /link, an
+// email channel with a confirmed address; every other channel is verified.
+// addresses: the email addresses and whether each confirmed.
 type channelView struct {
 	alerts.ChannelRow
-	SecretSet bool `json:"secret_set"`
+	SecretSet bool           `json:"secret_set"`
+	Verified  bool           `json:"verified"`
+	Addresses []emailAddress `json:"addresses,omitempty"`
 }
 
-func (rt *alertsRuntime) view(org uuid.UUID, c alerts.ChannelRow) channelView {
+type emailAddress struct {
+	Address     string     `json:"address"`
+	Confirmed   bool       `json:"confirmed"`
+	ConfirmedAt *time.Time `json:"confirmed_at"`
+	SentAt      *time.Time `json:"sent_at"`
+}
+
+func (rt *alertsRuntime) view(org uuid.UUID, c alerts.ChannelRow, addrs []emailAddress) channelView {
 	set := false
 	if c.SecretEnv != nil && alerts.CheckSecretEnv(c.Kind, *c.SecretEnv, org, rt.cfg.secretOrgs) == nil {
 		set = rt.cfg.getenv(*c.SecretEnv) != ""
 	}
-	return channelView{ChannelRow: c, SecretSet: set}
+	v := channelView{ChannelRow: c, SecretSet: set, Verified: true}
+	switch c.Kind {
+	case channels.KindTelegram:
+		v.Verified = c.SecretEnv != nil || c.VerifiedAt != nil
+	case channels.KindEmail:
+		v.Addresses, v.Verified = addrs, false
+		if v.Addresses == nil {
+			v.Addresses = []emailAddress{}
+		}
+		for _, a := range addrs {
+			v.Verified = v.Verified || a.Confirmed
+		}
+	}
+	return v
 }
 
 var (
@@ -59,6 +83,12 @@ func secretInQuery(raw string) bool {
 	return false
 }
 
+// configChat is the chat_id of a Telegram channel.
+func configChat(c *alerts.ChannelRow) string {
+	s, _ := c.Config["chat_id"].(string)
+	return s
+}
+
 // channelKeys are the config keys each kind accepts.
 var channelKeys = map[string][]string{
 	channels.KindTelegram: {"chat_id"},
@@ -70,7 +100,7 @@ var channelKeys = map[string][]string{
 }
 
 // validateChannel checks a channel's kind, config and secret_env.
-func (rt *alertsRuntime) validateChannel(org uuid.UUID, c *alerts.ChannelRow) error {
+func (rt *alertsRuntime) validateChannel(org uuid.UUID, c *alerts.ChannelRow, prev *alerts.ChannelRow) error {
 	c.Name = strings.TrimSpace(c.Name)
 	if c.Name == "" || utf8.RuneCountInString(c.Name) > 100 {
 		return errors.New("name is required (at most 100 characters)")
@@ -121,17 +151,29 @@ func (rt *alertsRuntime) validateChannel(org uuid.UUID, c *alerts.ChannelRow) er
 		return nil
 	}
 	private, _ := c.Config["allow_private"].(bool)
+	if private && !rt.guard.AllowsPrivate(org.String()) {
+		return errors.New("config.allow_private is not allowed for this organization; the operator lists it in ALERTS_PRIVATE_ORGS")
+	}
 	switch c.Kind {
 	case channels.KindTelegram:
 		chat, err := str("chat_id")
 		if err != nil {
 			return err
 		}
-		if !chatIDRe.MatchString(chat) {
-			return errors.New("config.chat_id must be a Telegram chat id such as -1001234567890")
+		if c.SecretEnv != nil {
+			// The org's own bot: it can only post where it was added.
+			if !chatIDRe.MatchString(chat) {
+				return errors.New("config.chat_id must be a Telegram chat id such as -1001234567890")
+			}
+			break
 		}
-		if c.SecretEnv == nil && rt.cfg.telegramToken == "" {
+		if rt.cfg.telegramToken == "" {
 			return errors.New("secret_env is required (TELEGRAM_BOT_TOKEN_*) unless the instance sets TELEGRAM_BOT_TOKEN")
+		}
+		// The instance bot posts only to a chat that sent /link <code>, which
+		// sets chat_id; a client cannot choose it.
+		if chat != "" && (prev == nil || prev.SecretEnv != nil || configChat(prev) != chat) {
+			return errors.New("config.chat_id of a channel on the instance bot is set by sending the /link code in the chat")
 		}
 	case channels.KindSlack:
 		mode, err := str("mode")
@@ -164,7 +206,7 @@ func (rt *alertsRuntime) validateChannel(org uuid.UUID, c *alerts.ChannelRow) er
 		if err != nil {
 			return err
 		}
-		if err := rt.guard.CheckURL(u, private); err != nil {
+		if err := rt.guard.CheckURL(u, private, org.String()); err != nil {
 			return fmt.Errorf("config.url: %v", err)
 		}
 		if secretInQuery(u) {
@@ -177,7 +219,7 @@ func (rt *alertsRuntime) validateChannel(org uuid.UUID, c *alerts.ChannelRow) er
 		if err != nil {
 			return err
 		}
-		if err := rt.guard.CheckURL(u, private); err != nil {
+		if err := rt.guard.CheckURL(u, private, org.String()); err != nil {
 			return fmt.Errorf("config.agent_card_url: %v", err)
 		}
 		if secretInQuery(u) {
@@ -221,200 +263,6 @@ func channelError(c *fiber.Ctx, err error) error {
 		return badPage(c, err)
 	}
 	return serverError(c, err)
-}
-
-func (rt *alertsRuntime) listChannels(c *fiber.Ctx) error {
-	org := orgID(c)
-	pg, err := parsePage(c, false)
-	if err != nil {
-		return badPage(c, err)
-	}
-	ks := keyset{sort: "created_at", id: "id", desc: true}
-	var list []alerts.ChannelRow
-	var total int64
-	err = tenant.WithOrg(c.Context(), rt.db, org, func(tx pgx.Tx) error {
-		args := []any{org}
-		filter := ""
-		if k := c.Query("kind"); k != "" {
-			args = append(args, k)
-			filter = fmt.Sprintf(" AND kind = $%d", len(args))
-		}
-		if err := tx.QueryRow(c.Context(), `SELECT count(*) FROM notification_channels WHERE org_id = $1`+filter, args...).
-			Scan(&total); err != nil {
-			return err
-		}
-		cond, args, err := ks.where(pg, args)
-		if err != nil {
-			return err
-		}
-		rows, err := tx.Query(c.Context(), `SELECT `+alerts.ChannelColumns+` FROM notification_channels WHERE org_id = $1`+
-			filter+cond+ks.orderLimit(pg), args...)
-		if err != nil {
-			return err
-		}
-		list, err = pgx.CollectRows(rows, func(r pgx.CollectableRow) (alerts.ChannelRow, error) { return alerts.ScanChannel(r) })
-		return err
-	})
-	if err != nil {
-		return channelError(c, err)
-	}
-	list, next := page(list, pg.Limit, func(r alerts.ChannelRow) pageCursor { return timeCursor(r.CreatedAt, r.ID.String()) })
-	items := make([]channelView, 0, len(list))
-	for _, ch := range list {
-		items = append(items, rt.view(org, ch))
-	}
-	return envelope(c, items, next, total, false)
-}
-
-func (rt *alertsRuntime) loadChannel(c *fiber.Ctx, org uuid.UUID, lock bool) (alerts.ChannelRow, error) {
-	id, err := idParam(c)
-	if err != nil {
-		return alerts.ChannelRow{}, pgx.ErrNoRows
-	}
-	var ch alerts.ChannelRow
-	err = tenant.WithOrg(c.Context(), rt.db, org, func(tx pgx.Tx) error {
-		ch, err = alerts.ScanChannel(tx.QueryRow(c.Context(),
-			`SELECT `+alerts.ChannelColumns+` FROM notification_channels WHERE org_id = $1 AND id = $2`, org, id))
-		return err
-	})
-	return ch, err
-}
-
-func (rt *alertsRuntime) getChannel(c *fiber.Ctx) error {
-	org := orgID(c)
-	ch, err := rt.loadChannel(c, org, false)
-	if err != nil {
-		return channelError(c, err)
-	}
-	return c.JSON(rt.view(org, ch))
-}
-
-type channelInput struct {
-	Name      *string         `json:"name"`
-	Kind      *string         `json:"kind"`
-	Config    *map[string]any `json:"config"`
-	SecretEnv json.RawMessage `json:"secret_env"`
-	Enabled   *bool           `json:"enabled"`
-}
-
-func (in *channelInput) apply(ch *alerts.ChannelRow) error {
-	if in.Name != nil {
-		ch.Name = *in.Name
-	}
-	if in.Config != nil {
-		ch.Config = *in.Config
-	}
-	if in.Enabled != nil {
-		ch.Enabled = *in.Enabled
-	}
-	if len(in.SecretEnv) > 0 {
-		if string(in.SecretEnv) == "null" {
-			ch.SecretEnv = nil
-		} else {
-			var s string
-			if err := json.Unmarshal(in.SecretEnv, &s); err != nil {
-				return errors.New("secret_env must be a variable name or null")
-			}
-			ch.SecretEnv = &s
-		}
-	}
-	return nil
-}
-
-func (rt *alertsRuntime) createChannel(c *fiber.Ctx) error {
-	org := orgID(c)
-	var in channelInput
-	if err := strictJSON(c.Body(), &in); err != nil {
-		return badRequest(c, err.Error())
-	}
-	if in.Kind == nil {
-		return badRequest(c, "kind is required")
-	}
-	ch := alerts.ChannelRow{ID: uuid.New(), Kind: *in.Kind, Enabled: true}
-	if err := in.apply(&ch); err != nil {
-		return badRequest(c, err.Error())
-	}
-	if err := rt.validateChannel(org, &ch); err != nil {
-		return badRequest(c, err.Error())
-	}
-	cfg, _ := json.Marshal(ch.Config)
-	err := tenant.WithOrg(c.Context(), rt.db, org, func(tx pgx.Tx) error {
-		return tx.QueryRow(c.Context(),
-			`INSERT INTO notification_channels (id, org_id, name, kind, config, secret_env, enabled)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING created_at, updated_at`,
-			ch.ID, org, ch.Name, ch.Kind, cfg, ch.SecretEnv, ch.Enabled).Scan(&ch.CreatedAt, &ch.UpdatedAt)
-	})
-	if err != nil {
-		return channelError(c, err)
-	}
-	logActivity(c, rt.db, &org, "alerts.channel.created", ch.Name, map[string]any{"id": ch.ID, "kind": ch.Kind})
-	return c.Status(201).JSON(rt.view(org, ch))
-}
-
-func (rt *alertsRuntime) updateChannel(c *fiber.Ctx) error {
-	org := orgID(c)
-	id, err := idParam(c)
-	if err != nil {
-		return notFound(c)
-	}
-	var in channelInput
-	if err := strictJSON(c.Body(), &in); err != nil {
-		return badRequest(c, err.Error())
-	}
-	var ch alerts.ChannelRow
-	var invalid error
-	err = tenant.WithOrg(c.Context(), rt.db, org, func(tx pgx.Tx) error {
-		if ch, err = alerts.ScanChannel(tx.QueryRow(c.Context(),
-			`SELECT `+alerts.ChannelColumns+` FROM notification_channels WHERE org_id = $1 AND id = $2 FOR UPDATE`, org, id)); err != nil {
-			return err
-		}
-		if in.Kind != nil && *in.Kind != ch.Kind {
-			invalid = errors.New("kind cannot be changed; create a new channel")
-			return nil
-		}
-		if invalid = in.apply(&ch); invalid != nil {
-			return nil
-		}
-		if invalid = rt.validateChannel(org, &ch); invalid != nil {
-			return nil
-		}
-		cfg, _ := json.Marshal(ch.Config)
-		return tx.QueryRow(c.Context(),
-			`UPDATE notification_channels SET name = $3, config = $4, secret_env = $5, enabled = $6, updated_at = NOW()
-			 WHERE org_id = $1 AND id = $2 RETURNING updated_at`,
-			org, id, ch.Name, cfg, ch.SecretEnv, ch.Enabled).Scan(&ch.UpdatedAt)
-	})
-	if invalid != nil {
-		return badRequest(c, invalid.Error())
-	}
-	if err != nil {
-		return channelError(c, err)
-	}
-	logActivity(c, rt.db, &org, "alerts.channel.updated", ch.Name, map[string]any{"id": ch.ID, "enabled": ch.Enabled})
-	return c.JSON(rt.view(org, ch))
-}
-
-func (rt *alertsRuntime) deleteChannel(c *fiber.Ctx) error {
-	org := orgID(c)
-	id, err := idParam(c)
-	if err != nil {
-		return notFound(c)
-	}
-	var name string
-	err = tenant.WithOrg(c.Context(), rt.db, org, func(tx pgx.Tx) error {
-		if err := tx.QueryRow(c.Context(), `DELETE FROM notification_channels WHERE org_id = $1 AND id = $2 RETURNING name`,
-			org, id).Scan(&name); err != nil {
-			return err
-		}
-		_, err := tx.Exec(c.Context(), `UPDATE alert_rules SET channel_ids = array_remove(channel_ids, $2)
-			WHERE org_id = $1 AND $2 = ANY(channel_ids)`, org, id)
-		return err
-	})
-	if err != nil {
-		return channelError(c, err)
-	}
-	logActivity(c, rt.db, &org, "alerts.channel.deleted", name, map[string]any{"id": id})
-	return c.SendStatus(204)
 }
 
 // testChannel sends a test notification synchronously.
