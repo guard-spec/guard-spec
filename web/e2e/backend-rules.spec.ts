@@ -56,5 +56,5 @@ test('shows a refused key variable at the field, with the operator setting', asy
   await dialog.getByLabel('API key environment variable').fill('UPSTREAM_KEY_MAIN');
   await expect(dialog.locator('.field-error')).toHaveCount(0);
   await dialog.getByRole('button', { name: 'Save' }).click();
-  await expect(page.getByRole('cell', { name: 'other', exact: true })).toBeVisible();
+  await expect(page.getByTestId('providers-table').getByText('other', { exact: true })).toBeVisible();
 });

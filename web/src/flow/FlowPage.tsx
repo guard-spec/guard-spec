@@ -28,7 +28,7 @@ import type { GuardSettings, PolicySchema, SimulateRequest, SimulateResponse, Si
 import { addRule, connectRule, danglingRoutes, deleteRule, findRule, moveRule, moveRuleByPosition, updateRule } from './edit';
 import { applyHighlight, buildGraph, simulationPath, type DefaultUpstream, type FlowEdge, type FlowNode } from './graph';
 import { NODE } from './ids';
-import { bounds, initialViewport, layoutGraph, mainAxis, type Direction } from './layout';
+import { bounds, fitViewport, layoutGraph, mainAxis, type Direction } from './layout';
 import {
   gatewayChain,
   gatewayOrder,
@@ -191,8 +191,8 @@ function FlowPageInner() {
     [laid.nodes, drag],
   );
 
-  // A readable start: fit the width (zoom 0.6 to 1), top aligned. The fit
-  // view control shows the whole diagram.
+  // Open fitted to view: the whole diagram, centred (the fit view control
+  // does the same after panning).
   const loaded = policies !== null;
   const box = bounds(laid.nodes);
   const boxKey = `${Math.round(box.width)}x${Math.round(box.height)}`;
@@ -200,7 +200,7 @@ function FlowPageInner() {
     const pane = paneRef.current;
     if (!pane || !loaded) return;
     const b = bounds(laid.nodes);
-    void setViewport(initialViewport(b, { width: pane.clientWidth, height: pane.clientHeight }));
+    void setViewport(fitViewport(b, { width: pane.clientWidth, height: pane.clientHeight }));
     // Only on a new scope, direction or shape, not on every edit.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dir, projectId, loaded, boxKey, setViewport]);
@@ -448,7 +448,7 @@ function FlowPageInner() {
                     </button>
                     <span className={`action action-${r.action}`}>
                       {r.action}
-                      {r.action === 'route' ? ` → ${r.route_target ?? '?'}` : ''}
+                      {r.action === 'route' ? <span className="action-target">{` → ${r.route_target ?? '?'}`}</span> : null}
                     </span>
                     <span className="muted small">{p.name}</span>
                     <span className="rule-move">

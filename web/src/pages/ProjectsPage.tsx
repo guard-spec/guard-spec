@@ -5,7 +5,7 @@ import { FolderKanban } from 'lucide-react';
 import { useCallback, useState, type FormEvent } from 'react';
 import { DataTable, EmptyState, SearchBox, type Column } from '../components/DataTable';
 import { usePaged } from '../components/usePaged';
-import { ErrorBanner, Field, formatTime, PageHeader, useDebounced } from '../components/ui';
+import { ErrorBanner, Field, PageHeader, useDebounced, Day } from '../components/ui';
 import { errorText, useApp, useOrg } from '../context';
 import type { Project } from '../types';
 
@@ -84,7 +84,7 @@ export function ProjectsPage() {
         </>
       ),
     },
-    { key: 'created', header: t('common.created'), className: 'nowrap small', cell: (p) => formatTime(p.created_at) },
+    { key: 'created', header: t('common.created'), className: 'nowrap small', cell: (p) => <Day value={p.created_at} /> },
   ];
 
   return (

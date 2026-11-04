@@ -111,13 +111,15 @@ export default function IdentityProvidersPage() {
       cell: (p) => (
         <div className="cell-stack">
           <strong>{p.display_name}</strong>
-          <span className="mono small muted">{p.issuer}</span>
+          <span className="mono small muted ellipsis col-issuer" title={p.issuer}>
+            {p.issuer}
+          </span>
         </div>
       ),
     },
     { key: 'type', header: t('idp.type'), cell: (p) => <Badge tone={p.type === 'google' ? 'accent' : 'neutral'}>{p.type === 'google' ? 'Google' : 'OIDC'}</Badge> },
-    { key: 'client', header: t('idp.clientId'), className: 'mono small', cell: (p) => p.client_id },
-    { key: 'secret', header: t('idp.secretEnv'), className: 'mono small', cell: (p) => `$${p.client_secret_env}` },
+    { key: 'client', header: t('idp.clientId'), className: 'col-env col-wide-only',cell: (p) => <span className="mono small ellipsis" title={p.client_id}>{p.client_id}</span> },
+    { key: 'secret', header: t('idp.secretEnv'), className: 'col-env', cell: (p) => <span className="mono small ellipsis" title={`$${p.client_secret_env}`}>{`$${p.client_secret_env}`}</span> },
     {
       key: 'domains',
       header: t('idp.domains'),
@@ -140,11 +142,12 @@ export default function IdentityProvidersPage() {
       hiddenHeader: true,
       className: 'row-actions',
       cell: (p) => (
-        <>
+        <span className="icon-actions">
           <button
             type="button"
-            className="btn btn-small btn-icon-text"
+            className="btn btn-small btn-square"
             aria-label={`${t('common.edit')}: ${p.display_name}`}
+            title={t('common.edit')}
             onClick={() => {
               setTouched(false);
               setError(null);
@@ -153,13 +156,11 @@ export default function IdentityProvidersPage() {
             }}
           >
             <Pencil size={14} aria-hidden="true" />
-            <span>{t('common.edit')}</span>
           </button>
-          <button type="button" className="btn btn-small btn-danger btn-icon-text" aria-label={`${t('common.delete')}: ${p.display_name}`} onClick={() => setDeleting(p)}>
+          <button type="button" className="btn btn-small btn-square btn-danger" title={t('common.delete')} aria-label={`${t('common.delete')}: ${p.display_name}`} onClick={() => setDeleting(p)}>
             <Trash2 size={14} aria-hidden="true" />
-            <span>{t('common.delete')}</span>
           </button>
-        </>
+        </span>
       ),
     },
   ];
