@@ -51,6 +51,9 @@ services:
       UPSTREAM_LLM_URL: ${UPSTREAM_LLM_URL:-}
       UPSTREAM_LLM_KEY: ${UPSTREAM_LLM_KEY:-}
       UPSTREAM_LLM_TIMEOUT: ${UPSTREAM_LLM_TIMEOUT:-}
+      # Keys of named upstreams (routing): an upstream's api_key_env names one
+      # of these. Add a line per key; only UPSTREAM_KEY_* names are read.
+      UPSTREAM_KEY_MAIN: ${UPSTREAM_KEY_MAIN:-}
       # Prometheus metrics on their own port, not on the API port.
       METRICS_ADDR: ":9090"
       # Per-key limits; a key's own rpm_limit / tpm_limit wins. 0 = unlimited.
@@ -92,6 +95,8 @@ services:
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@localhost}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
+      # The gateway's upstream, shown by the policy simulator (credentials hidden).
+      UPSTREAM_LLM_URL: ${UPSTREAM_LLM_URL:-}
       METRICS_ADDR: ":9091"
       # Audit rows older than this are deleted hourly; 0 keeps them forever.
       AUDIT_RETENTION_DAYS: ${AUDIT_RETENTION_DAYS:-90}
