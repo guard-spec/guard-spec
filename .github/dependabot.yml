@@ -19,6 +19,11 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # A Postgres major upgrade needs pg_upgrade of existing volumes; it is
+      # done as a planned upgrade with a migration path, not by Dependabot.
+      - dependency-name: postgres
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: /

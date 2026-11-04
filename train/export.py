@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import shutil
@@ -52,7 +53,20 @@ def sha256(path):
 
 
 def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--run-dir", help="override export.run_dir (relative to train/)")
+    ap.add_argument("--data-dir", help="read the validation files (and, in train.py, the training file) from this "
+                    "directory instead of data/, e.g. a GUARD_BUILD_OUT build with external rows")
+    ap.add_argument("--out-dir", help="override export.out_dir (relative to train/)")
+    a = ap.parse_args()
     cfg = load_config()
+    if a.run_dir:
+        cfg["export"]["run_dir"] = a.run_dir
+    if a.data_dir:
+        cfg["data"]["val"] = [f"{a.data_dir}/{Path(v).name}" for v in cfg["data"]["val"]]
+        cfg["data"]["train"] = f"{a.data_dir}/{Path(cfg['data']['train']).name}"
+    if a.out_dir:
+        cfg["export"]["out_dir"] = a.out_dir
     labels = cfg["labels"]
     max_len = cfg["train"]["max_len"]
     run_dir = ROOT / cfg["export"]["run_dir"]
@@ -134,7 +148,7 @@ def main():
         per_label[lb] = dict(threshold=float(ths[k]), val_f1=float(f1[k]), val_precision=float(prec[k]),
                              val_recall=float(rec[k]), val_auc=auc(y[:, j], p8[:, j]))
     by_lang = {}
-    for name in ("val", "val_hard"):
+    for name in sorted({r["split"] for r in val}):
         m = np.array([r["split"] == name for r in val])
         tpr, fpr = rates(is_attack[m], risk[m], thr)
         by_lang[name] = dict(tpr=tpr, benign_fpr=fpr, n_attack=int(is_attack[m].sum()), n_benign=int((1 - is_attack[m]).sum()))

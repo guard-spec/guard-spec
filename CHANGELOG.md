@@ -72,6 +72,25 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   training-time no-diacritics / teencode augmentation. New validation split
   `train/data/val_vi_variants.jsonl`. The gateway loads
   `models/local/guardspec-classifier-v2` first, then `-v1`, then `-v0`.
+- L2 classifier `guardspec-classifier-v3b` (`train/`), the new default: the
+  v3 recipe (English hard negatives from `data/gen_v3.py`, English prompts
+  from `nvidia/HelpSteer2` (CC-BY-4.0), realistic EN/VI rows in
+  `data/realistic/` with formal Vietnamese seen twice per epoch, a
+  per-language benign:attack ratio of EN 2.0 / VI 1.75) plus owner-supplied
+  rows and OTP/eKYC rows read at build time and not redistributed
+  (`GUARD_OWNER_*`, `GUARD_OTPKYC_*`, `GUARD_BUILD_OUT`). On the eval set
+  (fused, 0.85): FPR 1.4% (v2 2.0%), TPR 0.932 (v2 0.933), Vietnamese
+  no-diacritics FPR 0.4% (v2 3.0%), but teencode FPR 3.5% (v2 1.4%).
+  New validation split `train/data/val_v3.jsonl` (also used by
+  `cmd/calibrate fit`) and hold-outs `val_v3_holdout`,
+  `val_realistic_holdout`. Built-in fusion calibration for v3b. The gateway
+  loads `models/local/guardspec-classifier-v3b` first, then `-v2`, `-v1`,
+  `-v0`. Classifier v3 (the same recipe without the owner rows) failed the
+  eval set (FPR 2.2%, TPR 0.915) and is not shipped or searched by default.
+- `train/soup.py` (weight averaging of seed runs; tried for v3, not used),
+  and `train.py` / `export.py` flags to override seed, learning rate, epochs,
+  label smoothing, run, output and data directories, and the training file.
+- `eval/baseline-onnx.json` now holds the v3b run.
 - Sanitizer: content that HTML hides from the reader (`display:none`,
   `visibility:hidden`, `font-size:0`, `opacity:0`, white on white,
   `aria-hidden`, `hidden`, `sr-only`-style classes, HTML comments) is kept
@@ -108,6 +127,25 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 - `GET /v1/organizations/:orgId/requests` no longer fails (500) on audit rows
   whose scores or flags are NULL; they read as 0 and false.
+
+### Security
+
+- Dependency and image pass (2026-11-04):
+  - `migrate/migrate` v4.17.1 → v4.20.1 (pinned by digest), matching the
+    migrate CLI version CI already runs.
+  - Postgres is pinned as `postgres:17.11-alpine` (same digest as before;
+    17.11 is the current 17.x patch) in Compose, CI and the Helm `dbRoles`
+    job. Postgres 18 is a major upgrade that needs `pg_upgrade` of existing
+    volumes and is deferred to a planned upgrade with a migration path;
+    Dependabot no longer proposes Postgres major versions.
+  - The `eval` workflow pins `actions/checkout` v7.0.1, `actions/setup-go`
+    v7.0.0 and `actions/upload-artifact` v7.0.2 by commit SHA, like the other
+    workflows.
+  - Checked and already current: Go 1.26.10 (latest 1.26 patch, includes the
+    `crypto/x509` fixes also in 1.27.3), the golang, node, debian and
+    distroless base images, ONNX Runtime 1.31.1, tokenizers 1.27.0, Go
+    modules (`govulncheck`: no reachable vulnerabilities) and the admin UI
+    runtime dependencies (`npm audit --omit=dev`: none).
 
 ## [0.1.0] - unreleased (release candidate)
 

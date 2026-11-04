@@ -41,7 +41,7 @@ dbRoles:
   enabled: false
   image:
     repository: postgres
-    tag: 17-alpine
+    tag: 17.11-alpine
     pullPolicy: IfNotPresent
 
 imagePullSecrets: []
