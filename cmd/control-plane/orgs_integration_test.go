@@ -8,7 +8,6 @@ import (
 
 	"github.com/giaplee/guard-spec/internal/auth"
 	"github.com/giaplee/guard-spec/internal/tenant"
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -60,10 +59,7 @@ func TestListMyOrgs(t *testing.T) {
 	}
 
 	// A user with no membership gets an empty list, not someone else's.
-	other, err := auth.IssueToken(testSecret, uuid.New())
-	if err != nil {
-		t.Fatal(err)
-	}
+	other, _ := h.user("")
 	if got := roles(other); len(got) != 0 {
 		t.Errorf("user without memberships sees %v", got)
 	}

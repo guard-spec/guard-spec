@@ -105,8 +105,25 @@ services:
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
       # The gateway's upstream, shown by the policy simulator (credentials hidden).
       UPSTREAM_LLM_URL: ${UPSTREAM_LLM_URL:-}
-      # Same allowlist as the gateway's; checked when upstreams are saved.
-      UPSTREAM_KEY_ORGS: "${UPSTREAM_KEY_ORGS:-UPSTREAM_KEY_MAIN=*}"
+      # Which orgs may name which key variable; checked when upstreams are
+      # saved. No default here (unlike the gateway's): set UPSTREAM_KEY_ORGS
+      # in .env for both. The dev override opts in.
+      UPSTREAM_KEY_ORGS: "${UPSTREAM_KEY_ORGS:-}"
+      # Connection tests (owner only) reach out from the control plane: they
+      # stay off private addresses unless this is true, and send a key only
+      # to orgs UPSTREAM_KEY_ORGS lists by id (not through "*"). Give the
+      # control plane UPSTREAM_KEY_* variables only if you want tests to use them.
+      UPSTREAM_ALLOW_PRIVATE: ${CONTROL_PLANE_UPSTREAM_ALLOW_PRIVATE:-false}
+      # Client address behind a reverse proxy: comma-separated CIDRs whose
+      # X-Forwarded-For is believed. Empty: the header is ignored.
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
+      # Encrypts TOTP 2FA secrets: 32 random bytes, base64 (openssl rand -base64 32).
+      # Keep it: losing it disables every user's 2FA.
+      MFA_ENC_KEY: ${MFA_ENC_KEY:-}
+      # External origin of the control plane, for SSO callback urls.
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
+      # Client secrets of SSO providers; a provider names its variable.
+      OIDC_SECRET_GOOGLE: ${OIDC_SECRET_GOOGLE:-}
       METRICS_ADDR: ":9091"
       # Audit rows older than this are deleted hourly; 0 keeps them forever.
       AUDIT_RETENTION_DAYS: ${AUDIT_RETENTION_DAYS:-90}

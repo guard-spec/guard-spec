@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -28,7 +29,10 @@ type cpHarness struct {
 	app *fiber.App
 }
 
-func newCPHarness(t *testing.T) *cpHarness {
+// testMFAKey is MFA_ENC_KEY of the integration tests.
+var testMFAKey = base64.StdEncoding.EncodeToString([]byte("integration-test-mfa-key-32bytes"))
+
+func newCPHarness(t *testing.T, opts ...appOption) *cpHarness {
 	t.Helper()
 	ctx := context.Background()
 	db, err := pgxpool.New(ctx, envOr("TEST_DATABASE_URL", "postgres://guardspec_app:guardspec_app@localhost:5432/guardspec?sslmode=disable"))
@@ -40,7 +44,45 @@ func newCPHarness(t *testing.T) *cpHarness {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &cpHarness{t: t, db: db, app: newApp(db, testSecret, eng, "", withKeyOrgs(testKeyOrgs))}
+	box, err := auth.NewSecretBox(testMFAKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts = append([]appOption{withKeyOrgs(testKeyOrgs), func(s *appSettings) { s.mfaBox = box }}, opts...)
+	return &cpHarness{t: t, db: db, app: newApp(db, testSecret, eng, "", opts...)}
+}
+
+// sessionToken starts a password session of user and returns its token.
+func (h *cpHarness) sessionToken(user uuid.UUID) (string, error) {
+	sess, err := auth.NewSessions(h.db).Create(context.Background(), auth.NewSession{UserID: user, Method: auth.MethodPassword})
+	if err != nil {
+		return "", err
+	}
+	return auth.IssueSessionToken(testSecret, user, sess.ID, sess.ExpiresAt)
+}
+
+// user creates a user without memberships (with a password unless it is "")
+// and returns a session token and the id.
+func (h *cpHarness) user(password string) (string, uuid.UUID) {
+	h.t.Helper()
+	var hash *string
+	if password != "" {
+		x, err := auth.HashPassword(password)
+		if err != nil {
+			h.t.Fatal(err)
+		}
+		hash = &x
+	}
+	var id uuid.UUID
+	if err := h.db.QueryRow(context.Background(), `INSERT INTO users (email, hashed_password) VALUES ($1, $2) RETURNING id`,
+		uuid.NewString()+"@example.com", hash).Scan(&id); err != nil {
+		h.t.Fatal(err)
+	}
+	token, err := h.sessionToken(id)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	return token, id
 }
 
 // org creates an org and a user with role in it, and returns both and a token.
@@ -67,7 +109,7 @@ func (h *cpHarness) org(role auth.Role) (orgID, userID uuid.UUID, token string) 
 	if err != nil {
 		h.t.Fatal(err)
 	}
-	token, err = auth.IssueToken(testSecret, userID)
+	token, err = h.sessionToken(userID)
 	if err != nil {
 		h.t.Fatal(err)
 	}
