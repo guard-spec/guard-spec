@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"regexp"
 	"time"
@@ -79,10 +80,33 @@ func listProjects(db *pgxpool.Pool) fiber.Handler {
 			DefaultUpstreamID *uuid.UUID `json:"default_upstream_id"`
 			CreatedAt         time.Time  `json:"created_at"`
 		}
+		pg, err := parsePage(c, true)
+		if err != nil {
+			return badPage(c, err)
+		}
+		ks := keyset{sort: "created_at", id: "id"}
 		projects := []row{}
-		err := tenant.WithOrg(c.Context(), db, org, func(tx pgx.Tx) error {
+		var total int64
+		err = tenant.WithOrg(c.Context(), db, org, func(tx pgx.Tx) error {
+			args := []any{org}
+			filter := ""
+			if q := c.Query("q"); q != "" {
+				args = append(args, likePattern(q))
+				filter = fmt.Sprintf(" AND (name ILIKE $%[1]d OR slug ILIKE $%[1]d)", len(args))
+			}
+			if pg.Enveloped {
+				if err := tx.QueryRow(c.Context(), `SELECT count(*) FROM projects WHERE org_id = $1`+filter, args...).
+					Scan(&total); err != nil {
+					return err
+				}
+			}
+			cond, args, err := ks.where(pg, args)
+			if err != nil {
+				return err
+			}
 			rows, err := tx.Query(c.Context(),
-				`SELECT id, name, slug, default_upstream_id, created_at FROM projects WHERE org_id = $1 ORDER BY created_at`, org)
+				`SELECT id, name, slug, default_upstream_id, created_at FROM projects WHERE org_id = $1`+filter+cond+
+					ks.orderLimit(pg), args...)
 			if err != nil {
 				return err
 			}
@@ -96,8 +120,15 @@ func listProjects(db *pgxpool.Pool) fiber.Handler {
 			}
 			return rows.Err()
 		})
+		if errors.Is(err, errBadCursor) {
+			return badPage(c, err)
+		}
 		if err != nil {
 			return serverError(c, err)
+		}
+		if pg.Enveloped {
+			items, next := page(projects, pg.Limit, func(r row) pageCursor { return timeCursor(r.CreatedAt, r.ID.String()) })
+			return pageJSON(c, items, next, total)
 		}
 		return c.JSON(fiber.Map{"data": projects})
 	}
@@ -181,6 +212,7 @@ func updateAPIKey(db *pgxpool.Pool) fiber.Handler {
 		if err != nil {
 			return serverError(c, err)
 		}
+		logActivity(c, db, &org, "api_key.updated", c.Params("keyId"), map[string]any{"rpm_limit": rpm, "tpm_limit": tpm})
 		return c.JSON(fiber.Map{"key_prefix": c.Params("keyId"), "rpm_limit": rpm, "tpm_limit": tpm})
 	}
 }

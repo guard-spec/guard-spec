@@ -346,6 +346,7 @@ func putConfig(db *pgxpool.Pool, eng *policy.Engine, settings *appSettings) fibe
 		}
 		if !dryRun && len(changes) > 0 {
 			slog.Info("config applied", "org", org, "changes", len(changes), "by", auth.UserID(c))
+			logActivity(c, db, &org, "config.applied", "organization", map[string]any{"changes": changes})
 		}
 		return c.JSON(fiber.Map{"applied": !dryRun, "changes": changes})
 	}

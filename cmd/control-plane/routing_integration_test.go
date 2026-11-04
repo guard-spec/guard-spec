@@ -62,7 +62,7 @@ func (h *cpHarness) member(org uuid.UUID, role auth.Role) string {
 	if err != nil {
 		h.t.Fatal(err)
 	}
-	token, err := auth.IssueToken(testSecret, user)
+	token, err := h.sessionToken(user)
 	if err != nil {
 		h.t.Fatal(err)
 	}

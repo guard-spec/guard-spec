@@ -763,11 +763,25 @@ func chatHandler(gw gateway, upstreamPath string) fiber.Handler {
 		if decision.Action == policy.ActionRoute {
 			entry.Action = actionRoute
 		}
-		if target.model != "" {
+		model, err := target.applyModel(entry.Model)
+		if errors.Is(err, errModelNotAllowed) {
+			// The audit row keeps the refused model and the upstream.
+			slog.Info("model not allowed by upstream", "org", entry.OrgID, "upstream", target.name, "model", entry.Model)
+			entry.Action = actionBlock
+			return c.Status(fiber.StatusBadRequest).JSON(errorBody(
+				"model "+strconv.Quote(entry.Model)+" is not allowed for this upstream", "invalid_request_error", "model_not_allowed"))
+		}
+		capped, err := target.capTokens(body)
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(errorBody(err.Error(), "invalid_request_error", "invalid_max_tokens"))
+		}
+		if model != entry.Model || capped {
 			// The audit row records the model actually sent upstream; policies
 			// saw the requested one.
-			body["model"] = target.model
-			entry.Model = target.model
+			if model != entry.Model {
+				body["model"] = model
+				entry.Model = model
+			}
 			if sanitized, err = json.Marshal(body); err != nil {
 				return c.Status(400).JSON(fiber.Map{"error": "invalid body"})
 			}
