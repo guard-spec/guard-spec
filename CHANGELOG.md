@@ -32,8 +32,19 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   action `route` when a route rule decided.
 - The control plane serves the admin UI at `/ui/` (embedded from `web/dist`,
   strict CSP, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`) and
-  redirects `/` there. The UI itself is in progress; builds without it show a
-  placeholder.
+  redirects `/` there. Builds without Node show a placeholder.
+- `GET /v1/organizations`: the organizations of the signed-in user, with the
+  role in each (migration 012 adds `user_organizations`, a narrow
+  `SECURITY DEFINER` lookup, since memberships are row-level secured per org).
+- `POST /v1/organizations/:orgId/policies` accepts `enabled` (default true), so
+  a policy can be created disabled without being live in between.
+- **Admin UI** (`web/`, React and TypeScript): a flow diagram of the request
+  path with the policy rules as editable nodes (visual and text conditions,
+  drag to reorder, connect a rule to an upstream to route it), a policy
+  simulator, upstreams and defaults, config as code (YAML with validation,
+  diff and apply), guard settings, API keys, projects, exemplars and the audit
+  log. English and Vietnamese, light and dark themes. Released control-plane
+  binaries and images embed it (GoReleaser builds it before the Go builds).
 - Metric `guardspec_gateway_route_selections_total{source,outcome}`.
 
 - `UPSTREAM_KEY_ORGS` (gateway and control plane): which organizations may
@@ -57,6 +68,11 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   upstream's `model` rewrite.
 - `GET /organizations/:orgId` and the project list include
   `default_upstream_id`.
+
+### Fixed
+
+- `GET /v1/organizations/:orgId/requests` no longer fails (500) on audit rows
+  whose scores or flags are NULL; they read as 0 and false.
 
 ## [0.1.0] - unreleased (release candidate)
 
