@@ -164,40 +164,65 @@ critical alerts through.
 ## 4. Channels
 
 `notification_channels` columns:
-`id, org_id, name, kind, config jsonb (non-secret), secret_env text|null, enabled, created_at`
+`id, org_id, name, kind, config jsonb (non-secret), secret_env text|null, enabled, verified_at, created_at`
 
 | kind | config | secret_env holds |
 |---|---|---|
-| `telegram` | `{chat_id}` (group chat; personal chats come from links) | bot token (`TELEGRAM_BOT_TOKEN_*`); without it the instance `TELEGRAM_BOT_TOKEN` |
+| `telegram` | `{chat_id}` | bot token (`TELEGRAM_BOT_TOKEN_*`). Without it the instance bot, and then `chat_id` is set by `/link` (below), never by the client. |
 | `slack` | `{mode: "bot"\|"webhook", channel?}` | bot token or webhook URL (`SLACK_*`) |
 | `teams` | `{}` | Workflows webhook URL (Adaptive Card), `TEAMS_*`. No O365 connectors. |
 | `webhook` | `{url, allow_private:false}` | HMAC signing secret (`WEBHOOK_SECRET_*`) |
 | `a2a` | `{agent_card_url, allow_private:false}` | bearer/API key if the Agent Card demands it (`A2A_*`) |
-| `email` | `{to[], lang?: "en"\|"vi"}` (shared mailbox) | — (SMTP comes from global env `SMTP_URL`, `SMTP_FROM`) |
+| `email` | `{to[], lang?: "en"\|"vi"}` (shared mailbox; each address confirms) | — (SMTP comes from global env `SMTP_URL`, `SMTP_FROM`) |
 
-Channel rules:
-- Env var names must match `^[A-Z][A-Z0-9_]{2,63}$`.
-- Names with the prefixes `GUARDSPEC_ALERT_`, `TELEGRAM_BOT_TOKEN_`,
-  `SLACK_`, `TEAMS_`, `WEBHOOK_SECRET_` or `A2A_` are allowed. Nothing else is
-  allowed (this stops reading `DATABASE_URL`).
-  - Each kind reads only its own prefix (or `GUARDSPEC_ALERT_`), and the
-    instance tokens `TELEGRAM_BOT_TOKEN` and `SLACK_BOT_TOKEN` are never a
-    channel's secret: an A2A channel, which sends its secret to a URL the org
-    chooses, cannot name a Slack token.
-  - The operator lists which orgs may name which variable in
-    `ALERTS_SECRET_ORGS` (section 9). Unlisted, a variable cannot be used.
+Any logged-in user can create an org and own it, so "an org admin" is
+anyone. The rules below hold against that.
+
+Secrets:
+- Env var names must match `^[A-Z][A-Z0-9_]{2,63}$`, with a prefix of the
+  channel's kind: `TELEGRAM_BOT_TOKEN_`, `SLACK_`, `TEAMS_`,
+  `WEBHOOK_SECRET_`, `A2A_`, or `GUARDSPEC_ALERT_` (any kind). Nothing else is
+  allowed (this stops reading `DATABASE_URL`), nor the instance tokens
+  `TELEGRAM_BOT_TOKEN` and `SLACK_BOT_TOKEN`.
+- **Every variable is bound to one kind and to orgs** by the operator in
+  `ALERTS_SECRET_ORGS` (`NAME=kind:*` or `NAME=kind:<org-id>,<org-id>`,
+  section 9). Unlisted, or named by a channel of another kind or org, a
+  variable cannot be used: a Slack token granted as `slack` can never be put
+  on an A2A channel aimed at a server its org controls, whatever its prefix.
 - The UI shows `secret_set: bool`, never the value.
-- Webhook and A2A URLs go through the existing SSRF guard (upstreams
-  validation and dialer):
-  - https only, unless `allow_private` is set and the instance env
-    `ALERTS_ALLOW_PRIVATE_URLS=1` is on;
-  - no credentials in the URL, and no query parameter that looks like one
-    (`token`, `key`, `secret`, `sig`, …): config is readable by members;
-  - no redirects;
-  - 5 s timeout;
-  - response body capped at 64 KiB.
-  The Slack and Teams webhook URLs from `secret_env` and the A2A endpoint
-  named by an Agent Card pass the same guard.
+
+Verification (`verified: bool` on every channel):
+- **Telegram on the instance bot** posts only to a chat that proved it wants
+  it. `POST /notification-channels/:id/telegram-link` returns a one-time
+  code (hashed, single use, 10 minutes); someone in the chat (a group the
+  bot was added to) sends `/link@<bot> <code>`, which sets `config.chat_id`
+  and `verified_at`. Until then deliveries and tests fail ("not verified").
+  Changing the channel's bot resets the verification. A channel with its own
+  `TELEGRAM_BOT_TOKEN_*` names its `chat_id` and is verified (its bot can
+  only post where it was added).
+- **Email** is double opt-in: each address in `config.to` gets a mail with a
+  confirmation link (`GET /v1/integrations/email/confirm?token=…`, single
+  use, 7 days); mail goes only to confirmed addresses, listed in
+  `addresses [{address, confirmed, confirmed_at, sent_at}]`. A channel is
+  verified once an address confirmed. `POST /notification-channels/:id/email-confirmations`
+  mails new links to the unconfirmed ones.
+- Each org sends at most `ALERTS_EMAIL_DAILY_CAP` emails (default 500) per
+  24 hours, confirmation mails included; past it email deliveries are dead
+  ("daily email limit").
+- Every other kind is verified.
+
+URLs (webhook, A2A) go through the existing SSRF guard (upstreams validation
+and dialer):
+- https only; no credentials in the URL, and no query parameter that looks
+  like one (`token`, `key`, `secret`, `sig`, …): config is readable by viewers;
+- `allow_private` (loopback and private addresses, http allowed) only for
+  orgs the operator lists in `ALERTS_PRIVATE_ORGS`; for any other org the
+  channel is refused (400);
+- no redirects; 5 s timeout; response body capped at 64 KiB;
+- a dial the address rules refuse reads `address not allowed`, without the
+  address, in test results and `last_error`.
+The Slack and Teams webhook URLs from `secret_env` and the A2A endpoint
+named by an Agent Card pass the same guard.
 
 ### Webhook payload v1
 
@@ -213,10 +238,10 @@ Channel rules:
 A test notification has `"test": true`.
 
 Headers:
-- `X-GuardSpec-Event-Id` (the same idempotency key as `event_id`: a retry
-  carries the same value, so receivers can drop duplicates)
+- `X-GuardSpec-Event-Id`: the same idempotency key as `event_id`; a retry
+  carries the same value, so receivers drop duplicates by it. It is signed.
 - `X-GuardSpec-Timestamp` (unix seconds)
-- `X-GuardSpec-Signature: v1=<hex HMAC-SHA256(secret, timestamp + "." + body)>`
+- `X-GuardSpec-Signature: v1=<hex HMAC-SHA256(secret, timestamp + "." + event_id + "." + body)>`
 
 Receivers reject requests whose timestamp is more than 5 min off. Section 11
 has verify snippets for Go, Python and Node.
@@ -237,8 +262,13 @@ has verify snippets for Go, Python and Node.
   `SendMessage`, role `ROLE_USER` and parts `{"text"}` / `{"data","mediaType"}`.
   Cards that declare protocol 0.3 get the 0.3 form the contract named:
   method `message/send`, role `user`, parts with `kind: text|data`.
+- The JSON-RPC endpoint must have the same origin (scheme, host, port) as
+  the Agent Card; a card naming another origin is refused, so the secret never
+  leaves the origin the org configured.
 - Auth follows the card's security scheme (HTTP bearer, or an apiKey in a
-  header) using `secret_env`.
+  header) using `secret_env`. A card that names a reserved or hop-by-hop
+  header (`Host`, `Content-Length`, `Transfer-Encoding`, `Connection`,
+  `Cookie`, `Proxy-*`, `X-Forwarded-*`, …) or an invalid name is refused.
 - Success means a JSON-RPC result (Task or Message). The returned task id is
   recorded as the delivery's `remote_id`. A JSON-RPC error is permanent.
 
@@ -271,6 +301,9 @@ has verify snippets for Go, Python and Node.
 | POST `/alert-rules/:id/test` | admin | emits a synthetic `alert.test` that goes through the full pipeline; returns `{alert_id}` |
 | GET/POST `/notification-channels`, GET/PATCH/DELETE `/:id` | read: viewer, write: admin | returns `secret_set` |
 | POST `/notification-channels/:id/test` | admin | synchronous send; `{ok, status, latency_ms, error?}` |
+| POST `/notification-channels/:id/telegram-link` | admin | Telegram on the instance bot: `{code, command:"/link@<bot> <code>", bot_username, expires_at}`; single use, 10 min |
+| POST `/notification-channels/:id/email-confirmations` | admin | mails new confirmation links to unconfirmed addresses (within the daily cap); returns the channel |
+| GET `/v1/integrations/email/confirm?token=` | none (the token) | confirmation link of a shared-mailbox address; plain text answer; single use, 7 days |
 | GET/POST `/user-groups`, GET/PATCH/DELETE `/:id`, PUT `/:id/members {user_ids[]}` | read: viewer, write: admin | |
 | GET `/alerts?state=&rule_id=` , GET `/alerts/:id` | viewer | history |
 | GET `/notification-deliveries?state=&channel_kind=&rule_id=` | admin | delivery log |
@@ -278,13 +311,18 @@ has verify snippets for Go, Python and Node.
 | GET `/v1/me/channel-links`, DELETE `/v1/me/channel-links/:kind` | self | |
 | POST `/v1/me/channel-links/telegram/start` | self | `{code, deep_link:"https://t.me/<bot>?start=<code>", expires_at}`; single use, 10 min |
 | POST `/v1/me/channel-links/slack` | self | links by looking up the user's email via `users.lookupByEmail` (instance-level `SLACK_BOT_TOKEN`) |
-| PUT `/v1/me/channel-links/email {address}` | self | the address personal email goes to; must be in the account email's domain |
+| PUT `/v1/me/channel-links/email {address}` | self | mails a confirmation code to the address; 202 `{kind, address, verified:false, expires_at}`. One code a minute, 30 minutes, 5 attempts. |
+| POST `/v1/me/channel-links/email/confirm {code}` | self | the address replaces the account address; returns the link (`verified:true`); 400 for a wrong, expired or used-up code |
 | POST `/v1/integrations/telegram/webhook` | Telegram secret header | handles `/start <code>`; verified with `X-Telegram-Bot-Api-Secret-Token` = env `TELEGRAM_WEBHOOK_SECRET`. A long-polling fallback runs when `TELEGRAM_POLLING=1`. |
 | GET `/v1/notifications?unread=1`, POST `/v1/notifications/read {ids[]\|all}` | self | |
 | GET `/v1/notifications/stream` | self | SSE (`text/event-stream`, heartbeat every 25 s). Auth by Bearer via fetch-stream (no token in the URL). |
 
-**Instance capabilities:** GET `/v1/alerts/capabilities` (any user) returns:
-`{telegram:{enabled, bot_username}, slack_bot:bool, smtp:bool, a2a:true, webhook:true, teams:true, allow_private_urls:bool}`
+**Instance capabilities:** GET `/v1/alerts/capabilities[?org_id=]` (any user) returns:
+`{telegram:{enabled, bot_username}, slack_bot:bool, smtp:bool, email_confirmation:bool, email_daily_cap:int, a2a:true, webhook:true, teams:true, allow_private_urls:bool}`
+
+`allow_private_urls` is true only with an `org_id` the caller belongs to and
+the operator listed in `ALERTS_PRIVATE_ORGS`; without `org_id` it is false.
+`email_confirmation` is true when SMTP is set (confirmations can be sent).
 
 The UI hides link buttons for capabilities that are disabled.
 
@@ -311,9 +349,14 @@ Response details:
 - Deliveries: `{id, alert_id, rule_id, rule_name, channel_kind, channel_id,
   channel_name, user_id, target, state, attempts, next_attempt_at, last_error, last_status,
   remote_id, created_at, sent_at}`.
-- Links: `{kind, address, verified_at, created_at}` (envelope).
+- Links: `{kind, address, verified, verified_at, expires_at?, created_at}`
+  (envelope). A personal email address waiting for its code is listed with
+  `verified:false` and `expires_at`, next to the verified link it replaces.
 - Notifications: `{id, org_id, alert_id, title, body, severity, read_at,
-  created_at}`; only orgs the user still belongs to.
+  created_at}`; only orgs the user still belongs to and whose security policy
+  (2FA, login methods, session lifetime) the current session satisfies, as
+  for that org's own endpoints. The read endpoint marks only those; the
+  stream applies the same filter and recomputes it at every heartbeat.
 - SSE events: `notification {…}` (the notification JSON) for each new
   notification, `read {ids}` or `read {all:true}` when notifications are
   marked read in any tab, `unread {count}` on connect and after every change, `end {reason}` when the
@@ -360,19 +403,20 @@ Control plane:
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `PUBLIC_BASE_URL` | — | Origin of the admin UI, for links in notifications. |
-| `ALERTS_SECRET_ORGS` | empty (no channel secret usable) | Which orgs may name which channel secret variable: `WEBHOOK_SECRET_SIEM=*;A2A_SOC=<org-id>,<org-id>`. `*` means every org. Invalid entries stop the control plane at startup. |
-| `ALERTS_ALLOW_PRIVATE_URLS` | off | `1` lets channels with `allow_private` reach loopback and private addresses over http. Metadata and link-local addresses stay refused. |
-| `ALERTS_LANG` | `en` | Language of in-app notifications and personal channels: `en` or `vi`. |
-| `TELEGRAM_BOT_TOKEN` | — | The instance bot: personal chats and `/start` linking. |
-| `TELEGRAM_BOT_USERNAME` | from `getMe` | The bot's username, for deep links. |
+| `PUBLIC_BASE_URL` | — | Origin of the admin UI, for links in notifications and email confirmation links. |
+| `ALERTS_SECRET_ORGS` | empty (no channel secret usable) | Which channel kind and which orgs may name each secret variable: `WEBHOOK_SECRET_SIEM=webhook:*;A2A_SOC=a2a:<org-id>,<org-id>;GUARDSPEC_ALERT_OPS=slack:<org-id>`. `*` means every org. One kind per variable. Invalid entries stop the control plane at startup. |
+| `ALERTS_PRIVATE_ORGS` | empty | Org ids whose channels with `allow_private` may reach loopback and private addresses (over http too). Metadata and link-local addresses stay refused. Replaces `ALERTS_ALLOW_PRIVATE_URLS`, which now stops the control plane at startup. |
+| `ALERTS_EMAIL_DAILY_CAP` | `500` | Emails one org may send per 24 hours (deliveries and confirmation mails). |
+| `ALERTS_LANG` | `en` | Language of in-app notifications, personal channels and confirmation mails: `en` or `vi`. |
+| `TELEGRAM_BOT_TOKEN` | — | The instance bot: personal chats (`/start`) and shared channels verified with `/link`. |
+| `TELEGRAM_BOT_USERNAME` | from `getMe` | The bot's username, for deep links and `/link@<bot>`. |
 | `TELEGRAM_WEBHOOK_SECRET` | — | Secret of `setWebhook`; turns on `/v1/integrations/telegram/webhook`. |
 | `TELEGRAM_POLLING` | off | `1` long-polls `getUpdates` instead of a webhook (no public URL needed). |
 | `SLACK_BOT_TOKEN` | — | Instance Slack bot: personal DMs and `users.lookupByEmail`. Scopes `chat:write`, `users:read.email`, `im:write`. |
 | `SMTP_URL` | — | `smtp://user:pass@host:587` (STARTTLS, required unless loopback) or `smtps://user:pass@host:465`. |
 | `SMTP_FROM` | — | Sender, such as `Guard Spec <alerts@example.com>`. |
 | `ALERTS_TEST_TELEGRAM_API`, `ALERTS_TEST_SLACK_API` | — | Test only: origins that replace `https://api.telegram.org` and `https://slack.com/api`, for fake servers in end-to-end runs. Leave unset in production. |
-| channel secrets | — | The variables channels name in `secret_env` (`WEBHOOK_SECRET_*`, `SLACK_*`, `TEAMS_*`, `TELEGRAM_BOT_TOKEN_*`, `A2A_*`, `GUARDSPEC_ALERT_*`). |
+| channel secrets | — | The variables channels name in `secret_env` (`WEBHOOK_SECRET_*`, `SLACK_*`, `TEAMS_*`, `TELEGRAM_BOT_TOKEN_*`, `A2A_*`, `GUARDSPEC_ALERT_*`), each listed in `ALERTS_SECRET_ORGS`. |
 
 Gateway:
 
@@ -394,28 +438,31 @@ curl -X POST "$CP/v1/organizations/$ORG/notification-channels" -H "Authorization
   -d '{"name":"SIEM","kind":"webhook","config":{"url":"https://siem.example.com/guard"},"secret_env":"WEBHOOK_SECRET_SIEM"}'
 ```
 
-then list the variable for the org in `ALERTS_SECRET_ORGS` and press "Send
-test".
+then list the variable with its kind for the org in `ALERTS_SECRET_ORGS`
+(`WEBHOOK_SECRET_SIEM=webhook:<org-id>`) and press "Send test".
 
 **Telegram**
 1. Create a bot with @BotFather; set `TELEGRAM_BOT_TOKEN` (and
    `TELEGRAM_BOT_USERNAME`).
-2. Personal chats: either set `TELEGRAM_WEBHOOK_SECRET` and register the
-   webhook once:
+2. Updates reach the control plane either through a webhook — set
+   `TELEGRAM_WEBHOOK_SECRET` and register it once:
    ```sh
    curl "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook" \
      -d url="$PUBLIC_BASE_URL/v1/integrations/telegram/webhook" \
      -d secret_token="$TELEGRAM_WEBHOOK_SECRET" -d allowed_updates='["message"]'
    ```
-   or set `TELEGRAM_POLLING=1` (one control plane replica only: Telegram
+   — or with `TELEGRAM_POLLING=1` (one control plane replica only: Telegram
    allows one poller per bot).
-   Users press "Link Telegram" under My account → Notifications and open the
-   deep link; the bot answers in the chat. Codes work once, for 10 minutes,
-   and only in private chats.
-3. Group chats: add the bot to the group, get the chat id (for example from
-   `getUpdates`), create a `telegram` channel with `{"chat_id":"-100…"}`.
-   Without `secret_env` it uses the instance bot; with
-   `TELEGRAM_BOT_TOKEN_<NAME>` another bot.
+3. Personal chats: users press "Link Telegram" under My account →
+   Notifications and open the deep link; the bot answers in the chat. Codes
+   work once, for 10 minutes, and only in private chats.
+4. Group chats on the instance bot: create a `telegram` channel with `{}`,
+   add the bot to the group, press "Verify" (`POST …/telegram-link`) and
+   send the shown `/link@<bot> <code>` in the group. The bot answers
+   "Linked"; the channel now has the group's `chat_id` and `verified: true`.
+5. Group chats on your own bot: put its token in `TELEGRAM_BOT_TOKEN_<NAME>`
+   (listed as `telegram:` in `ALERTS_SECRET_ORGS`) and create the channel with
+   `{"chat_id":"-100…"}`.
 
 **Slack**
 - Bot (recommended): create a Slack app with `chat:write` (and
@@ -434,16 +481,18 @@ received", copy the URL into `TEAMS_<NAME>`, create a `teams` channel with
 
 **Webhook** — `{"url":"https://…"}` and a random signing secret in
 `WEBHOOK_SECRET_<NAME>` (`openssl rand -hex 32`). Verify every delivery
-(section 11). Deliveries are retried with the same `event_id`; make the
-receiver idempotent.
+(section 11). Deliveries are retried with the same `event_id`; drop repeats.
 
 **A2A** — `{"agent_card_url":"https://agent.example.com"}`; put the key the
-card's security scheme asks for in `A2A_<NAME>`.
+card's security scheme asks for in `A2A_<NAME>`. The card's JSON-RPC
+endpoint must be on the same origin.
 
-**Email** — set `SMTP_URL` and `SMTP_FROM`. Personal email goes to account
-addresses; a shared mailbox is an `email` channel with
-`{"to":["soc@example.com"],"lang":"vi"}`. Templates exist in English and
-Vietnamese.
+**Email** — set `SMTP_URL` and `SMTP_FROM`. Personal email goes to the
+account address, or to another address once the user confirmed it with the
+mailed code. A shared mailbox is an `email` channel with
+`{"to":["soc@example.com"],"lang":"vi"}`; each address gets a confirmation
+link and receives alerts only after opening it. Templates exist in English
+and Vietnamese.
 
 **In-app** — nothing to set up. The bell shows the user's notifications;
 the stream is `GET /v1/notifications/stream` with the Bearer header (use a
@@ -452,11 +501,13 @@ fetch-based EventSource; tokens in URLs are refused).
 ## 11. Verifying webhook signatures
 
 The signature is `v1=` and the hex HMAC-SHA256, keyed with the secret, of
-the timestamp header, a dot and the raw body. Check the timestamp first (at
+the timestamp header, a dot, the event id header, a dot and the raw body:
+`timestamp + "." + event_id + "." + body`. Check the timestamp first (at
 most 5 minutes off), compare in constant time, and drop repeated
-`X-GuardSpec-Event-Id` values. Test vector: secret `secret`, timestamp
-`1700000000`, body `{"a":1}` gives
-`v1=49f24e537407743fa4a0242bb63b94b9a47ee99cbbe071ccd8a22550ae411686`.
+`X-GuardSpec-Event-Id` values (the event id is signed, so it can be trusted
+for that). Test vector: secret `secret`, timestamp `1700000000`, event id
+`gs1_example`, body `{"a":1}` gives
+`v1=30899026f765cd0076ae7cd2e24775790dfdce592d082324de0dc047373712e6`.
 
 Go:
 
@@ -471,7 +522,7 @@ func verify(secret []byte, r *http.Request) ([]byte, error) {
 		return nil, errors.New("stale or missing timestamp")
 	}
 	mac := hmac.New(sha256.New, secret)
-	fmt.Fprintf(mac, "%d.", ts)
+	fmt.Fprintf(mac, "%d.%s.", ts, r.Header.Get("X-GuardSpec-Event-Id"))
 	mac.Write(body)
 	want := "v1=" + hex.EncodeToString(mac.Sum(nil))
 	if !hmac.Equal([]byte(r.Header.Get("X-GuardSpec-Signature")), []byte(want)) {
@@ -488,9 +539,11 @@ import hashlib, hmac, time
 
 def verify(secret: bytes, headers, body: bytes) -> None:
     ts = headers["X-GuardSpec-Timestamp"]
+    event_id = headers["X-GuardSpec-Event-Id"]
     if abs(time.time() - int(ts)) > 300:
         raise ValueError("stale timestamp")
-    want = "v1=" + hmac.new(secret, ts.encode() + b"." + body, hashlib.sha256).hexdigest()
+    signed = ts.encode() + b"." + event_id.encode() + b"." + body
+    want = "v1=" + hmac.new(secret, signed, hashlib.sha256).hexdigest()
     if not hmac.compare_digest(headers["X-GuardSpec-Signature"], want):
         raise ValueError("bad signature")
 ```
@@ -502,8 +555,9 @@ import crypto from 'node:crypto';
 
 export function verify(secret, headers, rawBody /* Buffer */) {
   const ts = headers['x-guardspec-timestamp'];
+  const eventId = headers['x-guardspec-event-id'] ?? '';
   if (Math.abs(Date.now() / 1000 - Number(ts)) > 300) throw new Error('stale timestamp');
-  const want = 'v1=' + crypto.createHmac('sha256', secret).update(`${ts}.`).update(rawBody).digest('hex');
+  const want = 'v1=' + crypto.createHmac('sha256', secret).update(`${ts}.${eventId}.`).update(rawBody).digest('hex');
   const got = Buffer.from(headers['x-guardspec-signature'] ?? '');
   if (got.length !== Buffer.byteLength(want) || !crypto.timingSafeEqual(got, Buffer.from(want))) {
     throw new Error('bad signature');
@@ -540,22 +594,33 @@ with their events. The gateway's p99 is unchanged by events
   rules, channels, groups and alert history needs `alerts.read` (viewer).
   Channels show `secret_env` names and `secret_set`, never secret values. The
   delivery log stays admin (`alerts.deliveries.read`).
-- **`ALERTS_SECRET_ORGS` and per-kind prefixes** (security review): a
-  channel's `secret_env` must also start with its own kind's prefix (or
-  `GUARDSPEC_ALERT_`), may not be `TELEGRAM_BOT_TOKEN`/`SLACK_BOT_TOKEN`, and
-  must be listed for the org in `ALERTS_SECRET_ORGS`. Without this, an org
-  admin could name another org's variable on an A2A channel pointing at
-  their own server and receive that secret.
+- **Channel secrets are bound to a kind and to orgs** (security reviews):
+  `ALERTS_SECRET_ORGS` entries are `NAME=kind:*` or `NAME=kind:<org>,<org>`;
+  a `secret_env` must match its kind's prefix (or `GUARDSPEC_ALERT_`, bound
+  to the one listed kind), never the instance tokens. Without it, any user
+  (who can create and own an org) could put another org's secret, or a Slack
+  token, on an A2A channel aimed at their own server.
+- **`ALERTS_PRIVATE_ORGS` replaces `ALERTS_ALLOW_PRIVATE_URLS`**: private
+  addresses are per org, not instance-wide.
+- **Shared Telegram channels on the instance bot are verified with `/link`**,
+  and `chat_id` is set by that, not by the client; otherwise the instance bot
+  would post into any chat id.
+- **Shared email addresses are double opt-in**, with a per-org daily email
+  cap (`ALERTS_EMAIL_DAILY_CAP`, default 500); otherwise the instance SMTP
+  account would relay to any address.
+- **The webhook signature covers the event id**: `v1=HMAC(secret,
+  timestamp + "." + event_id + "." + body)` instead of `timestamp + "." + body`.
+- **A2A endpoints must share the Agent Card's origin**, and cards cannot name
+  reserved headers for the key.
+- **In-app notifications follow each org's session policy** (2FA, login
+  methods, session lifetime).
 - **Credentials in URL queries are refused** for webhook and A2A URLs
-  (config is readable by members).
+  (config is readable by viewers).
 - **A2A v1.0**: the current spec is 1.0.0, whose JSON-RPC method is
   `SendMessage`; `message/send` (named in the contract) is used for agents
   that declare protocol 0.3.
-- **Telegram channels need `chat_id`**: a shared channel without one has
-  nowhere to post.
-- **`PUT /v1/me/channel-links/email {address}`** (added for the UI): the
-  address must be in the account email's domain, since it is not confirmed
-  by a mail and could otherwise point alerts at a third party's mailbox.
+- **Personal email address** (added for the UI): `PUT /v1/me/channel-links/email`
+  mails a code, `POST /v1/me/channel-links/email/confirm` activates it.
 - **Additions**: `activity.<action>` event types; `position` on condition
   errors; `test` on payloads and alerts; `rule_id`, `last_status`,
   `remote_id`, `channel_name` on deliveries; `user_ids`, `member_ids`,
@@ -577,4 +642,7 @@ The mapping between the UI (PR #31) and this backend.
 | History and delivery log | Alerts and deliveries carry `rule_name`; deliveries carry `channel_name` (null for personal channels, which carry `user_id`); alert detail carries `samples[]`. |
 | Personal preferences | `PUT /organizations/:orgId/me/notification-prefs` takes a bare JSON array `[{channel_kind, enabled, min_severity}]` and returns the full list. |
 | Condition editor | `POST`/`PATCH /alert-rules` validate the condition against the alert event fields (`type`, `severity`, `project_id`, `attrs.*`, section 2) and answer 400 `{error: "condition: …", position}` with a readable parse error. `/policy/parse` is not needed. |
-| Personal email | `PUT /v1/me/channel-links/email {address}` (same domain as the account email); without it email goes to the account address. `DELETE /v1/me/channel-links/email` returns to it. |
+| Personal email | `PUT /v1/me/channel-links/email {address}` → 202, a code is mailed; `POST /v1/me/channel-links/email/confirm {code}` activates it. Links carry `verified`; the pending address is listed with `verified:false` and `expires_at`. `DELETE /v1/me/channel-links/email` returns to the account address. |
+| Capabilities | `GET /v1/alerts/capabilities?org_id=<current org>`: `allow_private_urls` is per org (only show the `allow_private` checkbox when true); `email_confirmation`, `email_daily_cap`. |
+| Channel verification | Channels carry `verified: bool`. Telegram on the instance bot: no `chat_id` input; a "Verify" action calls `POST …/notification-channels/:id/telegram-link` and shows `command` to send in the group, then polls the channel until `verified`. Email: `addresses [{address, confirmed, confirmed_at, sent_at}]`, a "Resend confirmations" action (`POST …/email-confirmations`). |
+| Secret helper text | `secret_env` must be listed with the channel's kind in `ALERTS_SECRET_ORGS` (`NAME=kind:org`); the 400 says so. |

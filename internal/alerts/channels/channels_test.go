@@ -67,7 +67,8 @@ func (c *capture) last(t *testing.T) (*http.Request, []byte) {
 	return c.reqs[len(c.reqs)-1], c.bodies[len(c.bodies)-1]
 }
 
-func privateGuard() Guard { return Guard{AllowPrivate: true} }
+// privateGuard lets org "o1" (testPayload) reach loopback.
+func privateGuard() Guard { return Guard{PrivateOrgs: map[string]bool{"o1": true}} }
 
 func TestWebhookSignatureVerifies(t *testing.T) {
 	const secret = "whsec-test-0123456789"
@@ -82,19 +83,19 @@ func TestWebhookSignatureVerifies(t *testing.T) {
 	if r.Header.Get(HeaderEventID) != "gs1_key" {
 		t.Fatalf("event id header %q", r.Header.Get(HeaderEventID))
 	}
-	if err := Verify([]byte(secret), r.Header.Get(HeaderTimestamp), r.Header.Get(HeaderSignature), body, time.Now()); err != nil {
+	if err := Verify([]byte(secret), r.Header.Get(HeaderTimestamp), r.Header.Get(HeaderEventID), r.Header.Get(HeaderSignature), body, time.Now()); err != nil {
 		t.Fatalf("signature does not verify: %v", err)
 	}
-	if err := Verify([]byte("other"), r.Header.Get(HeaderTimestamp), r.Header.Get(HeaderSignature), body, time.Now()); err == nil {
+	if err := Verify([]byte("other"), r.Header.Get(HeaderTimestamp), r.Header.Get(HeaderEventID), r.Header.Get(HeaderSignature), body, time.Now()); err == nil {
 		t.Fatal("wrong secret verified")
 	}
-	if err := Verify([]byte(secret), r.Header.Get(HeaderTimestamp), r.Header.Get(HeaderSignature), body,
+	if err := Verify([]byte(secret), r.Header.Get(HeaderTimestamp), r.Header.Get(HeaderEventID), r.Header.Get(HeaderSignature), body,
 		time.Now().Add(6*time.Minute)); err == nil {
 		t.Fatal("stale timestamp verified")
 	}
 	tampered := append([]byte{}, body...)
 	tampered[len(tampered)-2] = 'x'
-	if err := Verify([]byte(secret), r.Header.Get(HeaderTimestamp), r.Header.Get(HeaderSignature), tampered, time.Now()); err == nil {
+	if err := Verify([]byte(secret), r.Header.Get(HeaderTimestamp), r.Header.Get(HeaderEventID), r.Header.Get(HeaderSignature), tampered, time.Now()); err == nil {
 		t.Fatal("tampered body verified")
 	}
 	var p Payload
@@ -105,8 +106,8 @@ func TestWebhookSignatureVerifies(t *testing.T) {
 
 func TestSignKnownVector(t *testing.T) {
 	// Same vector as docs/alerts.md.
-	got := Sign([]byte("secret"), 1700000000, []byte(`{"a":1}`))
-	if got != "v1=49f24e537407743fa4a0242bb63b94b9a47ee99cbbe071ccd8a22550ae411686" {
+	got := Sign([]byte("secret"), 1700000000, "gs1_example", []byte(`{"a":1}`))
+	if got != "v1=30899026f765cd0076ae7cd2e24775790dfdce592d082324de0dc047373712e6" {
 		t.Fatal(got)
 	}
 }
@@ -136,7 +137,7 @@ func TestWebhookRefusesUnsafeTargets(t *testing.T) {
 	// An https URL that resolves to loopback is refused by the dialer.
 	tls := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) }))
 	defer tls.Close()
-	w := &Webhook{Guard: NewGuard(false)}
+	w := &Webhook{Guard: NewGuard(nil)}
 	_, err := w.Send(context.Background(), &Message{Config: map[string]any{"url": tls.URL + "/hook?sig=SECRETQUERY"},
 		Secret: "s3cret-value", Payload: testPayload()})
 	if err == nil || !strings.Contains(err.Error(), "not allowed") {

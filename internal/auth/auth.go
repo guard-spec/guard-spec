@@ -2,6 +2,7 @@
 package auth
 
 import (
+	"context"
 	"errors"
 	"slices"
 	"strings"
@@ -276,6 +277,34 @@ func checkOrgSecurity(s Session, requireMFA, ssoSatisfies bool, allowed []string
 		return "session_expired", "this organization's session lifetime has passed; log in again"
 	}
 	return "", ""
+}
+
+// AllowedOrgs returns the orgs of the session's user whose security policy
+// (login method, 2FA, session lifetime) the session satisfies, as RequireRole
+// would check it. Endpoints that span orgs (in-app notifications) filter to
+// these.
+func AllowedOrgs(ctx context.Context, db *pgxpool.Pool, s Session, now time.Time) ([]uuid.UUID, error) {
+	rows, err := db.Query(ctx,
+		`SELECT org_id, require_mfa, sso_satisfies_mfa, allowed_login_methods, session_lifetime_hours
+		 FROM user_org_session_policy($1)`, s.UserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []uuid.UUID{}
+	for rows.Next() {
+		var org uuid.UUID
+		var requireMFA, ssoSatisfies bool
+		var allowed []string
+		var lifetime int
+		if err := rows.Scan(&org, &requireMFA, &ssoSatisfies, &allowed, &lifetime); err != nil {
+			return nil, err
+		}
+		if code, _ := checkOrgSecurity(s, requireMFA, ssoSatisfies, allowed, lifetime, now); code == "" {
+			out = append(out, org)
+		}
+	}
+	return out, rows.Err()
 }
 
 // CallerRole returns the caller's role in the org checked by RequireRole.

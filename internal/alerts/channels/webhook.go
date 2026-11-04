@@ -29,10 +29,13 @@ const (
 const MaxSkew = 5 * time.Minute
 
 // Sign returns the v1 signature header value: v1=<hex HMAC-SHA256(secret,
-// timestamp + "." + body)>.
-func Sign(secret []byte, ts int64, body []byte) string {
+// timestamp + "." + event_id + "." + body)>. The event id (the delivery's
+// idempotency key) is signed so a receiver can trust it for deduplication.
+func Sign(secret []byte, ts int64, eventID string, body []byte) string {
 	mac := hmac.New(sha256.New, secret)
 	mac.Write([]byte(strconv.FormatInt(ts, 10)))
+	mac.Write([]byte("."))
+	mac.Write([]byte(eventID))
 	mac.Write([]byte("."))
 	mac.Write(body)
 	return "v1=" + hex.EncodeToString(mac.Sum(nil))
@@ -40,7 +43,7 @@ func Sign(secret []byte, ts int64, body []byte) string {
 
 // Verify checks a delivery as a receiver should: the timestamp within
 // MaxSkew of now and a v1 signature that matches, compared in constant time.
-func Verify(secret []byte, tsHeader, sigHeader string, body []byte, now time.Time) error {
+func Verify(secret []byte, tsHeader, eventID, sigHeader string, body []byte, now time.Time) error {
 	ts, err := strconv.ParseInt(tsHeader, 10, 64)
 	if err != nil {
 		return errors.New("bad timestamp")
@@ -48,7 +51,7 @@ func Verify(secret []byte, tsHeader, sigHeader string, body []byte, now time.Tim
 	if math.Abs(float64(now.Unix()-ts)) > MaxSkew.Seconds() {
 		return errors.New("timestamp too old or in the future")
 	}
-	want := Sign(secret, ts, body)
+	want := Sign(secret, ts, eventID, body)
 	for _, part := range strings.Split(sigHeader, ",") {
 		if hmac.Equal([]byte(strings.TrimSpace(part)), []byte(want)) {
 			return nil
@@ -72,7 +75,7 @@ func (w *Webhook) Send(ctx context.Context, m *Message) (Result, error) {
 	if m.Secret == "" {
 		return Result{}, permanent(0, "webhook: signing secret is not set")
 	}
-	client, check := w.Guard.pick(configBool(m.Config, "allow_private"))
+	client, check := w.Guard.pick(configBool(m.Config, "allow_private"), m.Payload.OrgID)
 	if err := check(target); err != nil {
 		return Result{}, permanent(0, "%s", Redact("webhook: "+err.Error(), m.Secret))
 	}
@@ -93,7 +96,7 @@ func (w *Webhook) Send(ctx context.Context, m *Message) (Result, error) {
 	req.Header.Set("User-Agent", "guard-spec-alerts/1")
 	req.Header.Set(HeaderEventID, m.Payload.EventID)
 	req.Header.Set(HeaderTimestamp, strconv.FormatInt(ts, 10))
-	req.Header.Set(HeaderSignature, Sign([]byte(m.Secret), ts, body))
+	req.Header.Set(HeaderSignature, Sign([]byte(m.Secret), ts, m.Payload.EventID, body))
 	r, err := do(client, req, m.Secret)
 	if err != nil {
 		return Result{}, err

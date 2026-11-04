@@ -86,6 +86,9 @@ CREATE TABLE notification_channels (
     secret_env TEXT CONSTRAINT notification_channels_secret_env CHECK (
         secret_env ~ '^(GUARDSPEC_ALERT_|TELEGRAM_BOT_TOKEN_|SLACK_|TEAMS_|WEBHOOK_SECRET_|A2A_)[A-Z0-9_]*$'
         AND secret_env ~ '^[A-Z][A-Z0-9_]{2,63}$'),
+    -- A Telegram channel on the instance bot posts only to a chat that
+    -- proved it wants it: /link <code> sent there sets chat_id and this.
+    verified_at TIMESTAMPTZ,
     enabled    BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -289,9 +292,56 @@ CREATE POLICY tenant_isolation_notifications ON notifications
 CREATE POLICY own_notifications ON notifications
     USING (user_id = NULLIF(current_setting('app.user_id', true), '')::uuid);
 
+-- One-time /link codes of shared Telegram channels on the instance bot:
+-- SHA-256, single use, 10 minutes.
+CREATE TABLE channel_link_codes (
+    code_hash  TEXT PRIMARY KEY CONSTRAINT channel_link_codes_hash CHECK (code_hash ~ '^[0-9a-f]{64}$'),
+    org_id     UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    channel_id UUID NOT NULL REFERENCES notification_channels(id) ON DELETE CASCADE,
+    expires_at TIMESTAMPTZ NOT NULL,
+    used_at    TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_channel_link_codes_channel ON channel_link_codes (channel_id);
+ALTER TABLE channel_link_codes ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation_channel_link_codes ON channel_link_codes
+    USING (org_id = NULLIF(current_setting('app.org_id', true), '')::uuid);
+
+-- Addresses of shared email channels (double opt-in): mail goes only to
+-- confirmed ones. token_hash is the SHA-256 of the confirmation link token,
+-- cleared once used.
+CREATE TABLE channel_email_addresses (
+    org_id       UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    channel_id   UUID NOT NULL REFERENCES notification_channels(id) ON DELETE CASCADE,
+    address      TEXT NOT NULL CONSTRAINT channel_email_addresses_address CHECK (char_length(address) BETWEEN 3 AND 320),
+    token_hash   TEXT UNIQUE CONSTRAINT channel_email_addresses_hash CHECK (token_hash ~ '^[0-9a-f]{64}$'),
+    expires_at   TIMESTAMPTZ,
+    sent_at      TIMESTAMPTZ,
+    confirmed_at TIMESTAMPTZ,
+    PRIMARY KEY (channel_id, address)
+);
+CREATE INDEX idx_channel_email_addresses_sent ON channel_email_addresses (org_id, sent_at);
+ALTER TABLE channel_email_addresses ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation_channel_email_addresses ON channel_email_addresses
+    USING (org_id = NULLIF(current_setting('app.org_id', true), '')::uuid);
+
+-- A personal email address waiting for its confirmation code (SHA-256,
+-- 5 attempts, 30 minutes).
+CREATE TABLE email_link_codes (
+    user_id    UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    address    TEXT NOT NULL CONSTRAINT email_link_codes_address CHECK (char_length(address) BETWEEN 3 AND 320),
+    code_hash  TEXT NOT NULL CONSTRAINT email_link_codes_hash CHECK (code_hash ~ '^[0-9a-f]{64}$'),
+    attempts   INT NOT NULL DEFAULT 0,
+    expires_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+ALTER TABLE email_link_codes ENABLE ROW LEVEL SECURITY;
+CREATE POLICY own_email_link_codes ON email_link_codes
+    USING (user_id = NULLIF(current_setting('app.user_id', true), '')::uuid);
+
 GRANT SELECT, INSERT, UPDATE, DELETE ON events, user_groups, user_group_members, notification_channels, alert_rules,
     alert_rule_hits, alerts, user_channel_links, telegram_link_codes, user_notification_prefs, notification_outbox,
-    notifications TO guardspec_app;
+    notifications, channel_link_codes, channel_email_addresses, email_link_codes TO guardspec_app;
 GRANT SELECT ON notification_deliveries TO guardspec_app;
 
 -- The orgs the alert worker has work in: unprocessed events, deliveries due,
@@ -336,3 +386,64 @@ END
 $$;
 REVOKE ALL ON FUNCTION redeem_telegram_link_code(TEXT, TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION redeem_telegram_link_code(TEXT, TEXT) TO guardspec_app;
+
+-- Redeems a /link code sent in a Telegram chat: the chat becomes the chat_id
+-- of the code's channel, which is then verified. Single use, unexpired.
+-- Returns the channel's org, or NULL.
+CREATE FUNCTION redeem_channel_link_code(hash TEXT, chat TEXT)
+RETURNS UUID
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+DECLARE
+    ch UUID;
+    org UUID;
+BEGIN
+    UPDATE channel_link_codes SET used_at = NOW()
+    WHERE code_hash = hash AND used_at IS NULL AND expires_at > NOW()
+    RETURNING channel_id, org_id INTO ch, org;
+    IF ch IS NULL THEN
+        RETURN NULL;
+    END IF;
+    UPDATE notification_channels
+    SET config = jsonb_set(config, '{chat_id}', to_jsonb(chat)), verified_at = NOW(), updated_at = NOW()
+    WHERE id = ch AND kind = 'telegram' AND secret_env IS NULL;
+    RETURN org;
+END
+$$;
+REVOKE ALL ON FUNCTION redeem_channel_link_code(TEXT, TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION redeem_channel_link_code(TEXT, TEXT) TO guardspec_app;
+
+-- Confirms a shared-mailbox address from the link in its confirmation mail.
+-- The token works once. Returns the address, or NULL.
+CREATE FUNCTION confirm_channel_email(hash TEXT)
+RETURNS TEXT
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+DECLARE
+    addr TEXT;
+BEGIN
+    UPDATE channel_email_addresses SET confirmed_at = NOW(), token_hash = NULL
+    WHERE token_hash = hash AND confirmed_at IS NULL AND expires_at > NOW()
+    RETURNING address INTO addr;
+    RETURN addr;
+END
+$$;
+REVOKE ALL ON FUNCTION confirm_channel_email(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION confirm_channel_email(TEXT) TO guardspec_app;
+
+-- The session policy of every org a user belongs to (org_security, 013), for
+-- endpoints that span orgs (in-app notifications). Returns only the given
+-- user's orgs.
+CREATE FUNCTION user_org_session_policy(uid UUID)
+RETURNS TABLE (org_id UUID, require_mfa BOOLEAN, sso_satisfies_mfa BOOLEAN, allowed_login_methods TEXT[],
+               session_lifetime_hours INT)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+    SELECT m.org_id, COALESCE(s.require_mfa, false), COALESCE(s.sso_satisfies_mfa, false),
+           s.allowed_login_methods, COALESCE(s.session_lifetime_hours, 12)
+    FROM org_memberships m
+    LEFT JOIN org_security s ON s.org_id = m.org_id
+    WHERE m.user_id = uid
+$$;
+REVOKE ALL ON FUNCTION user_org_session_policy(UUID) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION user_org_session_policy(UUID) TO guardspec_app;

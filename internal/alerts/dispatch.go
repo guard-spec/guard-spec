@@ -69,8 +69,11 @@ type Dispatcher struct {
 	TelegramToken, SlackToken string
 	// SecretOrgs is ALERTS_SECRET_ORGS.
 	SecretOrgs SecretOrgs
-	Lang       string
-	Now        func() time.Time
+	// EmailDailyCap bounds the emails an org sends per 24 hours
+	// (ALERTS_EMAIL_DAILY_CAP), confirmation mails included. 0: DefaultEmailDailyCap.
+	EmailDailyCap int
+	Lang          string
+	Now           func() time.Time
 }
 
 func (d *Dispatcher) now() time.Time {
@@ -101,18 +104,23 @@ type ChannelRow struct {
 	Config    map[string]any `json:"config"`
 	SecretEnv *string        `json:"secret_env"`
 	Enabled   bool           `json:"enabled"`
-	CreatedAt time.Time      `json:"created_at"`
-	UpdatedAt time.Time      `json:"updated_at"`
+	// VerifiedAt is set when /link verified the chat of a Telegram channel
+	// on the instance bot.
+	VerifiedAt *time.Time `json:"verified_at"`
+	CreatedAt  time.Time  `json:"created_at"`
+	UpdatedAt  time.Time  `json:"updated_at"`
+	// confirmed are the confirmed addresses of an email channel (claim).
+	confirmed []string
 }
 
 // ChannelColumns are the columns ScanChannel reads.
-const ChannelColumns = `id, name, kind, config, secret_env, enabled, created_at, updated_at`
+const ChannelColumns = `id, name, kind, config, secret_env, enabled, verified_at, created_at, updated_at`
 
 // ScanChannel reads a row of ChannelColumns.
 func ScanChannel(row pgx.Row) (ChannelRow, error) {
 	var c ChannelRow
 	var raw []byte
-	if err := row.Scan(&c.ID, &c.Name, &c.Kind, &raw, &c.SecretEnv, &c.Enabled, &c.CreatedAt, &c.UpdatedAt); err != nil {
+	if err := row.Scan(&c.ID, &c.Name, &c.Kind, &raw, &c.SecretEnv, &c.Enabled, &c.VerifiedAt, &c.CreatedAt, &c.UpdatedAt); err != nil {
 		return c, err
 	}
 	if err := json.Unmarshal(raw, &c.Config); err != nil || c.Config == nil {
@@ -211,6 +219,13 @@ func (d *Dispatcher) claim(ctx context.Context, org uuid.UUID) ([]outboxRow, err
 		if err != nil {
 			return err
 		}
+		for j := range chans {
+			if chans[j].Kind == channels.KindEmail {
+				if chans[j].confirmed, err = ConfirmedAddresses(ctx, tx, org, chans[j].ID); err != nil {
+					return err
+				}
+			}
+		}
 		for i := range out {
 			for j := range chans {
 				if out[i].ChannelID != nil && chans[j].ID == *out[i].ChannelID {
@@ -238,8 +253,26 @@ func (d *Dispatcher) message(org uuid.UUID, r *outboxRow) (*channels.Message, er
 				return nil, &channels.Error{Permanent: true, Msg: "the variable " + *r.channel.SecretEnv + " is not set"}
 			}
 		}
-		if r.Kind == channels.KindTelegram && m.Secret == "" {
-			m.Secret = d.TelegramToken
+		switch r.Kind {
+		case channels.KindTelegram:
+			if m.Secret == "" {
+				// The instance bot posts only to a chat that sent /link.
+				if r.channel.VerifiedAt == nil {
+					return nil, &channels.Error{Permanent: true,
+						Msg: "the Telegram chat is not verified: send the /link code in the chat"}
+				}
+				m.Secret = d.TelegramToken
+			}
+		case channels.KindEmail:
+			// Only addresses that confirmed (double opt-in).
+			if len(r.channel.confirmed) == 0 {
+				return nil, &channels.Error{Permanent: true, Msg: "no confirmed address"}
+			}
+			cfg := map[string]any{"to": toAny(r.channel.confirmed)}
+			if l, ok := r.channel.Config["lang"]; ok {
+				cfg["lang"] = l
+			}
+			m.Config = cfg
 		}
 		return m, nil
 	}
@@ -267,9 +300,24 @@ func (d *Dispatcher) Send(ctx context.Context, m *channels.Message) (channels.Re
 
 // TestChannel sends a test alert to a shared channel synchronously.
 func (d *Dispatcher) TestChannel(ctx context.Context, org uuid.UUID, c *ChannelRow, p channels.Payload) (channels.Result, error) {
+	if c.Kind == channels.KindEmail {
+		err := tenant.WithOrg(ctx, d.DB, org, func(tx pgx.Tx) error {
+			var err error
+			c.confirmed, err = ConfirmedAddresses(ctx, tx, org, c.ID)
+			return err
+		})
+		if err != nil {
+			return channels.Result{}, err
+		}
+	}
 	m, err := d.message(org, &outboxRow{Kind: c.Kind, ChannelID: &c.ID, Payload: p, Key: p.EventID, channel: c})
 	if err != nil {
 		return channels.Result{}, err
+	}
+	if c.Kind == channels.KindEmail {
+		if err := d.checkEmailCap(ctx, org); err != nil {
+			return channels.Result{}, err
+		}
 	}
 	return d.Send(ctx, m)
 }
@@ -280,6 +328,9 @@ func (d *Dispatcher) deliver(ctx context.Context, org uuid.UUID, r *outboxRow) {
 	}
 	var res channels.Result
 	m, err := d.message(org, r)
+	if err == nil && r.Kind == channels.KindEmail {
+		err = d.checkEmailCap(ctx, org)
+	}
 	if err == nil {
 		res, err = d.Send(ctx, m)
 	}
