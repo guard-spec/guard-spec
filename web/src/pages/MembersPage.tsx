@@ -193,9 +193,8 @@ function MembersTable() {
       cell: (m) => {
         if (m.user_id === me?.id || !can('members.write') || !canManageMember(myRole, m.role)) return null;
         const btn = (label: string, icon: ReactNode, p: Pending, danger = false) => (
-          <button type="button" className={`btn btn-small btn-icon-text${danger ? ' btn-danger' : ''}`} aria-label={`${label}: ${m.email}`} title={label} onClick={() => setPending(p)}>
+          <button type="button" className={`btn btn-small btn-square${danger ? ' btn-danger' : ''}`} aria-label={`${label}: ${m.email}`} title={label} onClick={() => setPending(p)}>
             {icon}
-            <span className="hide-sm">{label}</span>
           </button>
         );
         return (

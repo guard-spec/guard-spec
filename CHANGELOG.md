@@ -45,6 +45,19 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   diff and apply), guard settings, API keys, projects, exemplars and the audit
   log. English and Vietnamese, light and dark themes. Released control-plane
   binaries and images embed it (GoReleaser builds it before the Go builds).
+- **Admin UI v2**: a grouped, collapsible sidebar (a drawer on phones) with
+  breadcrumbs and a profile menu (my account, language, light/dark/system
+  theme, log out); a dashboard; model providers with a provider catalog,
+  allowed models, extra headers, limits and a connection test; members and
+  invites, a roles and permissions matrix, the org security policy, the
+  activity log, instance users and identity providers (Google and OIDC; the
+  client secret stays an env var name); my account with password change, TOTP
+  2FA (QR code drawn in the browser, recovery codes), linked identities and
+  sessions. Sign-in adds SSO buttons, the 2FA and forced-enrollment steps and
+  the `#/auth/callback` code exchange. Every list pages by cursor (25/50/100)
+  and pages older `{data}` responses in the browser; pages whose endpoint a
+  control plane lacks say so instead of failing. `/ui/upstreams` and
+  `/ui/audit` redirect to `/ui/providers` and `/ui/requests`.
 - Metric `guardspec_gateway_route_selections_total{source,outcome}`.
 - `UPSTREAM_KEY_ORGS` (gateway and control plane): which organizations may
   name which `UPSTREAM_KEY_*` variable. Empty by default, so no org can use

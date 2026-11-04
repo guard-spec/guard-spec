@@ -57,7 +57,9 @@ test('flow, dark theme, Vietnamese', async ({ page }) => {
   await page.getByLabel('Mật khẩu').fill('correct-horse-battery');
   await page.getByRole('button', { name: 'Đăng nhập' }).click();
   await chooseOrg(page, 'Mở');
-  await expect(page.getByRole('heading', { name: 'Luồng xử lý', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Bảng điều khiển', level: 1 })).toBeVisible();
+  await page.getByRole('link', { name: 'Luồng chính sách' }).click();
+  await expect(page.getByRole('heading', { name: 'Luồng chính sách', level: 1 })).toBeVisible();
   await page.getByLabel('Phạm vi').selectOption({ label: 'Dự án: Billing bot' });
   await shot(page, 'flow-dark-vi');
 });
@@ -65,9 +67,9 @@ test('flow, dark theme, Vietnamese', async ({ page }) => {
 test('upstreams', async ({ page }) => {
   await setTheme(page, 'light');
   await login(page);
-  await page.getByRole('link', { name: 'Upstreams' }).click();
+  await page.getByRole('link', { name: 'Model providers' }).click();
   await expect(page.getByRole('cell', { name: 'safe-model', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Edit upstream main' }).click();
+  await page.getByRole('button', { name: 'Edit provider main' }).click();
   await shot(page, 'upstreams');
 });
 
@@ -93,7 +95,7 @@ test('config as code', async ({ page }) => {
 test('api keys and audit log', async ({ page }) => {
   await setTheme(page, 'light');
   await login(page);
-  await page.getByRole('link', { name: 'Audit log' }).click();
+  await page.getByRole('link', { name: 'Request log' }).click();
   await expect(page.getByTestId('audit-table').getByRole('row')).toHaveCount(7);
   await shot(page, 'audit');
   await page.getByRole('link', { name: 'Guard settings' }).click();

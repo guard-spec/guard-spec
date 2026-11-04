@@ -117,7 +117,7 @@ function PasswordCard() {
           </Field>
           <div className="form-grid">
             <Field label={t('account.newPassword')} help={t('account.passwordHelp')}>
-              {(p) => <input {...p} type="password" autoComplete="new-password" minLength={12} required value={next} onChange={(e) => setNext(e.target.value)} />}
+              {(p) => <input {...p} type="password" autoComplete="new-password" required value={next} onChange={(e) => setNext(e.target.value)} />}
             </Field>
             <Field label={t('account.confirmPassword')}>
               {(p) => <input {...p} type="password" autoComplete="new-password" required value={confirm} onChange={(e) => setConfirm(e.target.value)} />}

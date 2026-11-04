@@ -31,18 +31,21 @@ test('routes a rule edited as text, simulates it and round-trips the config', as
   await page.getByLabel('Password').fill(process.env.LIVE_PASSWORD ?? '');
   await page.getByRole('button', { name: 'Sign in' }).click();
   await page.getByTestId('my-orgs').getByRole('button').first().click();
-  await expect(page.getByRole('heading', { name: 'Flow', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Dashboard', level: 1 })).toBeVisible();
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Policy flow' }).click();
+  await expect(page.getByRole('heading', { name: 'Policy flow', level: 1 })).toBeVisible();
 
   // Two upstreams; the first becomes the org default.
   const nav = page.getByRole('navigation', { name: 'Main' });
-  await nav.getByRole('link', { name: 'Upstreams' }).click();
+  await nav.getByRole('link', { name: 'Model providers' }).click();
   for (const [name, base] of [
     [`main-${id}`, 'https://api.openai.com/v1'],
     [`safe-${id}`, 'http://ollama:11434/v1'],
   ] as const) {
-    await page.getByRole('button', { name: '+ New upstream' }).click();
+    await page.getByRole('button', { name: 'Add provider' }).click();
+    await page.getByTestId('provider-catalog').getByRole('button', { name: /^OpenAI-compatible https/ }).click();
     const d = page.getByRole('dialog');
-    await d.getByLabel('Name').fill(name);
+    await d.getByLabel('Name', { exact: true }).fill(name);
     await d.getByLabel('Base URL').fill(base);
     await d.getByLabel('API key environment variable').fill('UPSTREAM_KEY_MAIN');
     await d.getByRole('button', { name: 'Save' }).click();
@@ -60,7 +63,7 @@ test('routes a rule edited as text, simulates it and round-trips the config', as
   await expect(page.getByRole('cell', { name: `live-${id}`, exact: true })).toBeVisible();
 
   // A policy with a route rule written as text.
-  await nav.getByRole('link', { name: 'Flow' }).click();
+  await nav.getByRole('link', { name: 'Policy flow' }).click();
   await page.getByLabel('Scope').selectOption({ label: `Project: Live ${id}` });
   await page.getByRole('button', { name: '+ New policy' }).click();
   await page.getByRole('dialog').getByLabel('Policy name').fill(`live-${id}`);
@@ -113,17 +116,17 @@ test('routes a rule edited as text, simulates it and round-trips the config', as
   await page.getByRole('button', { name: 'Validate' }).click();
   await expect(page.getByTestId('config-result')).toContainText('No changes');
 
-  await nav.getByRole('link', { name: 'Audit log' }).click();
+  await nav.getByRole('link', { name: 'Request log' }).click();
   await expect(page.getByTestId('audit-table')).toBeVisible();
 
   // Clean up: the policy, then the upstreams (the default first, or the
   // control plane refuses to delete it).
-  await nav.getByRole('link', { name: 'Flow' }).click();
+  await nav.getByRole('link', { name: 'Policy flow' }).click();
   await page.getByLabel('Scope').selectOption({ label: `Project: Live ${id}` });
   await page.getByRole('button', { name: `Delete policy live-${id}` }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Delete' }).click();
   await expect(page.getByTestId(`rule-node-jailbreaks-${id}`)).toBeHidden();
-  await nav.getByRole('link', { name: 'Upstreams' }).click();
+  await nav.getByRole('link', { name: 'Model providers' }).click();
   await page.getByLabel('Organization default').selectOption(defaultBefore);
   await expect(page.getByLabel('Organization default')).toHaveValue(defaultBefore);
   for (const name of [`main-${id}`, `safe-${id}`]) {
@@ -155,7 +158,9 @@ test('screenshots against the real control plane', async ({ page }) => {
   await page.getByLabel('Password').fill(process.env.LIVE_PASSWORD ?? '');
   await page.getByRole('button', { name: 'Sign in' }).click();
   await page.getByTestId('my-orgs').getByRole('button').first().click();
-  await expect(page.getByRole('heading', { name: 'Flow', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Dashboard', level: 1 })).toBeVisible();
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Policy flow' }).click();
+  await expect(page.getByRole('heading', { name: 'Policy flow', level: 1 })).toBeVisible();
 
   const sim = page.getByTestId('simulator');
   await sim.getByLabel('scores.l2').fill('0.3');
@@ -174,7 +179,7 @@ test('screenshots against the real control plane', async ({ page }) => {
   await shot('rule-text');
 
   const nav = page.getByRole('navigation', { name: 'Main' });
-  await nav.getByRole('link', { name: 'Upstreams' }).click();
+  await nav.getByRole('link', { name: 'Model providers' }).click();
   await expect(page.getByRole('cell', { name: 'eu-sandbox', exact: true })).toBeVisible();
   await shot('upstreams');
 
@@ -190,7 +195,7 @@ test('screenshots against the real control plane', async ({ page }) => {
   await expect(page.getByTestId('change-list')).toBeVisible();
   await shot('config');
 
-  await nav.getByRole('link', { name: 'Audit log' }).click();
+  await nav.getByRole('link', { name: 'Request log' }).click();
   await expect(page.getByTestId('audit-table').getByRole('cell', { name: 'safe-model' }).first()).toBeVisible();
   await shot('audit');
   expect(problems).toEqual([]);

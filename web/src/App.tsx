@@ -174,6 +174,8 @@ export function App() {
   if (!token) {
     content = (
       <LoginPage
+        // A callback that arrives on an open sign-in page (a hash change) starts over.
+        key={route === 'auth-callback' ? 'callback' : 'login'}
         expired={expired}
         callback={route === 'auth-callback'}
         onLogin={(tok) => {
