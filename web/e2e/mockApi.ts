@@ -859,20 +859,20 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
     if (method === 'GET' && path === '/auth/providers') return json(200, id.idps.filter((p) => p.enabled).map((p) => ({ id: p.id, type: p.type, display_name: p.display_name })));
     if (method === 'POST' && path === '/auth/oidc/exchange') {
       const b = body as { code?: string };
-      if (b.code !== SSO_CODE) return json(400, { error: 'account_exists' });
+      if (b.code !== SSO_CODE) return json(400, { error: 'an account with this email already exists', code: 'account_exists' });
       return json(200, opts.mfa === 'totp' ? { mfa_required: true, mfa_token: MFA_TOKEN, methods: ['totp'] } : signedIn);
     }
     if (method === 'POST' && path === '/auth/mfa/verify') {
       const b = body as { mfa_token?: string; code?: string };
       if (b.mfa_token !== MFA_TOKEN) return json(401, { error: 'expired' });
-      return b.code === TOTP_CODE || b.code === RECOVERY_CODE ? json(200, signedIn) : json(401, { error: 'invalid_code' });
+      return b.code === TOTP_CODE || b.code === RECOVERY_CODE ? json(200, signedIn) : json(401, { error: 'invalid code', code: 'invalid_code' });
     }
     if (path.startsWith('/auth/mfa/totp/') && auth === `Bearer ${MFA_TOKEN}`) {
       if (path.endsWith('/setup')) return json(200, { secret: 'JBSWY3DPEHPK3PXPJBSWY3DP', otpauth_url: 'otpauth://totp/Guard%20Spec:admin%40example.com?secret=JBSWY3DPEHPK3PXPJBSWY3DP&issuer=Guard%20Spec' });
       if (path.endsWith('/confirm')) {
         return (body as { code?: string }).code === TOTP_CODE
           ? json(200, { recovery_codes: RECOVERY_CODES, token: TOKEN })
-          : json(401, { error: 'invalid_code' });
+          : json(401, { error: 'invalid code', code: 'invalid_code' });
       }
     }
     if (auth !== `Bearer ${TOKEN}`) return json(401, { error: 'missing or invalid token' });
@@ -886,13 +886,13 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
     }
     if (method === 'POST' && path === '/auth/mfa/totp/setup') return json(200, { secret: 'JBSWY3DPEHPK3PXPJBSWY3DP', otpauth_url: 'otpauth://totp/Guard%20Spec:admin%40example.com?secret=JBSWY3DPEHPK3PXPJBSWY3DP&issuer=Guard%20Spec' });
     if (method === 'POST' && path === '/auth/mfa/totp/confirm') {
-      if ((body as { code?: string }).code !== TOTP_CODE) return json(401, { error: 'invalid_code' });
+      if ((body as { code?: string }).code !== TOTP_CODE) return json(401, { error: 'invalid code', code: 'invalid_code' });
       id.me.mfa_enabled = true;
       return json(200, { recovery_codes: RECOVERY_CODES });
     }
     if (method === 'POST' && path === '/auth/mfa/recovery-codes/regenerate') return json(200, { recovery_codes: RECOVERY_CODES });
     if (method === 'DELETE' && path === '/auth/mfa') {
-      if (id.security.require_mfa) return json(409, { error: 'mfa_required_by_org' });
+      if (id.security.require_mfa) return json(409, { error: 'an organization of this user requires 2FA', code: 'mfa_required_by_org' });
       id.me.mfa_enabled = false;
       return json(204);
     }

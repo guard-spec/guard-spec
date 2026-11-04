@@ -22,8 +22,8 @@ export function methodKey(p: LoginProvider): string {
 export function validateSecurity(s: OrgSecurity): string[] {
   const errs: string[] = [];
   if (s.allowed_login_methods.length === 0) errs.push('methods');
-  if (!Number.isInteger(s.session_lifetime_hours) || s.session_lifetime_hours < 1 || s.session_lifetime_hours > 720) errs.push('lifetime');
-  if (s.domain_join.some((d) => !DOMAIN_RE.test(d.domain))) errs.push('domain');
+  if (!Number.isInteger(s.session_lifetime_hours) || s.session_lifetime_hours < 1 || s.session_lifetime_hours > 12) errs.push('lifetime');
+  if (s.domain_join.some((d) => !DOMAIN_RE.test(d.domain) || d.provider_id === '')) errs.push('domain');
   return errs;
 }
 
@@ -133,7 +133,7 @@ export function SecurityPage() {
                 value={d.provider_id}
                 onChange={(e) => set({ domain_join: s.domain_join.map((x, j) => (j === i ? { ...x, provider_id: e.target.value } : x)) })}
               >
-                <option value="">{t('sec.anyProvider')}</option>
+                <option value="" disabled>{t('sec.chooseProvider')}</option>
                 {providers.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.display_name}
@@ -171,7 +171,7 @@ export function SecurityPage() {
           <legend>{t('sec.sessions')}</legend>
           <Field label={t('sec.lifetime')} help={t('sec.lifetimeHelp')} error={errs.includes('lifetime') ? t('sec.lifetimeError') : undefined}>
             {(p) => (
-              <input {...p} type="number" min={1} max={720} value={s.session_lifetime_hours} onChange={(e) => set({ session_lifetime_hours: Number(e.target.value) })} />
+              <input {...p} type="number" min={1} max={12} value={s.session_lifetime_hours} onChange={(e) => set({ session_lifetime_hours: Number(e.target.value) })} />
             )}
           </Field>
         </fieldset>

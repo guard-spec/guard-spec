@@ -168,10 +168,10 @@ test('saves the security policy and manages identity providers without secrets',
   await expect(page.getByLabel('Require two-factor authentication')).toBeChecked();
   await page.getByLabel('SSO counts as two-factor').check();
   await page.getByRole('checkbox', { name: /Okta/ }).check();
-  await page.getByLabel('Session lifetime (hours)').fill('24');
+  await page.getByLabel('Session lifetime (hours)').fill('8');
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(page.getByText('Saved.')).toBeVisible();
-  expect(mock.identity.security).toMatchObject({ sso_satisfies_mfa: true, session_lifetime_hours: 24, allowed_login_methods: ['password', 'google', 'oidc:okta'] });
+  expect(mock.identity.security).toMatchObject({ sso_satisfies_mfa: true, session_lifetime_hours: 8, allowed_login_methods: ['password', 'google', 'oidc:okta'] });
 
   await go(page, 'Identity providers');
   await page.getByRole('button', { name: 'Add OIDC provider' }).click();
@@ -256,6 +256,11 @@ test('redirects the old addresses', async ({ page }) => {
   await page.goto('/ui/#/flow');
   await expect(page.getByRole('heading', { name: 'Policy flow', level: 1 })).toBeVisible();
   await expect(page).toHaveURL(/\/ui\/flow$/);
+  // Back from linking a provider (N15: #/auth/callback?linked=<id>).
+  await page.goto('/ui/#/auth/callback?linked=google');
+  await expect(page.getByText('Identity linked.')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'My account', level: 1 })).toBeVisible();
+  await expect(page).toHaveURL(/\/ui\/account$/);
 });
 
 test.describe('mobile', () => {
