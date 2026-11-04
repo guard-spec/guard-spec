@@ -371,6 +371,7 @@ Control plane:
 | `SLACK_BOT_TOKEN` | — | Instance Slack bot: personal DMs and `users.lookupByEmail`. Scopes `chat:write`, `users:read.email`, `im:write`. |
 | `SMTP_URL` | — | `smtp://user:pass@host:587` (STARTTLS, required unless loopback) or `smtps://user:pass@host:465`. |
 | `SMTP_FROM` | — | Sender, such as `Guard Spec <alerts@example.com>`. |
+| `ALERTS_TEST_TELEGRAM_API`, `ALERTS_TEST_SLACK_API` | — | Test only: origins that replace `https://api.telegram.org` and `https://slack.com/api`, for fake servers in end-to-end runs. Leave unset in production. |
 | channel secrets | — | The variables channels name in `secret_env` (`WEBHOOK_SECRET_*`, `SLACK_*`, `TEAMS_*`, `TELEGRAM_BOT_TOKEN_*`, `A2A_*`, `GUARDSPEC_ALERT_*`). |
 
 Gateway:
