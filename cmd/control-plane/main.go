@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -111,6 +112,7 @@ func main() {
 	app := newApp(db, secret, eng, cfg.AllowedOrigins, withEnvUpstream(cfg.UpstreamURL), withKeyOrgs(keyOrgs),
 		func(s *appSettings) {
 			s.mfaBox, s.publicURL, s.allowPrivate = mfaBox, cfg.PublicBaseURL, cfg.UpstreamAllowPrivate
+			s.trustedProxies = cfg.TrustedProxies
 		})
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -152,7 +154,10 @@ type appSettings struct {
 	// no database, and the environment upstream keys are read from.
 	oidcClient    *http.Client
 	sessionLookup auth.SessionLookup
-	getenv        func(string) string
+	// trustedProxies is TRUSTED_PROXIES: whose X-Forwarded-For names the
+	// client (clientip.go).
+	trustedProxies []*net.IPNet
+	getenv         func(string) string
 }
 
 // withKeyOrgs sets the UPSTREAM_KEY_ORGS allowlist.
@@ -181,6 +186,7 @@ func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins 
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 30 * time.Second,
 	})
+	app.Use(clientIPMiddleware(settings.trustedProxies))
 	app.Use(observe())
 	if allowedOrigins != "" {
 		app.Use(cors.New(cors.Config{AllowOrigins: allowedOrigins}))
@@ -195,7 +201,7 @@ func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins 
 	v1 := app.Group("/v1")
 	id := newIdentity(db, secret, settings)
 	perIP := func(max int) fiber.Handler {
-		return limiter.New(limiter.Config{Max: max, Expiration: time.Minute})
+		return limiter.New(limiter.Config{Max: max, Expiration: time.Minute, KeyGenerator: clientIP})
 	}
 	perUser := limiter.New(limiter.Config{Max: 10, Expiration: time.Minute,
 		KeyGenerator: func(c *fiber.Ctx) string { return "user:" + auth.UserID(c).String() }})
@@ -227,6 +233,7 @@ func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins 
 	authed.Post("/auth/mfa/recovery-codes/regenerate", perUser, id.regenerateRecoveryCodes)
 	authed.Delete("/auth/mfa", perUser, id.disableMFA)
 	authed.Post("/auth/identities/:providerId/link/start", perUser, id.linkStart)
+	authed.Post("/auth/identities/link/complete", perUser, id.linkComplete)
 	authed.Delete("/auth/identities/:providerId", id.unlinkIdentity)
 
 	// Instance administration.
@@ -284,7 +291,8 @@ func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins 
 	authed.Post("/organizations/:orgId/upstreams", admin, createUpstream(db, settings))
 	authed.Put("/organizations/:orgId/upstreams/:id", admin, updateUpstream(db, settings))
 	authed.Delete("/organizations/:orgId/upstreams/:id", admin, deleteUpstream(db))
-	authed.Post("/organizations/:orgId/upstreams/:id/test", admin, perUser, testUpstream(db, settings))
+	// Owner only: the test reaches out from the control plane with a key.
+	authed.Post("/organizations/:orgId/upstreams/:id/test", owner, perUser, testUpstream(db, settings))
 	authed.Put("/organizations/:orgId/default-upstream", admin, putOrgDefaultUpstream(db))
 	authed.Put("/organizations/:orgId/projects/:projectId/default-upstream", admin, putProjectDefaultUpstream(db))
 
@@ -332,6 +340,7 @@ func orgID(c *fiber.Ctx) uuid.UUID {
 
 // bootstrapAdmin creates the first owner of the default organization.
 func bootstrapAdmin(ctx context.Context, db *pgxpool.Pool, email, password string) error {
+	email = strings.ToLower(strings.TrimSpace(email))
 	if email == "" || password == "" {
 		return nil
 	}
@@ -340,30 +349,41 @@ func bootstrapAdmin(ctx context.Context, db *pgxpool.Pool, email, password strin
 		return err
 	}
 	return tenant.WithOrg(ctx, db, defaultOrgID, func(tx pgx.Tx) error {
-		// The bootstrap admin administers the instance while nobody else
-		// does (an instance admin can later hand that on).
-		if _, err := tx.Exec(ctx,
-			`UPDATE users SET is_instance_admin = true
-			 WHERE email = $1 AND disabled_at IS NULL
-			   AND NOT EXISTS (SELECT 1 FROM users WHERE is_instance_admin AND disabled_at IS NULL)`, email); err != nil {
-			return err
-		}
-		var userID uuid.UUID
-		err := tx.QueryRow(ctx,
-			`INSERT INTO users (email, hashed_password, is_instance_admin)
-			 VALUES ($1, $2, NOT EXISTS (SELECT 1 FROM users WHERE is_instance_admin AND disabled_at IS NULL))
-			 ON CONFLICT (email) DO NOTHING RETURNING id`, email, hash).Scan(&userID)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil // already bootstrapped
-		}
-		if err != nil {
-			return err
-		}
-		_, err = tx.Exec(ctx,
-			`INSERT INTO org_memberships (user_id, org_id, role) VALUES ($1, $2, 'owner')`,
-			userID, defaultOrgID)
-		return err
+		return bootstrapAdminTx(ctx, tx, email, hash)
 	})
+}
+
+// bootstrapAdminTx runs the bootstrap in tx, scoped to the default org.
+//
+// It runs once per instance. An instance that already has an administrator
+// is past it; one where it ran before (instance_state) is too, even if that
+// admin was deleted since: restarting with the same ADMIN_EMAIL and
+// ADMIN_PASSWORD must not bring the account back.
+func bootstrapAdminTx(ctx context.Context, tx pgx.Tx, email, hash string) error {
+	var hasAdmin bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM users WHERE is_instance_admin AND disabled_at IS NULL)`).
+		Scan(&hasAdmin); err != nil {
+		return err
+	}
+	tag, err := tx.Exec(ctx,
+		`INSERT INTO instance_state (key, value) VALUES ('bootstrap_admin', $1) ON CONFLICT (key) DO NOTHING`, email)
+	if err != nil {
+		return err
+	}
+	if hasAdmin || tag.RowsAffected() == 0 {
+		return nil
+	}
+	var userID uuid.UUID
+	err = tx.QueryRow(ctx,
+		`INSERT INTO users (email, hashed_password, is_instance_admin) VALUES ($1, $2, true)
+		 ON CONFLICT (email) DO UPDATE SET is_instance_admin = true RETURNING id`, email, hash).Scan(&userID)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx,
+		`INSERT INTO org_memberships (user_id, org_id, role) VALUES ($1, $2, 'owner') ON CONFLICT DO NOTHING`,
+		userID, defaultOrgID)
+	return err
 }
 
 // checkMFAKey refuses to start when users have 2FA but MFA_ENC_KEY is not
@@ -971,10 +991,14 @@ type appConfig struct {
 	// UpstreamAllowPrivate (UPSTREAM_ALLOW_PRIVATE) lets upstream connection
 	// tests reach private addresses, as it does for the gateway.
 	UpstreamAllowPrivate bool
+	// TrustedProxies (TRUSTED_PROXIES) are reverse proxies whose
+	// X-Forwarded-For is believed.
+	TrustedProxies    []*net.IPNet
+	trustedProxiesErr error
 }
 
 func loadConfig() appConfig {
-	return appConfig{
+	cfg := appConfig{
 		ListenAddr:     getenv("LISTEN_ADDR", ":8081"),
 		DatabaseURL:    os.Getenv("DATABASE_URL"),
 		JWTSecret:      os.Getenv("JWT_SECRET"),
@@ -987,6 +1011,8 @@ func loadConfig() appConfig {
 		// Invalid values are refused by check.
 		UpstreamAllowPrivate: strings.EqualFold(os.Getenv("UPSTREAM_ALLOW_PRIVATE"), "true"),
 	}
+	cfg.TrustedProxies, cfg.trustedProxiesErr = parseTrustedProxies(os.Getenv("TRUSTED_PROXIES"))
+	return cfg
 }
 
 // redactURL drops credentials and the query from a URL that is shown to users.
@@ -1009,6 +1035,9 @@ func (cfg appConfig) check() error {
 		// Even dev mode needs a key to sign with.
 		return errors.New("JWT_SECRET is not set; set JWT_SECRET to a random value of at least 32 bytes " +
 			"(for example: openssl rand -hex 32)")
+	}
+	if cfg.trustedProxiesErr != nil {
+		return cfg.trustedProxiesErr
 	}
 	if v := os.Getenv("UPSTREAM_ALLOW_PRIVATE"); v != "" {
 		if _, err := strconv.ParseBool(v); err != nil {

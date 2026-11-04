@@ -68,36 +68,49 @@ func providerCatalogHandler(c *fiber.Ctx) error {
 // probeTimeout bounds an upstream connection test.
 const probeTimeout = 5 * time.Second
 
+// wildcardKeyNote explains a test sent without the key.
+const wildcardKeyNote = "the key was not sent: UPSTREAM_KEY_ORGS allows it to every organization (*), and a test " +
+	"would let any org owner send it to an address of their choosing; list this organization's id for the key " +
+	"to test with it"
+
 // upstreamProxy builds the proxy the gateway would use for org's upstream u,
 // with the same checks: base URL, UPSTREAM_KEY_ORGS, the key variable, and
 // the dialer's refusal of private addresses unless UPSTREAM_ALLOW_PRIVATE.
-func upstreamProxy(u upstream, org uuid.UUID, s *appSettings) (*proxy.Proxy, error) {
+//
+// The key goes with the test only when UPSTREAM_KEY_ORGS names this org for
+// it (or GUARD_ENV=dev): an org owner can point an upstream anywhere, and a
+// key shared with every org through "*" must not be sent to a host they pick.
+// keySent reports whether it is.
+func upstreamProxy(u upstream, org uuid.UUID, s *appSettings) (px *proxy.Proxy, keySent bool, err error) {
 	if err := proxy.ValidateBaseURL(u.BaseURL); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	key := ""
 	if u.APIKeyEnv != "" {
 		if err := s.keyOrgs.Check(u.APIKeyEnv, org); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		if !config.UpstreamKeyVarRe.MatchString(u.APIKeyEnv) {
-			return nil, errors.New("api_key_env is not an UPSTREAM_KEY_ variable")
+			return nil, false, errors.New("api_key_env is not an UPSTREAM_KEY_ variable")
 		}
-		getenv := s.getenv
-		if getenv == nil {
-			getenv = os.Getenv
-		}
-		if key = getenv(u.APIKeyEnv); key == "" {
-			return nil, errors.New(u.APIKeyEnv + " is not set in the control plane's environment; " +
-				"set the same UPSTREAM_KEY_* variables as the gateway to test connections")
+		if s.keyOrgs.Explicit(u.APIKeyEnv, org) || config.DevMode() {
+			getenv := s.getenv
+			if getenv == nil {
+				getenv = os.Getenv
+			}
+			if key = getenv(u.APIKeyEnv); key == "" {
+				return nil, false, errors.New(u.APIKeyEnv + " is not set in the control plane's environment; " +
+					"set the same UPSTREAM_KEY_* variables as the gateway to test connections")
+			}
 		}
 	}
 	keyHeader := ""
 	if u.Provider == "azure_openai" {
 		keyHeader = "api-key"
 	}
-	return proxy.New(proxy.Config{BaseURL: u.BaseURL, Key: key, KeyHeader: keyHeader, APIVersion: u.APIVersion,
+	px, err = proxy.New(proxy.Config{BaseURL: u.BaseURL, Key: key, KeyHeader: keyHeader, APIVersion: u.APIVersion,
 		Headers: u.Headers, Timeout: probeTimeout, DenyPrivate: !s.allowPrivate})
+	return px, key != "", err
 }
 
 // testUpstream sends GET {base_url}/models and reports what came back. The
@@ -121,14 +134,19 @@ func testUpstream(db *pgxpool.Pool, s *appSettings) fiber.Handler {
 		if err != nil {
 			return serverError(c, err)
 		}
-		px, err := upstreamProxy(u, org, s)
+		px, keySent, err := upstreamProxy(u, org, s)
 		if err != nil {
 			return c.JSON(proxy.ProbeResult{Models: []string{}, Error: err.Error()})
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
 		defer cancel()
 		res := px.Probe(ctx)
-		logActivity(c, db, &org, "upstream.tested", u.Name, map[string]any{"ok": res.OK, "status": res.Status})
+		res.KeySent = keySent
+		if u.APIKeyEnv != "" && !keySent {
+			res.Note = wildcardKeyNote
+		}
+		logActivity(c, db, &org, "upstream.tested", u.Name,
+			map[string]any{"ok": res.OK, "status": res.Status, "key_sent": keySent})
 		return c.JSON(res)
 	}
 }

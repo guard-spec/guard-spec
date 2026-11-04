@@ -23,6 +23,7 @@ import (
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/coreos/go-oidc/v3/oidc/oidctest"
 	"github.com/giaplee/guard-spec/internal/auth"
+	"github.com/giaplee/guard-spec/internal/config"
 	"github.com/giaplee/guard-spec/internal/tenant"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -429,7 +430,12 @@ func TestMemberManagement(t *testing.T) {
 	h.expect(403, "POST", base+"/"+memberID.String()+"/reset-mfa", owner, "") // owner is now admin
 	h.expect(204, "POST", base+"/"+memberID.String()+"/reset-mfa", admin, "") // admin is now owner
 	memberTok, _ = h.sessionToken(memberID)
-	h.expect(200, "POST", base+"/"+memberID.String()+"/revoke-sessions", owner, "")
+	// An org admin is not an owner of every org of the member: refused.
+	if status, out := h.do("POST", base+"/"+memberID.String()+"/revoke-sessions", owner, ""); status != 403 ||
+		out["code"] != "not_sole_authority" {
+		t.Errorf("revoke by admin: %d %v", status, out)
+	}
+	h.expect(200, "POST", base+"/"+memberID.String()+"/revoke-sessions", admin, "")
 	h.expect(401, "GET", "/v1/auth/me", memberTok, "")
 
 	// Removing a member ends their access to the org.
@@ -686,6 +692,7 @@ func (f *fakeIDP) grant(code, challenge string, claims map[string]any) {
 
 type ssoRun struct {
 	state, nonce, challenge string
+	cookie                  string // the browser binding cookie start set
 }
 
 // start begins an SSO login and returns what the provider was sent.
@@ -705,19 +712,49 @@ func (h *cpHarness) ssoStart(provider string, redirect string) ssoRun {
 		q.Get("redirect_uri") != "http://cp.test/v1/auth/oidc/"+provider+"/callback" {
 		h.t.Fatalf("authorize url %s", u)
 	}
-	return ssoRun{state: q.Get("state"), nonce: q.Get("nonce"), challenge: q.Get("code_challenge")}
+	run := ssoRun{state: q.Get("state"), nonce: q.Get("nonce"), challenge: q.Get("code_challenge")}
+	for _, ck := range resp.Cookies() {
+		if ck.Name == ssoCookie {
+			run.cookie = ck.Value
+			if !ck.HttpOnly || ck.SameSite != http.SameSiteLaxMode || ck.Path != "/v1/auth/oidc" {
+				h.t.Errorf("binding cookie attributes: %+v", ck)
+			}
+		}
+	}
+	if run.cookie == "" {
+		h.t.Fatal("start set no binding cookie")
+	}
+	return run
 }
 
-// callback returns the UI fragment the callback redirects to.
-func (h *cpHarness) ssoCallback(provider, state, code string) url.Values {
+// ssoCallback runs the callback in the browser that started run and returns
+// the query of the UI page it redirects to.
+func (h *cpHarness) ssoCallback(provider string, run ssoRun, code string) url.Values {
 	h.t.Helper()
-	resp := h.req("GET", "/v1/auth/oidc/"+provider+"/callback?state="+url.QueryEscape(state)+"&code="+url.QueryEscape(code), "", "")
+	_, v := h.ssoCallbackAt(provider, run.state, code, run.cookie)
+	return v
+}
+
+// ssoCallbackAt runs the callback with a given binding cookie ("" for none)
+// and returns the UI path and its query.
+func (h *cpHarness) ssoCallbackAt(provider, state, code, cookie string) (string, url.Values) {
+	h.t.Helper()
+	r := httptest.NewRequest("GET", "/v1/auth/oidc/"+provider+"/callback?state="+url.QueryEscape(state)+
+		"&code="+url.QueryEscape(code), nil)
+	if cookie != "" {
+		r.AddCookie(&http.Cookie{Name: ssoCookie, Value: cookie})
+	}
+	resp, err := h.app.Test(r, -1)
+	if err != nil {
+		h.t.Fatal(err)
+	}
 	loc := resp.Header.Get("Location")
-	if resp.StatusCode != 302 || !strings.HasPrefix(loc, "/ui/#/auth/callback?") {
+	path, query, ok := strings.Cut(loc, "?")
+	if resp.StatusCode != 302 || !ok || !strings.HasPrefix(path, "/ui/#/") {
 		h.t.Fatalf("callback: %d %q", resp.StatusCode, loc)
 	}
-	v, _ := url.ParseQuery(strings.TrimPrefix(loc, "/ui/#/auth/callback?"))
-	return v
+	v, _ := url.ParseQuery(query)
+	return path, v
 }
 
 func TestOIDCLogin(t *testing.T) {
@@ -759,7 +796,7 @@ func TestOIDCLogin(t *testing.T) {
 	email := "sam-" + uuid.NewString()[:6] + "@" + domain
 	run := h.ssoStart(pid, "/ui/#/policies")
 	idp.grant("code1", run.challenge, claims(run.nonce, "sub-sam", email))
-	cb := h.ssoCallback(pid, run.state, "code1")
+	cb := h.ssoCallback(pid, run, "code1")
 	if cb.Get("code") == "" || cb.Get("error") != "" {
 		t.Fatalf("callback %v", cb)
 	}
@@ -776,37 +813,49 @@ func TestOIDCLogin(t *testing.T) {
 		t.Errorf("identities %v", me)
 	}
 	// The state is single use too.
-	if cb := h.ssoCallback(pid, run.state, "code1"); cb.Get("error") != "invalid_state" {
+	if cb := h.ssoCallback(pid, run, "code1"); cb.Get("error") != "invalid_state" {
 		t.Errorf("reused state: %v", cb)
 	}
 
 	// The second login matches on (provider, subject), whatever the email.
 	run = h.ssoStart(pid, "/ui/")
 	idp.grant("code2", run.challenge, claims(run.nonce, "sub-sam", "renamed-"+email))
-	if cb := h.ssoCallback(pid, run.state, "code2"); cb.Get("code") == "" {
+	if cb := h.ssoCallback(pid, run, "code2"); cb.Get("code") == "" {
 		t.Errorf("second login %v", cb)
 	}
 
 	// State mismatch.
-	if cb := h.ssoCallback(pid, "forged-state", "code3"); cb.Get("error") != "invalid_state" {
+	if _, cb := h.ssoCallbackAt(pid, "forged-state", "code3", run.cookie); cb.Get("error") != "invalid_state" {
 		t.Errorf("forged state %v", cb)
+	}
+	// Login CSRF: a callback in a browser that did not start the login (no
+	// binding cookie, or another one) is refused, and spends the state.
+	run = h.ssoStart(pid, "/ui/")
+	idp.grant("code3b", run.challenge, claims(run.nonce, "sub-sam", email))
+	if _, cb := h.ssoCallbackAt(pid, run.state, "code3b", ""); cb.Get("error") != "invalid_state" {
+		t.Errorf("no binding cookie %v", cb)
+	}
+	other := h.ssoStart(pid, "/ui/")
+	idp.grant("code3c", other.challenge, claims(other.nonce, "sub-sam", email))
+	if _, cb := h.ssoCallbackAt(pid, other.state, "code3c", run.cookie); cb.Get("error") != "invalid_state" {
+		t.Errorf("another browser's cookie %v", cb)
 	}
 	// Nonce mismatch.
 	run = h.ssoStart(pid, "/ui/")
 	idp.grant("code4", run.challenge, claims("other-nonce", "sub-x", "x@"+domain))
-	if cb := h.ssoCallback(pid, run.state, "code4"); cb.Get("error") != "invalid_nonce" {
+	if cb := h.ssoCallback(pid, run, "code4"); cb.Get("error") != "invalid_nonce" {
 		t.Errorf("nonce %v", cb)
 	}
 	// PKCE mismatch: the provider expects another challenge.
 	run = h.ssoStart(pid, "/ui/")
 	idp.grant("code5", "not-the-challenge", claims(run.nonce, "sub-y", "y@"+domain))
-	if cb := h.ssoCallback(pid, run.state, "code5"); cb.Get("error") != "exchange_failed" {
+	if cb := h.ssoCallback(pid, run, "code5"); cb.Get("error") != "exchange_failed" {
 		t.Errorf("pkce %v", cb)
 	}
 	// Domain not allowed.
 	run = h.ssoStart(pid, "/ui/")
 	idp.grant("code6", run.challenge, claims(run.nonce, "sub-z", "z@elsewhere.example"))
-	if cb := h.ssoCallback(pid, run.state, "code6"); cb.Get("error") != "domain_not_allowed" {
+	if cb := h.ssoCallback(pid, run, "code6"); cb.Get("error") != "domain_not_allowed" {
 		t.Errorf("domain %v", cb)
 	}
 	// Unverified email.
@@ -814,7 +863,7 @@ func TestOIDCLogin(t *testing.T) {
 	c := claims(run.nonce, "sub-u", "u@"+domain)
 	c["email_verified"] = false
 	idp.grant("code7", run.challenge, c)
-	if cb := h.ssoCallback(pid, run.state, "code7"); cb.Get("error") != "email_not_verified" {
+	if cb := h.ssoCallback(pid, run, "code7"); cb.Get("error") != "email_not_verified" {
 		t.Errorf("unverified %v", cb)
 	}
 	// Email collision with a password account: refused (no takeover).
@@ -822,16 +871,53 @@ func TestOIDCLogin(t *testing.T) {
 	victimID := h.passwordUser(victim, "victim-password-12")
 	run = h.ssoStart(pid, "/ui/")
 	idp.grant("code8", run.challenge, claims(run.nonce, "sub-attacker", victim))
-	if cb := h.ssoCallback(pid, run.state, "code8"); cb.Get("error") != "account_exists" {
+	if cb := h.ssoCallback(pid, run, "code8"); cb.Get("error") != "account_exists" {
 		t.Errorf("collision %v", cb)
 	}
-	// The victim can link the identity from their profile instead.
+	// The victim can link the identity from their profile instead: the
+	// callback hands the UI a one-time code, which only the user who started
+	// the link can complete.
 	victimTok, _ := h.sessionToken(victimID)
-	link := h.expect(200, "POST", "/v1/auth/identities/"+pid+"/link/start", victimTok, "")
-	lu, _ := url.Parse(link["url"].(string))
-	idp.grant("code9", lu.Query().Get("code_challenge"), claims(lu.Query().Get("nonce"), "sub-victim", victim))
-	if cb := h.ssoCallback(pid, lu.Query().Get("state"), "code9"); cb.Get("linked") != pid {
-		t.Errorf("link %v", cb)
+	linkStart := func(token string) url.Values {
+		link := h.expect(200, "POST", "/v1/auth/identities/"+pid+"/link/start", token, "")
+		lu, _ := url.Parse(link["url"].(string))
+		return lu.Query()
+	}
+	lq := linkStart(victimTok)
+	idp.grant("code9", lq.Get("code_challenge"), claims(lq.Get("nonce"), "sub-victim", victim))
+	path, cb := h.ssoCallbackAt(pid, lq.Get("state"), "code9", "")
+	if path != "/ui/#/account" || cb.Get("link_code") == "" {
+		t.Fatalf("link callback %s %v", path, cb)
+	}
+	if me := h.expect(200, "GET", "/v1/auth/me", victimTok, ""); len(me["identities"].([]any)) != 0 {
+		t.Error("linked before completion")
+	}
+	h.expect(401, "POST", "/v1/auth/identities/link/complete", session, `{"code":"`+cb.Get("link_code")+`"}`)
+	h.expect(200, "POST", "/v1/auth/identities/link/complete", victimTok, `{"code":"`+cb.Get("link_code")+`"}`)
+	h.expect(401, "POST", "/v1/auth/identities/link/complete", victimTok, `{"code":"`+cb.Get("link_code")+`"}`)
+	if me := h.expect(200, "GET", "/v1/auth/me", victimTok, ""); len(me["identities"].([]any)) != 1 {
+		t.Errorf("not linked: %v", me)
+	}
+	// A manual link grants no org through domain_join.
+	if h.role(victimID, org) != "" {
+		t.Error("a manual link ran domain_join")
+	}
+
+	// Link CSRF: an attacker starts a link and sends the provider's URL to a
+	// victim. The victim's identity lands in a code bound to the attacker's
+	// account, in the victim's browser; the victim's UI cannot complete it,
+	// and the attacker never sees the code.
+	attackerTok, attackerID := h.user("attacker-password-1")
+	lq = linkStart(attackerTok)
+	target := "target-" + uuid.NewString()[:6] + "@" + domain
+	idp.grant("code9b", lq.Get("code_challenge"), claims(lq.Get("nonce"), "sub-target", target))
+	_, cb = h.ssoCallbackAt(pid, lq.Get("state"), "code9b", "")
+	targetTok, _ := h.user("target-password-12")
+	h.expect(401, "POST", "/v1/auth/identities/link/complete", targetTok, `{"code":"`+cb.Get("link_code")+`"}`)
+	var linked int
+	if err := h.db.QueryRow(context.Background(), `SELECT count(*) FROM user_identities WHERE user_id = $1`, attackerID).
+		Scan(&linked); err != nil || linked != 0 {
+		t.Errorf("attacker linked: %d %v", linked, err)
 	}
 	// Unlinking keeps the password, so it is allowed; an SSO-only user cannot
 	// unlink their only identity.
@@ -846,7 +932,7 @@ func TestOIDCLogin(t *testing.T) {
 	h.expect(200, "PUT", "/v1/admin/identity-providers/"+pid, admin, `{"auto_provision":false}`)
 	run = h.ssoStart(pid, "/ui/")
 	idp.grant("code10", run.challenge, claims(run.nonce, "sub-new", "new@"+domain))
-	if cb := h.ssoCallback(pid, run.state, "code10"); cb.Get("error") != "not_provisioned" {
+	if cb := h.ssoCallback(pid, run, "code10"); cb.Get("error") != "not_provisioned" {
 		t.Errorf("auto_provision off %v", cb)
 	}
 	// Redirects outside /ui/ are refused.
@@ -899,9 +985,13 @@ func TestUpstreamProviderFieldsAndTest(t *testing.T) {
 		_, _ = w.Write([]byte(`{"data":[{"id":"gpt-4o"},{"id":"gpt-4o-mini"}]}`))
 	}))
 	defer models.Close()
-	env := map[string]string{"UPSTREAM_KEY_SAFE": "test-upstream-key"}
-	h := newCPHarness(t, func(s *appSettings) { s.allowPrivate = true; s.getenv = func(k string) string { return env[k] } })
-	org, _, admin := h.org(auth.RoleAdmin)
+	env := map[string]string{"UPSTREAM_KEY_SAFE": "test-upstream-key", "UPSTREAM_KEY_EXPL": "test-upstream-key"}
+	t.Setenv("GUARD_ENV", "")
+	h := newCPHarness(t)
+	org, _, admin := h.org(auth.RoleOwner) // the connection test is owner only
+	// UPSTREAM_KEY_EXPL lists this org by id; UPSTREAM_KEY_SAFE is for every org.
+	h.app = newCPHarness(t, withKeyOrgs(config.MustParseKeyOrgs("UPSTREAM_KEY_SAFE=*;UPSTREAM_KEY_EXPL="+org.String())),
+		func(s *appSettings) { s.allowPrivate = true; s.getenv = func(k string) string { return env[k] } }).app
 	base := "/v1/organizations/" + org.String() + "/upstreams"
 
 	h.expect(400, "POST", base, admin, `{"name":"bad","base_url":"`+models.URL+`/v1","headers":{"X-Org":"sk-live-123"}}`)
@@ -911,7 +1001,7 @@ func TestUpstreamProviderFieldsAndTest(t *testing.T) {
 	h.expect(400, "POST", base, admin, `{"name":"bad","base_url":"`+models.URL+`/v1","api_version":"2024-10-21"}`)
 	h.expect(400, "POST", base, admin, `{"name":"bad","base_url":"`+models.URL+`/v1","model":"a","default_model":"b"}`)
 	up := h.expect(201, "POST", base, admin, `{"name":"gpt","base_url":"`+models.URL+`/v1","provider":"openai",
-		"display_name":"GPT-4o (prod)","models":["gpt-4o","gpt-4o-mini"],"default_model":"gpt-4o","api_key_env":"UPSTREAM_KEY_SAFE",
+		"display_name":"GPT-4o (prod)","models":["gpt-4o","gpt-4o-mini"],"default_model":"gpt-4o","api_key_env":"UPSTREAM_KEY_EXPL",
 		"headers":{"OpenAI-Organization":"org_x"},"max_tokens_cap":4096,"retries":1,"tags":["prod"],"timeout_ms":60000}`)
 	if up["model"] != "gpt-4o" || up["default_model"] != "gpt-4o" || up["provider"] != "openai" ||
 		up["max_tokens_cap"] != float64(4096) || len(up["models"].([]any)) != 2 {
@@ -919,9 +1009,24 @@ func TestUpstreamProviderFieldsAndTest(t *testing.T) {
 	}
 	id := up["id"].(string)
 	res := h.expect(200, "POST", base+"/"+id+"/test", admin, "")
-	if res["ok"] != true || res["status"] != float64(200) || len(res["models_found"].([]any)) != 2 {
+	if res["ok"] != true || res["status"] != float64(200) || len(res["models_found"].([]any)) != 2 || res["key_sent"] != true {
 		t.Errorf("test %v", res)
 	}
+	// A key every org may use ("*") is not sent to an address an org owner
+	// chose, outside GUARD_ENV=dev.
+	wild := h.expect(201, "POST", base, admin, `{"name":"wild","base_url":"`+models.URL+`/v1","api_key_env":"UPSTREAM_KEY_SAFE",
+		"headers":{"OpenAI-Organization":"org_x"}}`)
+	res = h.expect(200, "POST", base+"/"+wild["id"].(string)+"/test", admin, "")
+	if res["key_sent"] != false || res["status"] != float64(401) || !strings.Contains(fmt.Sprint(res["note"]), "not sent") {
+		t.Errorf("wildcard key: %v", res)
+	}
+	t.Setenv("GUARD_ENV", "dev")
+	if res = h.expect(200, "POST", base+"/"+wild["id"].(string)+"/test", admin, ""); res["key_sent"] != true || res["ok"] != true {
+		t.Errorf("wildcard key in dev: %v", res)
+	}
+	t.Setenv("GUARD_ENV", "")
+	// Admins cannot test (owner only).
+	h.expect(403, "POST", base+"/"+id+"/test", h.member(org, auth.RoleAdmin), "")
 	upd := h.expect(200, "PUT", base+"/"+id, admin, `{"default_model":"gpt-4o-mini","max_tokens_cap":null,"tags":[]}`)
 	if upd["model"] != "gpt-4o-mini" || upd["max_tokens_cap"] != nil {
 		t.Errorf("updated %v", upd)
@@ -946,7 +1051,7 @@ func TestUpstreamTestSSRF(t *testing.T) {
 	defer local.Close()
 	// UPSTREAM_ALLOW_PRIVATE is off: a loopback upstream is refused at dial time.
 	h := newCPHarness(t, func(s *appSettings) { s.getenv = func(string) string { return "" } })
-	org, _, admin := h.org(auth.RoleAdmin)
+	org, _, admin := h.org(auth.RoleOwner)
 	base := "/v1/organizations/" + org.String() + "/upstreams"
 	up := h.expect(201, "POST", base, admin, `{"name":"local","base_url":"`+local.URL+`/v1"}`)
 	res := h.expect(200, "POST", base+"/"+up["id"].(string)+"/test", admin, "")
@@ -957,7 +1062,7 @@ func TestUpstreamTestSSRF(t *testing.T) {
 	h.expect(400, "POST", base, admin, `{"name":"meta","base_url":"http://169.254.169.254/v1"}`)
 	// A key the org may not use is refused by the test as by the gateway.
 	h2 := newCPHarness(t, func(s *appSettings) { s.allowPrivate = true })
-	org2, _, admin2 := h2.org(auth.RoleAdmin)
+	org2, _, admin2 := h2.org(auth.RoleOwner)
 	if _, err := h2.db.Exec(context.Background(), `SELECT 1`); err != nil {
 		t.Fatal(err)
 	}

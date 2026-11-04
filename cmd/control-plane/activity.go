@@ -81,30 +81,19 @@ func truncateRunes(s string, n int) string {
 // logActivity records an action of the authenticated caller.
 func logActivity(c *fiber.Ctx, db *pgxpool.Pool, org *uuid.UUID, action, target string, details map[string]any) {
 	writeActivity(c.Context(), db, activityEntry{Org: org, ActorID: auth.UserID(c), Action: action, Target: target,
-		IP: c.IP(), Details: details})
+		IP: clientIP(c), Details: details})
 }
 
-// logUserEvent records an event of user (a login, say) at the instance level
-// and in each of the user's organizations.
+// logUserEvent records an event of user (a login, a 2FA change) in the
+// instance log. A login happens before any organization is chosen, and
+// copying it into every org of the user would show each org's admins the
+// user's activity elsewhere.
 func logUserEvent(ctx context.Context, db *pgxpool.Pool, user uuid.UUID, action, ip string, details map[string]any) {
-	writeActivity(ctx, db, activityEntry{ActorID: user, Action: action, Target: user.String(), IP: ip, Details: details})
-	if user == uuid.Nil {
-		return
+	target := ""
+	if user != uuid.Nil {
+		target = user.String()
 	}
-	rows, err := db.Query(ctx, `SELECT id FROM user_organizations($1)`, user)
-	if err != nil {
-		slog.Warn("activity log: user organizations", "err", err)
-		return
-	}
-	orgs, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
-	if err != nil {
-		slog.Warn("activity log: user organizations", "err", err)
-		return
-	}
-	for _, org := range orgs {
-		writeActivity(ctx, db, activityEntry{Org: &org, ActorID: user, Action: action, Target: user.String(),
-			IP: ip, Details: details})
-	}
+	writeActivity(ctx, db, activityEntry{ActorID: user, Action: action, Target: target, IP: ip, Details: details})
 }
 
 type activityRow struct {

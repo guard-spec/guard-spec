@@ -36,6 +36,11 @@ services:
       # base64 of "dev-only-insecure-mfa-key-000000"; refused outside GUARD_ENV=dev.
       MFA_ENC_KEY: ${MFA_ENC_KEY:-ZGV2LW9ubHktaW5zZWN1cmUtbWZhLWtleS0wMDAwMDA=}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:18081}
+      # Development only: save upstreams with UPSTREAM_KEY_MAIN and test
+      # connections to local models (Ollama on the host) with the key.
+      UPSTREAM_KEY_ORGS: "${UPSTREAM_KEY_ORGS:-UPSTREAM_KEY_MAIN=*}"
+      UPSTREAM_ALLOW_PRIVATE: ${CONTROL_PLANE_UPSTREAM_ALLOW_PRIVATE:-true}
+      UPSTREAM_KEY_MAIN: ${UPSTREAM_KEY_MAIN:-}
 
   migrate:
     environment:

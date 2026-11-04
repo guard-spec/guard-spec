@@ -135,7 +135,7 @@ func (id *identity) login(c *fiber.Ctx) error {
 	var hash *string
 	var disabled *time.Time
 	err := id.db.QueryRow(c.Context(),
-		`SELECT id, hashed_password, disabled_at FROM users WHERE email = $1`, req.Email).Scan(&userID, &hash, &disabled)
+		`SELECT id, hashed_password, disabled_at FROM users WHERE email = lower(btrim($1))`, req.Email).Scan(&userID, &hash, &disabled)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return serverError(c, err)
 	}
@@ -146,7 +146,7 @@ func (id *identity) login(c *fiber.Ctx) error {
 	if !auth.CheckPassword(stored, req.Password) {
 		// Written after the answer: a known user's row goes to each of their
 		// orgs, and the time that takes must not tell which emails exist.
-		ip, email := strings.Clone(c.IP()), strings.Clone(truncateRunes(req.Email, 254))
+		ip, email := strings.Clone(clientIP(c)), maskEmail(req.Email)
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
@@ -155,7 +155,7 @@ func (id *identity) login(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid credentials"})
 	}
 	if disabled != nil {
-		logUserEvent(c.Context(), id.db, userID, "login.failed", c.IP(),
+		logUserEvent(c.Context(), id.db, userID, "login.failed", clientIP(c),
 			map[string]any{"method": auth.MethodPassword, "reason": "disabled"})
 		return auth.Deny(c, fiber.StatusForbidden, "account_disabled", "this account is disabled")
 	}
@@ -228,7 +228,7 @@ func anyOrgRequiresMFA(ctx context.Context, db *pgxpool.Pool, user uuid.UUID) (b
 // startSession creates a session and returns {"token", "user"}.
 func (id *identity) startSession(c *fiber.Ctx, user uuid.UUID, method string, mfa bool) (fiber.Map, error) {
 	sess, err := id.sessions.Create(c.Context(), auth.NewSession{UserID: user, Method: method, MFA: mfa,
-		UserAgent: c.Get(fiber.HeaderUserAgent), IP: c.IP()})
+		UserAgent: c.Get(fiber.HeaderUserAgent), IP: clientIP(c)})
 	if err != nil {
 		return nil, err
 	}
@@ -240,7 +240,7 @@ func (id *identity) startSession(c *fiber.Ctx, user uuid.UUID, method string, mf
 	if err != nil {
 		return nil, err
 	}
-	logUserEvent(c.Context(), id.db, user, "login.succeeded", c.IP(), map[string]any{"method": method, "mfa": mfa})
+	logUserEvent(c.Context(), id.db, user, "login.succeeded", clientIP(c), map[string]any{"method": method, "mfa": mfa})
 	return fiber.Map{"token": token, "user": me}, nil
 }
 
@@ -298,13 +298,12 @@ func (id *identity) mfaVerify(c *fiber.Ctx) error {
 	if err != nil {
 		return serverError(c, err)
 	}
-	how, err := id.checkCode(ctx, user, req.Code)
-	if err != nil {
-		return serverError(c, err)
-	}
+	how, err := id.checkCode(ctx, user, req.Code, clientIP(c))
 	if how == "" {
-		logUserEvent(ctx, id.db, user, "login.mfa_failed", c.IP(), map[string]any{"method": method})
-		return auth.Deny(c, fiber.StatusUnauthorized, "invalid_code", "invalid or already used code")
+		if err == nil {
+			logUserEvent(ctx, id.db, user, "login.mfa_failed", clientIP(c), map[string]any{"method": method})
+		}
+		return codeFailure(c, err)
 	}
 	if ok, err := id.finishChallenge(ctx, jti); err != nil {
 		return serverError(c, err)
@@ -312,7 +311,7 @@ func (id *identity) mfaVerify(c *fiber.Ctx) error {
 		return auth.Deny(c, fiber.StatusUnauthorized, "mfa_token_invalid", errChallengeInvalid.Error())
 	}
 	if how == "recovery" {
-		logUserEvent(ctx, id.db, user, "mfa.recovery_code_used", c.IP(), nil)
+		logUserEvent(ctx, id.db, user, "mfa.recovery_code_used", clientIP(c), nil)
 	}
 	out, err := id.startSession(c, user, method, true)
 	if err != nil {
@@ -321,10 +320,79 @@ func (id *identity) mfaVerify(c *fiber.Ctx) error {
 	return c.JSON(out)
 }
 
-// checkCode checks a TOTP code (6 digits) or a recovery code of an enabled
+// Per-user lockout of the second factor: the mfa_token and per-IP limits
+// alone let many tokens or addresses guess one user's codes.
+const (
+	mfaLockAfter   = 10               // failures in a row before the first lock
+	mfaLockEvery   = 5                // further failures before each longer lock
+	mfaLockBase    = 15 * time.Minute // the first lock; it doubles each time
+	mfaLockMaximum = 24 * time.Hour
+)
+
+var errMFALocked = errors.New("too many wrong codes; two-factor authentication is locked for this account for a while")
+
+// mfaLockFor is the lock that the failures-th failure in a row starts, or 0.
+func mfaLockFor(failures int) time.Duration {
+	if failures < mfaLockAfter || (failures-mfaLockAfter)%mfaLockEvery != 0 {
+		return 0
+	}
+	d := mfaLockBase
+	for i := 0; i < (failures-mfaLockAfter)/mfaLockEvery && d < mfaLockMaximum; i++ {
+		d *= 2
+	}
+	return min(d, mfaLockMaximum)
+}
+
+// checkCode is matchCode with the per-user lockout: a locked account is
+// refused with errMFALocked before the code is looked at; a wrong code counts
+// a failure (and may start a lock, recorded in the activity log); a right
+// one resets the count.
+func (id *identity) checkCode(ctx context.Context, user uuid.UUID, code, ip string) (string, error) {
+	var locked bool
+	if err := id.db.QueryRow(ctx, `SELECT COALESCE(mfa_locked_until > NOW(), false) FROM users WHERE id = $1`, user).
+		Scan(&locked); err != nil {
+		return "", err
+	}
+	if locked {
+		return "", errMFALocked
+	}
+	how, err := id.matchCode(ctx, user, code)
+	if err != nil {
+		return "", err
+	}
+	if how != "" {
+		_, err := id.db.Exec(ctx, `UPDATE users SET mfa_failures = 0, mfa_locked_until = NULL WHERE id = $1`, user)
+		return how, err
+	}
+	var failures int
+	if err := id.db.QueryRow(ctx, `UPDATE users SET mfa_failures = mfa_failures + 1 WHERE id = $1 RETURNING mfa_failures`, user).
+		Scan(&failures); err != nil {
+		return "", err
+	}
+	if d := mfaLockFor(failures); d > 0 {
+		if _, err := id.db.Exec(ctx, `UPDATE users SET mfa_locked_until = NOW() + $2::interval WHERE id = $1`, user, d); err != nil {
+			return "", err
+		}
+		logUserEvent(ctx, id.db, user, "mfa.locked", ip, map[string]any{"failures": failures, "minutes": int(d.Minutes())})
+	}
+	return "", nil
+}
+
+// codeFailure answers a refused code.
+func codeFailure(c *fiber.Ctx, err error) error {
+	if errors.Is(err, errMFALocked) {
+		return auth.Deny(c, fiber.StatusTooManyRequests, "mfa_locked", err.Error())
+	}
+	if err != nil {
+		return serverError(c, err)
+	}
+	return auth.Deny(c, fiber.StatusUnauthorized, "invalid_code", "invalid or already used code")
+}
+
+// matchCode checks a TOTP code (6 digits) or a recovery code of an enabled
 // 2FA. It returns "totp", "recovery" or "" (refused). A TOTP code is refused
 // for the step it was used in and every earlier one; a recovery code once.
-func (id *identity) checkCode(ctx context.Context, user uuid.UUID, code string) (string, error) {
+func (id *identity) matchCode(ctx context.Context, user uuid.UUID, code string) (string, error) {
 	code = strings.TrimSpace(code)
 	if isDigits(code) && len(code) == 6 {
 		if id.box == nil {
@@ -384,6 +452,18 @@ func (id *identity) checkCode(ctx context.Context, user uuid.UUID, code string) 
 		}
 	}
 	return "", nil
+}
+
+// maskEmail keeps what an admin needs to recognise a failed login without
+// storing what was typed: the first character and the domain. A password
+// typed into the email field is not recorded.
+func maskEmail(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	at := strings.LastIndexByte(s, '@')
+	if at < 1 || at == len(s)-1 || len(s) > 254 || strings.ContainsAny(s, " \t") {
+		return "(not an email)"
+	}
+	return string([]rune(s)[0]) + "***@" + truncateRunes(s[at+1:], 100)
 }
 
 func isDigits(s string) bool {
@@ -587,7 +667,7 @@ func (id *identity) totpConfirm(c *fiber.Ctx) error {
 	if err != nil {
 		return serverError(c, err)
 	}
-	logUserEvent(ctx, id.db, user, "mfa.enabled", c.IP(), nil)
+	logUserEvent(ctx, id.db, user, "mfa.enabled", clientIP(c), nil)
 	out := fiber.Map{"recovery_codes": codes}
 	if enrolling {
 		if ok, err := id.finishChallenge(ctx, jti); err != nil {
@@ -620,12 +700,9 @@ func (id *identity) regenerateRecoveryCodes(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": err.Error()})
 	}
 	user := auth.UserID(c)
-	how, err := id.checkCode(c.Context(), user, code)
-	if err != nil {
-		return serverError(c, err)
-	}
+	how, err := id.checkCode(c.Context(), user, code, clientIP(c))
 	if how == "" {
-		return auth.Deny(c, fiber.StatusUnauthorized, "invalid_code", "invalid or already used code")
+		return codeFailure(c, err)
 	}
 	codes, hashes, err := newRecoveryCodes()
 	if err != nil {
@@ -636,7 +713,7 @@ func (id *identity) regenerateRecoveryCodes(c *fiber.Ctx) error {
 	}); err != nil {
 		return serverError(c, err)
 	}
-	logUserEvent(c.Context(), id.db, user, "mfa.recovery_codes_regenerated", c.IP(), nil)
+	logUserEvent(c.Context(), id.db, user, "mfa.recovery_codes_regenerated", clientIP(c), nil)
 	return c.JSON(fiber.Map{"recovery_codes": codes})
 }
 
@@ -652,17 +729,14 @@ func (id *identity) disableMFA(c *fiber.Ctx) error {
 	} else if required {
 		return auth.Deny(c, fiber.StatusConflict, "mfa_required_by_org", "an organization you belong to requires 2FA")
 	}
-	how, err := id.checkCode(ctx, user, code)
-	if err != nil {
-		return serverError(c, err)
-	}
+	how, err := id.checkCode(ctx, user, code, clientIP(c))
 	if how == "" {
-		return auth.Deny(c, fiber.StatusUnauthorized, "invalid_code", "invalid or already used code")
+		return codeFailure(c, err)
 	}
 	if err := clearMFA(ctx, id.db, user); err != nil {
 		return serverError(c, err)
 	}
-	logUserEvent(ctx, id.db, user, "mfa.disabled", c.IP(), nil)
+	logUserEvent(ctx, id.db, user, "mfa.disabled", clientIP(c), nil)
 	return c.Status(204).Send(nil)
 }
 
@@ -719,7 +793,7 @@ func (id *identity) revokeSession(c *fiber.Ctx) error {
 	if !ok {
 		return c.Status(404).JSON(fiber.Map{"error": "not found"})
 	}
-	logUserEvent(c.Context(), id.db, auth.UserID(c), "session.revoked", c.IP(), map[string]any{"session_id": sid})
+	logUserEvent(c.Context(), id.db, auth.UserID(c), "session.revoked", clientIP(c), map[string]any{"session_id": sid})
 	return c.Status(204).Send(nil)
 }
 
@@ -774,6 +848,6 @@ func (id *identity) changePassword(c *fiber.Ctx) error {
 	if _, err := id.sessions.RevokeAll(ctx, user, cur.ID); err != nil {
 		return serverError(c, err)
 	}
-	logUserEvent(ctx, id.db, user, "password.changed", c.IP(), nil)
+	logUserEvent(ctx, id.db, user, "password.changed", clientIP(c), nil)
 	return c.Status(204).Send(nil)
 }

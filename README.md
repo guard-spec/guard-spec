@@ -416,7 +416,8 @@ in a second table.
 | `ALLOWED_ORIGINS` | empty (compose: `http://localhost:3000`) | CORS origins; empty disables CORS. The UI at `/ui/` is same-origin and needs none |
 | `UPSTREAM_LLM_URL` | empty | The gateway's value, so that the policy simulator can show the `env` step; credentials in it are not shown |
 | `UPSTREAM_KEY_ORGS` | empty (compose: `UPSTREAM_KEY_MAIN=*`) | As on the gateway. Saving an upstream (or a config file) that names a key variable not allowed for the org is refused |
-| `UPSTREAM_KEY_*`, `UPSTREAM_ALLOW_PRIVATE` | empty, `false` (compose: `true`) | As on the gateway; used only by `POST .../upstreams/:id/test`, which applies the same key allowlist and address rules |
+| `UPSTREAM_KEY_*`, `UPSTREAM_ALLOW_PRIVATE` | empty, `false` (compose: `false`; dev override: `true`) | Used only by `POST .../upstreams/:id/test` (owner only), which applies the gateway's key allowlist and address rules. A key is sent with a test only to orgs `UPSTREAM_KEY_ORGS` lists by id, not through `*` (except with `GUARD_ENV=dev`); the answer says `key_sent`. Give the control plane `UPSTREAM_KEY_*` variables only if tests should use them |
+| `TRUSTED_PROXIES` | empty | Comma-separated CIDRs or addresses of reverse proxies. Their `X-Forwarded-For` is read from the right, and the first address that is not a trusted proxy is the client, for rate limits, sessions and the activity log. Empty: the header is ignored and the TCP peer is the client |
 | `MFA_ENC_KEY` | empty (dev: a fixed key) | 32 random bytes in base64 (`openssl rand -base64 32`). Encrypts TOTP secrets with AES-256-GCM. Without it 2FA cannot be turned on; when users already have 2FA the control plane refuses to start without it. The development key is refused outside `GUARD_ENV=dev` |
 | `PUBLIC_BASE_URL` | empty (dev: `http://localhost:18081`) | External origin of the control plane, such as `https://guard.example.com`. SSO callbacks go to `<PUBLIC_BASE_URL>/v1/auth/oidc/<provider id>/callback`; SSO is unavailable without it |
 | `OIDC_SECRET_*` | empty | Client secrets of SSO providers; each provider names its variable in `client_secret_env` |
@@ -499,14 +500,14 @@ needs `Authorization: Bearer <token from /v1/auth/login>`. Roles are `owner`,
 | Method and path | Role |
 |---|---|
 | `POST /auth/login` (a session, or the 2FA step; see [Identity](#identity-sso-and-two-factor-authentication)) | none (rate limited) |
-| `POST /auth/mfa/verify` (`{mfa_token, code}`) | none (rate limited; 5 attempts per `mfa_token`) |
+| `POST /auth/mfa/verify` (`{mfa_token, code}`) | none (rate limited; 5 attempts per `mfa_token`; 429 `mfa_locked` after 10 wrong codes for the user) |
 | `GET /auth/providers` (enabled SSO providers) | none |
 | `GET /auth/oidc/:id/start?redirect=/ui/...`, `GET /auth/oidc/:id/callback` | none (browser redirects) |
 | `POST /auth/oidc/exchange` (`{code}`) | none (rate limited) |
 | `POST /auth/mfa/totp/setup`, `POST /auth/mfa/totp/confirm` | any user, or an enrollment `mfa_token` |
 | `GET /auth/me`, `POST /auth/logout`, `GET /auth/sessions`, `DELETE /auth/sessions/:id`, `POST /auth/password` | any user |
 | `POST /auth/mfa/recovery-codes/regenerate`, `DELETE /auth/mfa` (`{code}`) | any user |
-| `POST /auth/identities/:providerId/link/start` (returns `{url}`), `DELETE /auth/identities/:providerId` | any user |
+| `POST /auth/identities/:providerId/link/start` (returns `{url}`), `POST /auth/identities/link/complete` (`{code}`), `DELETE /auth/identities/:providerId` | any user |
 | `GET /permissions` (role-to-capability table), `GET /providers/catalog` (model provider presets) | none |
 | `GET`, `POST /admin/users`; `PUT`, `DELETE /admin/users/:id` | instance admin |
 | `GET`, `POST /admin/identity-providers`; `PUT`, `DELETE /admin/identity-providers/:id` | instance admin |
@@ -532,7 +533,7 @@ needs `Authorization: Bearer <token from /v1/auth/login>`. Roles are `owner`,
 | `GET`, `POST /organizations/:orgId/projects` (list includes `default_upstream_id`) | viewer, admin |
 | `GET`, `POST /organizations/:orgId/upstreams` | viewer, admin |
 | `PUT`, `DELETE /organizations/:orgId/upstreams/:id` (409 while a rule or default uses it) | admin |
-| `POST /organizations/:orgId/upstreams/:id/test` (`GET {base_url}/models`, 5 s; returns `{ok, latency_ms, status, models_found, error}`) | admin |
+| `POST /organizations/:orgId/upstreams/:id/test` (`GET {base_url}/models`, 5 s; returns `{ok, latency_ms, status, models_found, error, key_sent, note}`) | owner |
 | `PUT /organizations/:orgId/default-upstream` (`{"upstream_id": id or null}`) | admin |
 | `PUT /organizations/:orgId/projects/:projectId/default-upstream` | admin |
 | `GET`, `PUT /organizations/:orgId/config[?dry_run=true]` (YAML; `GET` is 409 when the stored config would not apply again) | viewer, admin |
@@ -929,6 +930,10 @@ What it does **not** protect against:
   host; change both before letting untrusted users create orgs.
 - **Volume attacks.** Rate limits are per gateway replica and in memory; put
   a proper rate limiter or WAF in front for abuse protection.
+- **2FA enrollment is trust on first use.** When an organization starts
+  requiring 2FA, a member without it enrolls at their next login with only
+  their password: someone who already has that password can enroll their own
+  authenticator first. Require 2FA early, and reset a member's 2FA if in doubt.
 
 Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
 
@@ -1152,12 +1157,22 @@ are refused: everyone logs in again after the upgrade.
 step of skew). `POST /v1/auth/mfa/totp/setup` returns the secret and an
 `otpauth://` URL (the UI draws the QR code itself); `.../confirm {code}`
 turns it on and returns 10 recovery codes, shown once and stored as bcrypt
-hashes. A login of a user with 2FA returns
+hashes. Enrollment is trust on first use: whoever completes it at the first
+login after an org requires 2FA (the account's password holder) chooses the
+authenticator. A login of a user with 2FA returns
 `{"mfa_required": true, "mfa_token", "methods": ["totp","recovery"]}`;
 `POST /v1/auth/mfa/verify {mfa_token, code}` finishes it. The `mfa_token` is a
 5-minute JWT allowing 5 attempts and one success; a TOTP code is refused for
-the step it was used in (and earlier ones), a recovery code works once. The
-secret is encrypted with `MFA_ENC_KEY` (AES-256-GCM, bound to the user id).
+the step it was used in (and earlier ones), a recovery code works once. Ten
+wrong codes in a row lock the user's second factor for 15 minutes (doubling
+every 5 more, at most 24 hours; 429 `mfa_locked`, logged as `mfa.locked`),
+whatever the token or address. The secret is encrypted with `MFA_ENC_KEY`
+(AES-256-GCM, bound to the user id). Back the key up with the database:
+without it no user with 2FA can log in.
+
+A member's 2FA reset and session revocation act on the user everywhere, so
+they need an instance administrator or an owner of every organization the
+user belongs to (403 `not_sole_authority` otherwise).
 
 **Org security** (`PUT /v1/organizations/:orgId/security`, owner):
 `require_mfa` makes members without 2FA enroll at their next login
@@ -1172,27 +1187,42 @@ on first login, with a role up to admin. A domain can be joined only if the
 instance administrator listed it in the provider's `allowed_domains`.
 
 **SSO** (OpenID Connect, Google as a preset). An instance administrator
-(`users.is_instance_admin`; the bootstrap admin, and the owners of the default
-org at migration 013) adds providers at `/v1/admin/identity-providers`
+(`users.is_instance_admin`; the bootstrap admin, which is the earliest owner
+of the default org at migration 013) adds providers at `/v1/admin/identity-providers`
 `{"type":"google","client_id":"...","client_secret_env":"OIDC_SECRET_GOOGLE","allowed_domains":["example.com"],"auto_provision":true}`.
 Register `<PUBLIC_BASE_URL>/v1/auth/oidc/<id>/callback` as the redirect URI.
 The flow uses PKCE (S256), `state` and `nonce` (stored server-side for 10
-minutes), verifies the ID token through the provider's JWKS and requires
+minutes); the state is also bound to the browser by an HttpOnly, SameSite=Lax
+cookie set at start (login CSRF), so the UI navigates to `.../start` rather
+than fetching it. The callback verifies the ID token through the provider's JWKS and requires
 `email_verified`; Google logins with `allowed_domains` must also carry a
 matching `hd` claim. The callback redirects to
 `/ui/#/auth/callback?code=<60 s one-time code>` (or `?error=<code>`), which
 `POST /v1/auth/oidc/exchange` turns into the same answer as a password
-login, so 2FA still applies. Identities match on (provider, subject). An
-email that matches an existing account is linked only if that account has no
-password; otherwise the login is refused with `account_exists` and the owner
-of the account links the identity from their profile
-(`POST /v1/auth/identities/:providerId/link/start`). New users are created
-only with `auto_provision` and an allowed domain.
+login, so 2FA still applies. Identities match on (provider, subject). A new
+identity whose email matches an existing account links to it only when the
+provider has `trust_email_for_linking` (off by default) and the account has
+no password and no identity; otherwise the login is refused with
+`account_exists`, and the owner of the account links the identity from their
+profile: `POST /v1/auth/identities/:providerId/link/start` returns the
+provider's URL, the callback sends the browser to
+`/ui/#/account?link_code=<60 s code>`, and `POST /v1/auth/identities/link/complete {code}`
+with the same user's token binds it (a code is refused for anyone else, so a
+link URL sent to a victim links nothing). A manual link never runs
+`domain_join`. New users are created only with `auto_provision` and an
+allowed domain. Emails are stored lower-cased.
 
 **Activity log.** Member, invite, API key, policy, upstream, security and
-config changes, 2FA resets and logins (success and failure) are recorded per
-org (`GET /v1/organizations/:orgId/activity`); SSO provider and instance user
-changes at `GET /v1/admin/activity`. Details never hold secrets.
+config changes and 2FA resets are recorded per org
+(`GET /v1/organizations/:orgId/activity`); SSO provider and instance user
+changes, logins (success and failure) and the user's own 2FA events at
+`GET /v1/admin/activity`. Details never hold secrets; a failed login keeps
+the email masked (`a***@example.com`).
+
+**Bootstrap.** `ADMIN_EMAIL`/`ADMIN_PASSWORD` create the first owner and
+instance administrator once. A later start does nothing if an instance
+administrator exists or the bootstrap ran before, so a deleted bootstrap admin
+stays deleted.
 
 ### Audit retention
 
@@ -1233,6 +1263,25 @@ helm install gs deploy/helm/guard-spec \
   effective limit.
 
 ## Upgrade notes
+
+### Identity (migrations 013-015)
+
+- Everyone logs in again: tokens from before 013 carry no session id.
+- Set `MFA_ENC_KEY` (`openssl rand -base64 32`) and back it up with the
+  database. Once users have 2FA the control plane refuses to start without
+  it, and a lost key disables everyone's 2FA.
+- Session revocations take effect at once on the replica that made them and
+  within 15 seconds on other control plane replicas (cache).
+- Migration 013 makes one instance administrator: the earliest owner of the
+  default organization (the `ADMIN_EMAIL` bootstrap admin on a standard
+  install). Promote others at `PUT /v1/admin/users/:id`.
+- Migration 015 lower-cases stored emails. If two accounts differ only in
+  case it stops and names them; merge or rename them first.
+- Behind a reverse proxy, set `TRUSTED_PROXIES`, or every client shares the
+  proxy's address for rate limits.
+- Compose no longer gives the control plane `UPSTREAM_KEY_ORGS` by default or
+  `UPSTREAM_ALLOW_PRIVATE=true`: set `UPSTREAM_KEY_ORGS` in `.env` (as for the
+  gateway) to save upstreams that use keys.
 
 ### Upgrading from PromptShield
 

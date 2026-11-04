@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"slices"
 	"strconv"
@@ -369,37 +370,44 @@ func (r route) applyModel(requested string) (string, error) {
 	return requested, nil
 }
 
+// errBadTokenLimit refuses a max_tokens that is not a finite, non-negative number.
+var errBadTokenLimit = errors.New("max_tokens and max_completion_tokens must be non-negative numbers")
+
 // capTokens lowers max_tokens and max_completion_tokens above the upstream's
-// cap. It reports whether it changed the body.
-func (r route) capTokens(body map[string]any) bool {
+// cap. Every number form counts (5000.0, 1e6): the value is read as a float
+// and floored before the comparison. It reports whether it changed the body,
+// and refuses non-finite or negative values when a cap is set.
+func (r route) capTokens(body map[string]any) (bool, error) {
 	if r.maxTokensCap == nil {
-		return false
+		return false, nil
 	}
 	changed := false
 	for _, k := range []string{"max_tokens", "max_completion_tokens"} {
 		v, ok := body[k]
-		if !ok {
+		if !ok || v == nil {
 			continue
 		}
-		var n int64
+		var f float64
 		switch x := v.(type) {
 		case json.Number:
-			i, err := x.Int64()
-			if err != nil {
-				continue // not a whole number: the upstream refuses it
+			var err error
+			if f, err = x.Float64(); err != nil {
+				return false, errBadTokenLimit // out of range: ±Inf
 			}
-			n = i
 		case float64:
-			n = int64(x)
+			f = x
 		default:
-			continue
+			return false, errBadTokenLimit
 		}
-		if n > int64(*r.maxTokensCap) {
+		if math.IsNaN(f) || math.IsInf(f, 0) || f < 0 {
+			return false, errBadTokenLimit
+		}
+		if math.Floor(f) > float64(*r.maxTokensCap) {
 			body[k] = json.Number(strconv.Itoa(*r.maxTokensCap))
 			changed = true
 		}
 	}
-	return changed
+	return changed, nil
 }
 
 // errRouteUnavailable fails a request closed with 502.

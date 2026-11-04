@@ -70,18 +70,22 @@ type providerRow struct {
 	Scopes          []string  `json:"scopes"`
 	AllowedDomains  []string  `json:"allowed_domains"`
 	AutoProvision   bool      `json:"auto_provision"`
-	Enabled         bool      `json:"enabled"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	// TrustEmailForLinking lets a first login link to an existing account
+	// with the same verified email, if that account has no password and no
+	// identity. Off: such a login is refused with account_exists.
+	TrustEmailForLinking bool      `json:"trust_email_for_linking"`
+	Enabled              bool      `json:"enabled"`
+	CreatedAt            time.Time `json:"created_at"`
+	UpdatedAt            time.Time `json:"updated_at"`
 }
 
 const providerColumns = `id, type, display_name, issuer, client_id, client_secret_env, scopes, allowed_domains,
-	auto_provision, enabled, created_at, updated_at`
+	auto_provision, trust_email_for_linking, enabled, created_at, updated_at`
 
 func scanProvider(row pgx.Row) (providerRow, error) {
 	var p providerRow
 	err := row.Scan(&p.ID, &p.Type, &p.DisplayName, &p.Issuer, &p.ClientID, &p.ClientSecretEnv, &p.Scopes,
-		&p.AllowedDomains, &p.AutoProvision, &p.Enabled, &p.CreatedAt, &p.UpdatedAt)
+		&p.AllowedDomains, &p.AutoProvision, &p.TrustEmailForLinking, &p.Enabled, &p.CreatedAt, &p.UpdatedAt)
 	return p, err
 }
 
@@ -273,8 +277,13 @@ func randomToken() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(buf), nil
 }
 
+// ssoCookie binds an SSO login to the browser that started it (login CSRF).
+const ssoCookie = "gs_sso"
+
 // beginAuth stores a login in progress and returns the provider's URL.
-func (id *identity) beginAuth(ctx context.Context, p *oidcProvider, redirect string, linkUser *uuid.UUID) (string, error) {
+// browser is the random value of the cookie that start sets ("" for a profile
+// link, which is bound to the user at completion instead).
+func (id *identity) beginAuth(ctx context.Context, p *oidcProvider, redirect string, linkUser *uuid.UUID, browser string) (string, error) {
 	state, err := randomToken()
 	if err != nil {
 		return "", err
@@ -285,9 +294,10 @@ func (id *identity) beginAuth(ctx context.Context, p *oidcProvider, redirect str
 	}
 	verifier := oauth2.GenerateVerifier()
 	if _, err := id.db.Exec(ctx,
-		`INSERT INTO oidc_states (state_hash, provider_id, nonce, code_verifier, redirect, link_user_id, expires_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, NOW() + $7::interval)`,
-		tenant.HashKey(state), p.row.ID, nonce, verifier, redirect, linkUser, oidcStateTTL); err != nil {
+		`INSERT INTO oidc_states (state_hash, provider_id, nonce, code_verifier, redirect, link_user_id, expires_at,
+		   browser_hash)
+		 VALUES ($1, $2, $3, $4, $5, $6, NOW() + $7::interval, NULLIF($8, ''))`,
+		tenant.HashKey(state), p.row.ID, nonce, verifier, redirect, linkUser, oidcStateTTL, hashOrEmpty(browser)); err != nil {
 		return "", err
 	}
 	_, _ = id.db.Exec(ctx, `DELETE FROM oidc_states WHERE expires_at < NOW()`)
@@ -316,10 +326,16 @@ func (id *identity) oidcStart(c *fiber.Ctx) error {
 		slog.Error("sso provider unavailable", "provider", pid, "err", err)
 		return auth.Deny(c, fiber.StatusServiceUnavailable, "sso_unavailable", "this sign-in provider is not configured correctly")
 	}
-	to, err := id.beginAuth(c.Context(), p, redirect, nil)
+	browser, err := randomToken()
 	if err != nil {
 		return serverError(c, err)
 	}
+	to, err := id.beginAuth(c.Context(), p, redirect, nil, browser)
+	if err != nil {
+		return serverError(c, err)
+	}
+	c.Cookie(&fiber.Cookie{Name: ssoCookie, Value: browser, Path: "/v1/auth/oidc", MaxAge: int(oidcStateTTL.Seconds()),
+		HTTPOnly: true, Secure: strings.HasPrefix(id.publicURL, "https://"), SameSite: fiber.CookieSameSiteLaxMode})
 	return c.Redirect(to, fiber.StatusFound)
 }
 
@@ -340,16 +356,26 @@ func (id *identity) linkStart(c *fiber.Ctx) error {
 		return auth.Deny(c, fiber.StatusServiceUnavailable, "sso_unavailable", "this sign-in provider is not configured correctly")
 	}
 	user := auth.UserID(c)
-	to, err := id.beginAuth(c.Context(), p, "/ui/#/account", &user)
+	to, err := id.beginAuth(c.Context(), p, "/ui/#/account", &user, "")
 	if err != nil {
 		return serverError(c, err)
 	}
 	return c.JSON(fiber.Map{"url": to})
 }
 
+// accountPath is where a profile link's callback sends the browser.
+const accountPath = "/ui/#/account"
+
 // ssoError ends a callback with an error code for the UI.
 func ssoError(c *fiber.Ctx, code string) error {
 	return c.Redirect(callbackPath+"?error="+url.QueryEscape(code), fiber.StatusFound)
+}
+
+func hashOrEmpty(s string) string {
+	if s == "" {
+		return ""
+	}
+	return tenant.HashKey(s)
 }
 
 type idClaims struct {
@@ -411,15 +437,27 @@ func (id *identity) oidcCallback(c *fiber.Ctx) error {
 	// The state is taken once, whatever happens next.
 	var nonce, verifier, redirect string
 	var linkUser *uuid.UUID
+	var browserHash *string
 	err = id.db.QueryRow(ctx,
 		`DELETE FROM oidc_states WHERE state_hash = $1 AND provider_id = $2 AND expires_at > NOW()
-		 RETURNING nonce, code_verifier, redirect, link_user_id`, tenant.HashKey(state), pid).
-		Scan(&nonce, &verifier, &redirect, &linkUser)
+		 RETURNING nonce, code_verifier, redirect, link_user_id, browser_hash`, tenant.HashKey(state), pid).
+		Scan(&nonce, &verifier, &redirect, &linkUser, &browserHash)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ssoError(c, "invalid_state")
 	}
 	if err != nil {
 		return serverError(c, err)
+	}
+	// A login must come back to the browser that started it: otherwise an
+	// attacker could log a victim into the attacker's account (login CSRF).
+	// A profile link is bound to its user when it is completed instead.
+	if linkUser == nil {
+		c.ClearCookie(ssoCookie)
+		got := c.Cookies(ssoCookie)
+		if browserHash == nil || got == "" ||
+			subtle.ConstantTimeCompare([]byte(tenant.HashKey(got)), []byte(*browserHash)) != 1 {
+			return ssoError(c, "invalid_state")
+		}
 	}
 	if e := c.Query("error"); e != "" {
 		return ssoError(c, "provider_error")
@@ -454,32 +492,36 @@ func (id *identity) oidcCallback(c *fiber.Ctx) error {
 	}
 	email := strings.ToLower(strings.TrimSpace(claims.Email))
 	if email == "" || !claims.verified() || len(idt.Subject) == 0 || len(idt.Subject) > 255 {
-		logUserEvent(ctx, id.db, uuid.Nil, "login.failed", c.IP(), map[string]any{"method": p.row.method(), "reason": "email_not_verified"})
+		logUserEvent(ctx, id.db, uuid.Nil, "login.failed", clientIP(c), map[string]any{"method": p.row.method(), "reason": "email_not_verified"})
 		return ssoError(c, "email_not_verified")
 	}
 	if !domainAllowed(p.row, email, claims.HD) {
-		logUserEvent(ctx, id.db, uuid.Nil, "login.failed", c.IP(),
+		logUserEvent(ctx, id.db, uuid.Nil, "login.failed", clientIP(c),
 			map[string]any{"method": p.row.method(), "reason": "domain_not_allowed", "domain": emailDomain(email)})
 		return ssoError(c, "domain_not_allowed")
 	}
 
 	if linkUser != nil {
-		err := id.linkIdentity(ctx, *linkUser, p.row, idt.Subject, email)
-		var se *errSSO
-		if errors.As(err, &se) {
-			return ssoError(c, se.code)
-		}
+		// Not linked yet: whoever's browser this is may not be linkUser (an
+		// attacker can send a victim the provider's URL). The UI completes the
+		// link with the code and its own token; the user must match.
+		code, err := randomToken()
 		if err != nil {
 			return serverError(c, err)
 		}
-		logUserEvent(ctx, id.db, *linkUser, "identity.linked", c.IP(), map[string]any{"provider_id": pid})
-		return c.Redirect(callbackPath+"?linked="+pid.String(), fiber.StatusFound)
+		if _, err := id.db.Exec(ctx,
+			`INSERT INTO oidc_codes (code_hash, user_id, method, redirect, expires_at, purpose, provider_id, subject, email)
+			 VALUES ($1, $2, $3, $4, NOW() + $5::interval, 'link', $6, $7, $8)`,
+			tenant.HashKey(code), *linkUser, p.row.method(), accountPath, oidcCodeTTL, pid, idt.Subject, email); err != nil {
+			return serverError(c, err)
+		}
+		return c.Redirect(accountPath+"?link_code="+url.QueryEscape(code), fiber.StatusFound)
 	}
 
 	user, err := id.ssoUser(ctx, p.row, idt.Subject, email, claims.Name)
 	var se *errSSO
 	if errors.As(err, &se) {
-		logUserEvent(ctx, id.db, user, "login.failed", c.IP(), map[string]any{"method": p.row.method(), "reason": se.code})
+		logUserEvent(ctx, id.db, user, "login.failed", clientIP(c), map[string]any{"method": p.row.method(), "reason": se.code})
 		return ssoError(c, se.code)
 	}
 	if err != nil {
@@ -490,7 +532,8 @@ func (id *identity) oidcCallback(c *fiber.Ctx) error {
 		return serverError(c, err)
 	}
 	if _, err := id.db.Exec(ctx,
-		`INSERT INTO oidc_codes (code_hash, user_id, method, redirect, expires_at) VALUES ($1, $2, $3, $4, NOW() + $5::interval)`,
+		`INSERT INTO oidc_codes (code_hash, user_id, method, redirect, expires_at, purpose)
+		 VALUES ($1, $2, $3, $4, NOW() + $5::interval, 'login')`,
 		tenant.HashKey(code), user, p.row.method(), redirect, oidcCodeTTL); err != nil {
 		return serverError(c, err)
 	}
@@ -518,16 +561,19 @@ func (id *identity) ssoUser(ctx context.Context, p providerRow, subject, email, 
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
-		var hasPassword bool
+		var hasPassword, hasIdentity bool
 		err = tx.QueryRow(ctx,
-			`SELECT id, hashed_password IS NOT NULL, disabled_at FROM users WHERE lower(email) = $1
-			 ORDER BY created_at LIMIT 1 FOR UPDATE`, email).Scan(&user, &hasPassword, &disabled)
+			`SELECT u.id, u.hashed_password IS NOT NULL, EXISTS (SELECT 1 FROM user_identities i WHERE i.user_id = u.id),
+			        u.disabled_at
+			 FROM users u WHERE u.email = $1 FOR UPDATE`, email).Scan(&user, &hasPassword, &hasIdentity, &disabled)
 		switch {
 		case err == nil:
-			// An account with a password is linked only from its profile:
-			// otherwise whoever controls this email at the provider would
-			// take it over.
-			if hasPassword {
+			// An existing account is linked by email only if the provider is
+			// trusted for that and the account has no other way in (no
+			// password, no identity): otherwise whoever controls this email
+			// at the provider would take it over. Its owner links from the
+			// profile instead.
+			if !p.TrustEmailForLinking || hasPassword || hasIdentity {
 				return &errSSO{"account_exists"}
 			}
 			if disabled != nil {
@@ -563,6 +609,40 @@ func (id *identity) ssoUser(ctx context.Context, p providerRow, subject, email, 
 	return user, err
 }
 
+// linkComplete binds the identity of a profile link to the caller, who must
+// be the user who started it. A manual link does not run domain_join.
+func (id *identity) linkComplete(c *fiber.Ctx) error {
+	var req struct {
+		Code string `json:"code"`
+	}
+	if err := c.BodyParser(&req); err != nil || req.Code == "" {
+		return c.Status(400).JSON(fiber.Map{"error": "code is required"})
+	}
+	user := auth.UserID(c)
+	var pid uuid.UUID
+	var subject, email string
+	err := id.db.QueryRow(c.Context(),
+		`UPDATE oidc_codes SET used_at = NOW()
+		 WHERE code_hash = $1 AND purpose = 'link' AND user_id = $2 AND used_at IS NULL AND expires_at > NOW()
+		 RETURNING provider_id, subject, email`, tenant.HashKey(req.Code), user).Scan(&pid, &subject, &email)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return auth.Deny(c, fiber.StatusUnauthorized, "invalid_code", "invalid, expired or already used code, or another user's link")
+	}
+	if err != nil {
+		return serverError(c, err)
+	}
+	err = id.linkIdentity(c.Context(), user, pid, subject, email)
+	var se *errSSO
+	if errors.As(err, &se) {
+		return auth.Deny(c, fiber.StatusConflict, se.code, "this identity cannot be linked to your account")
+	}
+	if err != nil {
+		return serverError(c, err)
+	}
+	logUserEvent(c.Context(), id.db, user, "identity.linked", clientIP(c), map[string]any{"provider_id": pid})
+	return c.JSON(fiber.Map{"provider_id": pid, "linked": true})
+}
+
 // applyDomainJoin adds a newly linked SSO user to the organizations whose
 // domain_join rule matches the verified email's domain and the provider.
 func applyDomainJoin(ctx context.Context, tx pgx.Tx, user, provider uuid.UUID, email string) error {
@@ -594,12 +674,13 @@ func applyDomainJoin(ctx context.Context, tx pgx.Tx, user, provider uuid.UUID, e
 	return nil
 }
 
-// linkIdentity binds an SSO identity to a logged-in user.
-func (id *identity) linkIdentity(ctx context.Context, user uuid.UUID, p providerRow, subject, email string) error {
+// linkIdentity binds an SSO identity to a logged-in user. It grants no
+// organization: domain_join applies to SSO logins, not to manual links.
+func (id *identity) linkIdentity(ctx context.Context, user uuid.UUID, provider uuid.UUID, subject, email string) error {
 	return pgx.BeginFunc(ctx, id.db, func(tx pgx.Tx) error {
 		var owner uuid.UUID
 		err := tx.QueryRow(ctx, `SELECT user_id FROM user_identities WHERE provider_id = $1 AND subject = $2`,
-			p.ID, subject).Scan(&owner)
+			provider, subject).Scan(&owner)
 		switch {
 		case err == nil && owner == user:
 			return nil
@@ -610,14 +691,14 @@ func (id *identity) linkIdentity(ctx context.Context, user uuid.UUID, p provider
 		}
 		tag, err := tx.Exec(ctx,
 			`INSERT INTO user_identities (user_id, provider_id, subject, email) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
-			user, p.ID, subject, email)
+			user, provider, subject, email)
 		if err != nil {
 			return err
 		}
 		if tag.RowsAffected() == 0 {
 			return &errSSO{"identity_exists"}
 		}
-		return applyDomainJoin(ctx, tx, user, p.ID, email)
+		return nil
 	})
 }
 
@@ -634,7 +715,7 @@ func (id *identity) oidcExchange(c *fiber.Ctx) error {
 	var disabled *time.Time
 	err := id.db.QueryRow(c.Context(),
 		`UPDATE oidc_codes o SET used_at = NOW() FROM users u
-		 WHERE o.code_hash = $1 AND o.used_at IS NULL AND o.expires_at > NOW() AND u.id = o.user_id
+		 WHERE o.code_hash = $1 AND o.purpose = 'login' AND o.used_at IS NULL AND o.expires_at > NOW() AND u.id = o.user_id
 		 RETURNING o.user_id, o.method, o.redirect, u.disabled_at`, tenant.HashKey(req.Code)).
 		Scan(&user, &method, &redirect, &disabled)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -683,7 +764,7 @@ func (id *identity) unlinkIdentity(c *fiber.Ctx) error {
 	if !removed {
 		return c.Status(404).JSON(fiber.Map{"error": "not found"})
 	}
-	logUserEvent(c.Context(), id.db, user, "identity.unlinked", c.IP(), map[string]any{"provider_id": pid})
+	logUserEvent(c.Context(), id.db, user, "identity.unlinked", clientIP(c), map[string]any{"provider_id": pid})
 	return c.Status(204).Send(nil)
 }
 
@@ -711,10 +792,10 @@ func (id *identity) createProvider(c *fiber.Ctx) error {
 	}
 	p, err := scanProvider(id.db.QueryRow(c.Context(),
 		`INSERT INTO identity_providers (type, display_name, issuer, client_id, client_secret_env, scopes,
-		   allowed_domains, auto_provision, enabled)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING `+providerColumns,
+		   allowed_domains, auto_provision, trust_email_for_linking, enabled)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING `+providerColumns,
 		p.Type, p.DisplayName, p.Issuer, p.ClientID, p.ClientSecretEnv, p.Scopes, p.AllowedDomains,
-		p.AutoProvision, p.Enabled))
+		p.AutoProvision, p.TrustEmailForLinking, p.Enabled))
 	if err != nil {
 		return serverError(c, err)
 	}
@@ -747,14 +828,17 @@ func (id *identity) updateProvider(c *fiber.Ctx) error {
 	}
 	p, err = scanProvider(id.db.QueryRow(c.Context(),
 		`UPDATE identity_providers SET display_name = $2, issuer = $3, client_id = $4, client_secret_env = $5,
-		   scopes = $6, allowed_domains = $7, auto_provision = $8, enabled = $9, updated_at = NOW()
+		   scopes = $6, allowed_domains = $7, auto_provision = $8, enabled = $9, trust_email_for_linking = $10,
+		   updated_at = NOW()
 		 WHERE id = $1 RETURNING `+providerColumns,
-		pid, p.DisplayName, p.Issuer, p.ClientID, p.ClientSecretEnv, p.Scopes, p.AllowedDomains, p.AutoProvision, p.Enabled))
+		pid, p.DisplayName, p.Issuer, p.ClientID, p.ClientSecretEnv, p.Scopes, p.AllowedDomains, p.AutoProvision, p.Enabled,
+		p.TrustEmailForLinking))
 	if err != nil {
 		return serverError(c, err)
 	}
 	logActivity(c, id.db, nil, "identity_provider.updated", p.DisplayName,
-		map[string]any{"id": p.ID, "enabled": p.Enabled, "auto_provision": p.AutoProvision})
+		map[string]any{"id": p.ID, "enabled": p.Enabled, "auto_provision": p.AutoProvision,
+			"trust_email_for_linking": p.TrustEmailForLinking})
 	return c.JSON(p)
 }
 

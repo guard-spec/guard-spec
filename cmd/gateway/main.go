@@ -771,7 +771,10 @@ func chatHandler(gw gateway, upstreamPath string) fiber.Handler {
 			return c.Status(fiber.StatusBadRequest).JSON(errorBody(
 				"model "+strconv.Quote(entry.Model)+" is not allowed for this upstream", "invalid_request_error", "model_not_allowed"))
 		}
-		capped := target.capTokens(body)
+		capped, err := target.capTokens(body)
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(errorBody(err.Error(), "invalid_request_error", "invalid_max_tokens"))
+		}
 		if model != entry.Model || capped {
 			// The audit row records the model actually sent upstream; policies
 			// saw the requested one.
