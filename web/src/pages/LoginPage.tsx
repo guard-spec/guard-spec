@@ -9,14 +9,14 @@
 import { ArrowLeft, KeyRound, LogIn, ShieldCheck } from 'lucide-react';
 import { useEffect, useReducer, useState, type FormEvent } from 'react';
 import { authErrorText } from '../auth/errors';
-import { initialLogin, loginReducer, normalizeCode, parseCallbackHash } from '../auth/loginMachine';
+import { initialLogin, loginReducer, normalizeCode, parseCallbackHash, stepFor, type LoginStep } from '../auth/loginMachine';
 import { RecoveryCodes } from '../components/RecoveryCodes';
 import { TotpEnroll } from '../components/TotpEnroll';
 import { ErrorBanner, Field, Loading } from '../components/ui';
 import { useApp } from '../context';
 import { clearHash } from '../router';
 import { Preferences } from '../shell/Preferences';
-import type { LoginProvider } from '../types';
+import type { LoginProvider, LoginResponse } from '../types';
 
 function readCallback(callback: boolean): { code: string | null; error: string | null } {
   if (!callback || typeof window === 'undefined') return { code: null, error: null };
@@ -36,10 +36,21 @@ function ProviderMark({ p }: { p: LoginProvider }) {
   return <KeyRound size={16} aria-hidden="true" />;
 }
 
-export function LoginPage({ onLogin, expired, callback = false }: { onLogin: (token: string) => void; expired: boolean; callback?: boolean }) {
+export function LoginPage({
+  onLogin,
+  expired,
+  callback = false,
+  initial,
+}: {
+  onLogin: (token: string) => void;
+  expired: boolean;
+  callback?: boolean;
+  /** Continue from a login answer obtained elsewhere (an accepted invite). */
+  initial?: LoginResponse;
+}) {
   const { api, t } = useApp();
   const [cb] = useState(() => readCallback(callback));
-  const [step, dispatch] = useReducer(loginReducer, cb.code, initialLogin);
+  const [step, dispatch] = useReducer(loginReducer, null, (): LoginStep => (initial ? stepFor(initial) : initialLogin(cb.code)));
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');

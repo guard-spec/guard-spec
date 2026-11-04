@@ -4,17 +4,17 @@
 import { CircleCheck, CircleX, X } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type ComponentType } from 'react';
 import { ApiClient, isNotFound } from './api';
-import { authErrorText } from './auth/errors';
 import { can as canDo } from './auth/permissions';
 import { Loading } from './components/ui';
 import { AppContext, errorText, OrgContext, useApp, type AppState, type OrgState, type Theme, type ThemePref } from './context';
 import { translator, type Lang } from './i18n';
 import type { NavGroup } from './nav';
-import { ActivityPage } from './pages/ActivityPage';
+import InstanceActivityPage, { ActivityPage } from './pages/ActivityPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { ExemplarsPage } from './pages/ExemplarsPage';
 import { GuardPage } from './pages/GuardPage';
 import { KeysPage } from './pages/KeysPage';
+import { InvitePage } from './pages/InvitePage';
 import { LoginPage } from './pages/LoginPage';
 import { MembersPage } from './pages/MembersPage';
 import { OrganizationPage } from './pages/OrganizationPage';
@@ -60,6 +60,7 @@ const USER_PAGES: Partial<Record<Route, ComponentType>> = {
   account: AccountPage,
   'admin-users': AdminUsersPage,
   'admin-idps': IdentityProvidersPage,
+  'admin-activity': InstanceActivityPage,
 };
 
 function initialThemePref(): ThemePref {
@@ -164,33 +165,35 @@ export function App() {
   // Back from linking an SSO identity while signed in: the account page shows it.
   useEffect(() => {
     if (token && route === 'auth-callback') {
-      // N15 sends ?linked=<providerId> on success, ?error=<code> on failure.
+      // A link now returns to /ui/account?link_code=; earlier builds came
+      // here with ?linked=<id> or ?error=<code>. The account page reports it.
       const q = new URLSearchParams(window.location.hash.split('?')[1] ?? '');
       const err = q.get('error');
+      const linked = q.get('linked');
+      const code = q.get('link_code');
       clearHash();
-      if (err) notify(t('account.linkFailed', { error: authErrorText(err, t) }), 'error');
-      else if (q.get('linked')) {
-        notify(t('account.linked'));
-        void reloadMe();
-      }
-      navigate('account', true);
+      navigate('account', true, code ? { link_code: code } : err ? { link_error: err } : linked ? { linked } : undefined);
     }
-  }, [token, route, notify, t, reloadMe]);
+  }, [token, route]);
 
+  const signedIn = (tok: string) => {
+    session.setToken(tok);
+    setToken(tok);
+    setExpired(false);
+    navigate(session.orgId() ? 'dashboard' : 'orgs', true);
+  };
   let content;
-  if (!token) {
+  if (route === 'invite') {
+    // Public: accepting an invite signs in (also over another session).
+    content = <InvitePage onLogin={signedIn} />;
+  } else if (!token) {
     content = (
       <LoginPage
         // A callback that arrives on an open sign-in page (a hash change) starts over.
         key={route === 'auth-callback' ? 'callback' : 'login'}
         expired={expired}
         callback={route === 'auth-callback'}
-        onLogin={(tok) => {
-          session.setToken(tok);
-          setToken(tok);
-          setExpired(false);
-          navigate(session.orgId() ? 'dashboard' : 'orgs', true);
-        }}
+        onLogin={signedIn}
       />
     );
   } else {

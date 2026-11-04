@@ -42,14 +42,16 @@ test('routes a rule edited as text, simulates it and round-trips the config', as
     [`main-${id}`, 'https://api.openai.com/v1'],
     [`safe-${id}`, 'http://ollama:11434/v1'],
   ] as const) {
-    await page.getByRole('button', { name: 'Add provider' }).click();
-    await page.getByTestId('provider-catalog').getByRole('button', { name: /^OpenAI-compatible https/ }).click();
+    await page.getByRole('button', { name: 'Add provider' }).first().click();
+    await page.getByTestId('provider-catalog').getByRole('button', { name: /^OpenAI-compatible/ }).click();
     const d = page.getByRole('dialog');
     await d.getByLabel('Name', { exact: true }).fill(name);
     await d.getByLabel('Base URL').fill(base);
     await d.getByLabel('API key environment variable').fill('UPSTREAM_KEY_MAIN');
     await d.getByRole('button', { name: 'Save' }).click();
-    await expect(page.getByRole('cell', { name, exact: true })).toBeVisible();
+    // The list may hold more than one page: search for the new row.
+    await page.getByLabel('Search providers').fill(name);
+    await expect(page.getByTestId('providers-table').getByText(name, { exact: true })).toBeVisible();
   }
   const defaultBefore = await page.getByLabel('Organization default').inputValue();
   await page.getByLabel('Organization default').selectOption({ label: `main-${id}` });
@@ -60,6 +62,7 @@ test('routes a rule edited as text, simulates it and round-trips the config', as
   await page.getByLabel('Name').fill(`Live ${id}`);
   await page.getByLabel('Slug').fill(`live-${id}`);
   await page.getByRole('button', { name: 'Create' }).click();
+  await page.getByLabel('Search projects').fill(`live-${id}`);
   await expect(page.getByRole('cell', { name: `live-${id}`, exact: true })).toBeVisible();
 
   // A policy with a route rule written as text.
@@ -130,9 +133,10 @@ test('routes a rule edited as text, simulates it and round-trips the config', as
   await page.getByLabel('Organization default').selectOption(defaultBefore);
   await expect(page.getByLabel('Organization default')).toHaveValue(defaultBefore);
   for (const name of [`main-${id}`, `safe-${id}`]) {
+    await page.getByLabel('Search providers').fill(name);
     await page.getByRole('button', { name: `Delete ${name}` }).click();
     await page.getByRole('dialog').getByRole('button', { name: 'Delete' }).click();
-    await expect(page.getByRole('cell', { name, exact: true })).toBeHidden();
+    await expect(page.getByTestId('providers-table').getByText(name, { exact: true })).toBeHidden();
   }
   expect(violations).toEqual([]);
 });
@@ -180,7 +184,7 @@ test('screenshots against the real control plane', async ({ page }) => {
 
   const nav = page.getByRole('navigation', { name: 'Main' });
   await nav.getByRole('link', { name: 'Model providers' }).click();
-  await expect(page.getByRole('cell', { name: 'eu-sandbox', exact: true })).toBeVisible();
+  await expect(page.getByTestId('providers-table')).toBeVisible();
   await shot('upstreams');
 
   await nav.getByRole('link', { name: 'Config as code' }).click();

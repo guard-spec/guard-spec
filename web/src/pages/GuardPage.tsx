@@ -11,7 +11,8 @@ type Tri = 'default' | 'on' | 'off';
 
 export function GuardPage() {
   const { api, t, notify } = useApp();
-  const { org } = useOrg();
+  const { org, can } = useOrg();
+  const writable = can('org.settings.write');
   const { data, error, loading } = useLoad(useCallback(() => api.getGuardSettings(org.id), [api, org.id]));
   const [edited, setDraft] = useState<GuardSettings | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -99,7 +100,7 @@ export function GuardPage() {
             ))}
           </select>
         </div>
-        <button type="submit" className="btn btn-primary" disabled={busy}>
+        <button type="submit" className="btn btn-primary" disabled={busy || !writable} title={writable ? undefined : t('forbidden.readOnly')}>
           {busy ? t('common.saving') : t('common.save')}
         </button>
       </form>

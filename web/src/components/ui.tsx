@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { isNotFound } from '../api';
+import { isForbidden, isNotFound } from '../api';
 import { errorText, useApp } from '../context';
 
 export function PageHeader({ title, help, actions }: { title: string; help?: string; actions?: ReactNode }) {
@@ -201,6 +201,8 @@ export function useLoad<T>(fn: () => Promise<T>): {
   data: T | undefined;
   error: string | null;
   loading: boolean;
+  /** The caller's role may not read it (403). */
+  forbidden: boolean;
   /** The endpoint does not exist on this control plane (404). */
   notFound: boolean;
   reload: () => Promise<void>;
@@ -208,6 +210,7 @@ export function useLoad<T>(fn: () => Promise<T>): {
   const [data, setData] = useState<T | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
+  const [forbidden, setForbidden] = useState(false);
   const [loading, setLoading] = useState(true);
   const reload = useCallback(async () => {
     setLoading(true);
@@ -215,9 +218,11 @@ export function useLoad<T>(fn: () => Promise<T>): {
       setData(await fn());
       setError(null);
       setNotFound(false);
+      setForbidden(false);
     } catch (e) {
       setError(errorText(e));
       setNotFound(isNotFound(e));
+      setForbidden(isForbidden(e));
     } finally {
       setLoading(false);
     }
@@ -225,7 +230,7 @@ export function useLoad<T>(fn: () => Promise<T>): {
   useEffect(() => {
     void reload();
   }, [reload]);
-  return { data, error, loading, notFound, reload };
+  return { data, error, loading, notFound, forbidden, reload };
 }
 
 /** A checkbox with a title and a help line. */

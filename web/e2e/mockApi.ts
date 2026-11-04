@@ -7,11 +7,11 @@
 
 import type { Page, Route } from '@playwright/test';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
+import { FALLBACK_MATRIX } from '../src/auth/permissions';
 import { conditionText } from '../src/flow/conditionText';
 import {
   isGroup,
   type ActivityEntry,
-  type CatalogEntry,
   type IdentityProvider,
   type InstanceUser,
   type Invite,
@@ -680,7 +680,7 @@ export function seedIdentity(rich = false): IdentityState {
     display_name: 'Ada Admin',
     mfa_enabled: true,
     has_password: true,
-    identities: [{ provider: 'google', email: 'ada@acme.example' }],
+    identities: [{ provider_id: 'google', provider: 'google', display_name: 'Google', email: 'ada@acme.example' }],
     is_instance_admin: true,
   };
   const roles: Role[] = ['admin', 'member', 'viewer', 'member', 'viewer'];
@@ -713,7 +713,7 @@ export function seedIdentity(rich = false): IdentityState {
       };
     }),
   ];
-  const actions = ['auth.login', 'member.role_changed', 'api_key.created', 'policy.updated', 'upstream.updated', 'auth.login_failed', 'security.updated', 'invite.created', 'mfa.reset'];
+  const actions = ['member.invited', 'member.role_changed', 'api_key.created', 'policy.updated', 'upstream.updated', 'guard_settings.updated', 'security.updated', 'invite.created', 'mfa.reset'];
   const activity: ActivityEntry[] = Array.from({ length: rich ? 64 : 6 }, (_, i) => ({
     id: `act-${i}`,
     at: new Date(Date.parse('2026-11-04T08:00:00Z') - i * 47 * 60_000).toISOString(),
@@ -733,7 +733,7 @@ export function seedIdentity(rich = false): IdentityState {
     security: {
       require_mfa: true,
       sso_satisfies_mfa: false,
-      allowed_login_methods: ['password', 'google'],
+      allowed_login_methods: null,
       domain_join: [{ domain: 'acme.example', provider_id: 'google', role: 'viewer' }],
       session_lifetime_hours: 12,
     },
@@ -781,35 +781,19 @@ export function seedIdentity(rich = false): IdentityState {
   };
 }
 
-export const CATALOG: CatalogEntry[] = [
-  { provider: 'openai', display_name: 'OpenAI', base_url: 'https://api.openai.com/v1', needs_key: true, env_hint: 'UPSTREAM_KEY_OPENAI', models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1'], docs_url: 'https://platform.openai.com/docs' },
-  { provider: 'anthropic', display_name: 'Anthropic', base_url: 'https://api.anthropic.com/v1', needs_key: true, env_hint: 'UPSTREAM_KEY_ANTHROPIC', models: [] },
-  { provider: 'azure_openai', display_name: 'Azure OpenAI', base_url: 'https://RESOURCE.openai.azure.com/openai/deployments/DEPLOYMENT', needs_key: true, env_hint: 'UPSTREAM_KEY_AZURE', models: [] },
-  { provider: 'gemini', display_name: 'Google Gemini', base_url: 'https://generativelanguage.googleapis.com/v1beta/openai', needs_key: true, env_hint: 'UPSTREAM_KEY_GEMINI', models: ['gemini-2.5-flash', 'gemini-2.5-pro'] },
-  { provider: 'ollama', display_name: 'Ollama', base_url: 'http://ollama:11434/v1', needs_key: false, models: [] },
-  { provider: 'vllm', display_name: 'vLLM', base_url: 'http://vllm:8000/v1', needs_key: false, models: [] },
-  { provider: 'openai_compatible', display_name: 'OpenAI-compatible', base_url: 'https://llm.example.com/v1', needs_key: false, models: [] },
+/** GET /providers/catalog as the control plane sends it (cmd/control-plane/providers.go). */
+export const CATALOG = [
+  { id: 'openai', display_name: 'OpenAI', default_base_url: 'https://api.openai.com/v1', key_required: true, key_env_hint: 'UPSTREAM_KEY_OPENAI', needs_api_version: false, openai_compatible_endpoint: false, known_models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1'], docs_url: 'https://platform.openai.com/docs', notes: '' },
+  { id: 'anthropic', display_name: 'Anthropic', default_base_url: 'https://api.anthropic.com/v1', key_required: true, key_env_hint: 'UPSTREAM_KEY_ANTHROPIC', needs_api_version: false, openai_compatible_endpoint: true, known_models: ['claude-sonnet-4-5'], docs_url: 'https://docs.anthropic.com/en/api/openai-sdk', notes: 'Uses the OpenAI SDK compatibility endpoint.' },
+  { id: 'azure_openai', display_name: 'Azure OpenAI', default_base_url: 'https://RESOURCE.openai.azure.com/openai/deployments/DEPLOYMENT', key_required: true, key_env_hint: 'UPSTREAM_KEY_AZURE', needs_api_version: true, openai_compatible_endpoint: false, known_models: null, docs_url: '', notes: '' },
+  { id: 'gemini', display_name: 'Google Gemini', default_base_url: 'https://generativelanguage.googleapis.com/v1beta/openai', key_required: true, key_env_hint: 'UPSTREAM_KEY_GEMINI', needs_api_version: false, openai_compatible_endpoint: true, known_models: ['gemini-2.5-flash', 'gemini-2.5-pro'], docs_url: 'https://ai.google.dev/gemini-api/docs/openai', notes: '' },
+  { id: 'ollama', display_name: 'Ollama', default_base_url: 'http://ollama:11434/v1', key_required: false, key_env_hint: '', needs_api_version: false, openai_compatible_endpoint: false, known_models: null, docs_url: '', notes: 'Self-hosted; no key.' },
+  { id: 'vllm', display_name: 'vLLM', default_base_url: 'http://vllm:8000/v1', key_required: false, key_env_hint: '', needs_api_version: false, openai_compatible_endpoint: false, known_models: null, docs_url: '', notes: '' },
+  { id: 'openai_compatible', display_name: 'OpenAI-compatible', default_base_url: 'https://llm.example.com/v1', key_required: false, key_env_hint: '', needs_api_version: false, openai_compatible_endpoint: false, known_models: null, docs_url: '', notes: '' },
 ];
 
-export const PERMISSIONS: PermissionMatrix = {
-  roles: ['viewer', 'member', 'admin', 'owner'],
-  capabilities: [
-    { key: 'requests.read', min_role: 'viewer', description: 'Read the request log' },
-    { key: 'policies.read', min_role: 'viewer', description: 'Read policies and the flow' },
-    { key: 'policies.simulate', min_role: 'viewer', description: 'Run the simulator' },
-    { key: 'policies.write', min_role: 'admin', description: 'Create, edit and delete policies' },
-    { key: 'upstreams.write', min_role: 'admin', description: 'Manage model providers and defaults' },
-    { key: 'upstreams.test', min_role: 'admin', description: 'Test a provider connection' },
-    { key: 'api_keys.write', min_role: 'admin', description: 'Create and revoke API keys' },
-    { key: 'exemplars.write', min_role: 'admin', description: 'Manage L3 exemplars' },
-    { key: 'members.read', min_role: 'admin', description: 'List members' },
-    { key: 'members.write', min_role: 'admin', description: 'Invite, change roles, remove' },
-    { key: 'members.reset_mfa', min_role: 'owner', description: 'Reset the 2FA of a member' },
-    { key: 'activity.read', min_role: 'admin', description: 'Read the activity log' },
-    { key: 'security.read', min_role: 'admin', description: 'Read the security policy' },
-    { key: 'security.write', min_role: 'owner', description: 'Change the security policy' },
-  ],
-};
+/** GET /permissions: the control plane's table (cmd/control-plane/members.go), mirrored by FALLBACK_MATRIX. */
+export const PERMISSIONS: PermissionMatrix = FALLBACK_MATRIX;
 
 /** The envelope of the contract when the client sent limit or cursor; the older {data} otherwise. */
 function listBody(items: unknown[], url: URL, legacy: boolean, extra: Record<string, unknown> = {}): unknown {
@@ -855,6 +839,13 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
       if (opts.mfa === 'totp') return json(200, { mfa_required: true, mfa_token: MFA_TOKEN, methods: ['totp', 'recovery'] });
       if (opts.mfa === 'enroll') return json(200, { mfa_enroll_required: true, mfa_token: MFA_TOKEN });
       return json(200, legacy ? { token: TOKEN } : signedIn);
+    }
+    if (method === 'POST' && path === '/invites/accept') {
+      const b = body as { token?: string; password?: string; display_name?: string };
+      if (!b.token?.startsWith('inv_')) return json(404, { error: 'invalid or expired invite' });
+      if (!b.password || b.password.length < 12) return json(400, { error: 'password must be 12 to 72 bytes long' });
+      if (opts.mfa === 'enroll') return json(201, { mfa_enroll_required: true, mfa_token: MFA_TOKEN, org_id: state.org.id, role: 'member' });
+      return json(201, { token: TOKEN, user_id: uuid(), org_id: state.org.id, role: 'member' });
     }
     if (method === 'GET' && path === '/auth/providers') return json(200, id.idps.filter((p) => p.enabled).map((p) => ({ id: p.id, type: p.type, display_name: p.display_name })));
     if (method === 'POST' && path === '/auth/oidc/exchange') {
@@ -902,11 +893,22 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
       return json(204);
     }
     if ((mm0 = /^\/auth\/identities\/([^/]+)$/.exec(path)) && method === 'DELETE') {
-      id.me.identities = id.me.identities.filter((i) => i.provider !== mm0?.[1]);
+      id.me.identities = id.me.identities.filter((i) => i.provider_id !== mm0?.[1]);
       return json(204);
     }
+    // Profile linking (N15): start answers {url}; the provider's callback sends
+    // the browser to /ui/account?link_code=, which the UI completes with its token.
+    if ((mm0 = /^\/auth\/identities\/([^/]+)\/link\/start$/.exec(path)) && method === 'POST') {
+      return json(200, { url: `/ui/account?link_code=${mm0[1] === 'okta' ? 'mock-link-okta' : 'mock-link-expired'}` });
+    }
+    if (method === 'POST' && path === '/auth/identities/link/complete') {
+      const code = (body as { code?: string }).code;
+      if (code !== 'mock-link-okta') return json(400, { error: 'invalid, expired or already used code', code: 'link_expired' });
+      id.me.identities.push({ provider_id: 'okta', provider: 'oidc', display_name: 'Okta', email: 'ada@acme.okta.example' });
+      return json(200, { provider_id: 'okta', linked: true, display_name: 'Okta', email: 'ada@acme.okta.example' });
+    }
     if (method === 'GET' && path === '/permissions') return json(200, PERMISSIONS);
-    if (method === 'GET' && path === '/providers/catalog') return json(200, CATALOG);
+    if (method === 'GET' && path === '/providers/catalog') return json(200, { items: CATALOG });
 
     // Instance admin (identity contract §2, §4)
     if (path === '/admin/users' && method === 'GET') {
@@ -934,6 +936,11 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
       }
     }
     if (path === '/admin/identity-providers' && method === 'GET') return json(200, listBody(id.idps, url, false));
+    if (path === '/admin/activity' && method === 'GET') {
+      const action = url.searchParams.get('action') ?? '';
+      const rows = [...id.activity.map((e, i) => (i % 3 === 0 ? { ...e, id: `i-${e.id}`, action: i % 2 ? 'login.failed' : 'login.succeeded', target: e.actor?.email ?? null } : e))];
+      return json(200, listBody(rows.filter((e) => !action || e.action.startsWith(action)), url, false));
+    }
     if (path === '/admin/identity-providers' && method === 'POST') {
       const p = { ...(body as IdentityProvider), id: uuid() };
       id.idps.push(p);
@@ -1091,7 +1098,13 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
       return json(200, state.guard);
     }
 
-    if (sub === '/api-keys' && method === 'GET') return json(200, listBody(state.keys, url, legacy));
+    if (sub === '/api-keys' && method === 'GET') {
+      if (opts.role === 'viewer') return json(403, { error: 'requires role admin' });
+      const q = (url.searchParams.get('q') ?? '').toLowerCase();
+      const hideRevoked = url.searchParams.get('revoked') === 'false';
+      const keys = legacy ? state.keys : state.keys.filter((k) => (!hideRevoked || !k.revoked) && (!q || `${k.alias ?? ''} ${k.key_prefix}`.toLowerCase().includes(q)));
+      return json(200, listBody(keys, url, legacy));
+    }
     if (sub === '/api-keys' && method === 'POST') {
       const b = body as { alias: string; project_id: string | null; rpm_limit: number | null; tpm_limit: number | null; expires_at?: string };
       const key = 'gs_' + 'f'.repeat(8) + '0123456789abcdef01234567';
@@ -1140,12 +1153,14 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
       const action = url.searchParams.get('action');
       const q = (url.searchParams.get('q') ?? '').toLowerCase();
       const rows = state.requests.filter((r) => (!action || r.action === action) && (!q || `${r.model ?? ''} ${r.route_target ?? ''} ${r.injection_label ?? ''}`.toLowerCase().includes(q)));
-      const body = listBody(rows, url, false) as { total?: number };
-      delete body.total; // optional for requests (contract §0)
+      // N15 counts up to a cap and says so (total_capped).
+      const body = listBody(rows, url, false) as { total?: number; total_capped?: boolean };
+      if (rows.length > 400) Object.assign(body, { total: 400, total_capped: true });
       return json(200, body);
     }
 
-    // Members, invites, security, activity (identity contract §3–§5)
+    // Members, invites, security, activity (identity contract §3–§5): admin and up.
+    if (opts.role === 'viewer' && /^\/(members|security|activity|invites)(\/|$)/.test(sub)) return json(403, { error: 'requires role admin' });
     if (sub === '/members' && method === 'GET') {
       const q = (url.searchParams.get('q') ?? '').toLowerCase();
       const role = url.searchParams.get('role');
@@ -1186,7 +1201,8 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
     }
     if (sub === '/security' && method === 'GET') return json(200, id.security);
     if (sub === '/security' && method === 'PUT') {
-      id.security = body as OrgSecurity;
+      // allowed_login_methods is kept when absent (N15), null means unrestricted.
+      id.security = { ...id.security, ...(body as Partial<OrgSecurity>) };
       return json(200, id.security);
     }
     if (sub === '/activity' && method === 'GET') {
@@ -1199,7 +1215,8 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
       if (!u) return json(404, { error: 'not found' });
       if (!u.enabled) return json(200, { ok: false, latency_ms: null, status: null, models_found: [], error: 'upstream is disabled' });
       if (u.base_url.includes('ollama')) return json(200, { ok: true, latency_ms: 38, status: 200, models_found: ['qwen3:4b', 'llama3.2:3b'], error: null });
-      return json(200, { ok: true, latency_ms: 212, status: 200, models_found: ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'o4-mini'], error: null });
+      // UPSTREAM_KEY_MAIN is allowed through * in the mock: the key is not sent (N15 key_sent).
+      return json(200, { ok: true, latency_ms: 212, status: 200, models_found: ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'o4-mini'], error: null, key_sent: u.api_key_env !== 'UPSTREAM_KEY_MAIN' });
     }
 
     if (sub === '/config' && method === 'GET' && opts.exportProblems) {

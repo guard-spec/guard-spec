@@ -7,9 +7,10 @@
 import { Plus, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { isNotFound } from '../api';
-import { NotAvailable } from '../components/DataTable';
+import { authErrorText } from '../auth/errors';
+import { Badge, Forbidden, NotAvailable } from '../components/DataTable';
 import { ErrorBanner, Field, Loading, PageHeader, Toggle, useLoad } from '../components/ui';
-import { errorText, useApp, useOrg } from '../context';
+import { useApp, useOrg } from '../context';
 import type { MessageKey } from '../i18n';
 import { ROLES, type LoginProvider, type OrgSecurity, type Role } from '../types';
 
@@ -21,21 +22,36 @@ export function methodKey(p: LoginProvider): string {
 
 export function validateSecurity(s: OrgSecurity): string[] {
   const errs: string[] = [];
-  if (s.allowed_login_methods.length === 0) errs.push('methods');
+  if (s.allowed_login_methods?.length === 0) errs.push('methods');
   if (!Number.isInteger(s.session_lifetime_hours) || s.session_lifetime_hours < 1 || s.session_lifetime_hours > 12) errs.push('lifetime');
   if (s.domain_join.some((d) => !DOMAIN_RE.test(d.domain) || d.provider_id === '')) errs.push('domain');
   return errs;
+}
+
+/** The PUT body: allowed_login_methods only when it was changed (null returns to unrestricted). */
+export function securityBody(s: OrgSecurity, methodsTouched: boolean): Partial<OrgSecurity> {
+  const body: Partial<OrgSecurity> = {
+    require_mfa: s.require_mfa,
+    sso_satisfies_mfa: s.sso_satisfies_mfa,
+    domain_join: s.domain_join,
+    session_lifetime_hours: s.session_lifetime_hours,
+  };
+  if (methodsTouched) body.allowed_login_methods = s.allowed_login_methods;
+  return body;
 }
 
 export function SecurityPage() {
   const { api, t, notify } = useApp();
   const { org, can } = useOrg();
   const writable = can('security.write');
-  const { data, error, loading, notFound } = useLoad(useCallback(() => api.getOrgSecurity(org.id), [api, org.id]));
+  const { data, error, loading, notFound, forbidden } = useLoad(useCallback(() => api.getOrgSecurity(org.id), [api, org.id]));
   const [draft, setDraft] = useState<OrgSecurity | null>(null);
   const [providers, setProviders] = useState<LoginProvider[]>([]);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [touched, setTouched] = useState(false);
+  // allowed_login_methods goes out only when the user changed it: the
+  // control plane may answer with the computed list of an unrestricted org.
+  const [methodsTouched, setMethodsTouched] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -47,16 +63,21 @@ export function SecurityPage() {
     return (
       <div className="narrow">
         <PageHeader title={t('sec.title')} help={t('sec.help')} />
-        {notFound ? <NotAvailable feature={t('sec.title')} /> : <ErrorBanner error={error} />}
+        {notFound ? <NotAvailable feature={t('sec.title')} /> : forbidden ? <Forbidden /> : <ErrorBanner error={error} />}
       </div>
     );
   }
-  const s: OrgSecurity = draft ?? data ?? { require_mfa: false, sso_satisfies_mfa: false, allowed_login_methods: ['password'], domain_join: [], session_lifetime_hours: 12 };
+  const s: OrgSecurity = draft ?? data ?? { require_mfa: false, sso_satisfies_mfa: false, allowed_login_methods: null, domain_join: [], session_lifetime_hours: 12 };
   const set = (patch: Partial<OrgSecurity>) => setDraft({ ...s, ...patch });
   const errs = touched ? validateSecurity(s) : [];
   const methods = [{ key: 'password', label: t('sec.methodPassword') }, ...providers.map((p) => ({ key: methodKey(p), label: p.display_name }))];
   // Methods saved before a provider was removed stay listed.
-  for (const m of s.allowed_login_methods) if (!methods.some((x) => x.key === m)) methods.push({ key: m, label: m });
+  for (const m of s.allowed_login_methods ?? []) if (!methods.some((x) => x.key === m)) methods.push({ key: m, label: m });
+  const restricted = s.allowed_login_methods !== null;
+  const setMethods = (v: string[] | null) => {
+    setMethodsTouched(true);
+    set({ allowed_login_methods: v });
+  };
 
   const save = async () => {
     setTouched(true);
@@ -64,10 +85,11 @@ export function SecurityPage() {
     setBusy(true);
     setSaveError(null);
     try {
-      setDraft(await api.putOrgSecurity(org.id, s));
+      setDraft(await api.putOrgSecurity(org.id, securityBody(s, methodsTouched)));
+      setMethodsTouched(false);
       notify(t('common.saved'));
     } catch (e) {
-      setSaveError(isNotFound(e) ? t('na.title') : errorText(e));
+      setSaveError(isNotFound(e) ? t('na.title') : authErrorText(e, t));
     } finally {
       setBusy(false);
     }
@@ -99,19 +121,35 @@ export function SecurityPage() {
         <fieldset className="card" disabled={!writable}>
           <legend>{t('sec.methods')}</legend>
           <p className="muted small">{t('sec.methodsHelp')}</p>
-          {methods.map((m) => (
-            <label key={m.key} className="check">
-              <input
-                type="checkbox"
-                checked={s.allowed_login_methods.includes(m.key)}
-                onChange={(e) =>
-                  set({ allowed_login_methods: e.target.checked ? [...s.allowed_login_methods, m.key] : s.allowed_login_methods.filter((x) => x !== m.key) })
-                }
-              />
-              <span>{m.label}</span>
-              <span className="mono small muted">{m.key}</span>
+          <div className="radio-list" role="radiogroup" aria-label={t('sec.methods')}>
+            <label className="check">
+              <input type="radio" name="methods-mode" checked={!restricted} onChange={() => setMethods(null)} />
+              <span>
+                {t('sec.methodsAll')} <Badge tone="ok">{t('sec.unrestricted')}</Badge>
+              </span>
             </label>
-          ))}
+            <label className="check">
+              <input type="radio" name="methods-mode" checked={restricted} onChange={() => setMethods(methods.map((m) => m.key))} />
+              <span>{t('sec.methodsOnly')}</span>
+            </label>
+          </div>
+          <div className={restricted ? 'method-list' : 'method-list method-list-off'} data-testid="login-methods">
+            {methods.map((m) => (
+              <label key={m.key} className="check">
+                <input
+                  type="checkbox"
+                  disabled={!restricted}
+                  checked={!restricted || (s.allowed_login_methods ?? []).includes(m.key)}
+                  onChange={(e) => {
+                    const cur = s.allowed_login_methods ?? [];
+                    setMethods(e.target.checked ? [...cur, m.key] : cur.filter((x) => x !== m.key));
+                  }}
+                />
+                <span>{m.label}</span>
+                <span className="mono small muted">{m.key}</span>
+              </label>
+            ))}
+          </div>
           {errs.includes('methods') ? <small className="field-error">{t('sec.methodsError')}</small> : null}
         </fieldset>
 

@@ -11,11 +11,12 @@ import { isNotFound } from '../api';
 import { ChipsInput } from '../components/ChipsInput';
 import { Badge, DataTable, EmptyState, NotAvailable, SearchBox, type Column } from '../components/DataTable';
 import { usePaged } from '../components/usePaged';
+import { authErrorText } from '../auth/errors';
 import { ConfirmDialog, Dialog, ErrorBanner, Field, PageHeader, useDebounced } from '../components/ui';
-import { errorText, nonEmpty, useApp, useOrg } from '../context';
+import { nonEmpty, useApp, useOrg } from '../context';
 import type { MessageKey } from '../i18n';
 import type { CatalogEntry, ConnectionTest, ProviderKind, Upstream, UpstreamInput } from '../types';
-import { BUILTIN_CATALOG, slugName, validateProvider, VIA_OPENAI_COMPAT, type ProviderError } from './providerCatalog';
+import { BUILTIN_CATALOG, providerLabel, slugName, validateProvider, viaOpenAICompat, type ProviderError } from './providerCatalog';
 
 const EMPTY: UpstreamInput = {
   name: '',
@@ -57,18 +58,17 @@ function toInput(u: Upstream): UpstreamInput {
 /** What is sent: model mirrors default_model (its alias for one release). */
 function toBody(v: UpstreamInput): UpstreamInput {
   const body: UpstreamInput = { ...v, model: v.default_model ?? v.model };
-  if (v.provider !== 'azure_openai') delete body.api_version;
+  if (!body.api_version) delete body.api_version;
   if (!body.display_name) delete body.display_name;
   return body;
 }
 
-function providerLabel(catalog: CatalogEntry[], p: ProviderKind | undefined): string {
-  return catalog.find((c) => c.provider === p)?.display_name ?? p ?? '—';
-}
 
 export function ProvidersPage() {
   const { api, t, notify } = useApp();
-  const { org, projects, upstreams, upstreamError, reload, setOrg, can } = useOrg();
+  const { org, projects, upstreams, upstreamError, reload, setOrg, can, role } = useOrg();
+  // The connection test is owner-only on the control plane (it may send a key); an unknown role tries.
+  const canTest = role === null || role === 'owner';
   const writable = can('upstreams.write');
   const [catalog, setCatalog] = useState<CatalogEntry[]>(BUILTIN_CATALOG);
   const [builtin, setBuiltin] = useState(true);
@@ -135,7 +135,7 @@ export function ProvidersPage() {
       notify(t('common.saved'));
       await reloadAll();
     } catch (e) {
-      const m = errorText(e);
+      const m = authErrorText(e, t);
       if (m.includes('api_key_env')) setKeyEnvError(m);
       else setError(m);
     }
@@ -147,7 +147,7 @@ export function ProvidersPage() {
       const r = await api.testUpstream(org.id, u.id);
       setTests((s) => ({ ...s, [u.id]: r }));
     } catch (e) {
-      setTests((s) => ({ ...s, [u.id]: isNotFound(e) ? 'unavailable' : { error: errorText(e) } }));
+      setTests((s) => ({ ...s, [u.id]: isNotFound(e) ? 'unavailable' : { error: authErrorText(e, t) } }));
     }
   };
 
@@ -161,7 +161,7 @@ export function ProvidersPage() {
       notify(t('common.saved'));
       await reload();
     } catch (e) {
-      notify(errorText(e), 'error');
+      notify(authErrorText(e, t), 'error');
     }
   };
 
@@ -172,19 +172,19 @@ export function ProvidersPage() {
 
   const pick = (c: CatalogEntry) => {
     if (!editing) return;
-    const name = nonEmpty(editing.value.name) ?? slugName(c.provider === 'openai_compatible' ? '' : c.display_name);
+    const name = nonEmpty(editing.value.name) ?? slugName(c.id === 'openai_compatible' ? '' : c.display_name);
     setEditing({
       ...editing,
       picking: false,
       value: {
         ...editing.value,
-        provider: c.provider,
+        provider: c.id,
         name,
-        display_name: nonEmpty(editing.value.display_name) ?? (c.provider === 'openai_compatible' ? '' : c.display_name),
-        base_url: c.base_url,
-        api_key_env: c.needs_key ? (c.env_hint ?? '') : editing.value.api_key_env,
-        default_model: c.models[0] ?? '',
-        model: c.models[0] ?? '',
+        display_name: nonEmpty(editing.value.display_name) ?? (c.id === 'openai_compatible' ? '' : c.display_name),
+        base_url: c.default_base_url,
+        api_key_env: c.key_required ? (c.key_env_hint ?? '') : editing.value.api_key_env,
+        default_model: c.known_models[0] ?? '',
+        model: c.known_models[0] ?? '',
         models: [],
       },
     });
@@ -198,7 +198,7 @@ export function ProvidersPage() {
   };
 
   const list = upstreams ?? [];
-  const entry = editing ? catalog.find((c) => c.provider === editing.value.provider) : undefined;
+  const entry = editing ? catalog.find((c) => c.id === editing.value.provider) : undefined;
 
   const columns: Column<Upstream>[] = [
     {
@@ -245,7 +245,7 @@ export function ProvidersPage() {
       className: 'row-actions',
       cell: (u) => (
         <>
-          {can('upstreams.test') ? (
+          {canTest ? (
             <button type="button" className="btn btn-small btn-icon-text" aria-label={t('prov.testOf', { name: u.name })} disabled={tests[u.id] === 'running'} onClick={() => void test(u)}>
               <Zap size={14} aria-hidden="true" />
               <span>{t('prov.test')}</span>
@@ -380,14 +380,15 @@ export function ProvidersPage() {
             <p className="muted">{builtin ? t('prov.pickHelpBuiltin') : t('prov.pickHelp')}</p>
             <ul className="catalog" data-testid="provider-catalog">
               {catalog.map((c) => (
-                <li key={c.provider}>
+                <li key={c.id}>
                   <button type="button" className="catalog-item" onClick={() => pick(c)}>
                     <span className="catalog-name">{c.display_name}</span>
-                    <span className="mono small muted">{c.base_url}</span>
+                    <span className="mono small muted">{c.default_base_url}</span>
                     <span className="catalog-meta">
-                      {c.needs_key ? <Badge tone="warn">{t('prov.needsKey')}</Badge> : <Badge>{t('prov.noKey')}</Badge>}
-                      {VIA_OPENAI_COMPAT.includes(c.provider) ? <Badge tone="accent">{t('prov.viaCompat')}</Badge> : null}
+                      {c.key_required ? <Badge tone="warn">{t('prov.needsKey')}</Badge> : <Badge>{t('prov.noKey')}</Badge>}
+                      {c.openai_compatible_endpoint ? <Badge tone="accent">{t('prov.viaCompat')}</Badge> : null}
                     </span>
+                    {c.notes ? <span className="small muted catalog-notes">{c.notes}</span> : null}
                   </button>
                 </li>
               ))}
@@ -401,7 +402,7 @@ export function ProvidersPage() {
               void save();
             }}
           >
-            {editing.value.provider && VIA_OPENAI_COMPAT.includes(editing.value.provider) ? (
+            {viaOpenAICompat(catalog, editing.value.provider) ? (
               <div className="banner banner-info">{t('prov.compatNote', { name: providerLabel(catalog, editing.value.provider) })}</div>
             ) : null}
             <fieldset>
@@ -411,7 +412,7 @@ export function ProvidersPage() {
                   {(p) => (
                     <select {...p} value={editing.value.provider ?? 'openai_compatible'} onChange={(e) => set({ provider: e.target.value as ProviderKind })}>
                       {catalog.map((c) => (
-                        <option key={c.provider} value={c.provider}>
+                        <option key={c.id} value={c.id}>
                           {c.display_name}
                         </option>
                       ))}
@@ -431,14 +432,14 @@ export function ProvidersPage() {
                     {...p}
                     className="mono"
                     type="url"
-                    placeholder={entry?.base_url ?? 'https://api.openai.com/v1'}
+                    placeholder={entry?.default_base_url ?? 'https://api.openai.com/v1'}
                     value={editing.value.base_url}
                     onChange={(e) => set({ base_url: e.target.value })}
                     required
                   />
                 )}
               </Field>
-              {editing.value.provider === 'azure_openai' ? (
+              {editing.value.provider === 'azure_openai' || entry?.needs_api_version ? (
                 <Field label={t('prov.apiVersion')} help={t('prov.apiVersionHelp')}>
                   {(p) => <input {...p} className="mono" placeholder="2024-10-21" value={editing.value.api_version ?? ''} onChange={(e) => set({ api_version: e.target.value })} />}
                 </Field>
@@ -448,7 +449,7 @@ export function ProvidersPage() {
                   <input
                     {...p}
                     className="mono"
-                    placeholder={entry?.env_hint ?? 'UPSTREAM_KEY_MAIN'}
+                    placeholder={entry?.key_env_hint ?? 'UPSTREAM_KEY_MAIN'}
                     autoComplete="off"
                     spellCheck={false}
                     value={editing.value.api_key_env}
@@ -462,6 +463,7 @@ export function ProvidersPage() {
                   <span>{t('prov.docs', { name: entry.display_name })}</span>
                 </a>
               ) : null}
+              {entry?.notes ? <p className="small muted">{entry.notes}</p> : null}
             </fieldset>
             <fieldset>
               <legend>{t('prov.modelsTitle')}</legend>
@@ -476,7 +478,7 @@ export function ProvidersPage() {
                       onChange={(e) => set({ default_model: e.target.value, model: e.target.value })}
                     />
                     <datalist id="known-models">
-                      {[...new Set([...(entry?.models ?? []), ...(editing.value.models ?? [])])].map((m) => (
+                      {[...new Set([...(entry?.known_models ?? []), ...(editing.value.models ?? [])])].map((m) => (
                         <option key={m} value={m} />
                       ))}
                     </datalist>
@@ -487,7 +489,7 @@ export function ProvidersPage() {
                 label={t('prov.allowedModels')}
                 help={t('prov.allowedHelp')}
                 values={editing.value.models ?? []}
-                suggestions={entry?.models ?? []}
+                suggestions={entry?.known_models ?? []}
                 placeholder={t('prov.addModel')}
                 onChange={(models) => set({ models })}
               />
@@ -570,7 +572,7 @@ export function ProvidersPage() {
             notify(t('common.deleted'));
             await reloadAll();
           } catch (e) {
-            notify(t('up.inUse', { error: errorText(e) }), 'error');
+            notify(t('up.inUse', { error: authErrorText(e, t) }), 'error');
           }
           setDeleting(null);
         }}
@@ -586,12 +588,18 @@ function TestResult({ r }: { r: ConnectionTest | 'running' | 'unavailable' | { e
   if (shown === 'running') return <span className="muted small">{t('prov.testing')}</span>;
   if (shown === 'unavailable') return <NotAvailable compact />;
   if ('ok' in shown) {
+    const models = shown.models_found ?? [];
     return (
       <div className="test-result small" data-testid="test-result">
         <Badge tone={shown.ok ? 'ok' : 'danger'}>{shown.ok ? t('prov.testOk') : t('prov.testFailed')}</Badge>
         {shown.latency_ms !== null ? <span className="muted"> {shown.latency_ms} ms</span> : null}
         {shown.status ? <span className="muted"> · HTTP {shown.status}</span> : null}
-        {shown.models_found.length > 0 ? <div className="muted">{t('prov.modelsFound', { count: shown.models_found.length, list: shown.models_found.slice(0, 5).join(', ') })}</div> : null}
+        {models.length > 0 ? <div className="muted">{t('prov.modelsFound', { count: models.length, list: models.slice(0, 5).join(', ') })}</div> : null}
+        {shown.key_sent === false ? (
+          <div className="test-note" data-testid="key-not-sent">
+            {nonEmpty(shown.note) ?? t('prov.keyNotSent')}
+          </div>
+        ) : null}
         {shown.error ? <div className="field-error">{shown.error}</div> : null}
       </div>
     );

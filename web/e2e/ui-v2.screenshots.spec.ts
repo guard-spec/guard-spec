@@ -68,6 +68,7 @@ for (const theme of ['light', 'dark'] as const) {
           ['Simulator', 'simulator'],
           ['Users', 'admin-users'],
           ['Identity providers', 'identity-providers'],
+          ['Instance activity', 'admin-activity'],
         ];
         for (const [label, file] of pages) {
           await open(page, vp, label);
@@ -119,6 +120,13 @@ test.describe('sign-in steps', () => {
       await chooseOrg(page);
     });
   }
+});
+
+test('invite page', async ({ page }) => {
+  await prepare(page, 'light', 'desktop');
+  await page.goto('/ui/invite?token=inv_demo');
+  await expect(page.getByRole('heading', { name: 'Accept your invitation' })).toBeVisible();
+  await shot(page, 'invite', 'light', 'desktop');
 });
 
 test.describe('2FA step', () => {

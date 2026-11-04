@@ -1,7 +1,7 @@
 // Copyright 2026 The Guard Spec Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { ChevronLeft, ChevronRight, Inbox, PlugZap, RefreshCw, Search, type LucideIcon } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Inbox, Lock, PlugZap, RefreshCw, Search, UserCog, type LucideIcon } from 'lucide-react';
 import { useId, type ReactNode } from 'react';
 import { useApp } from '../context';
 import { PAGE_SIZES, type PageSize } from '../paging';
@@ -63,6 +63,18 @@ export function NotAvailable({ feature, compact }: { feature?: string; compact?:
   );
 }
 
+/** A page of the instance admin group, opened by someone else. */
+export function InstanceAdminOnly() {
+  const { t } = useApp();
+  return <EmptyState icon={UserCog} title={t('admin.onlyTitle')} body={t('admin.onlyBody')} />;
+}
+
+/** The caller's role may not see this (403): no retry, it would fail again. */
+export function Forbidden({ compact }: { compact?: boolean }) {
+  const { t } = useApp();
+  return <EmptyState icon={Lock} compact={compact} title={t('forbidden.title')} body={t('forbidden.body')} />;
+}
+
 export function Pager<T>({ paged, label }: { paged: UsePaged<T>; label?: string }) {
   const { t } = useApp();
   const id = useId();
@@ -80,7 +92,7 @@ export function Pager<T>({ paged, label }: { paged: UsePaged<T>; label?: string 
         </select>
       </div>
       <span className="pager-range muted" aria-live="polite">
-        {from === 0 ? t('pager.none') : total !== null ? t('pager.rangeOf', { from, to, total }) : t('pager.range', { from, to })}
+        {from === 0 ? t('pager.none') : total === null ? t('pager.range', { from, to }) : paged.range.capped ? t('pager.rangeOfCapped', { from, to, total }) : t('pager.rangeOf', { from, to, total })}
       </span>
       <div className="pager-buttons">
         <button type="button" className="btn btn-icon-text" disabled={!paged.hasPrev || paged.state.loading} onClick={paged.prev}>
@@ -136,6 +148,8 @@ export function DataTable<T>({
   let body: ReactNode = null;
   if (s.unavailable) {
     body = <NotAvailable feature={feature} />;
+  } else if (s.forbidden) {
+    body = <Forbidden />;
   } else if (s.error && paged.rows.length === 0) {
     body = (
       <div className="empty" role="alert">
@@ -195,7 +209,7 @@ export function DataTable<T>({
           </table>
         )}
       </div>
-      {s.unavailable ? null : <Pager paged={paged} />}
+      {s.unavailable || s.forbidden ? null : <Pager paged={paged} />}
     </div>
   );
 }

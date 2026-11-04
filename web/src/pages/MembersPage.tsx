@@ -9,8 +9,10 @@ import { canManageMember, grantableRoles } from '../auth/permissions';
 import { Badge, DataTable, EmptyState, SearchBox, type Column, type Tone } from '../components/DataTable';
 import { usePaged } from '../components/usePaged';
 import { ConfirmDialog, CopyButton, Dialog, ErrorBanner, Field, formatTime, PageHeader, useDebounced } from '../components/ui';
-import { errorText, nonEmpty, useApp, useOrg } from '../context';
+import { authErrorText } from '../auth/errors';
+import { nonEmpty, useApp, useOrg } from '../context';
 import type { MessageKey } from '../i18n';
+import { href } from '../router';
 import { ROLES, type CreatedInvite, type Invite, type Member, type Role } from '../types';
 
 type Pending =
@@ -20,7 +22,12 @@ type Pending =
   | { kind: 'revokeSessions'; member: Member }
   | { kind: 'revokeInvite'; invite: Invite };
 
-const STATUS_TONE: Record<Invite['status'], Tone> = { pending: 'accent', accepted: 'ok', revoked: 'off', expired: 'warn' };
+/** The acceptance page of an invite token (InvitePage). */
+export function inviteLink(token: string): string {
+  return `${window.location.origin}${href('invite')}?token=${encodeURIComponent(token)}`;
+}
+
+const STATUS_TONE:Record<Invite['status'], Tone> = { pending: 'accent', accepted: 'ok', revoked: 'off', expired: 'warn' };
 
 export function MembersPage() {
   const { t } = useApp();
@@ -34,7 +41,7 @@ export function MembersPage() {
         title={t('members.title')}
         help={t('members.help')}
         actions={
-          can('invites.write') ? (
+          can('members.write') ? (
             <button type="button" className="btn btn-primary btn-icon-text" onClick={() => setInviting(true)}>
               <UserPlus size={16} aria-hidden="true" />
               <span>{t('members.invite')}</span>
@@ -119,7 +126,7 @@ function MembersTable() {
       }
       await paged.reload();
     } catch (e) {
-      notify(errorText(e), 'error');
+      notify(authErrorText(e, t), 'error');
     }
     setPending(null);
   };
@@ -290,7 +297,7 @@ function InvitesTable() {
       hiddenHeader: true,
       className: 'row-actions',
       cell: (i) =>
-        i.status === 'pending' && can('invites.write') ? (
+        i.status === 'pending' && can('members.write') ? (
           <button type="button" className="btn btn-small btn-danger" aria-label={`${t('invite.revoke')}: ${i.email}`} onClick={() => setRevoking(i)}>
             {t('invite.revoke')}
           </button>
@@ -320,7 +327,7 @@ function InvitesTable() {
             await api.revokeInvite(org.id, revoking.id);
             await paged.reload();
           } catch (e) {
-            notify(errorText(e), 'error');
+            notify(authErrorText(e, t), 'error');
           }
           setRevoking(null);
         }}
@@ -349,7 +356,7 @@ function InviteDialog({ open, onClose, onCreated }: { open: boolean; onClose: ()
       setCreated(await api.createInvite(org.id, email.trim(), inviteRole, Number(ttl) || undefined));
       onCreated();
     } catch (e) {
-      setError(errorText(e));
+      setError(authErrorText(e, t));
     }
   };
   return (
@@ -378,11 +385,18 @@ function InviteDialog({ open, onClose, onCreated }: { open: boolean; onClose: ()
       {created ? (
         <>
           <p className="banner banner-warn">{t('invite.tokenHelp', { email: created.email })}</p>
+          <span className="muted small">{t('invite.link')}</span>
+          <div className="secret-row">
+            <code className="secret" data-testid="invite-link">
+              {inviteLink(created.token)}
+            </code>
+            <CopyButton text={inviteLink(created.token)} />
+          </div>
+          <span className="muted small">{t('invite.token')}</span>
           <div className="secret-row">
             <code className="secret" data-testid="invite-token">
               {created.token}
             </code>
-            <CopyButton text={created.token} />
           </div>
         </>
       ) : (

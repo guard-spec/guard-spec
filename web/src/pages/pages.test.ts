@@ -6,9 +6,12 @@ import { en } from '../i18n/en';
 import { vi as viMessages } from '../i18n/vi';
 import type { AuditRow, UpstreamInput } from '../types';
 import { computeStats, quantile } from './dashboard';
-import { validateIdp } from './IdentityProvidersPage';
-import { slugName, validateProvider } from './providerCatalog';
-import { validateSecurity } from './SecurityPage';
+import { ApiError } from '../api';
+import { authErrorText, CODES } from '../auth/errors';
+import { translator } from '../i18n';
+import { validateIdp, validIssuer } from './IdentityProvidersPage';
+import { providerLabel, slugName, validateProvider } from './providerCatalog';
+import { securityBody, validateSecurity } from './SecurityPage';
 
 const base: UpstreamInput = {
   name: 'main',
@@ -54,6 +57,43 @@ describe('identity provider and security validation', () => {
     };
     expect(validateIdp(ok)).toEqual({});
     expect(validateIdp({ ...ok, issuer: 'http://x', client_secret_env: 'GOCSPX-secret' })).toEqual({ issuer: true, client_secret_env: true });
+  });
+
+  it('accepts http issuers only on loopback hosts, like the control plane', () => {
+    expect(validIssuer('https://accounts.google.com')).toBe(true);
+    expect(validIssuer('http://localhost:9000/realms/x')).toBe(true);
+    expect(validIssuer('http://127.0.0.1:5556')).toBe(true);
+    expect(validIssuer('http://[::1]:5556')).toBe(true);
+    expect(validIssuer('http://idp.example.com')).toBe(false);
+    expect(validIssuer('https://idp.example.com?x=1')).toBe(false);
+    expect(validIssuer('not a url')).toBe(false);
+  });
+
+  it('sends allowed_login_methods only when it was changed, null for unrestricted', () => {
+    const s = { require_mfa: true, sso_satisfies_mfa: false, allowed_login_methods: ['password', 'google'], domain_join: [], session_lifetime_hours: 12 };
+    expect(securityBody(s, false)).not.toHaveProperty('allowed_login_methods');
+    expect(securityBody(s, true).allowed_login_methods).toEqual(['password', 'google']);
+    expect(securityBody({ ...s, allowed_login_methods: null }, true)).toHaveProperty('allowed_login_methods', null);
+    expect(validateSecurity({ ...s, allowed_login_methods: null })).toEqual([]);
+  });
+
+  it('names providers by the catalog, then the built-in presets', () => {
+    expect(providerLabel([], 'openai_compatible')).toBe('OpenAI-compatible');
+    expect(providerLabel([{ id: 'vllm', display_name: 'vLLM (GPU)', default_base_url: '', key_required: false, known_models: [] }], 'vllm')).toBe('vLLM (GPU)');
+    expect(providerLabel([], 'something_new')).toBe('something_new');
+    expect(providerLabel([], undefined)).toBe('—');
+  });
+
+  it('translates error codes before the server text', () => {
+    const t = translator('vi');
+    const err = new ApiError(409, 'the last owner cannot be demoted', { error: 'the last owner cannot be demoted', code: 'last_owner' });
+    expect(authErrorText(err, t)).toBe(viMessages['authErr.last_owner']);
+    expect(authErrorText('mfa_token_invalid', translator('en'))).toBe(en['authErr.mfa_token_invalid']);
+    expect(authErrorText(new ApiError(400, 'x', { error: { code: 'model_not_allowed' } }), translator('en'))).toBe(en['authErr.model_not_allowed']);
+    expect(authErrorText(new ApiError(500, 'internal error', { error: 'internal error' }), t)).toBe('internal error');
+    for (const code of ['invalid_state', 'email_not_verified', 'exchange_failed', 'provider_error', 'invalid_nonce', 'invalid_token', 'sso_unavailable', 'account_exists', 'domain_not_allowed', 'would_lock_out', 'login_method_not_allowed', 'last_owner', 'not_sole_authority', 'mfa_locked', 'model_not_allowed', 'mfa_token_invalid', 'link_expired', 'link_wrong_user', 'identity_in_use']) {
+      expect(CODES[code], code).toBeDefined();
+    }
   });
 
   it('checks the org security policy', () => {

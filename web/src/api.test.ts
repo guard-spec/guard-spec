@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it, vi } from 'vitest';
-import { ApiClient, ApiError, isNotFound, listOf } from './api';
+import { ApiClient, ApiError, isForbidden, isNotFound, listOf } from './api';
 
 interface Call {
   url: string;
@@ -162,11 +162,72 @@ describe('ApiClient, identity contract', () => {
     expect(listOf(undefined)).toEqual([]);
     expect(isNotFound(new ApiError(404, 'x'))).toBe(true);
     expect(isNotFound(new ApiError(500, 'x'))).toBe(false);
-    const f = fakeFetch([json(200, { providers: [{ provider: 'openai' }] }), json(200, [{ id: 'g', type: 'google', display_name: 'Google' }])]);
+    const f = fakeFetch([json(200, [{ id: 'g', type: 'google', display_name: 'Google' }])]);
     const api = new ApiClient({ getToken: () => 't', fetch: f.fetch });
-    await expect(api.getProviderCatalog()).resolves.toEqual([{ provider: 'openai' }]);
     await expect(api.listLoginProviders()).resolves.toHaveLength(1);
-    expect(headers(f.calls[1]).Authorization).toBeUndefined();
+    expect(headers(f.calls[0]).Authorization).toBeUndefined();
+  });
+
+  it('reads the provider catalog of the control plane, a plain array and the draft names', async () => {
+    const backend = {
+      items: [
+        {
+          id: 'openai_compatible',
+          display_name: 'OpenAI-compatible',
+          default_base_url: '',
+          key_required: false,
+          key_env_hint: '',
+          needs_api_version: false,
+          openai_compatible_endpoint: false,
+          known_models: null,
+          docs_url: '',
+          notes: 'Any endpoint',
+        },
+        { id: 'gemini', display_name: 'Google Gemini', default_base_url: 'https://g/v1', key_required: true, key_env_hint: 'UPSTREAM_KEY_GEMINI', openai_compatible_endpoint: true, known_models: ['gemini-2.5-pro'] },
+      ],
+    };
+    const f = fakeFetch([json(200, backend), json(200, [{ provider: 'openai', base_url: 'https://o/v1', needs_key: true, env_hint: 'UPSTREAM_KEY_OPENAI', models: ['gpt-4o'] }])]);
+    const api = new ApiClient({ getToken: () => 't', fetch: f.fetch });
+    const cat = await api.getProviderCatalog();
+    expect(cat[0]).toEqual({
+      id: 'openai_compatible',
+      display_name: 'OpenAI-compatible',
+      default_base_url: '',
+      key_required: false,
+      known_models: [], // null on the wire
+      needs_api_version: false,
+      openai_compatible_endpoint: false,
+      notes: 'Any endpoint',
+    });
+    expect(cat[1]).toMatchObject({ id: 'gemini', key_required: true, key_env_hint: 'UPSTREAM_KEY_GEMINI', openai_compatible_endpoint: true, known_models: ['gemini-2.5-pro'] });
+    await expect(api.getProviderCatalog()).resolves.toEqual([
+      expect.objectContaining({ id: 'openai', default_base_url: 'https://o/v1', key_required: true, key_env_hint: 'UPSTREAM_KEY_OPENAI', known_models: ['gpt-4o'] }),
+    ]);
+  });
+
+  it('completes a profile link with the code and the session token', async () => {
+    const f = fakeFetch([json(200, { provider_id: 'okta', linked: true })]);
+    const api = new ApiClient({ getToken: () => 'tok', fetch: f.fetch });
+    await api.completeLink('c1');
+    expect(f.calls[0]?.url).toBe('/v1/auth/identities/link/complete');
+    expect(headers(f.calls[0]).Authorization).toBe('Bearer tok');
+    expect(bodyOf(f.calls[0])).toEqual({ code: 'c1' });
+  });
+
+  it('accepts an invite without a token and recognises 403', async () => {
+    const f = fakeFetch([json(201, { token: 'tok', org_id: 'o', role: 'member' })]);
+    const api = new ApiClient({ getToken: () => 'old', fetch: f.fetch });
+    await expect(api.acceptInvite('inv_1', 'pw-pw-pw-pw-pw', 'Ann')).resolves.toMatchObject({ token: 'tok', org_id: 'o' });
+    expect(headers(f.calls[0]).Authorization).toBeUndefined();
+    expect(bodyOf(f.calls[0])).toEqual({ token: 'inv_1', password: 'pw-pw-pw-pw-pw', display_name: 'Ann' });
+    expect(isForbidden(new ApiError(403, 'no'))).toBe(true);
+    expect(isForbidden(new ApiError(404, 'no'))).toBe(false);
+  });
+
+  it('shows the redirect URI placeholder unencoded', () => {
+    const api = new ApiClient({ getToken: () => null, fetch: fakeFetch([]).fetch });
+    expect(api.oidcCallbackUrl(null)).toMatch(/\/v1\/auth\/oidc\/<id>\/callback$/);
+    expect(api.oidcCallbackUrl('a b')).toMatch(/\/v1\/auth\/oidc\/a%20b\/callback$/);
   });
 
   it('builds the SSO start URL with a same-origin redirect', () => {

@@ -8,12 +8,12 @@
 import { Fingerprint, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useCallback, useState } from 'react';
 import { ChipsInput } from '../components/ChipsInput';
-import { Badge, DataTable, EmptyState, type Column } from '../components/DataTable';
+import { Badge, DataTable, EmptyState, InstanceAdminOnly, type Column } from '../components/DataTable';
 import { usePaged } from '../components/usePaged';
 import { ConfirmDialog, CopyButton, Dialog, ErrorBanner, Field, PageHeader, Toggle } from '../components/ui';
-import { errorText, useApp } from '../context';
+import { authErrorText } from '../auth/errors';
+import { useApp } from '../context';
 import { CLIENT_SECRET_ENV_RE, GOOGLE_ISSUER, type IdentityProvider, type IdentityProviderInput } from '../types';
-import { InstanceAdminOnly } from './AdminUsersPage';
 
 const GOOGLE: IdentityProviderInput = {
   type: 'google',
@@ -24,6 +24,7 @@ const GOOGLE: IdentityProviderInput = {
   scopes: ['openid', 'email', 'profile'],
   allowed_domains: [],
   auto_provision: false,
+  trust_email_for_linking: false,
   enabled: true,
 };
 
@@ -36,17 +37,28 @@ const OIDC: IdentityProviderInput = {
   scopes: ['openid', 'email', 'profile'],
   allowed_domains: [],
   auto_provision: false,
+  trust_email_for_linking: false,
   enabled: true,
 };
+
+/** As validIssuer of the control plane: https, or http on a loopback host (a local test IdP). */
+export function validIssuer(raw: string): boolean {
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    return false;
+  }
+  if (!u.host || u.username || u.password || u.search || u.hash) return false;
+  const host = u.hostname.replace(/^\[|\]$/g, '');
+  const loopback = host === 'localhost' || host.startsWith('127.') || host === '::1';
+  return u.protocol === 'https:' || (u.protocol === 'http:' && loopback);
+}
 
 export function validateIdp(v: IdentityProviderInput): Partial<Record<'display_name' | 'issuer' | 'client_id' | 'client_secret_env', true>> {
   const e: Partial<Record<'display_name' | 'issuer' | 'client_id' | 'client_secret_env', true>> = {};
   if (!v.display_name.trim()) e.display_name = true;
-  try {
-    if (new URL(v.issuer).protocol !== 'https:') e.issuer = true;
-  } catch {
-    e.issuer = true;
-  }
+  if (!validIssuer(v.issuer)) e.issuer = true;
   if (!v.client_id.trim()) e.client_id = true;
   if (!CLIENT_SECRET_ENV_RE.test(v.client_secret_env)) e.client_secret_env = true;
   return e;
@@ -88,7 +100,7 @@ export default function IdentityProvidersPage() {
       notify(t('common.saved'));
       await paged.reload();
     } catch (e) {
-      setError(errorText(e));
+      setError(authErrorText(e, t));
     }
   };
 
@@ -118,6 +130,7 @@ export default function IdentityProvidersPage() {
         <span className="badges">
           <Badge tone={p.enabled ? 'ok' : 'off'}>{p.enabled ? t('common.enabled') : t('common.disabled')}</Badge>
           {p.auto_provision ? <Badge tone="warn">{t('idp.autoProvisionShort')}</Badge> : null}
+          {p.trust_email_for_linking ? <Badge tone="warn">{t('idp.trustedShort')}</Badge> : null}
         </span>
       ),
     },
@@ -208,7 +221,7 @@ export default function IdentityProvidersPage() {
               <div>
                 <strong>{t('idp.redirectUri')}</strong>
                 <div className="secret-row">
-                  <code className="secret">{draft.id ? api.oidcCallbackUrl(draft.id) : api.oidcCallbackUrl('<id>')}</code>
+                  <code className="secret">{draft.id ? api.oidcCallbackUrl(draft.id) : api.oidcCallbackUrl(null)}</code>
                   {draft.id ? <CopyButton text={api.oidcCallbackUrl(draft.id)} /> : null}
                 </div>
                 {draft.id ? null : <small>{t('idp.redirectAfterSave')}</small>}
@@ -269,6 +282,12 @@ export default function IdentityProvidersPage() {
               onChange={(allowed_domains) => set({ allowed_domains })}
             />
             <Toggle label={t('idp.autoProvision')} help={t('idp.autoProvisionHelp')} checked={v.auto_provision} onChange={(x) => set({ auto_provision: x })} />
+            <Toggle
+              label={t('idp.trustEmail')}
+              help={t('idp.trustEmailHelp')}
+              checked={v.trust_email_for_linking === true}
+              onChange={(x) => set({ trust_email_for_linking: x })}
+            />
             <Toggle label={t('common.enabled')} help={t('idp.enabledHelp')} checked={v.enabled} onChange={(x) => set({ enabled: x })} />
             <button type="submit" hidden />
           </form>
@@ -288,7 +307,7 @@ export default function IdentityProvidersPage() {
             notify(t('common.deleted'));
             await paged.reload();
           } catch (e) {
-            notify(errorText(e), 'error');
+            notify(authErrorText(e, t), 'error');
           }
           setDeleting(null);
         }}

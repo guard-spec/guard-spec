@@ -6,7 +6,7 @@
 // sessions.
 
 import { KeyRound, Link2, Monitor, ShieldCheck, ShieldOff, Unlink } from 'lucide-react';
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { ApiError, isNotFound } from '../api';
 import { authErrorText } from '../auth/errors';
 import { isTotpCode } from '../auth/loginMachine';
@@ -15,20 +15,61 @@ import { RecoveryCodes } from '../components/RecoveryCodes';
 import { TotpEnroll } from '../components/TotpEnroll';
 import { usePaged } from '../components/usePaged';
 import { ConfirmDialog, Dialog, ErrorBanner, Field, formatTime, Loading, PageHeader } from '../components/ui';
-import { errorText, nonEmpty, useApp } from '../context';
+import { nonEmpty, useApp } from '../context';
 import type { LoginProvider, SessionInfo, TotpSetup } from '../types';
 
+/**
+ * Reads and strips the result of a profile link from the address
+ * (/ui/account?link_code=… or ?link_error=…; ?linked= of older control planes).
+ */
+export function takeLinkParams(): { code: string | null; error: string | null; linked: string | null } | null {
+  const q = new URLSearchParams(window.location.search);
+  const out = { code: q.get('link_code'), error: q.get('link_error'), linked: q.get('linked') };
+  if (out.code === null && out.error === null && out.linked === null) return null;
+  for (const k of ['link_code', 'link_error', 'linked']) q.delete(k);
+  const rest = q.toString();
+  window.history.replaceState(null, '', window.location.pathname + (rest ? `?${rest}` : ''));
+  return out;
+}
+
 export default function AccountPage() {
-  const { t, me } = useApp();
+  const { api, t, me, notify, reloadMe } = useApp();
   const [loaded, setLoaded] = useState(false);
+  const [linkError, setLinkError] = useState<string | null>(null);
+  const handled = useRef(false);
   useEffect(() => {
     // GET /auth/me runs at sign-in; give it a moment before saying it is missing.
     const id = window.setTimeout(() => setLoaded(true), 1500);
     return () => window.clearTimeout(id);
   }, []);
+  // Back from linking an identity: the one-time code is bound to this user
+  // with its own token (identity contract §2, as changed by N15).
+  useEffect(() => {
+    if (handled.current) return;
+    handled.current = true;
+    const p = takeLinkParams();
+    if (!p) return;
+    if (p.error) {
+      setLinkError(t('account.linkFailed', { error: authErrorText(p.error, t) }));
+      return;
+    }
+    if (p.code) {
+      api.completeLink(p.code).then(
+        (r) => {
+          notify(r.display_name ? t('account.linkedName', { name: r.display_name }) : t('account.linked'));
+          void reloadMe();
+        },
+        (e: unknown) => setLinkError(t('account.linkFailed', { error: authErrorText(e, t) })),
+      );
+      return;
+    }
+    notify(t('account.linked'));
+    void reloadMe();
+  }, [api, t, notify, reloadMe]);
   return (
     <div className="narrow">
       <PageHeader title={t('account.title')} help={t('account.help')} />
+      <ErrorBanner error={linkError} onDismiss={() => setLinkError(null)} />
       {me ? (
         <>
           <Profile />
@@ -98,7 +139,7 @@ function PasswordCard() {
       setConfirm('');
       notify(t('account.passwordChanged'));
     } catch (err) {
-      setError(isNotFound(err) ? t('na.title') : errorText(err));
+      setError(isNotFound(err) ? t('na.title') : authErrorText(err, t));
     } finally {
       setBusy(false);
     }
@@ -336,7 +377,8 @@ function IdentitiesCard() {
     api.listLoginProviders().then(setProviders, () => setProviders([]));
   }, [api]);
   if (!me) return null;
-  const linked = (p: LoginProvider) => me.identities.find((i) => i.provider === p.id || i.provider === p.type);
+  // provider_id names the identity provider; older control planes sent only the type.
+  const linked = (p: LoginProvider) => me.identities.find((i) => (i.provider_id ? i.provider_id === p.id : i.provider === p.id || i.provider === p.type));
   return (
     <section className="card" aria-labelledby="ids-title">
       <h2 id="ids-title">
@@ -353,7 +395,7 @@ function IdentitiesCard() {
             <li key={p.id}>
               <div className="cell-stack">
                 <strong>{p.display_name}</strong>
-                <span className="muted small">{id ? t('account.linkedAs', { email: id.email }) : t('account.notLinked')}</span>
+                <span className="muted small">{id ? t('account.linkedAs', { email: id.email ?? id.display_name ?? p.display_name }) : t('account.notLinked')}</span>
               </div>
               {id ? (
                 <button type="button" className="btn btn-small btn-icon-text" onClick={() => setUnlinking(p)}>
@@ -369,7 +411,7 @@ function IdentitiesCard() {
                     try {
                       window.location.assign(await api.startLinkIdentity(p.id, '/ui/account'));
                     } catch (e) {
-                      setError(isNotFound(e) ? t('na.title') : errorText(e));
+                      setError(isNotFound(e) ? t('na.title') : authErrorText(e, t));
                     }
                   }}
                 >
@@ -395,7 +437,7 @@ function IdentitiesCard() {
             notify(t('account.unlinked'));
             await reloadMe();
           } catch (e) {
-            notify(e instanceof ApiError && e.status === 409 ? t('account.lastMethod') : errorText(e), 'error');
+            notify(e instanceof ApiError && e.status === 409 ? t('account.lastMethod') : authErrorText(e, t), 'error');
           }
           setUnlinking(null);
         }}
@@ -457,7 +499,7 @@ function SessionsCard() {
             await api.revokeSession(revoking.id);
             await paged.reload();
           } catch (e) {
-            notify(errorText(e), 'error');
+            notify(authErrorText(e, t), 'error');
           }
           setRevoking(null);
         }}
