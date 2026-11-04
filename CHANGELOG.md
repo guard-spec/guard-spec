@@ -36,10 +36,25 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   placeholder.
 - Metric `guardspec_gateway_route_selections_total{source,outcome}`.
 
+- `UPSTREAM_KEY_ORGS` (gateway and control plane): which organizations may
+  name which `UPSTREAM_KEY_*` variable. Empty by default, so no org can use
+  a key until the operator lists it (`UPSTREAM_KEY_MAIN=*` for every org).
+  Refused on save and, for older rows, at request time (502).
+- `UPSTREAM_ALLOW_PRIVATE` (gateway, default `false`): org-defined upstreams
+  may not reach loopback, RFC 1918, unique local or CGNAT addresses unless it
+  is `true`. Compose sets `true` and `UPSTREAM_KEY_ORGS=UPSTREAM_KEY_MAIN=*`.
+
 ### Changed
 
 - The gateway's dialer refuses link-local, multicast and unspecified
-  addresses for every upstream, including `UPSTREAM_LLM_URL`.
+  addresses and the cloud metadata addresses `fd00:ec2::254`,
+  `100.100.100.200` and `192.0.0.192` for every upstream, including
+  `UPSTREAM_LLM_URL`.
+- Policy names are unique per organization: create or rename onto a used
+  name returns 409. `GET .../config` returns 409, with the problems and how
+  to fix them, when the stored config would not apply again.
+- The audit `model` column holds the model sent upstream after a named
+  upstream's `model` rewrite.
 - `GET /organizations/:orgId` and the project list include
   `default_upstream_id`.
 

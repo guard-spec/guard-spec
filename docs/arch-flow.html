@@ -926,7 +926,7 @@
         <tr>
           <td><div class="comp-name">Upstreams</div></td>
           <td style="font-size:0.8rem;"><code>/:orgId/upstreams</code>, <code>/:orgId/default-upstream</code>, <code>/:orgId/projects/:projectId/default-upstream</code></td>
-          <td style="font-size:0.8rem;">Named route targets; keys stay in the gateway's <code>UPSTREAM_KEY_*</code> variables. Deleting one in use is a 409.</td>
+          <td style="font-size:0.8rem;">Named route targets; keys stay in the gateway's <code>UPSTREAM_KEY_*</code> variables, usable only by the orgs listed in <code>UPSTREAM_KEY_ORGS</code>. Deleting one in use is a 409.</td>
         </tr>
         <tr>
           <td><div class="comp-name">Config as code</div></td>

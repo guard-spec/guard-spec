@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	appconfig "github.com/giaplee/guard-spec/internal/config"
 	"github.com/giaplee/guard-spec/internal/policy"
 	"github.com/google/uuid"
 )
@@ -51,6 +52,12 @@ func (f *fakeUpstreams) load(_ context.Context, _, project uuid.UUID, target str
 	return nil, "", nil
 }
 
+// otherOrg is allowed UPSTREAM_KEY_ACME; the test key's org (devOrg) is not.
+var otherOrg = uuid.MustParse("00000000-0000-0000-0000-0000000000ac")
+
+var testKeyOrgs = appconfig.MustParseKeyOrgs("UPSTREAM_KEY_SAFE=*;UPSTREAM_KEY_UNSET=*;UPSTREAM_KEY_A=*;" +
+	"UPSTREAM_KEY_ACME=" + otherOrg.String())
+
 func routeRule(target string) policy.Rule {
 	r := rule(policy.ActionRoute, "request.model", "=", "m")
 	r.RouteTarget = target
@@ -60,7 +67,7 @@ func routeRule(target string) policy.Rule {
 func withUpstreams(f *fakeUpstreams, env map[string]string, rules ...policy.Rule) func(*gateway) {
 	return func(gw *gateway) {
 		gw.upstreams = f.load
-		gw.pool = newUpstreamPool(false, func(k string) string { return env[k] })
+		gw.pool = newUpstreamPool(poolConfig{allowPrivate: true, keyOrgs: testKeyOrgs, getenv: func(k string) string { return env[k] }})
 		withRules(rules...)(gw)
 	}
 }
@@ -156,6 +163,14 @@ func TestRouteFailsClosed(t *testing.T) {
 			[]policy.Rule{routeRule("safe")}, "safe"},
 		{"key variable outside UPSTREAM_KEY_", func(f *fakeUpstreams) { f.rows["safe"].KeyEnv = "JWT_SECRET" },
 			[]policy.Rule{routeRule("safe")}, "safe"},
+		// Another org's key: the row may predate the allowlist or be written
+		// directly; the gateway refuses it at request time.
+		{"key variable of another org", func(f *fakeUpstreams) { f.rows["safe"].KeyEnv = "UPSTREAM_KEY_ACME" },
+			[]policy.Rule{routeRule("safe")}, "safe"},
+		{"key variable not in UPSTREAM_KEY_ORGS", func(f *fakeUpstreams) { f.rows["safe"].KeyEnv = "UPSTREAM_KEY_MAIN" },
+			[]policy.Rule{routeRule("safe")}, "safe"},
+		{"metadata base url", func(f *fakeUpstreams) { f.rows["safe"].BaseURL = "http://100.100.100.200/v1" },
+			[]policy.Rule{routeRule("safe")}, "safe"},
 		{"link-local base url", func(f *fakeUpstreams) { f.rows["safe"].BaseURL = "http://169.254.169.254/v1" },
 			[]policy.Rule{routeRule("safe")}, "safe"},
 		{"route rule without target", nil, []policy.Rule{routeRule("")}, ""},
@@ -168,7 +183,8 @@ func TestRouteFailsClosed(t *testing.T) {
 				tt.setup(f)
 			}
 			before, beforeEnv := up.hits.Load(), env.hits.Load()
-			h := startGateway(t, env.URL, withUpstreams(f, map[string]string{"JWT_SECRET": "x"}, tt.rules...))
+			h := startGateway(t, env.URL, withUpstreams(f, map[string]string{"JWT_SECRET": "x",
+				"UPSTREAM_KEY_ACME": "acme-key", "UPSTREAM_KEY_MAIN": "main-key"}, tt.rules...))
 			resp, body := h.post(t, "/v1/chat/completions", clean, nil)
 			if resp.StatusCode != 502 || !strings.Contains(body, "route_unavailable") {
 				t.Errorf("got %d %s, want 502 route_unavailable", resp.StatusCode, body)
@@ -213,26 +229,83 @@ func TestRouteKeyAndModel(t *testing.T) {
 	if !strings.Contains(sent, `"model":"qwen3:4b"`) {
 		t.Errorf("model not rewritten: %s", sent)
 	}
-	if row := h.oneRow(t); row.Model != "m" || row.Action != actionRoute || row.RouteTarget != "safe" {
+	if row := h.oneRow(t); row.Model != "qwen3:4b" || row.Action != actionRoute || row.RouteTarget != "safe" {
 		t.Errorf("row = model %q action %q target %q", row.Model, row.Action, row.RouteTarget)
 	}
 }
 
+// Without UPSTREAM_ALLOW_PRIVATE an org's upstream on loopback is refused when
+// the gateway dials it; UPSTREAM_LLM_URL on loopback is the operator's and works.
+func TestRoutePrivateAddresses(t *testing.T) {
+	up := newFakeUpstream(t, okUpstream)
+	f := &fakeUpstreams{orgDefault: "local"}
+	f.add("local", up.URL)
+	h := startGateway(t, "", func(gw *gateway) {
+		gw.upstreams = f.load
+		gw.pool = newUpstreamPool(poolConfig{keyOrgs: testKeyOrgs})
+	})
+	resp, body := h.post(t, "/v1/chat/completions", clean, nil)
+	if resp.StatusCode != 502 || up.hits.Load() != 0 {
+		t.Errorf("private org upstream: %d %s, hits %d", resp.StatusCode, body, up.hits.Load())
+	}
+	if row := h.oneRow(t); row.Action != actionError || row.RouteTarget != "local" {
+		t.Errorf("row = %+v", row)
+	}
+
+	env := startGateway(t, up.URL, nil)
+	if resp, body := env.post(t, "/v1/chat/completions", clean, nil); resp.StatusCode != 200 || up.hits.Load() != 1 {
+		t.Errorf("operator upstream on loopback: %d %s", resp.StatusCode, body)
+	}
+}
+
+// The production path reads upstreams with the policies (routeSnapshot).
+func TestRouteFromSnapshot(t *testing.T) {
+	ruleUp := newFakeUpstream(t, okUpstream)
+	defUp := newFakeUpstream(t, okUpstream)
+	f := &fakeUpstreams{}
+	named, def := f.add("rule-up", ruleUp.URL), f.add("def-up", defUp.URL)
+	snapLoader := func(rules ...policy.Rule) func(*gateway) {
+		return func(gw *gateway) {
+			gw.pool = newUpstreamPool(poolConfig{allowPrivate: true, keyOrgs: testKeyOrgs})
+			gw.upstreams = func(context.Context, uuid.UUID, uuid.UUID, string) (*upstreamRow, string, error) {
+				t.Error("upstreams loaded outside the policy transaction")
+				return nil, "", errors.New("unexpected")
+			}
+			gw.policyRoutes = func(context.Context, uuid.UUID, uuid.UUID) ([]policy.Policy, *routeSnapshot, error) {
+				return []policy.Policy{{ID: uuid.New(), Version: 1, Rules: rules}},
+					&routeSnapshot{named: map[string]*upstreamRow{"rule-up": named}, def: def, defSource: sourceOrg}, nil
+			}
+		}
+	}
+	h := startGateway(t, "", snapLoader(routeRule("rule-up")))
+	if resp, body := h.post(t, "/v1/chat/completions", clean, nil); resp.StatusCode != 200 || ruleUp.hits.Load() != 1 {
+		t.Errorf("rule: %d %s", resp.StatusCode, body)
+	}
+	h = startGateway(t, "", snapLoader())
+	if resp, body := h.post(t, "/v1/chat/completions", clean, nil); resp.StatusCode != 200 || defUp.hits.Load() != 1 {
+		t.Errorf("default: %d %s", resp.StatusCode, body)
+	}
+	h = startGateway(t, "", snapLoader(routeRule("ghost")))
+	if resp, _ := h.post(t, "/v1/chat/completions", clean, nil); resp.StatusCode != 502 {
+		t.Errorf("missing target: %d", resp.StatusCode)
+	}
+}
+
 func TestUpstreamPoolReusesProxies(t *testing.T) {
-	pool := newUpstreamPool(false, func(string) string { return "k" })
+	pool := newUpstreamPool(poolConfig{keyOrgs: testKeyOrgs, getenv: func(string) string { return "k" }})
 	u := &upstreamRow{ID: uuid.New(), Name: "a", BaseURL: "http://127.0.0.1:1/v1", KeyEnv: "UPSTREAM_KEY_A",
 		TimeoutMs: 1000, Enabled: true, UpdatedAt: time.Now()}
-	p1, err := pool.get(u)
+	p1, err := pool.get(devOrg, u)
 	if err != nil {
 		t.Fatal(err)
 	}
-	p2, _ := pool.get(u)
+	p2, _ := pool.get(devOrg, u)
 	if p1 != p2 {
 		t.Error("same row built a new proxy")
 	}
 	changed := *u
 	changed.UpdatedAt = u.UpdatedAt.Add(time.Second)
-	if p3, _ := pool.get(&changed); p3 == p1 {
+	if p3, _ := pool.get(devOrg, &changed); p3 == p1 {
 		t.Error("changed row reused the old proxy")
 	}
 }

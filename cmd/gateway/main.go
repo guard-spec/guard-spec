@@ -133,19 +133,21 @@ func main() {
 	slog.Info("scan config", "roles", cfg.Scan.Roles.String(), "spotlight", cfg.Scan.Spotlight,
 		"indirect_threshold", cfg.Scan.IndirectThreshold)
 	app := newApp(gateway{
-		detector:  newDetectorStatus(detector),
-		runner:    runner,
-		engine:    engine,
-		policies:  dbPolicyLoader(db),
-		audit:     audit,
-		upstream:  upstream,
-		upstreams: dbUpstreamLoader(db),
-		pool:      newUpstreamPool(ops.Propagate, os.Getenv),
-		output:    output,
-		base:      base,
-		scan:      &cfg.Scan,
-		settings:  dbSettingsLoader(db),
-		limits:    newRateLimiter(ops.RateLimit, dbKeyLimits(db)),
+		detector:     newDetectorStatus(detector),
+		runner:       runner,
+		engine:       engine,
+		policies:     dbPolicyLoader(db),
+		audit:        audit,
+		upstream:     upstream,
+		policyRoutes: dbPolicyRouteLoader(db),
+		upstreams:    dbUpstreamLoader(db),
+		pool: newUpstreamPool(poolConfig{propagate: ops.Propagate, allowPrivate: cfg.UpstreamAllowPrivate,
+			keyOrgs: cfg.UpstreamKeyOrgs, getenv: os.Getenv}),
+		output:   output,
+		base:     base,
+		scan:     &cfg.Scan,
+		settings: dbSettingsLoader(db),
+		limits:   newRateLimiter(ops.RateLimit, dbKeyLimits(db)),
 
 		waitOnHalfClose: cfg.WaitOnHalfClose,
 	}, dbKeyLookup(db))
@@ -178,8 +180,11 @@ type gateway struct {
 	policies policyLoader
 	audit    *auditLog
 	upstream *proxy.Proxy // UPSTREAM_LLM_URL
-	// upstreams finds an org's named upstreams and defaults (routing.go);
-	// nil: none, so a route rule fails closed.
+	// policyRoutes, when set, replaces policies: it also reads the upstreams
+	// the request may need, in the same transaction (routing.go).
+	policyRoutes policyRouteLoader
+	// upstreams finds an org's named upstreams and defaults when policyRoutes
+	// is not set; nil: none, so a route rule fails closed.
 	upstreams upstreamLoader
 	pool      *upstreamPool
 	output    *outputguard.Guard // nil: responses are passed on unchanged
@@ -716,7 +721,7 @@ func chatHandler(gw gateway, upstreamPath string) fiber.Handler {
 
 		// Policies run after the fixed thresholds, so they can only tighten them.
 		_, endSpan = tracing.Start(tctx, "policy")
-		decision, err := gw.evaluatePolicies(entry, policyVars(entry, body, len(sanitized)))
+		decision, routes, err := gw.evaluatePolicies(entry, policyVars(entry, body, len(sanitized)))
 		endSpan(err)
 		if err != nil {
 			slog.Error("policy evaluation failed", "org", entry.OrgID, "err", err)
@@ -742,7 +747,7 @@ func chatHandler(gw gateway, upstreamPath string) fiber.Handler {
 		}
 
 		// Pick the upstream: route rule, project default, org default, env, stub.
-		target, err := gw.resolveRoute(entry, decision)
+		target, err := gw.resolveRoute(entry, decision, routes)
 		entry.RouteTarget = target.name
 		if errors.Is(err, errRouteUnavailable) {
 			entry.Action = actionError
@@ -759,7 +764,10 @@ func chatHandler(gw gateway, upstreamPath string) fiber.Handler {
 			entry.Action = actionRoute
 		}
 		if target.model != "" {
+			// The audit row records the model actually sent upstream; policies
+			// saw the requested one.
 			body["model"] = target.model
+			entry.Model = target.model
 			if sanitized, err = json.Marshal(body); err != nil {
 				return c.Status(400).JSON(fiber.Map{"error": "invalid body"})
 			}
@@ -1038,19 +1046,30 @@ func streamFailure(err error) string {
 
 // evaluatePolicies loads policies fresh, so an update applies to the next request.
 // Any error means the request must not go upstream.
-func (gw gateway) evaluatePolicies(entry requestEntry, vars *policy.Vars) (policy.Decision, error) {
+// With gw.policyRoutes it also returns the upstreams the request may need,
+// read in the same transaction.
+func (gw gateway) evaluatePolicies(entry requestEntry, vars *policy.Vars) (policy.Decision, *routeSnapshot, error) {
 	ctx, cancel := context.WithTimeout(gw.base, policyTimeout)
 	defer cancel()
-	policies, err := gw.policies(ctx, entry.OrgID, entry.ProjectID)
+	var (
+		policies []policy.Policy
+		snap     *routeSnapshot
+		err      error
+	)
+	if gw.policyRoutes != nil {
+		policies, snap, err = gw.policyRoutes(ctx, entry.OrgID, entry.ProjectID)
+	} else {
+		policies, err = gw.policies(ctx, entry.OrgID, entry.ProjectID)
+	}
 	if err != nil {
 		metrics.PolicyErrors.WithLabelValues("load").Inc()
-		return policy.Decision{}, fmt.Errorf("load: %w", err)
+		return policy.Decision{}, nil, fmt.Errorf("load: %w", err)
 	}
 	decision, err := gw.engine.EvaluateAll(ctx, policies, vars)
 	if err != nil {
 		metrics.PolicyErrors.WithLabelValues("eval").Inc()
 	}
-	return decision, err
+	return decision, snap, err
 }
 
 // policyVars builds the rule inputs. request.tokens is an estimate from the body
@@ -1135,6 +1154,12 @@ type config struct {
 	UpstreamURL     string
 	UpstreamKey     string
 	UpstreamTimeout time.Duration
+	// UpstreamKeyOrgs is UPSTREAM_KEY_ORGS: which orgs may use which
+	// UPSTREAM_KEY_* variable for their named upstreams. Empty: none.
+	UpstreamKeyOrgs appconfig.KeyOrgs
+	// UpstreamAllowPrivate is UPSTREAM_ALLOW_PRIVATE: org-defined upstreams may
+	// resolve to loopback, private, unique local and CGNAT addresses.
+	UpstreamAllowPrivate bool
 	// AuditStoreContent stores request and response content in audit rows for
 	// every org. Off by default; an org can opt in on its own (decision D6).
 	AuditStoreContent bool
@@ -1180,17 +1205,27 @@ func loadConfig() (config, error) {
 	if err != nil {
 		return config{}, fmt.Errorf("AUDIT_STORE_CONTENT must be true or false: %w", err)
 	}
+	keyOrgs, err := appconfig.ParseKeyOrgs(os.Getenv("UPSTREAM_KEY_ORGS"))
+	if err != nil {
+		return config{}, err
+	}
+	allowPrivate, err := strconv.ParseBool(getenv("UPSTREAM_ALLOW_PRIVATE", "false"))
+	if err != nil {
+		return config{}, fmt.Errorf("UPSTREAM_ALLOW_PRIVATE must be true or false: %w", err)
+	}
 	cfg := config{
-		ListenAddr:        getenv("LISTEN_ADDR", ":8080"),
-		Detector:          detector,
-		DatabaseURL:       getenv("DATABASE_URL", ""),
-		UpstreamURL:       os.Getenv("UPSTREAM_LLM_URL"),
-		UpstreamKey:       os.Getenv("UPSTREAM_LLM_KEY"),
-		UpstreamTimeout:   timeout,
-		Output:            output,
-		WaitOnHalfClose:   waitOnHalfClose,
-		AuditStoreContent: storeContent,
-		Scan:              scan,
+		ListenAddr:           getenv("LISTEN_ADDR", ":8080"),
+		Detector:             detector,
+		DatabaseURL:          getenv("DATABASE_URL", ""),
+		UpstreamURL:          os.Getenv("UPSTREAM_LLM_URL"),
+		UpstreamKey:          os.Getenv("UPSTREAM_LLM_KEY"),
+		UpstreamTimeout:      timeout,
+		UpstreamKeyOrgs:      keyOrgs,
+		UpstreamAllowPrivate: allowPrivate,
+		Output:               output,
+		WaitOnHalfClose:      waitOnHalfClose,
+		AuditStoreContent:    storeContent,
+		Scan:                 scan,
 	}
 	// Refuse a default or weak database password unless GUARD_ENV=dev.
 	var secrets appconfig.Checker
@@ -1284,27 +1319,9 @@ func dbPolicyLoader(db *pgxpool.Pool) policyLoader {
 	return func(ctx context.Context, orgID, projectID uuid.UUID) ([]policy.Policy, error) {
 		var policies []policy.Policy
 		err := tenant.WithOrg(ctx, db, orgID, func(tx pgx.Tx) error {
-			rows, err := tx.Query(ctx,
-				`SELECT id, version, rules FROM policies
-				 WHERE org_id = $1 AND enabled AND (project_id IS NULL OR project_id = $2)
-				 ORDER BY project_id IS NULL, created_at, id`,
-				orgID, nullUUID(projectID))
-			if err != nil {
-				return err
-			}
-			defer rows.Close()
-			for rows.Next() {
-				p := policy.Policy{OrgID: orgID, ProjectID: projectID}
-				var rules []byte
-				if err := rows.Scan(&p.ID, &p.Version, &rules); err != nil {
-					return err
-				}
-				if err := json.Unmarshal(rules, &p.Rules); err != nil {
-					return fmt.Errorf("policy %s: %w", p.ID, err)
-				}
-				policies = append(policies, p)
-			}
-			return rows.Err()
+			var err error
+			policies, err = queryPolicies(ctx, tx, orgID, projectID)
+			return err
 		})
 		return policies, err
 	}

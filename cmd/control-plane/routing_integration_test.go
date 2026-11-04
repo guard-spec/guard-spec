@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/giaplee/guard-spec/internal/auth"
+	"github.com/giaplee/guard-spec/internal/config"
 	"github.com/giaplee/guard-spec/internal/policy"
 	"github.com/giaplee/guard-spec/internal/tenant"
 	"github.com/google/uuid"
@@ -328,7 +329,7 @@ policies:
 
 func TestSimulateEndpoint(t *testing.T) {
 	h := newCPHarness(t)
-	h.app = newApp(h.db, testSecret, mustEngine(t), "", withEnvUpstream("http://env-llm:8000/v1"))
+	h.app = newApp(h.db, testSecret, mustEngine(t), "", withEnvUpstream("http://env-llm:8000/v1"), withKeyOrgs(testKeyOrgs))
 	org, _, admin := h.org(auth.RoleAdmin)
 	viewer := h.member(org, auth.RoleViewer)
 	web := h.project(org, "web")
@@ -442,5 +443,94 @@ func TestRequestsListRouteTarget(t *testing.T) {
 	}
 	if !targets["safe-model"] || !targets[nil] {
 		t.Errorf("targets = %v", targets)
+	}
+}
+
+// acmeOrg is the only org allowed UPSTREAM_KEY_ACME in the tests.
+var acmeOrg = uuid.MustParse("00000000-0000-0000-0000-00000000acee")
+
+var testKeyOrgs = config.MustParseKeyOrgs("UPSTREAM_KEY_SAFE=*;UPSTREAM_KEY_MAIN=*;UPSTREAM_KEY_ACME=" + acmeOrg.String())
+
+// Any user can create an org; it must not get to send another org's (or the
+// operator's) key to a base_url it controls.
+func TestUpstreamKeyAllowlist(t *testing.T) {
+	h := newCPHarness(t)
+	org, _, admin := h.org(auth.RoleAdmin)
+	base := "/v1/organizations/" + org.String()
+
+	status, body := h.do("POST", base+"/upstreams", admin,
+		`{"name":"steal","base_url":"https://attacker.example/v1","api_key_env":"UPSTREAM_KEY_ACME"}`)
+	if status != 400 || !strings.Contains(body["error"].(string), "UPSTREAM_KEY_ORGS") {
+		t.Errorf("other org's key: %d %v", status, body)
+	}
+	if status, body := h.do("POST", base+"/upstreams", admin,
+		`{"name":"unlisted","base_url":"https://a.example/v1","api_key_env":"UPSTREAM_KEY_OTHER"}`); status != 400 {
+		t.Errorf("unlisted key: %d %v", status, body)
+	}
+	status, created := h.do("POST", base+"/upstreams", admin, `{"name":"nokey","base_url":"https://a.example/v1"}`)
+	if status != 201 {
+		t.Fatalf("no key: %d %v", status, created)
+	}
+	if status, body := h.do("PUT", base+"/upstreams/"+created["id"].(string), admin,
+		`{"api_key_env":"UPSTREAM_KEY_ACME"}`); status != 400 {
+		t.Errorf("update to other org's key: %d %v", status, body)
+	}
+
+	status, out := h.raw("PUT", base+"/config", admin, "text/yaml",
+		"version: 1\nupstreams:\n  - name: steal\n    base_url: https://attacker.example/v1\n    api_key_env: UPSTREAM_KEY_ACME\npolicies: []\n")
+	if status != 422 || !strings.Contains(out, "upstreams[0].api_key_env") {
+		t.Errorf("config with other org's key: %d %s", status, out)
+	}
+}
+
+func TestPolicyNamesAndExportConflicts(t *testing.T) {
+	h := newCPHarness(t)
+	org, _, admin := h.org(auth.RoleAdmin)
+	base := "/v1/organizations/" + org.String()
+	cond := `{"field":"scores.l2","operator":">","value":0.5}`
+	status, first := h.do("POST", base+"/policies", admin, `{"name":"p","rules":[{"name":"r","action":"block","condition":`+cond+`}]}`)
+	if status != 201 {
+		t.Fatal(first)
+	}
+	if status, body := h.do("POST", base+"/policies", admin, `{"name":"p","rules":[]}`); status != 409 {
+		t.Errorf("duplicate create: %d %v", status, body)
+	}
+	status, second := h.do("POST", base+"/policies", admin, `{"name":"q","rules":[]}`)
+	if status != 201 {
+		t.Fatal(second)
+	}
+	if status, body := h.do("PUT", base+"/policies/"+second["id"].(string), admin, `{"name":"p"}`); status != 409 {
+		t.Errorf("rename onto another policy: %d %v", status, body)
+	}
+	if status, body := h.do("PUT", base+"/policies/"+first["id"].(string), admin, `{"name":"p","enabled":false}`); status != 200 {
+		t.Errorf("keeping its own name: %d %v", status, body)
+	}
+
+	// Rows from before this check (or written directly) make the export 409.
+	dup, legacy := uuid.New(), uuid.New()
+	err := tenant.WithOrg(context.Background(), h.db, org, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(), `INSERT INTO policies (id, org_id, name, rules) VALUES
+			($1, $3, 'p', '[]'),
+			($2, $3, 'legacy', '[{"id":"`+uuid.NewString()+`","name":"toxic","action":"block","condition":{"field":"toxicity.score","operator":">","value":0.5}}]')`,
+			dup, legacy, org)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, body := h.do("GET", base+"/config", admin, "")
+	problems, _ := body["problems"].([]any)
+	if status != 409 || len(problems) != 2 {
+		t.Fatalf("export: %d %v", status, body)
+	}
+	text, _ := json.Marshal(problems)
+	if !strings.Contains(string(text), dup.String()) || !strings.Contains(string(text), "toxicity.score") ||
+		!strings.Contains(string(text), "/policies/"+legacy.String()) {
+		t.Errorf("problems = %s", text)
+	}
+	h.do("DELETE", base+"/policies/"+dup.String(), admin, "")
+	h.do("DELETE", base+"/policies/"+legacy.String(), admin, "")
+	if status, _ := h.raw("GET", base+"/config", admin, "", ""); status != 200 {
+		t.Errorf("export after fixing: %d", status)
 	}
 }

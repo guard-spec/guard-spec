@@ -45,6 +45,11 @@ type Config struct {
 	// (OTEL_PROPAGATE_UPSTREAM=true). Off by default: it would tell the
 	// upstream the trace ID.
 	Propagate bool
+	// DenyPrivate refuses loopback, RFC 1918, unique local and CGNAT
+	// addresses at dial time. The gateway sets it for org-defined upstreams
+	// unless UPSTREAM_ALLOW_PRIVATE=true; UPSTREAM_LLM_URL is the operator's
+	// and never has it.
+	DenyPrivate bool
 }
 
 // Proxy sends requests to one upstream.
@@ -126,23 +131,52 @@ func checkURL(raw string) (*url.URL, error) {
 	return u, nil
 }
 
-// deniedIP reports addresses the gateway never connects to: link-local (cloud
-// metadata services live there), multicast and unspecified.
+// metadataIPs are cloud metadata services outside 169.254.0.0/16, which
+// link-local already covers: AWS over IPv6, Alibaba Cloud, Oracle Cloud.
+var metadataIPs = []net.IP{
+	net.ParseIP("fd00:ec2::254"),
+	net.ParseIP("100.100.100.200"),
+	net.ParseIP("192.0.0.192"),
+}
+
+// cgnat is the shared address space of RFC 6598.
+var cgnat = &net.IPNet{IP: net.IPv4(100, 64, 0, 0), Mask: net.CIDRMask(10, 32)}
+
+// deniedIP reports addresses the gateway never connects to: link-local and
+// the other cloud metadata addresses, multicast and unspecified.
 func deniedIP(ip net.IP) bool {
+	for _, m := range metadataIPs {
+		if ip.Equal(m) {
+			return true
+		}
+	}
 	return ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast() ||
 		ip.IsMulticast() || ip.IsUnspecified()
 }
 
-// dialControl refuses denied addresses after name resolution.
-func dialControl(_, address string, _ syscall.RawConn) error {
-	host, _, err := net.SplitHostPort(address)
-	if err != nil {
-		return err
+// privateIP reports loopback, RFC 1918, unique local (fc00::/7) and CGNAT
+// (100.64.0.0/10) addresses.
+func privateIP(ip net.IP) bool {
+	return ip.IsLoopback() || ip.IsPrivate() || cgnat.Contains(ip)
+}
+
+// dialControl refuses denied addresses after name resolution, and private
+// ones too when denyPrivate is set.
+func dialControl(denyPrivate bool) func(string, string, syscall.RawConn) error {
+	return func(_, address string, _ syscall.RawConn) error {
+		host, _, err := net.SplitHostPort(address)
+		if err != nil {
+			return err
+		}
+		ip := net.ParseIP(host)
+		if ip == nil {
+			return nil
+		}
+		if deniedIP(ip) || (denyPrivate && privateIP(ip)) {
+			return fmt.Errorf("upstream address %s is not allowed", host)
+		}
+		return nil
 	}
-	if ip := net.ParseIP(host); ip != nil && deniedIP(ip) {
-		return fmt.Errorf("upstream address %s is not allowed", host)
-	}
-	return nil
 }
 
 // New validates cfg and builds a Proxy.
@@ -161,7 +195,7 @@ func New(cfg Config) (*Proxy, error) {
 		client: &http.Client{
 			// No client-wide Timeout: it would also cut off a long stream.
 			Transport: &http.Transport{
-				DialContext:           (&net.Dialer{Timeout: connectTimeout, Control: dialControl}).DialContext,
+				DialContext:           (&net.Dialer{Timeout: connectTimeout, Control: dialControl(cfg.DenyPrivate)}).DialContext,
 				TLSHandshakeTimeout:   connectTimeout,
 				ResponseHeaderTimeout: cfg.Timeout,
 				DisableCompression:    true, // gzip would buffer an event stream
