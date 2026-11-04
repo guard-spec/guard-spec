@@ -102,12 +102,13 @@ export function Dialog({
   // which would otherwise dismiss a dialog such as "leave unsaved changes?".
   const byEscape = () => Date.now() - escapeAt.current < 1000;
   useEffect(() => {
-    const d = ref.current;
+    // On the window: focus may have left the dialog (a clicked button that
+    // went away), and Escape must still close it.
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') escapeAt.current = Date.now();
     };
-    d?.addEventListener('keydown', onKey);
-    return () => d?.removeEventListener('keydown', onKey);
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
   }, []);
   return (
     <dialog

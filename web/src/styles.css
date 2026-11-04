@@ -265,6 +265,8 @@ input[aria-invalid='true'] {
   border-color: var(--accent);
 }
 .btn-icon {
+  display: inline-grid;
+  place-items: center;
   font: inherit;
   font-size: 16px;
   line-height: 1;
@@ -999,6 +1001,8 @@ legend {
 .table-wrap {
   padding: 0;
   overflow-x: auto;
+  /* Contains the absolutely placed .sr-only headers, which would widen the page. */
+  position: relative;
 }
 table {
   width: 100%;
@@ -1632,12 +1636,23 @@ tbody tr:last-child td {
   align-items: center;
   gap: 6px;
 }
-.btn-icon {
-  display: inline-grid;
-  place-items: center;
-}
 .spacer {
   flex: 1;
+}
+.btn-square {
+  width: 28px;
+  padding: 0;
+  justify-content: center;
+}
+.sidebar {
+  overflow-y: hidden;
+}
+.sidebar > .nav {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0 -4px;
+  padding: 0 4px;
 }
 .row-gap {
   display: flex;
@@ -1717,9 +1732,15 @@ fieldset.card legend + * {
   padding-top: 4px;
 }
 .dialog legend {
+  float: left;
+  width: 100%;
   padding: 0 0 8px;
-  font-size: 13px;
+  font-size: 12px;
+  font-weight: 600;
   color: var(--muted);
+}
+.dialog legend + * {
+  clear: both;
 }
 .dialog-footer .spacer {
   flex: 1;
