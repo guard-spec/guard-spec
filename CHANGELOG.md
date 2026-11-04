@@ -115,6 +115,25 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 - `GET /v1/organizations/:orgId/requests` no longer fails (500) on audit rows
   whose scores or flags are NULL; they read as 0 and false.
 
+### Security
+
+- Dependency and image pass (2026-11-04):
+  - `migrate/migrate` v4.17.1 → v4.20.1 (pinned by digest), matching the
+    migrate CLI version CI already runs.
+  - Postgres is pinned as `postgres:17.11-alpine` (same digest as before;
+    17.11 is the current 17.x patch) in Compose, CI and the Helm `dbRoles`
+    job. Postgres 18 is a major upgrade that needs `pg_upgrade` of existing
+    volumes and is deferred to a planned upgrade with a migration path;
+    Dependabot no longer proposes Postgres major versions.
+  - The `eval` workflow pins `actions/checkout` v7.0.1, `actions/setup-go`
+    v7.0.0 and `actions/upload-artifact` v7.0.2 by commit SHA, like the other
+    workflows.
+  - Checked and already current: Go 1.26.10 (latest 1.26 patch, includes the
+    `crypto/x509` fixes also in 1.27.3), the golang, node, debian and
+    distroless base images, ONNX Runtime 1.31.1, tokenizers 1.27.0, Go
+    modules (`govulncheck`: no reachable vulnerabilities) and the admin UI
+    runtime dependencies (`npm audit --omit=dev`: none).
+
 ## [0.1.0] - unreleased (release candidate)
 
 First release. Summarises everything since the PromptShield prototype that
