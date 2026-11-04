@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it, vi } from 'vitest';
-import { ApiClient, ApiError } from './api';
+import { ApiClient, ApiError, isNotFound, listOf } from './api';
 
 interface Call {
   url: string;
@@ -128,5 +128,49 @@ describe('ApiClient', () => {
       'POST /v1/organizations/o/policies/simulate',
     ]);
     expect(bodyOf(f.calls[0])).toEqual({ upstream_id: null });
+  });
+});
+
+describe('ApiClient, identity contract', () => {
+  it('returns the 2FA step of a sign-in as is', async () => {
+    const f = fakeFetch([json(200, { mfa_required: true, mfa_token: 'm', methods: ['totp'] })]);
+    const api = new ApiClient({ getToken: () => null, fetch: f.fetch });
+    await expect(api.signIn('a@b.c', 'pw')).resolves.toEqual({ mfa_required: true, mfa_token: 'm', methods: ['totp'] });
+  });
+
+  it('sends the mfa_token as bearer while enrolling, and a 401 there does not end the session', async () => {
+    const onUnauthorized = vi.fn();
+    const f = fakeFetch([json(200, { secret: 'S', otpauth_url: 'otpauth://x' }), json(401, { error: 'expired' })]);
+    const api = new ApiClient({ getToken: () => 'session', onUnauthorized, fetch: f.fetch });
+    await api.setupTotp('mfa-tok');
+    expect(headers(f.calls[0]).Authorization).toBe('Bearer mfa-tok');
+    await expect(api.confirmTotp('123456', 'mfa-tok')).rejects.toMatchObject({ status: 401 });
+    expect(onUnauthorized).not.toHaveBeenCalled();
+  });
+
+  it('pages list endpoints with limit and cursor', async () => {
+    const f = fakeFetch([json(200, { items: [], next_cursor: null })]);
+    const api = new ApiClient({ getToken: () => 't', fetch: f.fetch });
+    await api.listMembers('o', { limit: 25, cursor: 'abc', q: undefined, role: 'admin' });
+    expect(f.calls[0]?.url).toBe('/v1/organizations/o/members?limit=25&cursor=abc&role=admin');
+  });
+
+  it('unwraps every list shape and recognises a missing endpoint', async () => {
+    expect(listOf([1])).toEqual([1]);
+    expect(listOf({ data: [2] })).toEqual([2]);
+    expect(listOf({ items: [3], next_cursor: null })).toEqual([3]);
+    expect(listOf(undefined)).toEqual([]);
+    expect(isNotFound(new ApiError(404, 'x'))).toBe(true);
+    expect(isNotFound(new ApiError(500, 'x'))).toBe(false);
+    const f = fakeFetch([json(200, { providers: [{ provider: 'openai' }] }), json(200, [{ id: 'g', type: 'google', display_name: 'Google' }])]);
+    const api = new ApiClient({ getToken: () => 't', fetch: f.fetch });
+    await expect(api.getProviderCatalog()).resolves.toEqual([{ provider: 'openai' }]);
+    await expect(api.listLoginProviders()).resolves.toHaveLength(1);
+    expect(headers(f.calls[1]).Authorization).toBeUndefined();
+  });
+
+  it('builds the SSO start URL with a same-origin redirect', () => {
+    const api = new ApiClient({ getToken: () => null, fetch: fakeFetch([]).fetch });
+    expect(api.oidcStartUrl('google', '/ui/')).toBe('/v1/auth/oidc/google/start?redirect=%2Fui%2F');
   });
 });
