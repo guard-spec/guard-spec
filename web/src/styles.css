@@ -2591,7 +2591,7 @@ tr.has-detail td {
   text-transform: none;
 }
 
-/* Secondary columns (scores, latency, IP, created) only on wide screens;
+/* Secondary columns (scores, latency, IP, created, joined, client ID) only on wide screens;
    their values stay in the detail views. */
 @media (max-width: 1365px) {
   .col-wide-only {
