@@ -67,6 +67,9 @@ const (
 	cueStep         = 0.03 // per distinct cue word, for ranking only
 	maxCues         = 5
 	maxDecodeLen    = 4096
+	hiddenBoostMin  = 0.5  // a rule at least this strong in hidden content gets ii.hidden.boost
+	hiddenBoost     = 0.1
+	flagHidden      = "hidden"
 )
 
 // term is a set of alternative phrases. Each phrase is a sequence of word
@@ -125,6 +128,18 @@ type token struct {
 	key    string
 	sent   int
 	quoted bool
+	mark   int8 // +1: sanitizer.HiddenMarker "[hidden]"; -1: sanitizer.HiddenEndMarker "[/hidden]"
+}
+
+// inHidden reports whether the span starts inside hidden content: the
+// nearest marker before it opens a hidden block rather than closing one.
+func (d *doc) inHidden(s span) bool {
+	for i := s.start; i >= 0; i-- {
+		if d.toks[i].mark != 0 {
+			return d.toks[i].mark > 0
+		}
+	}
+	return false
 }
 
 type span struct{ start, end int } // token indexes, end exclusive
@@ -163,6 +178,21 @@ func (e *Engine) score(text string, depth int) Result {
 	d.isCode = e.meta.code.MatchString(text)
 	hits = append(hits, e.matchRules(d)...)
 
+	// Hidden content (sanitizer.HiddenMarker) that also carries an attack
+	// pattern: raise the strongest rule, since hiding it from the reader is
+	// itself evidence of intent.
+	if d.flags[flagHidden] {
+		best := 0.0
+		for _, h := range hits {
+			if h.hidden && h.cat != Obfuscation {
+				best = max(best, h.w)
+			}
+		}
+		if best >= hiddenBoostMin {
+			hits = append(hits, hit{id: "ii.hidden.boost", cat: IndirectInjection, w: min(0.97, best+hiddenBoost)})
+		}
+	}
+
 	// Reversed text: only tried when a reversed rule word appears.
 	if depth == 0 && e.hasReversedCue(d) {
 		rev := e.score(reverse(text), depth+1)
@@ -193,9 +223,10 @@ func (e *Engine) score(text string, depth int) Result {
 }
 
 type hit struct {
-	id  string
-	cat string
-	w   float64
+	id     string
+	cat    string
+	w      float64
+	hidden bool // the match follows a hidden-content marker
 }
 
 func (e *Engine) combine(d *doc, hits []hit) Result {
@@ -266,12 +297,18 @@ func (e *Engine) matchRules(d *doc) []hit {
 		if !ok {
 			continue
 		}
+		hidden := d.flags[flagHidden] && d.inHidden(sp)
+		if r.needFlag == flagHidden && !hidden {
+			continue
+		}
 		w := r.w
 		if (r.cat == PromptExtraction || r.cat == DataExfiltration) && sp.start > 0 && negators[d.toks[sp.start-1].key] {
 			// "never reveal secrets", "không tiết lộ mật khẩu"
 			w *= 0.3
 		}
-		if !r.noSuppress {
+		// Text hidden from the reader is not an example or a quotation, so the
+		// meta-discussion suppressors do not apply to it.
+		if !r.noSuppress && !hidden {
 			f := 1.0
 			if metaSent[d.toks[sp.start].sent] {
 				f = min(f, metaFactor)
@@ -287,7 +324,7 @@ func (e *Engine) matchRules(d *doc) []hit {
 			}
 			w *= f
 		}
-		hits = append(hits, hit{id: r.id, cat: r.cat, w: w})
+		hits = append(hits, hit{id: r.id, cat: r.cat, w: w, hidden: hidden})
 	}
 	return hits
 }
@@ -394,15 +431,24 @@ func (e *Engine) tokenize(s string) *doc {
 	start := -1
 	emit := func(end int) {
 		w := s[start:end]
+		var mark int8
+		if end < len(s) && s[end] == ']' && strings.EqualFold(w, "hidden") {
+			switch {
+			case strings.HasSuffix(s[:start], "["):
+				mark = 1
+			case strings.HasSuffix(s[:start], "[/"):
+				mark = -1
+			}
+		}
 		start = -1
 		for _, part := range e.split(w) {
 			k := skeleton.Key(part)
 			d.index[k] = append(d.index[k], len(d.toks))
-			d.toks = append(d.toks, token{key: k, sent: sent, quoted: quoted})
+			d.toks = append(d.toks, token{key: k, sent: sent, quoted: quoted, mark: mark})
 		}
 	}
 	for i, r := range s {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+		if (unicode.IsLetter(r) && !isSpacingModifier(r)) || unicode.IsDigit(r) {
 			if start < 0 {
 				start = i
 			}
@@ -412,7 +458,15 @@ func (e *Engine) tokenize(s string) *doc {
 			emit(i)
 		}
 		switch r {
-		case '"', '“', '”', '`', '«', '»', '「', '」', '‘', '’':
+		case '`':
+			// A fence (```) opens or closes a code block, not a string
+			// literal: wrapping an instruction in a fence must not make it
+			// look quoted. Inline `code` is still a quote.
+			if backtickRun(s, i) >= 3 {
+				continue
+			}
+			quoted = !quoted
+		case '"', '“', '”', '«', '»', '「', '」', '‘', '’':
 			quoted = !quoted
 		case '\'':
 			// An apostrophe between letters ("don't") is not a quote.
@@ -434,6 +488,27 @@ func (e *Engine) tokenize(s string) *doc {
 		emit(len(s))
 	}
 	return d
+}
+
+// backtickRun is the length of the run of backticks that contains s[i].
+func backtickRun(s string, i int) int {
+	l, r := i, i
+	for l > 0 && s[l-1] == '`' {
+		l--
+	}
+	for r < len(s) && s[r] == '`' {
+		r++
+	}
+	return r - l
+}
+
+// isSpacingModifier reports the modifier symbols of the Spacing Modifier
+// Letters block (ʹ ʼ ˆ ˈ ...), which Unicode classes as letters. Text that
+// uses one between words ("Ignoreˆallˆprevious", the datamarking style of
+// spotlighting) still reads as separate words, so they separate tokens. The
+// superscript letters at the start of the block (ʰ ʲ ʳ ʷ ʸ) stay letters.
+func isSpacingModifier(r rune) bool {
+	return r >= 0x02B9 && r <= 0x02FF
 }
 
 // split breaks a long word that is not in the lexicon into lexicon words when

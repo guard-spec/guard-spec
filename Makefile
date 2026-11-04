@@ -85,4 +85,4 @@ calibrate: onnx-deps
 	$(ONNX_ENV) $(GO) run -tags onnx ./cmd/calibrate fit -write
 
 onnxbench: onnx-deps
-	$(ONNX_ENV) $(GO) run -tags onnx ./cmd/onnxbench -model models/local/guardspec-classifier-v1
+	$(ONNX_ENV) $(GO) run -tags onnx ./cmd/onnxbench -model models/local/guardspec-classifier-v2

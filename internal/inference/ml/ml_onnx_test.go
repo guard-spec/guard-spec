@@ -27,7 +27,7 @@ func TestBuildWithModels(t *testing.T) {
 	}
 	models := filepath.Join(root, "models")
 	if !fileExists(filepath.Join(models, L3DefaultSubdir, "model.onnx")) ||
-		(!fileExists(filepath.Join(models, L2DefaultV0, onnx.ConfigFile)) && !fileExists(filepath.Join(models, L2DefaultV1, onnx.ConfigFile))) ||
+		DefaultL2Dir(models) == "" ||
 		onnx.LibraryPath() == "" {
 		t.Skip("models or libonnxruntime absent; see models/manifest.yaml")
 	}

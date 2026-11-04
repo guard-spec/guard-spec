@@ -71,7 +71,7 @@ flowchart TD
 - **L1 luật**: chuẩn hoá văn bản thành "skeleton" (bỏ dấu, teencode, leet,
   homoglyph...) rồi áp luật có trọng số theo loại tấn công. Luôn chạy, không
   cần file model.
-- **L2 classifier**: `guardspec-classifier-v1`, fine-tune từ
+- **L2 classifier**: `guardspec-classifier-v2`, fine-tune từ
   `intfloat/multilingual-e5-small`, INT8 ONNX, chạy trong tiến trình.
 - **L3 tương đồng**: embedding e5 so với exemplar tấn công/lành tính có sẵn và
   exemplar riêng của từng tổ chức.
@@ -159,7 +159,7 @@ mặc định hoặc quá ngắn. Chi tiết và Helm: xem README tiếng Anh.
 | Lớp | File | Lấy ở đâu |
 |---|---|---|
 | L1 | không cần | có sẵn trong binary |
-| L2 | `models/local/guardspec-classifier-v1/` | **chưa được công bố**: tự build bằng `train/`, hoặc chép file vào |
+| L2 | `models/local/guardspec-classifier-v2/` (không có thì `-v1`, rồi `-v0`) | **chưa được công bố**: tự build bằng `train/`, hoặc chép file vào |
 | L3 | `models/cache/multilingual-e5-small/` | `docker compose --profile models run --rm models-pull` (tải từ Hugging Face, kiểm SHA-256) |
 
 Build classifier (xem [train/MODEL_CARD.md](train/MODEL_CARD.md)):
@@ -168,7 +168,7 @@ Build classifier (xem [train/MODEL_CARD.md](train/MODEL_CARD.md)):
 cd train && uv sync
 uv run python data/build_data.py
 uv run python train.py
-uv run python export.py      # ghi ra ../models/local/guardspec-classifier-v1
+uv run python export.py      # ghi ra ../models/local/guardspec-classifier-v2
 ```
 
 Image do `docker compose` build (từ `build/gateway.Dockerfile`) có

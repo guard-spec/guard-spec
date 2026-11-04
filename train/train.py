@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import json
 import math
+import random
+import sys
 import time
 
 import numpy as np
@@ -22,14 +24,40 @@ from transformers import AutoModelForSequenceClassification, AutoTokenizer, get_
 
 from common_train import ROOT, auc, label_matrix, load_config, read_jsonl, risk_scores, seed_everything, sigmoid, tpr_at_fpr
 
+sys.path.insert(0, str(ROOT / "data"))
+from common import strip_diacritics, teencode_v2  # noqa: E402
 
-def make_loader(tok, rows, y, max_len, batch_size, shuffle, seed):
-    data = [(r["text"], y[i]) for i, r in enumerate(rows)]
+
+def make_augment(cfg_aug, seed):
+    """v2 training-time augmentation: Vietnamese `orig` rows are rewritten without diacritics or in
+    randomized teencode (common.teencode_v2, table A) with the same probability whatever their
+    label, so the surface form carries no label signal. Validation rows are never augmented."""
+    if not cfg_aug:
+        return None
+    p_nd, p_teen = cfg_aug.get("vi_no_diacritics", 0.0), cfg_aug.get("vi_teencode", 0.0)
+    r = random.Random(f"{seed}:augment")
+
+    def aug(text, lang, variant):
+        if lang != "vi" or variant != "orig":
+            return text
+        u = r.random()
+        if u < p_nd:
+            return strip_diacritics(text)
+        if u < p_nd + p_teen:
+            return teencode_v2(text, f"aug:{r.getrandbits(32)}", "A")
+        return text
+
+    return aug
+
+
+def make_loader(tok, rows, y, max_len, batch_size, shuffle, seed, augment=None):
+    data = [(r["text"], y[i], r.get("lang"), r.get("variant")) for i, r in enumerate(rows)]
 
     def collate(batch):
-        enc = tok([t for t, _ in batch], truncation=True, max_length=max_len, padding=True, pad_to_multiple_of=64,
+        texts = [t if augment is None else augment(t, lang, var) for t, _, lang, var in batch]
+        enc = tok(texts, truncation=True, max_length=max_len, padding=True, pad_to_multiple_of=64,
                   return_tensors="pt")  # few distinct shapes keep the MPS allocator cache bounded
-        enc["labels"] = torch.tensor(np.stack([lb for _, lb in batch]))
+        enc["labels"] = torch.tensor(np.stack([lb for _, lb, _, _ in batch]))
         return enc
 
     g = torch.Generator()
@@ -84,7 +112,8 @@ def main():
         id2label=dict(enumerate(labels)), label2id={lb: i for i, lb in enumerate(labels)},
     ).to(device)
 
-    tr_loader = make_loader(tok, train_rows, y_tr, tc["max_len"], tc["batch_size"], True, cfg["seed"])
+    tr_loader = make_loader(tok, train_rows, y_tr, tc["max_len"], tc["batch_size"], True, cfg["seed"],
+                            augment=make_augment(tc.get("augment"), cfg["seed"]))
     va_loader = make_loader(tok, val_rows, y_va, tc["max_len"], 64, False, cfg["seed"])
 
     no_decay = ("bias", "LayerNorm.weight")

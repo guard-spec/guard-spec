@@ -90,6 +90,121 @@ def teencode_vi(s: str, key: str) -> str:
     return s
 
 
+# v2 teencode: several spellings per word, chosen at random, so that no single abbreviation (v1 mapped
+# "mật khẩu" -> "mk", "quy tắc" -> "qt", "hệ thống" -> "ht" and those showed up mostly in attacks) is tied to
+# a label. Table "A" is used for training and training-time augmentation; table "B" adds spellings that
+# training never sees and is used only for the val_vi_variants split, to measure transfer to unseen
+# chat spelling. Written from general knowledge of Vietnamese chat writing, not from eval/.
+_TEEN2_COMMON = {
+    "không": ["ko", "k", "hông", "hok", "kh", "khum", "hk"],
+    "được": ["đc", "dc", "dk", "đk", "đươc"],
+    "gì": ["j", "gì", "ji", "gi"],
+    "vậy": ["z", "v", "dz", "zậy", "vại"],
+    "rồi": ["r", "ròi", "rùi", "rầu"],
+    "với": ["vs", "vớii", "zới"],
+    "biết": ["bít", "bik", "bt", "biet"],
+    "mình": ["mk", "mik", "mh", "mìn"],
+    "bạn": ["b", "bn", "pạn", "bạnn"],
+    "cũng": ["cx", "cg", "cũg"],
+    "mới": ["ms", "mớii"],
+    "nói": ["ns", "nóii"],
+    "làm": ["lm", "lèm"],
+    "trước": ["trc", "trướk"],
+    "thế nào": ["ntn", "thế lào", "tn"],
+    "như thế nào": ["ntn"],
+    "nhắn tin": ["ib", "nt", "inbox"],
+    "tin nhắn": ["tn", "tin nhắn", "ib"],
+    "nhé": ["nha", "nhaa", "nhe", "nhoa", "nhá"],
+    "nha": ["nhaa", "nhoa", "nhaaa"],
+    "ạ": ["ạk", "ak", "ạ ạ", "a"],
+    "anh": ["a", "ah", "anhh"],
+    "em": ["e", "emm"],
+    "chị": ["c", "chị", "chụy"],
+    "tất cả": ["tc", "tất cả", "hết"],
+    "hướng dẫn": ["hd", "hdan", "hướng dẫn", "hdẫn"],
+    "mật khẩu": ["mk", "pass", "pw", "mat khau", "mkhau"],
+    "quy tắc": ["qtac", "qt", "luật"],
+    "chỉ thị": ["ct", "chỉ thị"],
+    "quản trị": ["qtri", "qt", "admin", "quản trị"],
+    "quản trị viên": ["admin", "qtv", "ad"],
+    "hệ thống": ["ht", "hthong", "hệ thốg", "system"],
+    "trả lời": ["rep", "tl", "trả lời", "rep lại"],
+    "người": ["ng", "ngừi", "người"],
+    "người dùng": ["ng dùng", "user", "ngdung"],
+    "đi": ["đyy", "đii", "di"],
+    "thôi": ["thui", "thoai", "thoii"],
+    "quá": ["wá", "qá", "wa"],
+    "điện thoại": ["đt", "dt", "đthoại"],
+    "facebook": ["fb", "phây", "face"],
+    "bây giờ": ["bh", "bjo", "bây h"],
+    "giờ": ["h", "jờ", "giờ"],
+    "yêu": ["iu", "yeu"],
+    "thích": ["thik", "thick", "thjk"],
+    "chồng": ["ck", "chồg"],
+    "vợ": ["vk", "vợ"],
+    "cảm ơn": ["cmon", "tks", "thanks", "cám ơn", "camon"],
+    "xin lỗi": ["sr", "sorry", "xl", "xin lũi"],
+    "bao nhiêu": ["bn", "bnhiu", "bao nhiu"],
+    "hôm nay": ["hnay", "hum nay", "hôm nai"],
+    "ngày mai": ["mai", "nmai", "ngày mơi"],
+    "nhiều": ["nhìu", "nhiu"],
+    "chưa": ["chx", "chưa", "chua"],
+    "luôn": ["lun", "luôn"],
+    "muốn": ["mún", "muốn"],
+    "nữa": ["nx", "nữa"],
+    "lệnh": ["lệnh", "lenh", "command"],
+    "có": ["cs", "có", "co"],
+    "đúng": ["đúg", "dung", "chuẩn"],
+    "học": ["họk", "hok", "học"],
+    "trời ơi": ["trời ơii", "troi oi", "trùi ui"],
+    "ơi": ["ơii", "ui", "oii"],
+    "thật": ["thiệt", "thật"],
+    "gửi": ["gửi", "gui", "send"],
+    "quên": ["quên", "wên", "quen"],
+    "bỏ qua": ["bỏ qa", "bỏ wa", "skip", "bỏ qua"],
+}
+# Spellings held out of training (table B only; none of them is in _TEEN2_COMMON).
+_TEEN2_HELDOUT = {
+    "không": ["hem", "hum", "hônk"], "được": ["đượt", "dượt"], "biết": ["bjk", "bjt"], "vậy": ["zị", "dị"],
+    "rồi": ["gùi", "rùii"], "mình": ["mềnh", "mừn"], "gì": ["zì", "chi"], "với": ["vứi", "voy"],
+    "thôi": ["thoy", "thuj"], "nhé": ["nhoé", "nhó"], "bạn": ["bợn", "pợn"], "quá": ["wóa", "quớ"],
+    "mật khẩu": ["pas", "mậtk"], "hệ thống": ["hthốg", "h.thống"], "hướng dẫn": ["h/d", "hưỡng dẫn"],
+    "cảm ơn": ["thank", "cảm ưn"], "hôm nay": ["hum nai", "hnai"], "người": ["ngừ", "nguoj"],
+}
+_TEEN2 = {"A": _TEEN2_COMMON,
+          "B": {k: v + _TEEN2_HELDOUT.get(k, []) for k, v in _TEEN2_COMMON.items()}}
+assert not any(set(v) & set(_TEEN2_COMMON[k]) for k, v in _TEEN2_HELDOUT.items())
+_TEEN2_RE = re.compile(r"(?<!\w)(" + "|".join(sorted(map(re.escape, _TEEN2_COMMON), key=len, reverse=True)) + r")(?!\w)",
+                       re.IGNORECASE)
+_TEEN2_TAILS = {"A": [" :))", " =))", " hihi", " haha", " :v", "!!", " ^^", " nhaa"],
+                "B": [" :)))", " =)))", " hjhj", " kkk", " :3", "!!!", " ^_^", " hehe"]}
+
+
+def teencode_v2(s: str, key: str, table: str = "A") -> str:
+    """Randomized chat spelling. Same procedure for benign and attack text; `table` is A (train) or B (val)."""
+    r = random.Random(f"{SEED}:teen2:{table}:{key}")
+    tab = _TEEN2[table]
+    p_word = r.uniform(0.45, 0.95)
+    s = _TEEN2_RE.sub(lambda m: r.choice(tab[m.group(0).lower()]) if r.random() < p_word else m.group(0), s)
+    mode = r.random()
+    if mode < 0.65:
+        s = strip_diacritics(s).lower()
+    elif mode < 0.85:
+        s = s.lower()
+    if r.random() < 0.7:
+        s = re.sub(r"(?<![a-z/.@_:])qu", "w", s)
+    if r.random() < 0.6:
+        s = re.sub(r"(?<![a-z/.@_:])ph", "f", s)
+    if r.random() < 0.4:
+        s = re.sub(r"(?<![a-z/.@_:])gi(?=[aeiouy])", "j", s)
+    s = re.sub(r"(?<![\w/.@_:])d(?=[aeiouy])", lambda m: "z" if r.random() < 0.3 else "d", s)
+    s = re.sub(r"(?<![\w/.@_:])c(?=[aou])", lambda m: "k" if r.random() < 0.3 else "c", s)
+    s = re.sub(r"ch\b", lambda m: "k" if r.random() < 0.25 else "ch", s)
+    if r.random() < 0.3:
+        s = re.sub(r"[.]$", "", s.rstrip()) + r.choice(_TEEN2_TAILS[table])
+    return s
+
+
 LEET = {"a": "4", "e": "3", "i": "1", "o": "0", "s": "5", "t": "7", "g": "9", "b": "8", "l": "1"}
 
 
