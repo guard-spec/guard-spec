@@ -20,7 +20,7 @@ import numpy as np
 from common_train import ROOT, auc, rates, read_jsonl
 from evaluate import Ours
 
-DEFAULT_SPLITS = ["data/val.jsonl", "data/val_hard.jsonl", "data/val_vi_variants.jsonl"]
+DEFAULT_SPLITS = ["data/val.jsonl", "data/val_hard.jsonl", "data/val_vi_variants.jsonl", "data/val_v3.jsonl"]
 
 
 def report(model_dir: Path, splits, extra_thr):
