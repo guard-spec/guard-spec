@@ -6,9 +6,88 @@ pipeline_tag: text-classification
 tags: [prompt-injection, jailbreak, guardrail, onnx, int8]
 ---
 
-# guardspec-classifier-v1
+# guardspec-classifier-v2
 
 Copyright The Guard Spec Authors. Licensed under the Apache License 2.0.
+
+## v2 (2026-11-04)
+
+v2 has the same architecture, recipe and export as v1 (below). It targets
+v1's false positives on Vietnamese benign text in teencode and without
+diacritics. The data changes are in `DATA_CARD.md` ("v2 changes"):
+`data/gen_vi_v2.py` (everyday benign Vietnamese with admin vocabulary,
+minimal pairs), randomized teencode (`common.teencode_v2`), the same
+benign:attack ratio (1.5) in every variant, and training-time
+no-diacritics / teencode augmentation (0.15 / 0.15, label-independent).
+
+| | v2 |
+|---|---|
+| data | 23,404 train; validation `val` 3,648 + `val_hard` 829 + `val_vi_variants` 1,408 |
+| run | 5 epochs, best epoch 5 by validation loss (0.1184, 0.0544, 0.0354, 0.0354, 0.0319); 24.4 min on Apple M3 Max, MPS |
+| `risk_threshold` | 0.9237 (benign FPR ≤ 1% on the three validation splits combined, INT8) |
+| INT8 vs FP32 | ΔAUC +0.0005; p99 \|Δrisk\| 0.16; same decision at the threshold on 99.4% of rows |
+
+SHA-256 of `models/local/guardspec-classifier-v2/`:
+
+```
+56e431f224eb113c95ebaf4656d19b73abe10cfc0c4dafd50633a00ccce3dcb6  model_int8.onnx
+2b95ee17661f8dfbbceaba374f6d277a6b5d8e1898c070a16331622024f58c67  tokenizer.json
+c89d10db99567d790a4a33d551eef09dcd0b0786877d22a67033c09c34cf9f72  config.json
+94784a15f78337466e6ee16f23cfabd6cb80f1f80d14c354e79fd0181d86a2e3  thresholds.json
+```
+
+Validation, classifier alone, benign FPR at each model's own threshold
+(v1 0.8768, v2 0.9237), `uv run python variant_report.py` (full tables:
+`reports/variant_report_v{1,2}.json`):
+
+| split / group | benign rows | v1 FPR | v2 FPR | v1 TPR | v2 TPR |
+|---|---|---|---|---|---|
+| `val` EN | 830 | 0.8% | 0.6% | 0.980 | 0.967 |
+| `val` VI orig / no-diacritics / teencode | 446 / 447 / 480 | 4.5% / 11.4% / 16.7% | 0.0% / 0.4% / 0.4% | 0.996 / 0.988 / 0.988 | 0.996 / 0.992 / 0.984 |
+| `val_hard` EN | 346 | 4.0% | 3.5% | 0.727 | 0.818 |
+| `val_hard` VI orig / no-diacritics / teencode | 129 / 129 / 154 | 0.0% / 2.3% / 1.3% | 2.3% / **8.5%** / 3.2% | 0.75 / 0.75 / 0.67 | 1.00 / 1.00 / 0.67 |
+| `val_vi_variants` orig / no-diacritics / teencode | 328 / 328 / 681 | 13.1% / 23.5% / 27.2% | 0.0% / 0.0% / 0.7% | 0.75 / 0.75 / 0.64 | 0.83 / 0.67 / 0.60 |
+
+`val` and `val_vi_variants` were also used to choose the epoch and the
+threshold, so they flatter v2. `val_hard` Vietnamese without diacritics got
+worse (3 → 11 of 129 rows): v2 trades some false positives on v1's
+hard-negative templates for far fewer on everyday admin vocabulary.
+
+Fusion calibration for v2 (`go run -tags onnx ./cmd/calibrate fit`, on the
+same three splits, built in as `ml.BuiltinCalibrations`): Platt A 0.9364,
+B −0.5280; out-of-fold logreg(L1,L2,L3) AUC 0.995, TPR@0.85 0.926 at benign
+FPR 0.5%.
+
+**Eval set results, fused L1+L2+L3 at the gateway's 0.85 block threshold**
+(`eval/`, 2,176 rows, measured once on 2026-11-04; v1 measured with the same
+L1 for comparison; `eval/baseline-onnx.json` now holds the v2 run):
+
+| | AUC | TPR@FPR≤1% | TPR | FPR | EN FPR | VI FPR | VI teencode FPR | VI no-diacritics FPR |
+|---|---|---|---|---|---|---|---|---|
+| v1 | 0.985 | 0.915 | 0.939 | 2.7% | 1.1% | 3.6% | 7.0% | 3.8% |
+| v2 | 0.985 | 0.922 | 0.933 | 2.0% | 2.2% | 1.9% | 1.4% | 3.0% |
+| v2, cascade | 0.987 | 0.936 | 0.945 | 2.1% | 2.5% | 1.9% | 1.4% | 3.0% |
+
+v2 meets the teencode target (≤ 2%) and keeps TPR within 1 point of v1, but
+misses the overall (≤ 1.5%) and no-diacritics (≤ 2%) targets, and English
+benign FPR doubled (4 → 8 of 364 rows). It replaces v1 because it blocks
+fewer benign rows overall (20 vs 27 of 1,005) and catches more at equal FPR.
+
+Reproduce v2:
+
+```sh
+cd train
+uv sync
+uv run python data/build_data.py   # deterministic; writes val_vi_variants.jsonl too
+uv run python train.py             # writes runs/guardspec-classifier-v2/best
+uv run python export.py            # writes ../models/local/guardspec-classifier-v2
+uv run python variant_report.py --model ../models/local/guardspec-classifier-v2
+cd .. && go run -tags onnx ./cmd/calibrate fit   # cgo flags: see the Makefile
+```
+
+The sections below describe v1.
+
+# guardspec-classifier-v1
 
 guardspec-classifier-v1 is a small multilingual (English + Vietnamese)
 **attack-risk classifier** for the Guard Spec prompt-injection gateway. It is

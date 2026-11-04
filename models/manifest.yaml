@@ -15,9 +15,9 @@
 # models need HF_TOKEN (after accepting the terms on the model page) and are
 # skipped without it.
 #
-# The L2 injection classifier is our own guardspec-classifier-v1 (train/). It is
+# The L2 injection classifier is our own guardspec-classifier-v2 (train/). It is
 # not published anywhere yet: train it with train/ (see train/MODEL_CARD.md), which
-# writes models/local/guardspec-classifier-v1/ (model_int8.onnx, tokenizer.json,
+# writes models/local/guardspec-classifier-v2/ (model_int8.onnx, tokenizer.json,
 # config.json, thresholds.json), or copy those files there. internal/onnx loads
 # the directory directly. The ProtectAI models below are optional
 # comparison baselines.

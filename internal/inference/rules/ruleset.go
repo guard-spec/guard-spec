@@ -789,6 +789,22 @@ func New() *Engine {
 			b.or(imperative, overrideVerb, newInstr))})
 	b.cue(addressAI)
 
+	// Hidden content: the sanitizer prefixes text that HTML hides from the
+	// reader (display:none, visibility:hidden, font-size:0, white on white,
+	// aria-hidden, comments, ...) with sanitizer.HiddenMarker. Hidden text that
+	// overrides instructions, addresses the model or moves data out is an
+	// indirect injection whatever else the page says; the meta and quote
+	// suppressors do not apply (engine.go), and Engine.score adds
+	// ii.hidden.boost on top of the strongest rule.
+	b.flag("ii.hidden", "", 0, flagHidden, `\[hidden\]`)
+	b.add(rule{id: "ii.hidden.override", cat: IndirectInjection, w: 0.9, gap: 6, needFlag: flagHidden,
+		seq: seq(overrideVerb, target)})
+	b.add(rule{id: "ii.hidden.send", cat: IndirectInjection, w: 0.85, gap: 6, needFlag: flagHidden,
+		seq: seq(sendVerb, b.or(sensitive, personRef, b.t("list", "lists", "data", "file", "files", "contacts",
+			"records", "database", "emails", "danh sach", "du lieu", "tep", "danh ba", "ho so", "co so du lieu")))})
+	b.add(rule{id: "ii.hidden.address_ai", cat: IndirectInjection, w: 0.85, gap: 1, needFlag: flagHidden,
+		seq: seq(b.or(addressAI, b.t("assistant", "ai", "llm", "chatbot", "agent", "tro ly", "mo hinh")))})
+
 	// ------------------------------------------------- obfuscation
 	b.add(rule{id: "obf.decode_follow", cat: Obfuscation, w: 0.85, gap: 10,
 		seq: seq(b.t("decode", "decrypt", "deobfuscate", "reverse", "read backwards", "rot13", "base64",

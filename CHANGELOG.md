@@ -46,7 +46,6 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   log. English and Vietnamese, light and dark themes. Released control-plane
   binaries and images embed it (GoReleaser builds it before the Go builds).
 - Metric `guardspec_gateway_route_selections_total{source,outcome}`.
-
 - `UPSTREAM_KEY_ORGS` (gateway and control plane): which organizations may
   name which `UPSTREAM_KEY_*` variable. Empty by default, so no org can use
   a key until the operator lists it (`UPSTREAM_KEY_MAIN=*` for every org).
@@ -54,6 +53,21 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 - `UPSTREAM_ALLOW_PRIVATE` (gateway, default `false`): org-defined upstreams
   may not reach loopback, RFC 1918, unique local or CGNAT addresses unless it
   is `true`. Compose sets `true` and `UPSTREAM_KEY_ORGS=UPSTREAM_KEY_MAIN=*`.
+- L2 classifier `guardspec-classifier-v2` (`train/`): more benign Vietnamese
+  text in teencode and without diacritics (`data/gen_vi_v2.py`), randomized
+  teencode spellings, the same benign:attack ratio in every variant, and
+  training-time no-diacritics / teencode augmentation. New validation split
+  `train/data/val_vi_variants.jsonl`. The gateway loads
+  `models/local/guardspec-classifier-v2` first, then `-v1`, then `-v0`.
+- Sanitizer: content that HTML hides from the reader (`display:none`,
+  `visibility:hidden`, `font-size:0`, `opacity:0`, white on white,
+  `aria-hidden`, `hidden`, `sr-only`-style classes, HTML comments) is kept
+  between `[hidden]` and `[/hidden]` markers instead of being dropped (comments)
+  or losing the fact that it was hidden; `Report.HadHiddenHTML` signals it.
+- L1 rules `ii.hidden.override`, `ii.hidden.send`, `ii.hidden.address_ai`
+  and `ii.hidden.boost`: override, exfiltration or model-addressed language
+  inside hidden content is an indirect injection, without the meta and quote
+  suppressors.
 
 ### Changed
 
@@ -68,6 +82,14 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   upstream's `model` rewrite.
 - `GET /organizations/:orgId` and the project list include
   `default_upstream_id`.
+- L1 treats a ```` ``` ```` fence as a code block, not as a quotation, so an
+  instruction wrapped in a fence is no longer discounted as a string literal;
+  spacing modifier letters (`ˆ`, `ʼ`, ...) separate words, so datamark-style
+  text is matched.
+- `DefaultL1Calibration` refitted for the new rules (A 0.998, B 0.356);
+  `eval/baseline.json` refreshed (FPR unchanged in every group; two attack
+  rows near 0.85 moved below it).
+- `cmd/calibrate fit` uses `val_vi_variants.jsonl` too by default.
 
 ### Fixed
 

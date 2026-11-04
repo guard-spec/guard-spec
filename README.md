@@ -127,7 +127,7 @@ What each stage does:
   attack category run on it, with suppressors for meta discussion, quoted
   examples and code literals. L1 always runs and needs no model files.
 - **L2 classifier** (`internal/inference/ml`, `internal/onnx`). Our own
-  `guardspec-classifier-v1`: `intfloat/multilingual-e5-small` fine-tuned on
+  `guardspec-classifier-v2`: `intfloat/multilingual-e5-small` fine-tuned on
   `train/` with an 8-label sigmoid head, INT8 ONNX, run in-process with ONNX
   Runtime. Risk is 1 − p(benign). Long input is scored in 256-token windows
   with a 64-token overlap; the worst window counts.
@@ -305,7 +305,7 @@ see [SECURITY.md](SECURITY.md#verifying-releases).
 | Layer | Files | Where it comes from |
 |---|---|---|
 | L1 | none | built into the binary |
-| L2 | `models/local/guardspec-classifier-v1/` (`model_int8.onnx`, `tokenizer.json`, `config.json`, `thresholds.json`) | **not published yet**: build it with `train/`, or copy the files in |
+| L2 | `models/local/guardspec-classifier-v2/` (falls back to `-v1`, then `-v0`) (`model_int8.onnx`, `tokenizer.json`, `config.json`, `thresholds.json`) | **not published yet**: build it with `train/`, or copy the files in |
 | L3 | `models/cache/multilingual-e5-small/` (`model.onnx`, `tokenizer.json`, `config.json`) | pulled from Hugging Face, pinned by commit and SHA-256 in `models/manifest.yaml` |
 
 The model layers need a gateway built with `-tags onnx` (cgo, ONNX Runtime).
@@ -339,13 +339,13 @@ Hugging Face is on the [roadmap](ROADMAP.md)). Two ways to get it:
    uv sync
    uv run python data/build_data.py
    uv run python train.py
-   uv run python export.py      # writes ../models/local/guardspec-classifier-v1
+   uv run python export.py      # writes ../models/local/guardspec-classifier-v2
    ```
 
    MPS training is not bit-reproducible, so your weights and numbers can
    differ slightly from ours.
-2. Copy an existing `guardspec-classifier-v1` directory (from a teammate or
-   an earlier build) to `models/local/guardspec-classifier-v1`.
+2. Copy an existing `guardspec-classifier-v2` directory (from a teammate or
+   an earlier build) to `models/local/guardspec-classifier-v2`.
 
 Then restart the gateway (`docker compose up -d gateway`); the log line
 `L3 embeddings loaded` and the absence of `L2:` warnings confirm the layers
@@ -388,7 +388,7 @@ in a second table.
 | `OUTPUT_CANARY` | `off` | `block` or `redact` injects a canary and acts when it leaks |
 | `OUTPUT_REASONING` | `guard` | `drop` removes `reasoning` / `reasoning_content` instead of guarding them |
 | `MODEL_DIR` | `./models` (`/models` in the image) | Root of the model files. `MODELS_PATH` is the older name |
-| `L2_MODEL_DIR` | `$MODEL_DIR/local/guardspec-classifier-v1`, else `-v0` | Classifier directory |
+| `L2_MODEL_DIR` | `$MODEL_DIR/local/guardspec-classifier-v2`, else `-v1`, else `-v0` | Classifier directory |
 | `L3_MODEL_DIR` | `$MODEL_DIR/cache/multilingual-e5-small` | Embedding model directory |
 | `DETECTOR_LAYERS` | `l1,l2,l3` | Layers to run |
 | `DETECTOR_FUSION` | `logreg` | `logreg` or `max` of the calibrated layers |
@@ -790,12 +790,22 @@ English and 1,250 Vietnamese, built deterministically by
 `eval/build/build.py` (see [eval/README.md](eval/README.md)). "Block" is the
 gateway's direct-injection threshold, 0.85.
 
+Classifier v2 is the default L2 (see [train/MODEL_CARD.md](train/MODEL_CARD.md));
+the v1 rows are kept for comparison. All model rows were measured on
+2026-11-04 with the L1 rules of this release.
+
 | Detector | ROC AUC | TPR at FPR ≤ 1% | TPR at block | FPR at block | EN FPR | VI FPR | VI teencode FPR | VI no-diacritics FPR | Detector latency p50 / p99 |
 |---|---|---|---|---|---|---|---|---|---|
 | L1 only (default build) | 0.952 | 0.910 | 0.882 | 0.1% | 0.3% | 0.0% | 0.0% | 0.0% | 0.11 / 0.29 ms |
-| L1 + L2 | 0.985 | 0.917 | 0.942 | 2.6% | 1.1% | 3.4% | 6.3% | 3.8% | 2.7 / 7.6 ms |
-| L1 + L2 + L3 (default with models) | 0.985 | 0.916 | 0.939 | 2.7% | 1.1% | 3.6% | 7.0% | 3.8% | 3.7 / 11.3 ms |
-| L1 + L2 + L3, cascade | 0.987 | 0.932 | 0.953 | 2.7% | 1.1% | 3.6% | 7.0% | 3.8% | 2.9 / 8.5 ms |
+| L1 + L2 (v1) | 0.985 | 0.917 | 0.942 | 2.6% | 1.1% | 3.4% | 6.3% | 3.8% | 2.7 / 7.6 ms |
+| L1 + L2 + L3 (v1) | 0.985 | 0.916 | 0.939 | 2.7% | 1.1% | 3.6% | 7.0% | 3.8% | 3.7 / 11.3 ms |
+| L1 + L2 + L3 (v1), cascade | 0.987 | 0.932 | 0.953 | 2.7% | 1.1% | 3.6% | 7.0% | 3.8% | 2.9 / 8.5 ms |
+| **L1 + L2 + L3 (v2, default with models)** | 0.985 | 0.922 | 0.933 | 2.0% | 2.2% | 1.9% | 1.4% | 3.0% | 3.8 / 11.0 ms |
+| L1 + L2 + L3 (v2), cascade | 0.987 | 0.936 | 0.945 | 2.1% | 2.5% | 1.9% | 1.4% | 3.0% | 2.9 / 8.8 ms |
+
+L1 only after the hidden-HTML rules (2026-11-04, `go test ./internal/evalset
+-run TestBaseline -v`): AUC 0.952, TPR at block 0.881, FPR at block 0.1%
+(unchanged), EN FPR 0.3%, VI FPR 0.0%.
 
 Reproduce:
 
@@ -819,9 +829,13 @@ How to read them, and their limits:
   reviewed by AI agents, without a native-speaker review; teencode comes from
   rules and is stiffer than real chat. Many attack rows come from templates,
   so errors are correlated.
-- **Vietnamese teencode and no-diacritics benign text is the known weak
-  spot** of the model layers: 7.0% and 3.8% of those benign rows are blocked
-  with L1+L2+L3. Fixing this is the main goal of classifier v2.
+- **Vietnamese teencode and no-diacritics benign text was the known weak
+  spot** of the model layers. With L1+L2+L3, classifier v2 blocks 1.4% of
+  teencode and 3.0% of no-diacritics benign rows (v1: 7.0% and 3.8%). The
+  cost is English: EN benign FPR at block rose from 1.1% to 2.2% (8 of 364
+  rows instead of 4). Overall FPR at block is 2.0% (v1 2.7%), still above the
+  1.5% target; TPR at block is 0.933 (v1 0.939), and at an equal 1% FPR v2
+  catches more (0.922 vs 0.915).
 - **Latency** is the sanitizer plus the detector for one row at a time, in
   process, measured by `cmd/eval`. It is not end-to-end HTTP latency through
   the gateway and does not include the upstream model. It was measured on a

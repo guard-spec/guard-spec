@@ -48,9 +48,10 @@ const ridge = 0.01
 
 func runFit(args []string) int {
 	fs := flag.NewFlagSet("fit", flag.ContinueOnError)
-	val := fs.String("val", "train/data/val.jsonl,train/data/val_hard.jsonl", "calibration split, comma-separated files (the classifier's validation splits; never eval/)")
+	val := fs.String("val", "train/data/val.jsonl,train/data/val_hard.jsonl,train/data/val_vi_variants.jsonl",
+		"calibration split, comma-separated files (the classifier's validation splits; never eval/)")
 	modelDir := fs.String("model-dir", "models", "MODEL_DIR")
-	l2Dir := fs.String("l2", "", "L2_MODEL_DIR (default: MODEL_DIR/local/guardspec-classifier-v1, then -v0)")
+	l2Dir := fs.String("l2", "", "L2_MODEL_DIR (default: MODEL_DIR/local/guardspec-classifier-v2, then -v1, then -v0)")
 	l3Dir := fs.String("l3", "", "L3_MODEL_DIR (default: MODEL_DIR/cache/multilingual-e5-small)")
 	folds := fs.Int("folds", 5, "cross-validation folds")
 	write := fs.Bool("write", false, "write calibration.json into the classifier directory")
@@ -110,9 +111,12 @@ func runFit(args []string) int {
 	fmt.Printf("  L2: fusion.Calibration{A: %.4f, B: %.4f}\n", l2.A, l2.B)
 	fmt.Printf("  L3: fusion.Calibration{A: %.4f, B: %.4f}\n", l3.A, l3.B)
 	if d := ml.DefaultL3Calibration; math.Abs(l3.A-d.A) > 1e-3 || math.Abs(l3.B-d.B) > 1e-3 {
-		fmt.Println("  (L3 differs from ml.DefaultL3Calibration: update it, then refit so the logreg weights match)")
+		fmt.Printf("  (L3 differs from ml.DefaultL3Calibration %+v. The L3 scaling is shared by every classifier,\n"+
+			"   so the logistic regressions below use ml.DefaultL3Calibration, which is what runs.)\n", d)
 	}
-	cal := [3]fusion.Calibration{fusion.DefaultL1Calibration, l2, l3}
+	// The combiners must be fitted on the layer scores the gateway computes:
+	// L1 and L3 with their built-in calibrations, L2 with the one fitted here.
+	cal := [3]fusion.Calibration{fusion.DefaultL1Calibration, l2, ml.DefaultL3Calibration}
 	lrs := map[string]fusion.LogReg{}
 	for _, m := range methods {
 		if !m.logreg {
