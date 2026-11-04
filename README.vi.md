@@ -172,13 +172,36 @@ uv run python export.py      # ghi ra ../models/local/guardspec-classifier-v2
 ```
 
 Image do `docker compose` build (từ `build/gateway.Dockerfile`) có
-`-tags onnx` và `libonnxruntime`. Image và binary phát hành qua GoReleaser
-**không** có, nên chỉ chạy L1. Thiếu file model thì gateway ghi cảnh báo và
-chạy chỉ L1; `DETECTOR_LAYERS=l1` để tắt cảnh báo.
+`-tags onnx` và `libonnxruntime`. Thiếu file model thì gateway ghi cảnh báo và
+chạy chỉ L1; `DETECTOR_LAYERS=l1` để tắt cảnh báo. `GET /readyz` cho biết các
+lớp đang chạy.
 
 **Lưu ý trước khi bật L2/L3:** recall tăng nhưng khoảng 2,7% prompt lành tính
 trong bộ eval bị chặn (chỉ L1: 0,1%), chủ yếu là teencode và tiếng Việt không
 dấu. Nếu chặn nhầm tốn kém hơn bỏ sót, giữ `DETECTOR_LAYERS=l1`.
+
+### Cài từ bản phát hành
+
+| Thành phần | Lớp phát hiện | Ghi chú |
+|---|---|---|
+| Image `ghcr.io/giaplee/guard-spec-gateway:<version>` (và `latest`), linux/amd64 + linux/arm64 | **L1 + L2 + L3** khi mount model | Build với `-tags onnx`, có sẵn `libonnxruntime`. Không có model thì chỉ chạy L1. |
+| `guard-spec_<version>_linux_<arch>_onnx.tar.gz` | L1 + L2 + L3 khi có model | Cùng binary gateway, kèm `lib/libonnxruntime.so`. Cần glibc 2.36 trở lên; đặt `ONNXRUNTIME_LIB` và `MODEL_DIR`. |
+| `guard-spec_<version>_<os>_<arch>.tar.gz` (linux, darwin) | **chỉ L1** | Binary tĩnh (`CGO_ENABLED=0`), không có ONNX Runtime. |
+| Image `ghcr.io/giaplee/guard-spec-control-plane:<version>` | không áp dụng | Tĩnh, không cgo. |
+
+Model không được đóng gói vào image. Mount chỉ-đọc vào `/models`:
+
+```bash
+docker run -d -p 8080:8080 \
+  -e DATABASE_URL=postgres://guardspec_app@db:5432/guardspec -e PGPASSWORD=... \
+  -v "$PWD/models:/models:ro" \
+  ghcr.io/giaplee/guard-spec-gateway:<version>
+curl -s localhost:8080/readyz   # "layers":["l1","l2","l3"]
+```
+
+`/models` rỗng thì gateway ghi cảnh báo, vẫn chạy với L1, và `/readyz` trả
+`"layers":["l1"]`, `"degraded":true` kèm lý do. Mỗi image có SBOM, provenance
+và chữ ký cosign (keyless); cách kiểm tra ở [SECURITY.md](SECURITY.md#verifying-releases).
 
 ## Cấu hình
 
@@ -200,7 +223,8 @@ dùng nhất:
 
 ## API
 
-Gateway (cổng 8080, cần API key trừ `/health`): `POST /v1/chat/completions`,
+Gateway (cổng 8080, cần API key trừ `/health` và `/readyz`; `/readyz` liệt kê
+các lớp phát hiện đang chạy): `POST /v1/chat/completions`,
 `POST /v1/completions`, `POST /guardrail/scan` (chấm `text` và `documents`
 không gọi model), `POST /guardrail/scan/tools` (chấm định nghĩa tool MCP),
 `POST /guardrail/sanitize`.
@@ -208,6 +232,24 @@ không gọi model), `POST /guardrail/scan/tools` (chấm định nghĩa tool MC
 Control plane (cổng 8081, compose mở ra 18081): đăng nhập, tổ chức, API key,
 project, policy, guard settings, exemplar, lời mời, audit log. Bảng đầy đủ và
 ví dụ curl ở mục [APIs](README.md#apis).
+
+### Giao diện quản trị
+
+Control plane phục vụ giao diện quản trị tại `/ui/` (với compose:
+<http://localhost:18081/ui/>), bằng tiếng Việt hoặc tiếng Anh, giao diện sáng
+hoặc tối. Đăng nhập bằng tài khoản control plane rồi mở tổ chức theo id (tổ
+chức tạo khi cài đặt là `00000000-0000-0000-0000-000000000001`).
+
+Trang **Luồng xử lý** vẽ đường đi của một request qua gateway: khóa API, lớp
+L0, các lớp phát hiện L1, L2, L3, các luật theo đúng thứ tự của gateway, các
+kết quả Chặn, Ghi log, Cho phép và các upstream. Sửa điều kiện của luật bằng
+bộ dựng trực quan hoặc dạng văn bản, kéo để đổi thứ tự, kéo từ điểm "khớp" của
+luật đến một upstream để định tuyến, và thử request bằng bộ mô phỏng. Ngoài ra
+có các trang Upstream, Cấu hình dạng mã (YAML: kiểm tra, xem khác biệt, áp
+dụng), Thiết lập bảo vệ, Khóa API, Dự án, Mẫu tham chiếu và Nhật ký kiểm tra.
+Chi tiết ở mục [Admin UI](README.md#admin-ui).
+
+![Luồng xử lý, giao diện tối](docs/images/admin-flow-dark-vi.png)
 
 ## Benchmark
 

@@ -11,6 +11,48 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ### Added
 
+- **Routing to named upstreams** (migration 011). An organization defines
+  upstreams (`/v1/organizations/:orgId/upstreams`) and a default for the org
+  and for each project. The gateway sends an allowed request to the matching
+  `route` rule's `route_target`, else the project default, else the org
+  default, else `UPSTREAM_LLM_URL`, else the stub. A missing or disabled
+  target, or an unset key variable, fails closed with 502
+  (`route_unavailable`). Keys stay in the gateway's environment
+  (`UPSTREAM_KEY_*`, named by `api_key_env`); no secret is stored. Deleting
+  an upstream in use returns 409 with its references.
+- The **`route` rule action**; `redact` is still refused.
+- **Text rule conditions**: `GET /v1/policy/schema`, `POST /v1/policy/parse`
+  and `POST /v1/policy/format`. Text is parsed with the cel-go parser only and
+  mapped to the condition tree; the stored form and the generated CEL are
+  unchanged. Two new string operators, `beginsWith` and `endsWith`.
+- **Config as code**: `GET`/`PUT /v1/organizations/:orgId/config` (YAML,
+  `?dry_run=true`), applied in one transaction; the file is the whole truth.
+- **Policy simulator**: `POST /v1/organizations/:orgId/policies/simulate`.
+- Audit rows record `route_target`; `GET .../requests` returns it, and the
+  action `route` when a route rule decided.
+- The control plane serves the admin UI at `/ui/` (embedded from `web/dist`,
+  strict CSP, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`) and
+  redirects `/` there. Builds without Node show a placeholder.
+- `GET /v1/organizations`: the organizations of the signed-in user, with the
+  role in each (migration 012 adds `user_organizations`, a narrow
+  `SECURITY DEFINER` lookup, since memberships are row-level secured per org).
+- `POST /v1/organizations/:orgId/policies` accepts `enabled` (default true), so
+  a policy can be created disabled without being live in between.
+- **Admin UI** (`web/`, React and TypeScript): a flow diagram of the request
+  path with the policy rules as editable nodes (visual and text conditions,
+  drag to reorder, connect a rule to an upstream to route it), a policy
+  simulator, upstreams and defaults, config as code (YAML with validation,
+  diff and apply), guard settings, API keys, projects, exemplars and the audit
+  log. English and Vietnamese, light and dark themes. Released control-plane
+  binaries and images embed it (GoReleaser builds it before the Go builds).
+- Metric `guardspec_gateway_route_selections_total{source,outcome}`.
+- `UPSTREAM_KEY_ORGS` (gateway and control plane): which organizations may
+  name which `UPSTREAM_KEY_*` variable. Empty by default, so no org can use
+  a key until the operator lists it (`UPSTREAM_KEY_MAIN=*` for every org).
+  Refused on save and, for older rows, at request time (502).
+- `UPSTREAM_ALLOW_PRIVATE` (gateway, default `false`): org-defined upstreams
+  may not reach loopback, RFC 1918, unique local or CGNAT addresses unless it
+  is `true`. Compose sets `true` and `UPSTREAM_KEY_ORGS=UPSTREAM_KEY_MAIN=*`.
 - L2 classifier `guardspec-classifier-v2` (`train/`): more benign Vietnamese
   text in teencode and without diacritics (`data/gen_vi_v2.py`), randomized
   teencode spellings, the same benign:attack ratio in every variant, and
@@ -29,6 +71,17 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ### Changed
 
+- The gateway's dialer refuses link-local, multicast and unspecified
+  addresses and the cloud metadata addresses `fd00:ec2::254`,
+  `100.100.100.200` and `192.0.0.192` for every upstream, including
+  `UPSTREAM_LLM_URL`.
+- Policy names are unique per organization: create or rename onto a used
+  name returns 409. `GET .../config` returns 409, with the problems and how
+  to fix them, when the stored config would not apply again.
+- The audit `model` column holds the model sent upstream after a named
+  upstream's `model` rewrite.
+- `GET /organizations/:orgId` and the project list include
+  `default_upstream_id`.
 - L1 treats a ```` ``` ```` fence as a code block, not as a quotation, so an
   instruction wrapped in a fence is no longer discounted as a string literal;
   spacing modifier letters (`ˆ`, `ʼ`, ...) separate words, so datamark-style
@@ -37,6 +90,11 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   `eval/baseline.json` refreshed (FPR unchanged in every group; two attack
   rows near 0.85 moved below it).
 - `cmd/calibrate fit` uses `val_vi_variants.jsonl` too by default.
+
+### Fixed
+
+- `GET /v1/organizations/:orgId/requests` no longer fails (500) on audit rows
+  whose scores or flags are NULL; they read as 0 and false.
 
 ## [0.1.0] - unreleased (release candidate)
 
@@ -106,6 +164,14 @@ See "Upgrade notes" in the README for the full procedure.
 - Audit privacy: hashes and lengths by default, content only on opt-in.
 - EN/VI eval set (2,176 rows) with a deterministic builder, `cmd/eval` and
   CI regression baselines.
+- Release gateway images built with `-tags onnx` (ONNX Runtime included) for
+  linux/amd64 and linux/arm64 on native runners: they run L1 + L2 + L3 when
+  the models are mounted at `/models`, and L1 only, with a warning, when it is
+  empty. Linux `_onnx` tarballs with the same binary and `libonnxruntime.so`.
+  The plain release archives stay static and run L1 only.
+- `GET /readyz` on the gateway: lists the active detection layers, why a
+  requested layer is missing, and whether the binary has `-tags onnx`. The
+  gateway image `HEALTHCHECK` and the Helm readiness probe use it.
 - Helm chart, GoReleaser pipeline with SBOMs and keyless cosign signing,
   CodeQL, govulncheck, golangci-lint and license checks in CI.
 - Community files: CONTRIBUTING (DCO, the `eval/` rule), CODE_OF_CONDUCT,
@@ -145,8 +211,9 @@ See "Upgrade notes" in the README for the full procedure.
 - With L2/L3 enabled, about 2.7% of benign eval prompts are blocked, mostly
   Vietnamese teencode and text without diacritics (L1 alone: 0.1%).
 - The classifier weights are not published; build them with `train/`.
-- Release images and archives are built without `-tags onnx` and run L1
-  only; build `build/gateway.Dockerfile` for the model layers.
+- The plain release archives (`guard-spec_<version>_<os>_<arch>.tar.gz`) are
+  built without `-tags onnx` and run L1 only; use the gateway image or the
+  linux `_onnx` tarball for the model layers. There is no darwin ONNX build.
 
 [Unreleased]: https://github.com/giaplee/guard-spec/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/giaplee/guard-spec/releases/tag/v0.1.0

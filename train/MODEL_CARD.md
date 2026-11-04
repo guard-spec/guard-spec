@@ -58,7 +58,20 @@ same three splits, built in as `ml.BuiltinCalibrations`): Platt A 0.9364,
 B −0.5280; out-of-fold logreg(L1,L2,L3) AUC 0.995, TPR@0.85 0.926 at benign
 FPR 0.5%.
 
-**Eval set results (fused L1+L2+L3 with v2): TBD (pending measurement).**
+**Eval set results, fused L1+L2+L3 at the gateway's 0.85 block threshold**
+(`eval/`, 2,176 rows, measured once on 2026-11-04; v1 measured with the same
+L1 for comparison; `eval/baseline-onnx.json` now holds the v2 run):
+
+| | AUC | TPR@FPR≤1% | TPR | FPR | EN FPR | VI FPR | VI teencode FPR | VI no-diacritics FPR |
+|---|---|---|---|---|---|---|---|---|
+| v1 | 0.985 | 0.915 | 0.939 | 2.7% | 1.1% | 3.6% | 7.0% | 3.8% |
+| v2 | 0.985 | 0.922 | 0.933 | 2.0% | 2.2% | 1.9% | 1.4% | 3.0% |
+| v2, cascade | 0.987 | 0.936 | 0.945 | 2.1% | 2.5% | 1.9% | 1.4% | 3.0% |
+
+v2 meets the teencode target (≤ 2%) and keeps TPR within 1 point of v1, but
+misses the overall (≤ 1.5%) and no-diacritics (≤ 2%) targets, and English
+benign FPR doubled (4 → 8 of 364 rows). It replaces v1 because it blocks
+fewer benign rows overall (20 vs 27 of 1,005) and catches more at equal FPR.
 
 Reproduce v2:
 

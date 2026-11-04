@@ -37,3 +37,12 @@ models/local/
 
 # GoReleaser output
 /dist/
+
+# Admin UI (web/): dependencies and test output. The build goes to web/dist,
+# where only the placeholder index.html is committed (go build embeds it).
+web/node_modules/
+web/test-results/
+web/playwright-report/
+web/blob-report/
+web/dist/*
+!web/dist/index.html

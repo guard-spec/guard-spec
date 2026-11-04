@@ -2,10 +2,15 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	appconfig "github.com/giaplee/guard-spec/internal/config"
+	"github.com/giaplee/guard-spec/internal/inference"
 	"github.com/giaplee/guard-spec/internal/inference/ml"
+	"github.com/giaplee/guard-spec/internal/onnx"
 	"github.com/google/uuid"
 )
 
@@ -49,5 +54,50 @@ func TestForOrgScopesScans(t *testing.T) {
 	}
 	if _, ok := ml.OrgFrom(gw.forOrg(uuid.Nil).base); ok {
 		t.Fatal("no org: no scope")
+	}
+}
+
+func TestReadyzReportsLayers(t *testing.T) {
+	runner, err := inference.NewRunner("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gw := testGateway(t, runner)
+	gw.detector = newDetectorStatus(&ml.Stack{
+		Active:   [3]bool{true, false, true},
+		Problems: []string{"l2: no model"},
+		Fusion:   "logreg",
+	})
+	// No API key: /readyz is open, like /health.
+	resp, err := newApp(gw, testLookup).Test(httptest.NewRequest("GET", "/readyz", nil), -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	var out struct {
+		Status   string         `json:"status"`
+		Detector detectorStatus `json:"detector"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(out.Detector.Layers, ","); got != "l1,l3" {
+		t.Errorf("layers = %q, want l1,l3", got)
+	}
+	if !out.Detector.Degraded || len(out.Detector.Problems) != 1 || out.Detector.Fusion != "logreg" {
+		t.Errorf("detector = %+v", out.Detector)
+	}
+	if out.Detector.ONNX != onnx.Available() {
+		t.Errorf("onnx = %v, want %v", out.Detector.ONNX, onnx.Available())
+	}
+}
+
+func TestDetectorStatusNil(t *testing.T) {
+	st := newDetectorStatus(nil)
+	if st.Layers == nil || len(st.Layers) != 0 {
+		t.Errorf("layers = %#v, want empty non-nil", st.Layers)
 	}
 }

@@ -24,6 +24,8 @@ before you rely on it.
 - [Models](#models)
 - [Configuration](#configuration)
 - [APIs](#apis)
+- [Routing](#routing)
+- [Admin UI](#admin-ui)
 - [Benchmarks](#benchmarks)
 - [Security model and limitations](#security-model-and-limitations)
 - [Operations](#operations)
@@ -61,7 +63,10 @@ Trade-offs to know about:
 - The classifier and the Vietnamese data are young. The Vietnamese data is
   synthetic, and the classifier blocks more benign Vietnamese chat than we
   want (see [Benchmarks](#benchmarks)).
-- There is no admin UI yet. Everything is done through the REST API.
+- The admin UI covers routing, policies, guard settings, keys, projects,
+  exemplars and the audit log, but not users and invites yet; those stay in
+  the REST API. A control plane built without Node shows a placeholder page
+  at `/ui/`.
 
 ## Architecture
 
@@ -141,7 +146,14 @@ What each stage does:
 - **CEL policies** (`internal/policy`). Per-organization (and per-project)
   rules stored as a JSON condition tree and compiled to CEL on the server.
   They run after the fixed thresholds, so they can only tighten them. Actions
-  are `allow`, `block` and `log`.
+  are `allow`, `block`, `log` and `route`. Conditions can also be written as
+  text (`scores.l2 > 0.8 && injection.category == "jailbreak"`), which the
+  server parses into the same tree.
+- **Routing** (`cmd/gateway/routing.go`). Named upstreams per organization; a
+  `route` rule, the project default or the org default picks one, otherwise
+  `UPSTREAM_LLM_URL`. See [Routing](#routing).
+- **Admin UI** (`web/`). A single-page app served by the control plane at
+  `/ui/`. See [Admin UI](#admin-ui).
 - **Output guard** (`internal/outputguard`). Rewrites whole responses and
   streams (with a 256-character window): strips images and links to hosts off
   an allowlist, redacts e-mail, Vietnamese phone numbers, CCCD numbers, card
@@ -154,10 +166,10 @@ What each stage does:
   sanitizer flags, output guard counts, and a SHA-256 and the length of the
   request and response. Content is stored only when you turn that on.
 
-Things that are **not built**, although older documents described them: an
-admin UI, model routing, toxicity/PII/topic detection on the input side,
-ClickHouse, GPU or Triton serving, and LLM-based judges such as Qwen3Guard or
-Granite Guardian. See [ROADMAP.md](ROADMAP.md) and [DESIGN.md](DESIGN.md).
+Things that are **not built**, although older documents described them:
+fallback chains and cost caps for routing, toxicity/PII/topic detection on the
+input side, ClickHouse, GPU or Triton serving, and LLM-based judges such as
+Qwen3Guard or Granite Guardian. See [ROADMAP.md](ROADMAP.md) and [DESIGN.md](DESIGN.md).
 
 ## Quick start
 
@@ -258,6 +270,36 @@ with superuser credentials in `PGHOST`, `PGUSER`, `PGDATABASE` and
 
 For Kubernetes see [Operations: Kubernetes](#kubernetes).
 
+### Install from a release
+
+Each `v*` tag publishes, through `.github/workflows/release.yml`:
+
+| Artifact | Detection layers | Notes |
+|---|---|---|
+| `ghcr.io/giaplee/guard-spec-gateway:<version>` (and `latest`), linux/amd64 + linux/arm64 | **L1 + L2 + L3** when models are mounted | Built from `build/gateway.Dockerfile` with `-tags onnx`; ships `libonnxruntime`. Without models it runs L1 only. |
+| `guard-spec_<version>_linux_<arch>_onnx.tar.gz` | L1 + L2 + L3 when models are present | The same gateway binary plus `lib/libonnxruntime.so` and `models`. Needs glibc 2.36 or newer (Debian 12, Ubuntu 22.10+); set `ONNXRUNTIME_LIB` and `MODEL_DIR`. |
+| `guard-spec_<version>_<os>_<arch>.tar.gz` (linux, darwin) | **L1 only** | Static binaries (`CGO_ENABLED=0`), no ONNX Runtime. |
+| `ghcr.io/giaplee/guard-spec-control-plane:<version>` | n/a | Static, no cgo. |
+
+Models are never baked into images or archives. Mount them read-only at
+`/models` (`/models/local/guardspec-classifier-v1`,
+`/models/cache/multilingual-e5-small`, see [Models](#models)):
+
+```bash
+docker run -d -p 8080:8080 \
+  -e DATABASE_URL=postgres://guardspec_app@db:5432/guardspec -e PGPASSWORD=... \
+  -v "$PWD/models:/models:ro" \
+  ghcr.io/giaplee/guard-spec-gateway:<version>
+curl -s localhost:8080/readyz
+# {"detector":{"layers":["l1","l2","l3"],"degraded":false,"onnx":true,...},"status":"ready",...}
+```
+
+With an empty `/models` the gateway logs a warning per missing layer, keeps
+running on L1, and `/readyz` shows `"layers":["l1"]`, `"degraded":true` and
+the reason. The image's `HEALTHCHECK` uses `/readyz`. Every image has a
+BuildKit SPDX SBOM and SLSA provenance and is signed with cosign (keyless);
+see [SECURITY.md](SECURITY.md#verifying-releases).
+
 ## Models
 
 | Layer | Files | Where it comes from |
@@ -267,9 +309,12 @@ For Kubernetes see [Operations: Kubernetes](#kubernetes).
 | L3 | `models/cache/multilingual-e5-small/` (`model.onnx`, `tokenizer.json`, `config.json`) | pulled from Hugging Face, pinned by commit and SHA-256 in `models/manifest.yaml` |
 
 The model layers need a gateway built with `-tags onnx` (cgo, ONNX Runtime).
-The image that `docker compose` builds from `build/gateway.Dockerfile` is,
-and ships `libonnxruntime`. The release images and archives made by
-GoReleaser are static builds **without** `-tags onnx`: they run L1 only.
+The image that `docker compose` builds from `build/gateway.Dockerfile` is, and
+so are the release gateway images and the `_onnx` linux tarballs: they run
+L1 + L2 + L3 when the models are mounted. The plain release archives are
+static builds **without** `-tags onnx` and run L1 only (see
+[Install from a release](#install-from-a-release)). `GET /readyz` lists the
+active layers.
 
 **L1 only.** This is what you get without model files. The gateway logs a
 warning per missing layer and keeps running. `DETECTOR_LAYERS=l1` silences
@@ -328,6 +373,9 @@ in a second table.
 | `UPSTREAM_LLM_URL` | empty | Base URL of an OpenAI-compatible API, such as `http://host.docker.internal:11434/v1`. Empty: stub responses |
 | `UPSTREAM_LLM_KEY` | empty | Bearer token for the upstream; not sent when empty |
 | `UPSTREAM_LLM_TIMEOUT` | `5m` | Longest wait for the first byte and for any later silence |
+| `UPSTREAM_KEY_*` | empty | Keys of named upstreams: an upstream with `api_key_env: UPSTREAM_KEY_MAIN` sends the value of that variable as its bearer token. Only names matching `^UPSTREAM_KEY_[A-Z0-9_]{1,64}$` are read. See [Routing](#routing) |
+| `UPSTREAM_KEY_ORGS` | empty (compose: `UPSTREAM_KEY_MAIN=*`) | Which orgs may use which key variable: `UPSTREAM_KEY_MAIN=*;UPSTREAM_KEY_ACME=<org-uuid>,<org-uuid>`. A variable not listed for the org fails the request closed (502). Empty: no org may use any. Set the same value on the control plane |
+| `UPSTREAM_ALLOW_PRIVATE` | `false` (compose: `true`) | `true` lets org-defined upstreams reach loopback, RFC 1918, unique local (fc00::/7) and CGNAT (100.64.0.0/10) addresses. Checked when the gateway connects. `UPSTREAM_LLM_URL` is never restricted |
 | `CLIENT_HALF_CLOSE` | `cancel` | `wait` keeps the upstream call running when a client half-closes its socket |
 | `AUDIT_STORE_CONTENT` | `false` | `true` stores prompt and response content in audit rows for every org |
 | `SCAN_ROLES` | `user,tool,tool_descriptions` | Parts to classify: `user`, `tool`, `system`, `tool_calls`, `tool_descriptions`, or `all` / `none` |
@@ -365,7 +413,9 @@ in a second table.
 | `DATABASE_URL` | empty | as above |
 | `JWT_SECRET` | empty | Token signing key, at least 32 bytes |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | empty | First owner of the default organization, created on start when both are set |
-| `ALLOWED_ORIGINS` | empty (compose: `http://localhost:3000`) | CORS origins; empty disables CORS |
+| `ALLOWED_ORIGINS` | empty (compose: `http://localhost:3000`) | CORS origins; empty disables CORS. The UI at `/ui/` is same-origin and needs none |
+| `UPSTREAM_LLM_URL` | empty | The gateway's value, so that the policy simulator can show the `env` step; credentials in it are not shown |
+| `UPSTREAM_KEY_ORGS` | empty (compose: `UPSTREAM_KEY_MAIN=*`) | As on the gateway. Saving an upstream (or a config file) that names a key variable not allowed for the org is refused |
 | `METRICS_ADDR` | `:9091` | Metrics listener; `off` disables it |
 | `AUDIT_RETENTION_DAYS` | `90` | Delete audit rows older than this; `0` keeps them |
 | `AUDIT_RETENTION_INTERVAL` | `1h` | Time between retention runs, at least `1m` |
@@ -392,12 +442,13 @@ manifest).
 
 ### Gateway (port 8080)
 
-Every route except `/health` needs an API key, as `Authorization: Bearer gs_...`
+Every route except `/health` and `/readyz` needs an API key, as `Authorization: Bearer gs_...`
 or `x-api-key: gs_...`.
 
 | Method and path | Purpose |
 |---|---|
 | `GET /health` | Liveness, no key |
+| `GET /readyz` | Readiness, no key; `detector.layers` lists the active layers (`l1`, `l2`, `l3`), `detector.degraded` and `detector.problems` say why a requested layer is missing, `detector.onnx` whether the binary has `-tags onnx` |
 | `POST /v1/chat/completions` | OpenAI-compatible chat, guarded in and out, streaming supported |
 | `POST /v1/completions` | Legacy completions, guarded the same way |
 | `POST /guardrail/scan` | Score `text` and/or `documents[]` without calling a model |
@@ -409,7 +460,9 @@ A refused request gets HTTP 400 with
 When policies or org settings cannot be loaded or evaluated, the gateway
 returns 503 and sends nothing upstream. An upstream 4xx is passed through; an
 upstream 5xx becomes 502 (`upstream_error`), a timeout 504
-(`upstream_timeout`). Over a rate limit: 429 with `Retry-After`.
+(`upstream_timeout`). A route target or default upstream that is missing,
+disabled or lacks its key variable gives 502 (`route_unavailable`) and sends
+nothing. Over a rate limit: 429 with `Retry-After`.
 
 ```bash
 # Scan a prompt and a retrieved web page without calling a model
@@ -443,22 +496,34 @@ needs `Authorization: Bearer <token from /v1/auth/login>`. Roles are `owner`,
 |---|---|
 | `POST /auth/login` | none (rate limited) |
 | `POST /invites/accept` | none (rate limited) |
+| `GET /organizations` (the caller's organizations and role in each) | any user |
 | `POST /organizations` | any user |
 | `POST /cel/validate` | any user |
-| `GET /organizations/:orgId` | viewer |
+| `GET /policy/schema` (fields, operators per type, actions) | any user |
+| `POST /policy/parse` (`{"text"}` to `{"condition"}`; 422 `{"error","position"}`) | any user |
+| `POST /policy/format` (`{"condition"}` to `{"text"}`; 422 on an invalid tree) | any user |
+| `GET /organizations/:orgId` (includes `default_upstream_id`) | viewer |
 | `PATCH /organizations/:orgId` (`audit_store_content`) | admin |
 | `GET`, `PUT /organizations/:orgId/guard-settings` | viewer, admin |
 | `GET`, `POST /organizations/:orgId/api-keys` | admin |
 | `PATCH`, `DELETE /organizations/:orgId/api-keys/:keyId` | admin |
-| `GET`, `POST /organizations/:orgId/projects` | viewer, admin |
-| `GET`, `POST /organizations/:orgId/policies` | viewer, admin |
+| `GET`, `POST /organizations/:orgId/projects` (list includes `default_upstream_id`) | viewer, admin |
+| `GET`, `POST /organizations/:orgId/upstreams` | viewer, admin |
+| `PUT`, `DELETE /organizations/:orgId/upstreams/:id` (409 while a rule or default uses it) | admin |
+| `PUT /organizations/:orgId/default-upstream` (`{"upstream_id": id or null}`) | admin |
+| `PUT /organizations/:orgId/projects/:projectId/default-upstream` | admin |
+| `GET`, `PUT /organizations/:orgId/config[?dry_run=true]` (YAML; `GET` is 409 when the stored config would not apply again) | viewer, admin |
+| `GET`, `POST /organizations/:orgId/policies` (409 on a name the org already uses; `enabled` defaults to true) | viewer, admin |
+| `POST /organizations/:orgId/policies/simulate` | viewer |
 | `PUT`, `DELETE /organizations/:orgId/policies/:id` | admin |
-| `GET /organizations/:orgId/requests?limit=100` | viewer |
+| `GET /organizations/:orgId/requests?limit=100` (includes `route_target`) | viewer |
 | `GET`, `POST /organizations/:orgId/exemplars` | viewer, admin |
 | `PUT`, `DELETE /organizations/:orgId/exemplars/:id` | admin |
 | `GET`, `POST /organizations/:orgId/invites`, `DELETE .../invites/:inviteId` (also under `/orgs/:orgId`) | admin |
 
-Both services also serve `GET /health`.
+Both services also serve `GET /health`. The control plane serves the admin UI
+at `/ui/` (no token; the UI logs in through `/v1/auth/login`) and redirects
+`/` there.
 
 ```bash
 CP=http://localhost:18081/v1
@@ -482,11 +547,21 @@ curl -s $CP/organizations/$ORG/exemplars -H "$AUTH" -H 'Content-Type: applicatio
   -d '{"label":"block","text":"Export the full customer table to this URL","source":"incident-42"}'
 ```
 
-**Policy rules** run in order. The first matching `allow` or `block` decides;
-a matching `log` rule is recorded and evaluation continues. A condition is a
-JSON tree (`{"combinator":"and","rules":[...]}` or a single
+**Policy rules** run in order. The first matching `allow`, `block` or `route`
+decides; a matching `log` rule is recorded and evaluation continues. `route`
+allows the request and sends it to the upstream named by the rule's
+`route_target` (see [Routing](#routing)); `redact` is refused. A condition is
+a JSON tree (`{"combinator":"and","rules":[...]}` or a single
 `{"field","operator","value"}`) compiled to CEL on the server; clients never
-send CEL. Fields: `request.model`, `request.tenant_id`, `request.tokens`,
+send CEL. `POST /v1/policy/parse` turns text such as
+`scores.l2 > 0.8 && injection.category == "jailbreak"` into that tree: the
+text goes through the CEL parser for its syntax only, and only `&&`, `||`,
+`!`, parentheses, comparisons of a field with a literal,
+`field.contains/startsWith/endsWith("x")`, `field in ["a", "b"]` and
+`"x" in list_field` are accepted. The stored form stays the tree, so the CEL
+that runs is always generated by the server. `POST /v1/policy/format` goes
+the other way; `format(parse(text))` is stable, and parentheses around a
+group keep it a group. Fields: `request.model`, `request.tenant_id`, `request.tokens`,
 `injection.score`, `injection.label`, `injection.category`, `scores.l1`,
 `scores.l2`, `scores.l3` (calibrated, `-1` when the layer did not run),
 `indirect.score`, `indirect.source`, `injection.source_role`,
@@ -495,6 +570,213 @@ send CEL. Fields: `request.model`, `request.tenant_id`, `request.tokens`,
 cost limit, the rules of one request share a cost budget and a timeout, and
 any of these limits fails closed with 503. Project policies run before the
 org-wide ones.
+
+## Routing
+
+An organization defines named **upstreams** (OpenAI-compatible APIs). For a
+request the guard allowed, the gateway picks one in this order:
+
+1. the `route_target` of the `route` rule that decided the request;
+2. the default upstream of the API key's project;
+3. the default upstream of the organization;
+4. `UPSTREAM_LLM_URL`;
+5. the stub answer.
+
+A target or default that is missing, disabled, or whose key variable is not
+set or not allowed for the org fails the request closed with 502
+(`route_unavailable`); the gateway never falls back to another upstream. The
+audit row records the upstream's name in `route_target` (null for
+`UPSTREAM_LLM_URL` and the stub), the action `route` when a route rule
+decided, and in `model` the model actually sent upstream (the upstream's
+`model` when it rewrote the request; policies still see the requested one).
+Upstreams are read per request in the same transaction as the policies, so a
+change applies to the next request.
+
+An upstream is `{"name", "base_url", "model", "api_key_env", "timeout_ms",
+"enabled"}`. `name` is lowercase letters, digits and dashes, unique per org.
+When `model` is set, the gateway replaces the request's `model` with it.
+`timeout_ms` defaults to 300000. No secret is stored: `api_key_env` names a
+gateway environment variable (`UPSTREAM_KEY_[A-Z0-9_]{1,64}`) that holds the
+key, so set it in the gateway's environment (compose: add it under
+`gateway.environment`).
+
+**Which org may use which key** is the operator's decision, in
+`UPSTREAM_KEY_ORGS` on both services:
+
+```
+UPSTREAM_KEY_ORGS=UPSTREAM_KEY_MAIN=*;UPSTREAM_KEY_ACME=<org-uuid>,<org-uuid>
+```
+
+`*` means every organization and has to be written out; the default is
+empty, so no org can name any key variable. Without this, any user could
+create an org, point an upstream at a host they control with
+`api_key_env: UPSTREAM_KEY_MAIN`, and receive your key. The control plane
+refuses an upstream or config file that names a variable not allowed for the
+org (400, or 422 for the file), and the gateway checks again on every
+request, so rows saved before you narrowed the list fail closed (502).
+
+**Addresses.** `base_url` must be http(s) without credentials, a query or a
+fragment. Link-local, multicast and unspecified addresses and the cloud
+metadata addresses (`169.254.0.0/16`, `fd00:ec2::254`, `100.100.100.200`,
+`192.0.0.192`, `metadata.google.internal`) are always refused, also after
+DNS when the gateway connects. Loopback, RFC 1918, unique local (fc00::/7)
+and CGNAT (100.64.0.0/10) addresses are refused at connect time unless
+`UPSTREAM_ALLOW_PRIVATE=true`. The trade-off: with `true`, org admins can
+reach anything on the gateway's network (an Ollama next to it, but also
+internal services); with `false`, org upstreams must be public. Your own
+`UPSTREAM_LLM_URL` is never restricted. Compose sets `true` so that Ollama on
+the host works.
+
+```bash
+# An upstream, the org default, and a rule that sends suspicious requests to a local model
+curl -s $CP/organizations/$ORG/upstreams -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"name":"safe-model","base_url":"http://ollama:11434/v1","model":"qwen3:4b"}'
+curl -s -X PUT $CP/organizations/$ORG/default-upstream -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"upstream_id":"<id of another upstream>"}'
+TREE=$(curl -s $CP/policy/parse -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"text":"injection.score > 0.5"}' | jq .condition)
+curl -s $CP/organizations/$ORG/policies -H "$AUTH" -H 'Content-Type: application/json' \
+  -d "{\"name\":\"routing\",\"rules\":[{\"name\":\"suspicious\",\"action\":\"route\",\"route_target\":\"safe-model\",\"condition\":$TREE}]}"
+
+# What would happen: every rule's outcome, the decision and the upstream
+curl -s $CP/organizations/$ORG/policies/simulate -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"vars":{"injection.score":0.7,"request.model":"gpt-4o"}}' | jq .
+```
+
+Deleting an upstream that a rule or a default still uses returns 409 with the
+users in `references`; so does renaming one that a rule names.
+
+**Simulator.** `POST /organizations/:orgId/policies/simulate` takes
+`{"policy_id", "rules", "project_id", "vars"}`: `rules` (an unsaved rule list)
+or `policy_id` (one policy, even disabled) or neither (the enabled policies the
+gateway would run for a key of `project_id`, in its order). `vars` sets any
+schema field; fields not given are zero. It returns `trace` (every rule, with
+`matched` and `error`), `decision` (`action` is `error` when the gateway would
+answer 503, for example a rule that does not compile) and `upstream`
+(`source` is `rule`, `project`, `org`, `env` or `stub`; `error` is set when the
+gateway would answer 502). Nothing is stored or sent upstream.
+
+**Config as code.** `GET /organizations/:orgId/config` returns the org's
+upstreams, defaults and policies as YAML; `PUT` applies such a file in one
+transaction, and `?dry_run=true` only reports the changes:
+
+```yaml
+version: 1
+default_upstream: main
+project_defaults:          # project slug: upstream
+  web: safe-model
+upstreams:
+  - name: main
+    base_url: https://api.openai.com/v1
+    api_key_env: UPSTREAM_KEY_MAIN
+  - name: safe-model
+    base_url: http://ollama:11434/v1
+    model: qwen3:4b
+policies:
+  - name: block-injection
+    project: null            # or a project slug
+    enabled: true
+    rules:
+      - name: high l2
+        when: scores.l2 > 0.9 && injection.category != "benign"
+        action: block
+      - name: suspicious to safe model
+        when: injection.score > 0.5
+        action: route
+        route_target: safe-model
+```
+
+The file is the whole truth: upstreams and policies it does not list are
+deleted, and defaults it does not set are cleared (projects themselves are not
+created or deleted). Objects are matched by name; a rule keeps its ID when its
+name is unchanged inside the same policy, so audit rows keep naming it. The
+order of policies in the file is their evaluation order. Every `when` is
+parsed like `/policy/parse` and validated like a saved rule; a `when` that
+starts with `!` must be quoted, since YAML reads `!` as a tag. Errors come back
+as 422 `{"errors":[{"path":"policies[0].rules[1].when","message":"..."}]}` and
+nothing is written; success is `{"applied":true,"changes":[{"kind","name","op"}]}`.
+
+`GET` refuses with 409 when the stored config would not apply again: two
+policies with the same name (the file names policies by name), or rules that
+no longer validate, such as rules naming a removed field. The body lists each
+problem with the policy's id and the policy API call that fixes it
+(`{"error", "problems": [{"policy_id", "policy", "message", "fix"}]}`).
+Policy names are unique per org: creating a policy, or renaming one, onto a
+name another policy has returns 409.
+
+```bash
+curl -s $CP/organizations/$ORG/config -H "$AUTH" > guard.yaml
+curl -s -X PUT "$CP/organizations/$ORG/config?dry_run=true" -H "$AUTH" -H 'Content-Type: text/yaml' --data-binary @guard.yaml
+```
+
+## Admin UI
+
+The control plane serves the admin UI at `/ui/` (with compose:
+<http://localhost:18081/ui/>). Sign in with a control-plane user (for a new
+install, `ADMIN_EMAIL` and `ADMIN_PASSWORD`), then pick one of your
+organizations (`GET /v1/organizations`), or open one by id; the one created at
+install is `00000000-0000-0000-0000-000000000001`. The Flow page asks before
+leaving with unsaved changes. The token
+is kept in the browser tab's session storage and sent as a bearer token; the UI
+uses the same `/v1` API, roles and validation as any other client. English and
+Vietnamese, light and dark themes, keyboard accessible.
+
+**Flow** shows how a request of the chosen scope (keys without a project, or a
+project) moves through the gateway: request, API key, L0 sanitizer, the L1, L2
+and L3 detectors with the parts guard settings let them scan, then every
+enabled policy rule in gateway order, the Block, Log and Allow outcomes, the
+upstreams, the output guard and the client.
+
+![Flow page with a simulated request](docs/images/admin-flow.png)
+
+- Click a rule (or its entry in "Rules in order") to edit it. The condition
+  has a **Visual** tab (a query builder with the fields and operators of
+  `GET /v1/policy/schema`) and a **Text** tab (`scores.l2 > 0.9 &&
+  injection.category != "benign"`), kept in sync by `/v1/policy/parse` and
+  `/v1/policy/format`; parse errors are marked where they occur.
+- Drag a rule up or down to reorder it within its policy (or use the arrow
+  buttons). Drag from a rule's round **match** handle to Block, Allow, Log or
+  an upstream to set its action; an upstream makes it a `route` rule.
+- Add rules and policies, enable or disable policies, then **Save changes**.
+  The server validates every rule; its errors are shown on the rule.
+- The **Simulator** evaluates a request (scores, category, model and other
+  schema fields) against the rules shown, unsaved changes included, highlights
+  the path and lists every rule's outcome.
+
+| Rule editor, visual | Rule editor, text |
+|---|---|
+| ![Visual condition builder](docs/images/admin-rule-visual.png) | ![Condition as text](docs/images/admin-rule-text.png) |
+
+**Upstreams** manages the named upstreams and the org and project defaults.
+An upstream's key is never entered in the UI: `api_key_env` names a
+`UPSTREAM_KEY_*` variable set on the gateway, and the operator's
+`UPSTREAM_KEY_ORGS` decides which organizations may use it; the form shows a
+refused variable at the field.
+
+**Config as code** edits the whole routing and policy configuration as YAML,
+validates it (`?dry_run=true`, errors by path, marked in the editor), shows a
+diff against the loaded version and applies it after a confirmation that
+lists the changes. When the stored policies cannot be exported as a file that
+applies again (for example, a rule naming a removed field), the page lists
+them, each linked to the policy and rule on the Flow page.
+
+| Upstreams | Config as code |
+|---|---|
+| ![Upstreams](docs/images/admin-upstreams.png) | ![Config as code with a diff](docs/images/admin-config.png) |
+
+Guard settings, API keys (the secret is shown once, at creation), projects,
+exemplars and the audit log (with the route target of each request) have
+pages of their own.
+
+| Dark theme, Vietnamese | Audit log |
+|---|---|
+| ![Flow in Vietnamese, dark theme](docs/images/admin-flow-dark-vi.png) | ![Audit log](docs/images/admin-audit.png) |
+
+The UI loads nothing from other origins and runs under the control plane's
+`Content-Security-Policy` (`default-src 'self'`, no inline scripts or styles);
+the e2e tests run the production build under that policy and fail on any
+violation. Screenshots are taken against the mocked API of the e2e tests
+(`npm run screenshots` in `web/`).
 
 ## Benchmarks
 
@@ -508,9 +790,9 @@ English and 1,250 Vietnamese, built deterministically by
 `eval/build/build.py` (see [eval/README.md](eval/README.md)). "Block" is the
 gateway's direct-injection threshold, 0.85.
 
-The model rows below use classifier v1. Classifier v2 (the new default L2,
-see [train/MODEL_CARD.md](train/MODEL_CARD.md)) has not been measured on
-`eval/` yet.
+Classifier v2 is the default L2 (see [train/MODEL_CARD.md](train/MODEL_CARD.md));
+the v1 rows are kept for comparison. All model rows were measured on
+2026-11-04 with the L1 rules of this release.
 
 | Detector | ROC AUC | TPR at FPR ≤ 1% | TPR at block | FPR at block | EN FPR | VI FPR | VI teencode FPR | VI no-diacritics FPR | Detector latency p50 / p99 |
 |---|---|---|---|---|---|---|---|---|---|
@@ -518,8 +800,8 @@ see [train/MODEL_CARD.md](train/MODEL_CARD.md)) has not been measured on
 | L1 + L2 (v1) | 0.985 | 0.917 | 0.942 | 2.6% | 1.1% | 3.4% | 6.3% | 3.8% | 2.7 / 7.6 ms |
 | L1 + L2 + L3 (v1) | 0.985 | 0.916 | 0.939 | 2.7% | 1.1% | 3.6% | 7.0% | 3.8% | 3.7 / 11.3 ms |
 | L1 + L2 + L3 (v1), cascade | 0.987 | 0.932 | 0.953 | 2.7% | 1.1% | 3.6% | 7.0% | 3.8% | 2.9 / 8.5 ms |
-| L1 + L2 + L3 (v2, default with models) | TBD (pending measurement) | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
-| L1 + L2 + L3 (v2), cascade | TBD (pending measurement) | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+| **L1 + L2 + L3 (v2, default with models)** | 0.985 | 0.922 | 0.933 | 2.0% | 2.2% | 1.9% | 1.4% | 3.0% | 3.8 / 11.0 ms |
+| L1 + L2 + L3 (v2), cascade | 0.987 | 0.936 | 0.945 | 2.1% | 2.5% | 1.9% | 1.4% | 3.0% | 2.9 / 8.8 ms |
 
 L1 only after the hidden-HTML rules (2026-11-04, `go test ./internal/evalset
 -run TestBaseline -v`): AUC 0.952, TPR at block 0.881, FPR at block 0.1%
@@ -547,9 +829,13 @@ How to read them, and their limits:
   reviewed by AI agents, without a native-speaker review; teencode comes from
   rules and is stiffer than real chat. Many attack rows come from templates,
   so errors are correlated.
-- **Vietnamese teencode and no-diacritics benign text is the known weak
-  spot** of the model layers with classifier v1: 7.0% and 3.8% of those benign rows are blocked
-  with L1+L2+L3. Classifier v2 targets this; its eval numbers are TBD.
+- **Vietnamese teencode and no-diacritics benign text was the known weak
+  spot** of the model layers. With L1+L2+L3, classifier v2 blocks 1.4% of
+  teencode and 3.0% of no-diacritics benign rows (v1: 7.0% and 3.8%). The
+  cost is English: EN benign FPR at block rose from 1.1% to 2.2% (8 of 364
+  rows instead of 4). Overall FPR at block is 2.0% (v1 2.7%), still above the
+  1.5% target; TPR at block is 0.933 (v1 0.939), and at an equal 1% FPR v2
+  catches more (0.922 vs 0.915).
 - **Latency** is the sanitizer plus the detector for one row at a time, in
   process, measured by `cmd/eval`. It is not end-to-end HTTP latency through
   the gateway and does not include the upstream model. It was measured on a
@@ -595,6 +881,17 @@ What it does **not** protect against:
   bare URLs by your UI is not handled yet (on the roadmap).
 - **A compromised upstream or a malicious operator.** Anyone with database
   or admin access can change policies and read audit rows.
+- **Org admins and named upstreams.** Any signed-in user can create an
+  organization, and an org admin chooses where its upstreams point. Two
+  operator settings bound that (see [Routing](#routing)):
+  `UPSTREAM_KEY_ORGS` decides which org may use which `UPSTREAM_KEY_*`
+  variable (empty by default, so no org can make the gateway send one of your
+  keys to a host it chose), and `UPSTREAM_ALLOW_PRIVATE` (false by default)
+  keeps org upstreams off loopback, private, unique local and CGNAT
+  addresses. Cloud metadata addresses are always refused. The compose file
+  sets `UPSTREAM_KEY_ORGS=UPSTREAM_KEY_MAIN=*` and
+  `UPSTREAM_ALLOW_PRIVATE=true` for a single-team setup with Ollama on the
+  host; change both before letting untrusted users create orgs.
 - **Volume attacks.** Rate limits are per gateway replica and in memory; put
   a proper rate limiter or WAF in front for abuse protection.
 
@@ -752,11 +1049,12 @@ Keep that port on the internal network.
 
 | Gateway metric (prefix `guardspec_gateway_`) | Labels |
 | --- | --- |
-| `requests_total`, `request_duration_seconds` | `route`, `status`, `decision` (`allow`, `block`, `error`, `output_leak`; `none` before the guard ran) |
+| `requests_total`, `request_duration_seconds` | `route`, `status`, `decision` (`allow`, `route`, `block`, `error`, `output_leak`; `none` before the guard ran) |
+| `route_selections_total` | `source` (`rule`, `project`, `org`, `env`, `stub`), `outcome` (`ok`, `failed`); the upstream's name is not a label |
 | `detector_duration_seconds`, `detector_errors_total` | `layer` (`l1`, `l2`, `l3`), per chunk |
 | `upstream_duration_seconds` | `path`, `outcome` (`ok`, `error`) |
 | `upstream_errors_total` | `path`, `code` |
-| `policy_eval_errors_total` | `stage` (`load`, `eval`) |
+| `policy_eval_errors_total` | `stage` (`load`, `eval`, `route`) |
 | `output_guard_actions_total` | `kind` (`image`, `link`, `url`, `canary`, `email`, `phone`, `cccd`, `card`, `ipv4`) |
 | `ratelimit_rejections_total` | `limit` (`requests`, `tokens`) |
 | `tenant_requests_total` (with `METRICS_TENANT_LABELS=true`) | `org_id`, `decision` |
@@ -836,8 +1134,9 @@ helm install gs deploy/helm/guard-spec \
   exposing an API Service never exposes `/metrics`. `serviceMonitor.enabled=true`
   adds a Prometheus Operator ServiceMonitor.
 - **Models** come from a PVC mounted read-only at `/models` in the gateway.
-  The model layers need a gateway image built with `-tags onnx`
-  (`build/gateway.Dockerfile`); the release images are L1 only.
+  The release gateway image is built with `-tags onnx` and runs L1 + L2 + L3
+  when the models are there; with an empty PVC it runs L1 only. The readiness
+  probe uses `/readyz`, which lists the active layers.
 - **Security:** pods run as non-root with a read-only root filesystem, no
   capabilities and the RuntimeDefault seccomp profile.
 - **Rate limits** are per replica, so `gateway.replicaCount` multiplies the
@@ -933,6 +1232,15 @@ go build ./...
 go vet ./...
 go test -race ./...                       # unit tests, no database or models needed
 go run ./cmd/eval -baseline eval/baseline.json   # detector eval vs the committed baseline
+
+# Admin UI (optional: without it, go build embeds the placeholder in web/dist)
+npm --prefix web ci && npm --prefix web run build
+# UI checks: lint, types, unit tests (Vitest), e2e against a mocked API (Playwright)
+cd web && npm run lint && npm run typecheck && npm test
+npx playwright install chromium && npx playwright test --project=chromium
+npm run screenshots                        # regenerates docs/images/admin-*.png
+npm run dev                                # http://localhost:5173/ui/, proxies /v1 to :18081
+# A build replaces the committed placeholder web/dist/index.html; do not commit it.
 
 # Integration tests need Postgres (see .github/workflows/ci.yml for the setup)
 go test -race -tags integration ./...

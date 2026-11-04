@@ -624,7 +624,6 @@ func TestPolicyFailsClosed(t *testing.T) {
 			withRules(good)(gw)
 		}, "block"},
 		{"stored redact", stale(policy.ActionRedact), "block"},
-		{"stored route", stale(policy.ActionRoute), "block"},
 		{"stored unknown action", stale(policy.Action("quarantine")), "block"},
 	}
 	for _, tt := range tests {

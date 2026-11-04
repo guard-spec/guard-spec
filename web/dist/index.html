@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Guard Spec admin</title>
+</head>
+<body>
+<h1>Guard Spec admin UI was not built</h1>
+<p>This control plane was built without the admin UI. The API at <code>/v1</code> works as usual.</p>
+<p>To include the UI, build it and rebuild the control plane:</p>
+<pre>npm --prefix web ci
+npm --prefix web run build
+go build ./cmd/control-plane</pre>
+<p>The Docker image of the control plane builds the UI itself.</p>
+</body>
+</html>
