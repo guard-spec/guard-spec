@@ -199,7 +199,7 @@ func do(client *http.Client, req *http.Request, secrets ...string) (httpResult, 
 	if err != nil {
 		return httpResult{}, &Error{Msg: Redact(err.Error(), secrets...)}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, MaxResponse))
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, MaxResponse))
 	r := httpResult{status: resp.StatusCode, body: body, retryAfter: parseRetryAfter(resp.Header.Get("Retry-After"))}

@@ -279,6 +279,7 @@ CREATE TABLE notifications (
 );
 CREATE INDEX idx_notifications_user ON notifications (user_id, created_at DESC, id DESC);
 CREATE INDEX idx_notifications_unread ON notifications (user_id) WHERE read_at IS NULL;
+CREATE INDEX idx_notifications_org_time ON notifications (org_id, created_at);
 ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation_notifications ON notifications
     USING (org_id = NULLIF(current_setting('app.org_id', true), '')::uuid);

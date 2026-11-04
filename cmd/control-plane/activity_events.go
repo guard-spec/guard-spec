@@ -7,7 +7,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
+	"encoding/json"
 	"regexp"
 	"strings"
 	"sync/atomic"
@@ -69,16 +69,23 @@ func emitActivity(ctx context.Context, db *pgxpool.Pool, e activityEntry) {
 }
 
 func detailString(d map[string]any, key string) string {
-	switch v := d[key].(type) {
-	case string:
-		return v
-	case fmt.Stringer:
-		return v.String()
-	case nil:
+	v, ok := d[key]
+	if !ok || v == nil {
 		return ""
-	default:
-		return fmt.Sprint(v)
 	}
+	if s, ok := v.(string); ok {
+		return s
+	}
+	// Through JSON, as the activity log stores it: a nil *uuid.UUID is null.
+	raw, err := json.Marshal(v)
+	if err != nil || string(raw) == "null" {
+		return ""
+	}
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return s
+	}
+	return string(raw)
 }
 
 // emailHash is how an email appears in events.

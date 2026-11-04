@@ -43,17 +43,20 @@ type alertsConfig struct {
 	telegramPolling bool   // TELEGRAM_POLLING=1
 	slackToken      string // SLACK_BOT_TOKEN: personal DMs and lookupByEmail
 	smtp            channels.SMTPConfig
-	lang            string // ALERTS_LANG: en (default) or vi
+	secretOrgs      alerts.SecretOrgs // ALERTS_SECRET_ORGS
+	lang            string            // ALERTS_LANG: en (default) or vi
 	// API origins; tests point them at fakes.
 	telegramAPI, slackAPI string
 }
 
-func loadAlertsConfig(getenv func(string) string) alertsConfig {
+func loadAlertsConfig(getenv func(string) string) (alertsConfig, error) {
+	secretOrgs, err := alerts.ParseSecretOrgs(getenv("ALERTS_SECRET_ORGS"))
 	lang := getenv("ALERTS_LANG")
 	if lang != "vi" {
 		lang = "en"
 	}
 	return alertsConfig{
+		secretOrgs:      secretOrgs,
 		getenv:          getenv,
 		allowPrivate:    getenv("ALERTS_ALLOW_PRIVATE_URLS") == "1",
 		telegramToken:   getenv(alerts.EnvTelegramToken),
@@ -65,7 +68,7 @@ func loadAlertsConfig(getenv func(string) string) alertsConfig {
 		lang:            lang,
 		telegramAPI:     channels.TelegramAPI,
 		slackAPI:        channels.SlackAPI,
-	}
+	}, err
 }
 
 // alertsRuntime holds what the alert handlers and the worker share.
@@ -93,7 +96,10 @@ func newAlertsRuntime(db *pgxpool.Pool, s *appSettings, sessions auth.SessionLoo
 		if getenv == nil {
 			getenv = os.Getenv
 		}
-		c := loadAlertsConfig(getenv)
+		c, err := loadAlertsConfig(getenv)
+		if err != nil {
+			slog.Error("alerts config", "err", err)
+		}
 		cfg = &c
 	}
 	api := proxy.SafeClient(false, channels.Timeout) // fixed operator origins
@@ -109,7 +115,7 @@ func newAlertsRuntime(db *pgxpool.Pool, s *appSettings, sessions auth.SessionLoo
 		db: db, cfg: *cfg, publicURL: s.publicURL, hub: alerts.NewHub(), tg: tg, slack: slack, guard: guard,
 		sessions: sessions, base: base,
 		engine: &alerts.Engine{DB: db, PublicURL: s.publicURL, Caps: caps, Lang: cfg.lang},
-		disp: &alerts.Dispatcher{DB: db, Getenv: cfg.getenv, Lang: cfg.lang, Senders: map[string]channels.Sender{
+		disp: &alerts.Dispatcher{DB: db, Getenv: cfg.getenv, Lang: cfg.lang, TelegramToken: cfg.telegramToken, SlackToken: cfg.slackToken, SecretOrgs: cfg.secretOrgs, Senders: map[string]channels.Sender{
 			channels.KindTelegram: tg,
 			channels.KindSlack:    slack,
 			channels.KindTeams:    &channels.Teams{Guard: guard},
@@ -174,8 +180,6 @@ func registerAlertRoutes(v1, authed fiber.Router, db *pgxpool.Pool, rt *alertsRu
 	admin := auth.RequireRole(db, auth.RoleAdmin)
 	perUser := limiter.New(limiter.Config{Max: 10, Expiration: time.Minute,
 		KeyGenerator: func(c *fiber.Ctx) string { return "alerts:" + auth.UserID(c).String() }})
-
-	v1.Post("/integrations/telegram/webhook", perIP(120), rt.telegramWebhook)
 
 	authed.Get("/alerts/capabilities", rt.capabilities)
 	authed.Get("/me/channel-links", rt.listLinks)

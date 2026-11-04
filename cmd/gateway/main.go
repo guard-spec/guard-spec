@@ -19,8 +19,8 @@ import (
 	"time"
 
 	appconfig "github.com/giaplee/guard-spec/internal/config"
-	"github.com/giaplee/guard-spec/internal/indirect"
 	"github.com/giaplee/guard-spec/internal/events"
+	"github.com/giaplee/guard-spec/internal/indirect"
 	"github.com/giaplee/guard-spec/internal/inference"
 	"github.com/giaplee/guard-spec/internal/inference/ml"
 	"github.com/giaplee/guard-spec/internal/metrics"

@@ -438,7 +438,7 @@ func fakeSMTP(t *testing.T) (string, chan string) {
 		if err != nil {
 			return
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		r := bufio.NewReader(conn)
 		say := func(s string) { _, _ = io.WriteString(conn, s+"\r\n") }
 		say("220 fake ESMTP")

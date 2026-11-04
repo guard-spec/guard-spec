@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/mail"
+	"net/url"
 	"regexp"
 	"slices"
 	"strings"
@@ -28,9 +29,9 @@ type channelView struct {
 	SecretSet bool `json:"secret_set"`
 }
 
-func (rt *alertsRuntime) view(c alerts.ChannelRow) channelView {
+func (rt *alertsRuntime) view(org uuid.UUID, c alerts.ChannelRow) channelView {
 	set := false
-	if c.SecretEnv != nil && alerts.AllowedSecretEnv(*c.SecretEnv) {
+	if c.SecretEnv != nil && alerts.CheckSecretEnv(c.Kind, *c.SecretEnv, org, rt.cfg.secretOrgs) == nil {
 		set = rt.cfg.getenv(*c.SecretEnv) != ""
 	}
 	return channelView{ChannelRow: c, SecretSet: set}
@@ -40,6 +41,23 @@ var (
 	chatIDRe    = regexp.MustCompile(`^(-?[0-9]{1,20}|@[A-Za-z0-9_]{5,32})$`)
 	slackChanRe = regexp.MustCompile(`^[#@]?[A-Za-z0-9._-]{1,80}$`)
 )
+
+// secretInQuery reports a URL query parameter that looks like a credential.
+func secretInQuery(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	for k := range u.Query() {
+		k = strings.ToLower(k)
+		for _, w := range []string{"token", "key", "secret", "sig", "pass", "auth", "code"} {
+			if strings.Contains(k, w) {
+				return true
+			}
+		}
+	}
+	return false
+}
 
 // channelKeys are the config keys each kind accepts.
 var channelKeys = map[string][]string{
@@ -52,7 +70,7 @@ var channelKeys = map[string][]string{
 }
 
 // validateChannel checks a channel's kind, config and secret_env.
-func (rt *alertsRuntime) validateChannel(c *alerts.ChannelRow) error {
+func (rt *alertsRuntime) validateChannel(org uuid.UUID, c *alerts.ChannelRow) error {
 	c.Name = strings.TrimSpace(c.Name)
 	if c.Name == "" || utf8.RuneCountInString(c.Name) > 100 {
 		return errors.New("name is required (at most 100 characters)")
@@ -91,9 +109,10 @@ func (rt *alertsRuntime) validateChannel(c *alerts.ChannelRow) error {
 	if c.SecretEnv != nil && *c.SecretEnv == "" {
 		c.SecretEnv = nil
 	}
-	if c.SecretEnv != nil && !alerts.AllowedSecretEnv(*c.SecretEnv) {
-		return errors.New("secret_env must be an environment variable name (A-Z, 0-9, _) starting with " +
-			strings.Join(alerts.SecretEnvPrefixes, ", "))
+	if c.SecretEnv != nil && c.Kind != channels.KindEmail {
+		if err := alerts.CheckSecretEnv(c.Kind, *c.SecretEnv, org, rt.cfg.secretOrgs); err != nil {
+			return err
+		}
 	}
 	needSecret := func(what string) error {
 		if c.SecretEnv == nil {
@@ -148,6 +167,10 @@ func (rt *alertsRuntime) validateChannel(c *alerts.ChannelRow) error {
 		if err := rt.guard.CheckURL(u, private); err != nil {
 			return fmt.Errorf("config.url: %v", err)
 		}
+		if secretInQuery(u) {
+			return errors.New("config.url must not carry a token in its query: config is visible to members; " +
+				"receivers authenticate deliveries with the signature")
+		}
 		return needSecret("HMAC signing secret")
 	case channels.KindA2A:
 		u, err := str("agent_card_url")
@@ -156,6 +179,9 @@ func (rt *alertsRuntime) validateChannel(c *alerts.ChannelRow) error {
 		}
 		if err := rt.guard.CheckURL(u, private); err != nil {
 			return fmt.Errorf("config.agent_card_url: %v", err)
+		}
+		if secretInQuery(u) {
+			return errors.New("config.agent_card_url must not carry a token in its query; put it in secret_env")
 		}
 	case channels.KindEmail:
 		if c.SecretEnv != nil {
@@ -235,7 +261,7 @@ func (rt *alertsRuntime) listChannels(c *fiber.Ctx) error {
 	list, next := page(list, pg.Limit, func(r alerts.ChannelRow) pageCursor { return timeCursor(r.CreatedAt, r.ID.String()) })
 	items := make([]channelView, 0, len(list))
 	for _, ch := range list {
-		items = append(items, rt.view(ch))
+		items = append(items, rt.view(org, ch))
 	}
 	return envelope(c, items, next, total, false)
 }
@@ -255,11 +281,12 @@ func (rt *alertsRuntime) loadChannel(c *fiber.Ctx, org uuid.UUID, lock bool) (al
 }
 
 func (rt *alertsRuntime) getChannel(c *fiber.Ctx) error {
-	ch, err := rt.loadChannel(c, orgID(c), false)
+	org := orgID(c)
+	ch, err := rt.loadChannel(c, org, false)
 	if err != nil {
 		return channelError(c, err)
 	}
-	return c.JSON(rt.view(ch))
+	return c.JSON(rt.view(org, ch))
 }
 
 type channelInput struct {
@@ -307,7 +334,7 @@ func (rt *alertsRuntime) createChannel(c *fiber.Ctx) error {
 	if err := in.apply(&ch); err != nil {
 		return badRequest(c, err.Error())
 	}
-	if err := rt.validateChannel(&ch); err != nil {
+	if err := rt.validateChannel(org, &ch); err != nil {
 		return badRequest(c, err.Error())
 	}
 	cfg, _ := json.Marshal(ch.Config)
@@ -321,7 +348,7 @@ func (rt *alertsRuntime) createChannel(c *fiber.Ctx) error {
 		return channelError(c, err)
 	}
 	logActivity(c, rt.db, &org, "alerts.channel.created", ch.Name, map[string]any{"id": ch.ID, "kind": ch.Kind})
-	return c.Status(201).JSON(rt.view(ch))
+	return c.Status(201).JSON(rt.view(org, ch))
 }
 
 func (rt *alertsRuntime) updateChannel(c *fiber.Ctx) error {
@@ -348,7 +375,7 @@ func (rt *alertsRuntime) updateChannel(c *fiber.Ctx) error {
 		if invalid = in.apply(&ch); invalid != nil {
 			return nil
 		}
-		if invalid = rt.validateChannel(&ch); invalid != nil {
+		if invalid = rt.validateChannel(org, &ch); invalid != nil {
 			return nil
 		}
 		cfg, _ := json.Marshal(ch.Config)
@@ -364,7 +391,7 @@ func (rt *alertsRuntime) updateChannel(c *fiber.Ctx) error {
 		return channelError(c, err)
 	}
 	logActivity(c, rt.db, &org, "alerts.channel.updated", ch.Name, map[string]any{"id": ch.ID, "enabled": ch.Enabled})
-	return c.JSON(rt.view(ch))
+	return c.JSON(rt.view(org, ch))
 }
 
 func (rt *alertsRuntime) deleteChannel(c *fiber.Ctx) error {
@@ -407,7 +434,7 @@ func (rt *alertsRuntime) testChannel(c *fiber.Ctx) error {
 		Links: channels.Links{Alert: base + "/ui/alerts/history", Requests: base + "/ui/requests"},
 	}
 	start := time.Now()
-	res, err := rt.disp.TestChannel(c.Context(), &ch, p)
+	res, err := rt.disp.TestChannel(c.Context(), org, &ch, p)
 	latency := time.Since(start).Milliseconds()
 	out := fiber.Map{"ok": err == nil, "status": res.Status, "latency_ms": latency}
 	if err != nil {
