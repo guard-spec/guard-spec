@@ -77,6 +77,17 @@ export function gatewayOrder(a: EditablePolicy, b: EditablePolicy): number {
   return a.key < b.key ? -1 : a.key > b.key ? 1 : 0;
 }
 
+/** Pulls `rule "name"` out of a server validation error. */
+export function ruleNameInError(message: string): string | undefined {
+  return /rule "((?:[^"\\]|\\.)*)"/.exec(message)?.[1];
+}
+
+/** Whether name is taken by another policy of the org (names are unique per org). */
+export function policyNameTaken(policies: readonly EditablePolicy[], name: string, exceptKey?: string): boolean {
+  const n = name.trim();
+  return policies.some((p) => p.key !== exceptKey && p.name.trim() === n);
+}
+
 /** Wraps a single leaf so the visual builder, which needs a root group, can edit it. */
 export function asGroup(node: ConditionNode | null | undefined): ConditionGroup {
   if (!node) return { combinator: 'and', rules: [] };

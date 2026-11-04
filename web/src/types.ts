@@ -257,3 +257,11 @@ export interface ConfigError {
   path: string;
   message: string;
 }
+
+/** Why GET /config refused to export (409): a policy to fix through the policy API. */
+export interface ExportProblem {
+  policy_id: UUID;
+  policy: string;
+  message: string;
+  fix: string;
+}

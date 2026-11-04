@@ -4,11 +4,10 @@
 import { describe, expect, it } from 'vitest';
 import { locatePath, parsePath } from '../pages/yamlPath';
 import { conditionText } from './conditionText';
-import { ruleNameInError } from './FlowPage';
 import { buildGraph } from './graph';
 import { NODE } from './ids';
 import { bounds, initialViewport, layoutGraph, PIPELINE } from './layout';
-import { gatewayChain, toEditable } from './model';
+import { gatewayChain, policyNameTaken, ruleNameInError, toEditable } from './model';
 import { FALLBACK_SCHEMA } from './schema';
 import { sameCondition } from './RulePanel';
 import { decidingIndex, simVars } from './Simulator';
@@ -125,6 +124,13 @@ describe('ruleNameInError', () => {
   it('finds the rule a server error names', () => {
     expect(ruleNameInError('rule "high l2": unknown field: x')).toBe('high l2');
     expect(ruleNameInError('a policy may hold at most 200 rules')).toBeUndefined();
+  });
+
+  it('checks that policy names are unique in the org', () => {
+    const ps = [toEditable(baseline)];
+    expect(policyNameTaken(ps, ' baseline ')).toBe(true);
+    expect(policyNameTaken(ps, 'baseline', 'p-base')).toBe(false); // renaming itself
+    expect(policyNameTaken(ps, 'other')).toBe(false);
   });
 });
 

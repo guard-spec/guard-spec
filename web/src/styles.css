@@ -1171,6 +1171,14 @@ tbody tr:last-child td {
   position: sticky;
   top: 12px;
 }
+.problem-list {
+  list-style: none;
+  display: grid;
+  gap: 12px;
+}
+.problem-list a {
+  font-weight: 600;
+}
 .change-list,
 .error-list {
   list-style: none;

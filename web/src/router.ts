@@ -22,12 +22,26 @@ export function href(route: Route): string {
   return `${BASE}/${route}`;
 }
 
-export function navigate(route: Route, replace = false): void {
-  const url = href(route);
-  if (window.location.pathname === url) return;
+/** Goes to a page; params become the query string (e.g. a policy to focus). */
+export function navigate(route: Route, replace = false, params?: Record<string, string>): void {
+  const q = params ? new URLSearchParams(params).toString() : '';
+  const url = href(route) + (q ? `?${q}` : '');
+  if (window.location.pathname + window.location.search === url) return;
   if (replace) window.history.replaceState(null, '', url);
   else window.history.pushState(null, '', url);
   window.dispatchEvent(new PopStateEvent('popstate'));
+}
+
+/** Reads and removes a query parameter of the current page. */
+export function takeParam(name: string): string | null {
+  const params = new URLSearchParams(window.location.search);
+  const v = params.get(name);
+  if (v !== null) {
+    params.delete(name);
+    const q = params.toString();
+    window.history.replaceState(null, '', window.location.pathname + (q ? `?${q}` : ''));
+  }
+  return v;
 }
 
 export function useRoute(): Route {

@@ -27,10 +27,13 @@ export function UpstreamsPage() {
   const [editing, setEditing] = useState<{ id: string | null; value: UpstreamInput } | null>(null);
   const [touched, setTouched] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // A server refusal of the key variable (UPSTREAM_KEY_ORGS), shown at the field.
+  const [keyEnvError, setKeyEnvError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<Upstream | null>(null);
 
   const errs = editing ? validateUpstream(editing.value) : {};
   const msg = (k: keyof UpstreamInput) => {
+    if (k === 'api_key_env' && keyEnvError) return keyEnvError;
     if (!touched) return undefined;
     const e = errs[k];
     return e === 'name' ? t('up.invalidName') : e === 'url' ? t('up.invalidUrl') : e === 'env' ? t('up.invalidEnv') : undefined;
@@ -46,7 +49,9 @@ export function UpstreamsPage() {
       notify(t('common.saved'));
       await reload();
     } catch (e) {
-      setError(errorText(e));
+      const m = errorText(e);
+      if (m.includes('api_key_env')) setKeyEnvError(m);
+      else setError(m);
     }
   };
 
@@ -64,7 +69,10 @@ export function UpstreamsPage() {
     }
   };
 
-  const set = (patch: Partial<UpstreamInput>) => editing && setEditing({ ...editing, value: { ...editing.value, ...patch } });
+  const set = (patch: Partial<UpstreamInput>) => {
+    if ('api_key_env' in patch) setKeyEnvError(null);
+    if (editing) setEditing({ ...editing, value: { ...editing.value, ...patch } });
+  };
   const list = upstreams ?? [];
 
   return (
@@ -79,6 +87,7 @@ export function UpstreamsPage() {
             onClick={() => {
               setTouched(false);
               setError(null);
+              setKeyEnvError(null);
               setEditing({ id: null, value: { ...EMPTY } });
             }}
           >
@@ -130,6 +139,7 @@ export function UpstreamsPage() {
                     onClick={() => {
                       setTouched(false);
                       setError(null);
+                      setKeyEnvError(null);
                       setEditing({
                         id: u.id,
                         value: { name: u.name, base_url: u.base_url, model: u.model, api_key_env: u.api_key_env, timeout_ms: u.timeout_ms, enabled: u.enabled },
@@ -197,7 +207,7 @@ export function UpstreamsPage() {
             <Field label={t('up.name')} help={t('up.nameHelp')} error={msg('name')}>
               {(p) => <input {...p} className="mono" value={editing.value.name} onChange={(e) => set({ name: e.target.value })} required />}
             </Field>
-            <Field label={t('up.baseUrl')} error={msg('base_url')}>
+            <Field label={t('up.baseUrl')} help={t('up.baseUrlHelp')} error={msg('base_url')}>
               {(p) => (
                 <input
                   {...p}
@@ -213,7 +223,7 @@ export function UpstreamsPage() {
             <Field label={t('up.model')} help={t('up.modelHelp')}>
               {(p) => <input {...p} className="mono" value={editing.value.model} onChange={(e) => set({ model: e.target.value })} />}
             </Field>
-            <Field label={t('up.keyEnv')} help={t('up.keyEnvHelp')} error={msg('api_key_env')}>
+            <Field label={t('up.keyEnv')} help={`${t('up.keyEnvHelp')} ${t('up.keyEnvOrgs')}`} error={msg('api_key_env')}>
               {(p) => (
                 <input
                   {...p}

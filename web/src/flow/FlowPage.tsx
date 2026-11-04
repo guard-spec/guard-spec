@@ -23,13 +23,24 @@ import '@xyflow/react/dist/style.css';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ConfirmDialog, Dialog, ErrorBanner, Field, Loading, PageHeader } from '../components/ui';
 import { errorText, useApp, useOrg } from '../context';
-import { navigate } from '../router';
+import { navigate, takeParam } from '../router';
 import type { GuardSettings, PolicySchema, SimulateRequest, SimulateResponse, SimValue } from '../types';
 import { addRule, connectRule, danglingRoutes, deleteRule, findRule, moveRule, moveRuleByPosition, updateRule } from './edit';
 import { applyHighlight, buildGraph, simulationPath, type DefaultUpstream, type FlowEdge, type FlowNode } from './graph';
 import { NODE } from './ids';
 import { bounds, initialViewport, layoutGraph, mainAxis, type Direction } from './layout';
-import { gatewayChain, gatewayOrder, makeRule, newKey, toEditable, toWireRules, type EditablePolicy, type EditableRule } from './model';
+import {
+  gatewayChain,
+  gatewayOrder,
+  makeRule,
+  newKey,
+  policyNameTaken,
+  ruleNameInError,
+  toEditable,
+  toWireRules,
+  type EditablePolicy,
+  type EditableRule,
+} from './model';
 import { DirectionContext, nodeTypes } from './nodes';
 import { RulePanel } from './RulePanel';
 import { FALLBACK_SCHEMA, fieldTypesOf } from './schema';
@@ -56,11 +67,6 @@ function styleEdges(edges: FlowEdge[]): Edge[] {
   }));
 }
 
-/** Pulls `rule "name"` out of a server validation error. */
-export function ruleNameInError(message: string): string | undefined {
-  return /rule "((?:[^"\\]|\\.)*)"/.exec(message)?.[1];
-}
-
 export default function FlowPage() {
   return (
     <ReactFlowProvider>
@@ -85,7 +91,8 @@ function FlowPageInner() {
   const [saveErrors, setSaveErrors] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [activePolicy, setActivePolicy] = useState<string | null>(null);
-  const [newPolicy, setNewPolicy] = useState<{ name: string; project: string } | null>(null);
+  // The new-policy dialog; with key, it renames that policy.
+  const [newPolicy, setNewPolicy] = useState<{ key?: string; name: string; project: string } | null>(null);
   const [deleting, setDeleting] = useState<EditablePolicy | null>(null);
   const { setViewport } = useReactFlow();
   const paneRef = useRef<HTMLDivElement>(null);
@@ -96,6 +103,16 @@ function FlowPageInner() {
       setPolicies(ps);
       setOriginal(ps);
       setLoadError(null);
+      // A link from elsewhere (config export problems) names a policy, maybe a rule.
+      const focus = takeParam('policy');
+      const ruleName = takeParam('rule');
+      const p = focus ? ps.find((x) => x.id === focus) : undefined;
+      if (p) {
+        setProjectId(p.project_id);
+        setActivePolicy(p.key);
+        const r = ruleName !== null ? p.rules.find((x) => x.name === ruleName) : undefined;
+        if (r) setSelected(r.key);
+      }
     } catch (e) {
       setLoadError(errorText(e));
     }
@@ -297,6 +314,7 @@ function FlowPageInner() {
       ? { rules: chain.flatMap((p) => toWireRules(p.rules)), project_id: projectId, vars }
       : { policy_id: null, project_id: projectId, vars };
 
+  const nameTaken = newPolicy !== null && policies !== null && policyNameTaken(policies, newPolicy.name, newPolicy.key);
   if (loadError) return <ErrorBanner error={loadError} />;
   if (!policies) return <Loading />;
 
@@ -464,6 +482,14 @@ function FlowPageInner() {
                     <button type="button" className="btn btn-small" aria-pressed={p.key === activePolicy} onClick={() => setActivePolicy(p.key)}>
                       + {t('flow.addRule')}
                     </button>
+                    <button
+                      type="button"
+                      className="btn-icon"
+                      aria-label={`${t('policy.rename')} ${p.name}`}
+                      onClick={() => setNewPolicy({ key: p.key, name: p.name, project: p.project_id ?? '' })}
+                    >
+                      ✎
+                    </button>
                     <button type="button" className="btn-icon" aria-label={`${t('policy.delete')} ${p.name}`} onClick={() => setDeleting(p)}>
                       🗑
                     </button>
@@ -499,7 +525,7 @@ function FlowPageInner() {
 
       <Dialog
         open={newPolicy !== null}
-        title={t('policy.new')}
+        title={newPolicy?.key ? t('policy.rename') : t('policy.new')}
         onClose={() => setNewPolicy(null)}
         footer={
           <>
@@ -509,45 +535,53 @@ function FlowPageInner() {
             <button
               type="button"
               className="btn btn-primary"
-              disabled={!newPolicy?.name.trim()}
+              disabled={!newPolicy?.name.trim() || nameTaken}
               onClick={() => {
                 if (!newPolicy) return;
-                const draft: EditablePolicy = {
-                  id: undefined,
-                  key: newKey('policy'),
-                  name: newPolicy.name.trim(),
-                  description: null,
-                  project_id: newPolicy.project || null,
-                  enabled: true,
-                  created_at: '',
-                  rules: [],
-                  dirty: true,
-                };
-                edit((ps) => [...ps, draft]);
-                setActivePolicy(draft.key);
+                const name = newPolicy.name.trim();
+                const key = newPolicy.key;
+                if (key) {
+                  edit((ps) => ps.map((x) => (x.key === key ? { ...x, name, dirty: true } : x)));
+                } else {
+                  const draft: EditablePolicy = {
+                    id: undefined,
+                    key: newKey('policy'),
+                    name,
+                    description: null,
+                    project_id: newPolicy.project || null,
+                    enabled: true,
+                    created_at: '',
+                    rules: [],
+                    dirty: true,
+                  };
+                  edit((ps) => [...ps, draft]);
+                  setActivePolicy(draft.key);
+                }
                 setNewPolicy(null);
               }}
             >
-              {t('common.create')}
+              {newPolicy?.key ? t('common.save') : t('common.create')}
             </button>
           </>
         }
       >
-        <Field label={t('policy.name')}>
+        <Field label={t('policy.name')} error={nameTaken ? t('policy.nameTaken') : undefined} help={t('policy.nameHelp')}>
           {(p) => <input {...p} value={newPolicy?.name ?? ''} onChange={(e) => newPolicy && setNewPolicy({ ...newPolicy, name: e.target.value })} />}
         </Field>
-        <Field label={t('policy.project')}>
-          {(p) => (
-            <select {...p} value={newPolicy?.project ?? ''} onChange={(e) => newPolicy && setNewPolicy({ ...newPolicy, project: e.target.value })}>
-              <option value="">{t('common.orgWide')}</option>
-              {projects.map((x) => (
-                <option key={x.id} value={x.id}>
-                  {x.name}
-                </option>
-              ))}
-            </select>
-          )}
-        </Field>
+        {newPolicy?.key ? null : (
+          <Field label={t('policy.project')}>
+            {(p) => (
+              <select {...p} value={newPolicy?.project ?? ''} onChange={(e) => newPolicy && setNewPolicy({ ...newPolicy, project: e.target.value })}>
+                <option value="">{t('common.orgWide')}</option>
+                {projects.map((x) => (
+                  <option key={x.id} value={x.id}>
+                    {x.name}
+                  </option>
+                ))}
+              </select>
+            )}
+          </Field>
+        )}
       </Dialog>
 
       <ConfirmDialog
