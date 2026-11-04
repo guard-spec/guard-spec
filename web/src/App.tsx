@@ -4,6 +4,7 @@
 import { CircleCheck, CircleX, X } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type ComponentType } from 'react';
 import { ApiClient, isNotFound } from './api';
+import { authErrorText } from './auth/errors';
 import { can as canDo } from './auth/permissions';
 import { Loading } from './components/ui';
 import { AppContext, errorText, OrgContext, useApp, type AppState, type OrgState, type Theme, type ThemePref } from './context';
@@ -163,12 +164,18 @@ export function App() {
   // Back from linking an SSO identity while signed in: the account page shows it.
   useEffect(() => {
     if (token && route === 'auth-callback') {
-      const err = new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('error');
+      // N15 sends ?linked=<providerId> on success, ?error=<code> on failure.
+      const q = new URLSearchParams(window.location.hash.split('?')[1] ?? '');
+      const err = q.get('error');
       clearHash();
-      if (err) notify(t('account.linkFailed', { error: err }), 'error');
+      if (err) notify(t('account.linkFailed', { error: authErrorText(err, t) }), 'error');
+      else if (q.get('linked')) {
+        notify(t('account.linked'));
+        void reloadMe();
+      }
       navigate('account', true);
     }
-  }, [token, route, notify, t]);
+  }, [token, route, notify, t, reloadMe]);
 
   let content;
   if (!token) {
