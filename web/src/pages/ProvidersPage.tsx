@@ -226,12 +226,17 @@ export function ProvidersPage() {
     },
     {
       key: 'url',
-      header: t('up.baseUrl'),
+      header: t('prov.endpoint'),
       className: 'col-url',
       cell: (u) => (
-        <span className="mono small ellipsis" title={u.base_url}>
-          {u.base_url}
-        </span>
+        <div className="cell-stack">
+          <span className="mono small ellipsis" title={u.base_url}>
+            {u.base_url}
+          </span>
+          <span className="mono small muted ellipsis" title={u.api_key_env ? `$${u.api_key_env}` : undefined}>
+            {u.api_key_env ? `$${u.api_key_env}` : t('prov.noKeyVar')}
+          </span>
+        </div>
       ),
     },
     {
@@ -249,16 +254,6 @@ export function ProvidersPage() {
           </div>
         );
       },
-    },
-    {
-      key: 'env',
-      header: t('prov.keyEnvShort'),
-      className: 'col-env',
-      cell: (u) => (
-        <span className="mono small ellipsis" title={u.api_key_env ? `$${u.api_key_env}` : undefined}>
-          {u.api_key_env ? `$${u.api_key_env}` : '—'}
-        </span>
-      ),
     },
     {
       key: 'status',

@@ -752,6 +752,11 @@ export const en = {
   'act.unknownTarget': 'Deleted user ({id}…)',
   'orgPage.auditContentHelpStored': 'The operator turned on content storage for this organization: the log keeps request and response text, not only hashes and sizes.',
   'cfg.sideHint': 'Validate to see the changes and errors of the file here.',
+  'keys.limits': 'Limits',
+  'keys.rpmShort': '{n} req/min',
+  'keys.tpmShort': '{n} tokens/min',
+  'prov.endpoint': 'Endpoint and key',
+  'prov.noKeyVar': 'No key variable',
 } as const;
 
 export type MessageKey = keyof typeof en;
