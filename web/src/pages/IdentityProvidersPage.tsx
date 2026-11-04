@@ -118,7 +118,7 @@ export default function IdentityProvidersPage() {
       ),
     },
     { key: 'type', header: t('idp.type'), cell: (p) => <Badge tone={p.type === 'google' ? 'accent' : 'neutral'}>{p.type === 'google' ? 'Google' : 'OIDC'}</Badge> },
-    { key: 'client', header: t('idp.clientId'), className: 'col-env', cell: (p) => <span className="mono small ellipsis" title={p.client_id}>{p.client_id}</span> },
+    { key: 'client', header: t('idp.clientId'), className: 'col-env col-wide-only',cell: (p) => <span className="mono small ellipsis" title={p.client_id}>{p.client_id}</span> },
     { key: 'secret', header: t('idp.secretEnv'), className: 'col-env', cell: (p) => <span className="mono small ellipsis" title={`$${p.client_secret_env}`}>{`$${p.client_secret_env}`}</span> },
     {
       key: 'domains',

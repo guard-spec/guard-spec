@@ -195,7 +195,7 @@ function MembersTable() {
       ),
     },
     { key: 'last', header: t('members.lastLogin'), className: 'nowrap small', cell: (m) => <RelativeTime value={m.last_login_at} /> },
-    { key: 'joined', header: t('members.joined'), className: 'nowrap small', cell: (m) => <Day value={m.joined_at} /> },
+    { key: 'joined', header: t('members.joined'), className: 'nowrap small col-wide-only', cell: (m) => <Day value={m.joined_at} /> },
     {
       key: 'actions',
       header: t('common.actions'),
