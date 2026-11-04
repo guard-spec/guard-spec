@@ -168,7 +168,7 @@ export default function ConfigPage() {
               </ul>
             </>
           ) : null}
-          {check === null ? <p className="muted small">{t('cfg.help')}</p> : null}
+          {check === null ? <p className="muted small">{t('cfg.sideHint')}</p> : null}
         </aside>
       </div>
       <ConfirmDialog

@@ -5,7 +5,7 @@
 // a provider preset, allowed models, a default model, extra headers, limits
 // and a connection test. Keys stay in the gateway environment (api_key_env).
 
-import { Cpu, ExternalLink, Pencil, Plus, Trash2, Zap } from 'lucide-react';
+import { Cpu, ExternalLink, Pencil, Plus, Trash2, X, Zap } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { isNotFound } from '../api';
 import { ChipsInput } from '../components/ChipsInput';
@@ -204,38 +204,66 @@ export function ProvidersPage() {
     {
       key: 'name',
       header: t('up.name'),
+      className: 'col-name',
       cell: (u) => (
         <div className="cell-stack">
-          <span>
-            <strong className="mono">{u.name}</strong>
+          <span className="name-line">
+            <strong className="mono ellipsis" title={u.name}>
+              {u.name}
+            </strong>
             {org.default_upstream_id === u.id ? <Badge tone="accent">{t('flow.defaultBadge')}</Badge> : null}
           </span>
-          {u.display_name ? <span className="muted small">{u.display_name}</span> : null}
+          <span className="name-line">
+            <Badge>{providerLabel(catalog, u.provider)}</Badge>
+            {u.display_name ? (
+              <span className="muted small ellipsis" title={u.display_name}>
+                {u.display_name}
+              </span>
+            ) : null}
+          </span>
         </div>
       ),
     },
-    { key: 'provider', header: t('prov.provider'), cell: (u) => <Badge>{providerLabel(catalog, u.provider)}</Badge> },
-    { key: 'url', header: t('up.baseUrl'), className: 'mono small', cell: (u) => u.base_url },
+    {
+      key: 'url',
+      header: t('prov.endpoint'),
+      className: 'col-url',
+      cell: (u) => (
+        <div className="cell-stack">
+          <span className="mono small ellipsis" title={u.base_url}>
+            {u.base_url}
+          </span>
+          <span className="mono small muted ellipsis" title={u.api_key_env ? `$${u.api_key_env}` : undefined}>
+            {u.api_key_env ? `$${u.api_key_env}` : t('prov.noKeyVar')}
+          </span>
+        </div>
+      ),
+    },
     {
       key: 'model',
       header: t('prov.models'),
-      cell: (u) => (
-        <div className="cell-stack">
-          <span className="mono small">{nonEmpty(u.default_model) ?? (nonEmpty(u.model) ?? '—')}</span>
-          <span className="muted small">{u.models && u.models.length > 0 ? t('prov.allowedCount', { count: u.models.length }) : t('prov.passThrough')}</span>
-        </div>
-      ),
+      className: 'col-model',
+      cell: (u) => {
+        const m = nonEmpty(u.default_model) ?? nonEmpty(u.model);
+        return (
+          <div className="cell-stack">
+            <span className="mono small ellipsis" title={m}>
+              {m ?? '—'}
+            </span>
+            <span className="muted small nowrap">{u.models && u.models.length > 0 ? t('prov.allowedCount', { count: u.models.length }) : t('prov.passThrough')}</span>
+          </div>
+        );
+      },
     },
-    { key: 'env', header: t('up.keyEnv'), className: 'mono small', cell: (u) => (u.api_key_env ? `$${u.api_key_env}` : '—') },
-    { key: 'timeout', header: t('up.timeout'), cell: (u) => u.timeout_ms },
     {
       key: 'status',
       header: t('prov.status'),
+      className: 'nowrap',
       cell: (u) => (
-        <div className="cell-stack">
+        <span className="badges">
           <Badge tone={u.enabled ? 'ok' : 'off'}>{u.enabled ? t('common.enabled') : t('common.disabled')}</Badge>
-          <TestResult r={tests[u.id]} />
-        </div>
+          <TestBadge r={tests[u.id]} />
+        </span>
       ),
     },
     {
@@ -244,19 +272,26 @@ export function ProvidersPage() {
       hiddenHeader: true,
       className: 'row-actions',
       cell: (u) => (
-        <>
+        <span className="icon-actions">
           {canTest ? (
-            <button type="button" className="btn btn-small btn-icon-text" aria-label={t('prov.testOf', { name: u.name })} disabled={tests[u.id] === 'running'} onClick={() => void test(u)}>
+            <button
+              type="button"
+              className="btn btn-small btn-square"
+              aria-label={t('prov.testOf', { name: u.name })}
+              title={t('prov.test')}
+              disabled={tests[u.id] === 'running'}
+              onClick={() => void test(u)}
+            >
               <Zap size={14} aria-hidden="true" />
-              <span>{t('prov.test')}</span>
             </button>
           ) : null}
           {writable ? (
             <>
               <button
                 type="button"
-                className="btn btn-small btn-icon-text"
+                className="btn btn-small btn-square"
                 aria-label={t('up.edit', { name: u.name })}
+                title={t('common.edit')}
                 onClick={() => {
                   setTouched(false);
                   setError(null);
@@ -265,18 +300,23 @@ export function ProvidersPage() {
                 }}
               >
                 <Pencil size={14} aria-hidden="true" />
-                <span>{t('common.edit')}</span>
               </button>
-              <button type="button" className="btn btn-small btn-danger btn-icon-text" aria-label={`${t('common.delete')} ${u.name}`} onClick={() => setDeleting(u)}>
+              <button
+                type="button"
+                className="btn btn-small btn-square btn-danger"
+                aria-label={`${t('common.delete')} ${u.name}`}
+                title={t('common.delete')}
+                onClick={() => setDeleting(u)}
+              >
                 <Trash2 size={14} aria-hidden="true" />
-                <span>{t('common.delete')}</span>
               </button>
             </>
           ) : null}
-        </>
+        </span>
       ),
     },
   ];
+
 
   const headers = Object.entries(editing?.value.headers ?? {});
   const setHeaders = (rows: [string, string][]) => set({ headers: Object.fromEntries(rows) });
@@ -302,6 +342,10 @@ export function ProvidersPage() {
         paged={paged}
         rowKey={(u) => u.id}
         testId="providers-table"
+        rowDetail={(u) => {
+          const r = tests[u.id];
+          return r && r !== 'running' ? <TestResult r={r} name={u.name} onDismiss={() => setTests((s) => Object.fromEntries(Object.entries(s).filter(([k]) => k !== u.id)))} /> : null;
+        }}
         feature={t('prov.title')}
         toolbar={<SearchBox value={q} onChange={setQ} label={t('prov.search')} />}
         empty={
@@ -581,30 +625,49 @@ export function ProvidersPage() {
   );
 }
 
-function TestResult({ r }: { r: ConnectionTest | 'running' | 'unavailable' | { error: string } | undefined }) {
+type TestState = ConnectionTest | 'running' | 'unavailable' | { error: string };
+
+/** The short outcome of a connection test, in the Status column. */
+function TestBadge({ r }: { r: TestState | undefined }) {
   const { t } = useApp();
-  const shown = r;
-  if (!shown) return null;
-  if (shown === 'running') return <span className="muted small">{t('prov.testing')}</span>;
-  if (shown === 'unavailable') return <NotAvailable compact />;
-  if ('ok' in shown) {
-    const models = shown.models_found ?? [];
-    return (
-      <div className="test-result small" data-testid="test-result">
-        <Badge tone={shown.ok ? 'ok' : 'danger'}>{shown.ok ? t('prov.testOk') : t('prov.testFailed')}</Badge>
-        {shown.latency_ms !== null ? <span className="muted"> {shown.latency_ms} ms</span> : null}
-        {shown.status ? <span className="muted"> · HTTP {shown.status}</span> : null}
-        {models.length > 0 ? <div className="muted">{t('prov.modelsFound', { count: models.length, list: models.slice(0, 5).join(', ') })}</div> : null}
-        {shown.key_sent === false ? (
+  if (!r) return null;
+  if (r === 'running') return <Badge>{t('prov.testing')}</Badge>;
+  if (r === 'unavailable') return null;
+  if ('ok' in r) return <Badge tone={r.ok ? 'ok' : 'danger'}>{r.ok ? t('prov.testOk') : t('prov.testFailed')}</Badge>;
+  return <Badge tone="danger">{t('prov.testFailed')}</Badge>;
+}
+
+/** The full outcome of a connection test, in a line under the provider's row. */
+function TestResult({ r, name, onDismiss }: { r: Exclude<TestState, 'running'>; name: string; onDismiss: () => void }) {
+  const { t } = useApp();
+  let body;
+  if (r === 'unavailable') body = <NotAvailable compact />;
+  else if ('ok' in r) {
+    const models = r.models_found ?? [];
+    body = (
+      <>
+        <Badge tone={r.ok ? 'ok' : 'danger'}>{r.ok ? t('prov.testOk') : t('prov.testFailed')}</Badge>
+        {r.latency_ms !== null ? <span className="muted"> {r.latency_ms} ms</span> : null}
+        {r.status ? <span className="muted"> · HTTP {r.status}</span> : null}
+        {models.length > 0 ? <span className="muted"> · {t('prov.modelsFound', { count: models.length, list: models.slice(0, 8).join(', ') })}</span> : null}
+        {r.key_sent === false ? (
           <div className="test-note" data-testid="key-not-sent">
-            {nonEmpty(shown.note) ?? t('prov.keyNotSent')}
+            {nonEmpty(r.note) ?? t('prov.keyNotSent')}
           </div>
         ) : null}
-        {shown.error ? <div className="field-error">{shown.error}</div> : null}
-      </div>
+        {nonEmpty(r.error) ? <div className="field-error">{r.error}</div> : null}
+      </>
     );
-  }
-  return <div className="field-error small">{shown.error}</div>;
+  } else body = <span className="field-error">{r.error}</span>;
+  return (
+    <div className="test-result small" data-testid="test-result" role="status">
+      <strong className="test-title">{t('prov.testResultOf', { name })}</strong>
+      <div className="test-body">{body}</div>
+      <button type="button" className="btn-icon" aria-label={t('common.dismiss')} onClick={onDismiss}>
+        <X size={14} aria-hidden="true" />
+      </button>
+    </div>
+  );
 }
 
 function DefaultSelect({

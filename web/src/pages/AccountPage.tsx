@@ -10,13 +10,15 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { ApiError, isNotFound } from '../api';
 import { authErrorText } from '../auth/errors';
 import { isTotpCode } from '../auth/loginMachine';
+import { describeUserAgent } from '../auth/userAgent';
 import { Badge, DataTable, NotAvailable, type Column } from '../components/DataTable';
 import { RecoveryCodes } from '../components/RecoveryCodes';
 import { TotpEnroll } from '../components/TotpEnroll';
 import { usePaged } from '../components/usePaged';
-import { ConfirmDialog, Dialog, ErrorBanner, Field, formatTime, Loading, PageHeader } from '../components/ui';
+import { ConfirmDialog, Dialog, ErrorBanner, Field, formatTime, Loading, PageHeader, RelativeTime } from '../components/ui';
 import { nonEmpty, useApp } from '../context';
 import type { LoginProvider, SessionInfo, TotpSetup } from '../types';
+import type { Translate } from '../i18n';
 
 /**
  * Reads and strips the result of a profile link from the address
@@ -446,6 +448,14 @@ function IdentitiesCard() {
   );
 }
 
+/** "Chrome on macOS", "Firefox", "API client" (the full user agent is the tooltip). */
+export function deviceName(ua: string | null, t: Translate): string {
+  const d = describeUserAgent(ua);
+  if (d.client) return t('account.apiClient');
+  if (d.browser && d.os) return t('account.browserOn', { browser: d.browser, os: d.os });
+  return d.browser ?? d.os ?? t('account.unknownDevice');
+}
+
 function SessionsCard() {
   const { api, t, notify } = useApp();
   const fetchPage = useCallback(() => api.listSessions(), [api]);
@@ -457,8 +467,8 @@ function SessionsCard() {
       header: t('account.device'),
       cell: (s) => (
         <div className="cell-stack">
-          <span>
-            <Monitor size={14} aria-hidden="true" /> {s.user_agent ?? '—'}
+          <span className="name-line" title={s.user_agent ?? undefined}>
+            <Monitor size={14} aria-hidden="true" /> <span>{deviceName(s.user_agent, t)}</span>
             {s.current ? <Badge tone="accent">{t('account.thisSession')}</Badge> : null}
           </span>
           <span className="muted small mono">{s.ip ?? ''}</span>
@@ -466,7 +476,7 @@ function SessionsCard() {
       ),
     },
     { key: 'created', header: t('account.signedIn'), className: 'nowrap small', cell: (s) => formatTime(s.created_at) },
-    { key: 'seen', header: t('account.lastSeen'), className: 'nowrap small', cell: (s) => formatTime(s.last_seen_at) },
+    { key: 'seen', header: t('account.lastSeen'), className: 'nowrap small', cell: (s) => <RelativeTime value={s.last_seen_at} /> },
     {
       key: 'actions',
       header: t('common.actions'),

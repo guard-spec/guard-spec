@@ -5,10 +5,11 @@
 
 import { LogOut, Mail, ShieldOff, Trash2, UserPlus, Users } from 'lucide-react';
 import { useCallback, useId, useState, type ReactNode } from 'react';
+import { methodLabel, useLoginProviders } from '../auth/methods';
 import { canManageMember, grantableRoles } from '../auth/permissions';
 import { Badge, DataTable, EmptyState, SearchBox, type Column, type Tone } from '../components/DataTable';
 import { usePaged } from '../components/usePaged';
-import { ConfirmDialog, CopyButton, Dialog, ErrorBanner, Field, formatTime, PageHeader, useDebounced } from '../components/ui';
+import { ConfirmDialog, CopyButton, Dialog, ErrorBanner, Field, PageHeader, useDebounced, RelativeTime, Day } from '../components/ui';
 import { authErrorText } from '../auth/errors';
 import { nonEmpty, useApp, useOrg } from '../context';
 import type { MessageKey } from '../i18n';
@@ -83,6 +84,7 @@ export function MembersPage() {
 function MembersTable() {
   const { api, t, notify, me } = useApp();
   const { org, role: myRole, can } = useOrg();
+  const providers = useLoginProviders();
   const [q, setQ] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
   const query = useDebounced(q);
@@ -185,13 +187,15 @@ function MembersTable() {
       cell: (m) => (
         <span className="badges">
           {m.login_methods.map((x) => (
-            <Badge key={x}>{x}</Badge>
+            <Badge key={x} title={x}>
+              {methodLabel(x, providers ?? [], t)}
+            </Badge>
           ))}
         </span>
       ),
     },
-    { key: 'last', header: t('members.lastLogin'), className: 'nowrap small', cell: (m) => formatTime(m.last_login_at) },
-    { key: 'joined', header: t('members.joined'), className: 'nowrap small', cell: (m) => formatTime(m.joined_at) },
+    { key: 'last', header: t('members.lastLogin'), className: 'nowrap small', cell: (m) => <RelativeTime value={m.last_login_at} /> },
+    { key: 'joined', header: t('members.joined'), className: 'nowrap small col-wide-only', cell: (m) => <Day value={m.joined_at} /> },
     {
       key: 'actions',
       header: t('common.actions'),
@@ -289,8 +293,8 @@ function InvitesTable() {
     { key: 'email', header: t('login.email'), cell: (i) => i.email },
     { key: 'role', header: t('members.role'), cell: (i) => <Badge>{t(`org.role.${i.role}` as MessageKey)}</Badge> },
     { key: 'status', header: t('members.status'), cell: (i) => <Badge tone={STATUS_TONE[i.status]}>{t(`invite.${i.status}` as MessageKey)}</Badge> },
-    { key: 'expires', header: t('keys.expires'), className: 'nowrap small', cell: (i) => formatTime(i.expires_at) },
-    { key: 'created', header: t('common.created'), className: 'nowrap small', cell: (i) => formatTime(i.created_at) },
+    { key: 'expires', header: t('keys.expires'), className: 'nowrap small', cell: (i) => <Day value={i.expires_at} /> },
+    { key: 'created', header: t('common.created'), className: 'nowrap small', cell: (i) => <Day value={i.created_at} /> },
     {
       key: 'actions',
       header: t('common.actions'),

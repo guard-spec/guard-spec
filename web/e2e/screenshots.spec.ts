@@ -68,7 +68,7 @@ test('upstreams', async ({ page }) => {
   await setTheme(page, 'light');
   await login(page);
   await page.getByRole('link', { name: 'Model providers' }).click();
-  await expect(page.getByRole('cell', { name: 'safe-model', exact: true })).toBeVisible();
+  await expect(page.getByTestId('providers-table').getByText('safe-model', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Edit provider main' }).click();
   await shot(page, 'upstreams');
 });

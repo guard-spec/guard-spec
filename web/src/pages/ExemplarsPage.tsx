@@ -5,7 +5,7 @@ import { Library, Plus } from 'lucide-react';
 import { useCallback, useState } from 'react';
 import { DataTable, EmptyState, SearchBox, type Column } from '../components/DataTable';
 import { usePaged } from '../components/usePaged';
-import { ConfirmDialog, Dialog, ErrorBanner, Field, formatTime, PageHeader, useDebounced } from '../components/ui';
+import { ConfirmDialog, Dialog, ErrorBanner, Field, PageHeader, useDebounced, Day } from '../components/ui';
 import { errorText, useApp, useOrg } from '../context';
 import type { Exemplar } from '../types';
 
@@ -55,7 +55,7 @@ export function ExemplarsPage() {
     { key: 'label', header: t('ex.label'), cell: (x) => <span className={`action action-${x.label}`}>{x.label}</span> },
     { key: 'text', header: t('ex.text'), className: 'text-cell', cell: (x) => x.text },
     { key: 'source', header: t('ex.source'), cell: (x) => x.source },
-    { key: 'created', header: t('common.created'), className: 'nowrap small', cell: (x) => formatTime(x.created_at) },
+    { key: 'created', header: t('common.created'), className: 'nowrap small', cell: (x) => <Day value={x.created_at} /> },
     {
       key: 'actions',
       header: t('common.actions'),

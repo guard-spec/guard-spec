@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { isForbidden, isNotFound } from '../api';
 import { errorText, useApp } from '../context';
+import { formatDate, formatDateTime, formatRelative } from '../dates';
 
 export function PageHeader({ title, help, actions }: { title: string; help?: string; actions?: ReactNode }) {
   return (
@@ -294,11 +295,29 @@ export function Loading() {
   );
 }
 
+/** A date and time in the UI language (see dates.ts). */
 export function formatTime(s: string | null | undefined): string {
-  if (!s) return '—';
-  const d = new Date(s);
-  if (Number.isNaN(d.getTime())) return s;
-  return d.toLocaleString();
+  return formatDateTime(s);
+}
+
+/** A day ("Nov 4, 2026"), with the full date and time in a tooltip. */
+export function Day({ value }: { value: string | null | undefined }) {
+  if (!value) return <span>—</span>;
+  return (
+    <time dateTime={value} title={formatDateTime(value)}>
+      {formatDate(value)}
+    </time>
+  );
+}
+
+/** A time as "3 hours ago", with the full date in a tooltip. */
+export function RelativeTime({ value }: { value: string | null | undefined }) {
+  if (!value) return <span>—</span>;
+  return (
+    <time dateTime={value} title={formatDateTime(value)}>
+      {formatRelative(value)}
+    </time>
+  );
 }
 
 export function CopyButton({ text }: { text: string }) {

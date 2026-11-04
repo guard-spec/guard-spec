@@ -67,7 +67,7 @@ test.describe('Upstreams', () => {
     await expect(dialog.getByLabel('API key environment variable')).toHaveValue('UPSTREAM_KEY_FALLBACK');
     await dialog.getByRole('button', { name: 'Save' }).click();
     await expect(page.getByRole('dialog')).toBeHidden();
-    await expect(page.getByRole('cell', { name: 'fallback', exact: true })).toBeVisible();
+    await expect(page.getByTestId('providers-table').getByText('fallback', { exact: true })).toBeVisible();
     const created = mock.calls.find((c) => c.method === 'POST' && c.path.endsWith('/upstreams'));
     expect(created?.body).toMatchObject({ name: 'fallback', api_key_env: 'UPSTREAM_KEY_FALLBACK', enabled: true, timeout_ms: 300000 });
 
@@ -78,7 +78,7 @@ test.describe('Upstreams', () => {
 
     await page.getByRole('button', { name: 'Delete fallback' }).click();
     await page.getByRole('dialog').getByRole('button', { name: 'Delete' }).click();
-    await expect(page.getByRole('cell', { name: 'fallback', exact: true })).toBeHidden();
+    await expect(page.getByTestId('providers-table').getByText('fallback', { exact: true })).toBeHidden();
   });
 
   test('refuses to delete an upstream in use and sets defaults', async ({ page, mock }) => {

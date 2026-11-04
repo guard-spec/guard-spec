@@ -741,4 +741,21 @@ export const vi: Messages = {
   'ex.empty': 'Chưa có mẫu tham chiếu',
   'proj.search': 'Tìm dự án',
   'proj.empty': 'Chưa có dự án',
+
+  // ── Hoàn thiện giao diện (RF-N16) ───────────────────────────────────
+  'prov.keyEnvShort': 'Biến khóa',
+  'prov.testResultOf': 'Kết quả kiểm tra kết nối của {name}',
+  'sec.methodPasswordShort': 'Mật khẩu',
+  'sec.methodSso': 'SSO',
+  'account.apiClient': 'Ứng dụng gọi API',
+  'account.browserOn': '{browser} trên {os}',
+  'account.unknownDevice': 'Thiết bị không xác định',
+  'act.unknownTarget': 'Người dùng đã xóa ({id}…)',
+  'orgPage.auditContentHelpStored': 'Người vận hành đã bật lưu nội dung cho tổ chức này: nhật ký giữ cả nội dung yêu cầu và phản hồi, không chỉ mã băm và kích thước.',
+  'cfg.sideHint': 'Hãy kiểm tra hợp lệ để xem các thay đổi và lỗi của tệp tại đây.',
+  'keys.limits': 'Giới hạn',
+  'keys.rpmShort': '{n} yêu cầu/phút',
+  'keys.tpmShort': '{n} token/phút',
+  'prov.endpoint': 'Endpoint và khóa',
+  'prov.noKeyVar': 'Không có biến khóa',
 };

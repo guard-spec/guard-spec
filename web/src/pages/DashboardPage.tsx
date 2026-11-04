@@ -11,6 +11,7 @@ import { normalizePage } from '../paging';
 import { href, onLink } from '../router';
 import type { AuditRow } from '../types';
 import { computeStats } from './dashboard';
+import { formatShort } from '../dates';
 
 /** Rows the dashboard samples: at most this many pages of 200. */
 const SAMPLE_PAGES = 5;
@@ -50,7 +51,7 @@ export function DashboardPage() {
   const nf = new Intl.NumberFormat(lang === 'vi' ? 'vi-VN' : 'en-US');
   const pct = new Intl.NumberFormat(lang === 'vi' ? 'vi-VN' : 'en-US', { style: 'percent', maximumFractionDigits: 1 });
   const max = Math.max(1, ...stats.volume.map((b) => b.count));
-  const time = (ms: number) => new Date(ms).toLocaleString(lang === 'vi' ? 'vi-VN' : 'en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const time = (ms: number) => formatShort(ms);
 
   return (
     <div>

@@ -2,12 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { RefreshCw, ScrollText } from 'lucide-react';
-import { useCallback, useId, useState } from 'react';
+import { useCallback, useId, useMemo, useState } from 'react';
 import { DataTable, EmptyState, SearchBox, type Column } from '../components/DataTable';
 import { usePaged } from '../components/usePaged';
-import { Dialog, formatTime, PageHeader, useDebounced } from '../components/ui';
+import { CopyButton, Dialog, formatTime, PageHeader, useDebounced, useLoad } from '../components/ui';
 import { useApp, useOrg } from '../context';
 import { ACTIONS, type AuditRow } from '../types';
+import { normLabel, ruleNames } from './dashboard';
 
 export function RequestLogPage() {
   const { api, t } = useApp();
@@ -23,6 +24,13 @@ export function RequestLogPage() {
     [api, org.id, action, query],
   );
   const needle = query.trim().toLowerCase();
+  // Rule names: the request log stores rule ids.
+  const policies = useLoad(useCallback(() => api.listPolicies(org.id), [api, org.id]));
+  const rules = useMemo(() => ruleNames(policies.data ?? []), [policies.data]);
+  const ruleLabel = (id: string) => {
+    const r = rules.get(id);
+    return r ? `${r.rule} (${r.policy})` : id.slice(0, 8);
+  };
   const paged = usePaged<AuditRow>(fetchPage, {
     clientFilter:
       action || needle
@@ -34,18 +42,40 @@ export function RequestLogPage() {
 
   const columns: Column<AuditRow>[] = [
     { key: 'time', header: t('audit.time'), className: 'nowrap', cell: (r) => formatTime(r.created_at) },
-    { key: 'model', header: t('audit.model'), className: 'mono small', cell: (r) => r.model ?? '—' },
-    { key: 'action', header: t('audit.action'), cell: (r) => <span className={`action action-${r.action}`}>{r.action}</span> },
-    { key: 'route', header: t('audit.route'), className: 'mono small', cell: (r) => r.route_target ?? '—' },
-    { key: 'label', header: t('audit.label'), cell: (r) => r.injection_label ?? '—' },
-    { key: 'score', header: t('audit.score'), cell: (r) => r.injection_score.toFixed(2) },
+    {
+      key: 'model',
+      header: t('audit.model'),
+      className: 'col-model',
+      cell: (r) => (
+        <span className="mono small ellipsis" title={r.model ?? undefined}>
+          {r.model ?? '—'}
+        </span>
+      ),
+    },
+    {
+      key: 'action',
+      header: t('audit.action'),
+      className: 'nowrap',
+      cell: (r) => (
+        <span className="name-line">
+          <span className={`action action-${r.action}`}>{r.action}</span>
+          {r.route_target ? (
+            <span className="mono small ellipsis route-target" title={r.route_target}>
+              → {r.route_target}
+            </span>
+          ) : null}
+        </span>
+      ),
+    },
+    { key: 'label', header: t('audit.label'), cell: (r) => normLabel(r.injection_label) ?? '—' },
+    { key: 'score', header: t('audit.score'), className: 'col-wide-only', cell: (r) => r.injection_score.toFixed(2) },
     {
       key: 'rule',
       header: t('audit.rule'),
-      className: 'mono small',
-      cell: (r) => <span title={r.rule_id ?? ''}>{r.rule_id ? r.rule_id.slice(0, 8) : '—'}</span>,
+      className: 'col-rule',
+      cell: (r) => (r.rule_id ? <span className="ellipsis" title={`${ruleLabel(r.rule_id)} · ${r.rule_id}`}>{rules.get(r.rule_id)?.rule ?? r.rule_id.slice(0, 8)}</span> : '—'),
     },
-    { key: 'latency', header: t('audit.latency'), cell: (r) => (r.latency_ms !== null ? `${r.latency_ms} ms` : '—') },
+    { key: 'latency', header: t('audit.latency'), className: 'nowrap col-wide-only', cell: (r) => (r.latency_ms !== null ? `${r.latency_ms} ms` : '—') },
     {
       key: 'more',
       header: t('common.actions'),
@@ -107,9 +137,21 @@ export function RequestLogPage() {
             <dt>{t('audit.model')}</dt>
             <dd className="mono">{open.model ?? '—'}</dd>
             <dt>{t('audit.rule')}</dt>
-            <dd className="mono">{open.rule_id ?? '—'}</dd>
+            <dd>
+              {open.rule_id ? (
+                <span className="name-line">
+                  <span>{ruleLabel(open.rule_id)}</span>
+                  <code className="muted small" title={open.rule_id}>
+                    {open.rule_id.slice(0, 8)}
+                  </code>
+                  <CopyButton text={open.rule_id} />
+                </span>
+              ) : (
+                '—'
+              )}
+            </dd>
             <dt>{t('audit.label')}</dt>
-            <dd>{open.injection_label ?? '—'}</dd>
+            <dd>{normLabel(open.injection_label) ?? '—'}</dd>
             <dt>{t('audit.scores')}</dt>
             <dd className="mono small">
               injection {open.injection_score.toFixed(3)} · anomaly {open.anomaly_score.toFixed(3)}

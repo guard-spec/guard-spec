@@ -56,7 +56,7 @@ export function OrganizationPage() {
           <dt>{t('orgPage.auditContent')}</dt>
           <dd>
             <Badge tone={org.audit_store_content ? 'warn' : 'neutral'}>{org.audit_store_content ? t('orgPage.stored') : t('orgPage.notStored')}</Badge>
-            <div className="muted small">{t('orgPage.auditContentHelp')}</div>
+            <div className="muted small">{org.audit_store_content ? t('orgPage.auditContentHelpStored') : t('orgPage.auditContentHelp')}</div>
           </dd>
           <dt>{t('up.orgDefault')}</dt>
           <dd>
