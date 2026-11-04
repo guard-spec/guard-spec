@@ -19,6 +19,7 @@ import (
 	"time"
 
 	appconfig "github.com/giaplee/guard-spec/internal/config"
+	"github.com/giaplee/guard-spec/internal/events"
 	"github.com/giaplee/guard-spec/internal/indirect"
 	"github.com/giaplee/guard-spec/internal/inference"
 	"github.com/giaplee/guard-spec/internal/inference/ml"
@@ -129,7 +130,16 @@ func main() {
 	}
 	slog.Info("output guard", "enabled", output != nil)
 
-	audit := newAuditLog(func(e requestEntry) { logRequest(db, cfg.AuditStoreContent, e) })
+	// Alert events (docs/alerts.md): written in batches after the response.
+	var emitter *events.Emitter
+	if !strings.EqualFold(os.Getenv("ALERTS_EVENTS"), "off") {
+		emitter = events.New(db, events.Config{Source: "gateway"})
+	}
+	flagAt := flagThreshold(os.Getenv)
+	audit := newAuditLog(func(e requestEntry) {
+		logRequest(db, cfg.AuditStoreContent, e)
+		emitEvents(emitter, e, flagAt)
+	})
 	slog.Info("scan config", "roles", cfg.Scan.Roles.String(), "spotlight", cfg.Scan.Spotlight,
 		"indirect_threshold", cfg.Scan.IndirectThreshold)
 	app := newApp(gateway{
@@ -167,6 +177,9 @@ func main() {
 	_ = app.ShutdownWithTimeout(shutdownGrace)
 	cancelUpstream()
 	audit.close() // the pool closes after this; pending rows need it
+	closeCtx, cancelClose := context.WithTimeout(context.Background(), 5*time.Second)
+	emitter.Close(closeCtx) // after the audit rows, which emit events
+	cancelClose()
 }
 
 // policyLoader returns the enabled policies for a request, in evaluation order.
@@ -284,6 +297,17 @@ type requestEntry struct {
 	Request     string // body as received; hashed, stored only if enabled
 	Response    string // buffered upstream body; empty when streamed
 
+	// ID is the requests row id, also the request_id of alert events.
+	ID uuid.UUID
+	// For alert events only, not stored (events.go): the API key prefix, the
+	// layer that blocked the request ("" when nothing detected it), and an
+	// upstream failure.
+	KeyPrefix      string
+	Detected       string
+	UpstreamID     uuid.UUID
+	UpstreamStatus int
+	ErrorKind      string
+
 	// For metrics only, not stored.
 	Route  string
 	Status int // HTTP status sent to the client
@@ -295,7 +319,7 @@ type requestEntry struct {
 func newEntry(c *fiber.Ctx) requestEntry {
 	orgID, _ := tenant.OrgID(c)
 	c.Locals(auditedKey, true) // observeEntry records this request's metrics
-	return requestEntry{OrgID: orgID, ProjectID: tenant.ProjectID(c), Action: actionBlock,
+	return requestEntry{ID: uuid.New(), KeyPrefix: apiKeyPrefix(c), OrgID: orgID, ProjectID: tenant.ProjectID(c), Action: actionBlock,
 		Request: string(c.Body()), Route: routeLabel(c.Path()), Status: fiber.StatusOK, Start: time.Now()}
 }
 
@@ -406,6 +430,7 @@ func logRequest(db *pgxpool.Pool, storeContent bool, e requestEntry) {
 			req.SHA256, req.Bytes, req.Content,
 			resp.SHA256, resp.Bytes, resp.Content,
 			target,
+			nullUUID(e.ID),
 		)
 		return err
 	})
@@ -682,6 +707,9 @@ func chatHandler(gw gateway, upstreamPath string) fiber.Handler {
 		endSpan(err)
 		entry.Report = guard.report
 		if err != nil {
+			if errors.Is(err, errBlocked) {
+				entry.Detected = layerSanitizer
+			}
 			return guardError(c, err)
 		}
 
@@ -699,11 +727,13 @@ func chatHandler(gw gateway, upstreamPath string) fiber.Handler {
 		entry.Scores, entry.Indirect, entry.SourceRole = verdict.Scores, verdict.Indirect, verdict.SourceRole
 		if verdict.Direct >= injectionBlockThreshold {
 			slog.Info("blocked injection", "score", verdict.Direct, "source_role", verdict.SourceRole)
+			entry.Detected = modelLayer(verdict.Scores)
 			return blockResponse(c, "Request blocked: prompt injection detected.")
 		}
 		if verdict.Indirect.Score >= scanCfg.IndirectThreshold {
 			slog.Info("blocked indirect injection", "score", verdict.Indirect.Score,
 				"source", verdict.Indirect.Source, "category", verdict.Indirect.Category)
+			entry.Detected = layerIndirect
 			return blockResponse(c, "Request blocked: prompt injection detected in tool or document content.")
 		}
 
@@ -738,6 +768,7 @@ func chatHandler(gw gateway, upstreamPath string) fiber.Handler {
 		case policy.ActionAllow, policy.ActionRoute:
 		case policy.ActionBlock:
 			slog.Info("blocked by policy", "rule", decision.RuleID)
+			entry.Detected = layerPolicy
 			return blockResponse(c, "Request blocked by policy.")
 		default:
 			// redact is refused when saved, so this is a stale rule.
@@ -751,6 +782,7 @@ func chatHandler(gw gateway, upstreamPath string) fiber.Handler {
 		entry.RouteTarget = target.name
 		if errors.Is(err, errRouteUnavailable) {
 			entry.Action = actionError
+			entry.ErrorKind = errorKindConnect
 			return c.Status(fiber.StatusBadGateway).
 				JSON(errorBody("route target unavailable", "server_error", "route_unavailable"))
 		}
@@ -767,6 +799,7 @@ func chatHandler(gw gateway, upstreamPath string) fiber.Handler {
 		if errors.Is(err, errModelNotAllowed) {
 			// The audit row keeps the refused model and the upstream.
 			slog.Info("model not allowed by upstream", "org", entry.OrgID, "upstream", target.name, "model", entry.Model)
+			entry.ErrorKind, entry.UpstreamID = errorKindModel, target.id
 			entry.Action = actionBlock
 			return c.Status(fiber.StatusBadRequest).JSON(errorBody(
 				"model "+strconv.Quote(entry.Model)+" is not allowed for this upstream", "invalid_request_error", "model_not_allowed"))
@@ -838,9 +871,11 @@ func chatHandler(gw gateway, upstreamPath string) fiber.Handler {
 			}
 		}()
 
+		entry.UpstreamID = target.id
 		resp, err := target.proxy.Forward(ctx, upstreamPath, sanitized)
 		if err != nil {
 			entry.Action = actionError
+			entry.ErrorKind, entry.UpstreamStatus = upstreamErrorKind(err)
 			clientLeft(ctx, gw.base)
 			return upstreamError(c, err)
 		}
@@ -849,6 +884,7 @@ func chatHandler(gw gateway, upstreamPath string) fiber.Handler {
 			data, err := resp.ReadAll()
 			if err != nil {
 				entry.Action = actionError
+				entry.ErrorKind, entry.UpstreamStatus = upstreamErrorKind(err)
 				clientLeft(ctx, gw.base)
 				return upstreamError(c, err)
 			}
@@ -907,6 +943,7 @@ func chatHandler(gw gateway, upstreamPath string) fiber.Handler {
 			switch outcome {
 			case relayUpstreamFailed:
 				entry.Action = actionError
+				entry.ErrorKind = errorKindConnect
 			case relayBlocked:
 				entry.Action = actionOutputLeak
 			}
