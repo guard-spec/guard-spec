@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 func parseUUID(s string) (uuid.UUID, error) { return uuid.Parse(s) }
@@ -191,8 +193,29 @@ func pageJSON[T any](c *fiber.Ctx, items []T, next *string, total int64) error {
 // likePattern makes a search term an ILIKE pattern that matches it anywhere,
 // with its own wildcards escaped.
 func likePattern(q string) string {
-	r := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
-	return "%" + r.Replace(strings.TrimSpace(q)) + "%"
+	return "%" + likeEscape(strings.TrimSpace(q)) + "%"
+}
+
+// likeEscape escapes LIKE's wildcards (and its escape character) in s.
+func likeEscape(s string) string {
+	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s)
+}
+
+// cappedTotalLimit bounds the counts of the audit and activity logs.
+const cappedTotalLimit = 10_000
+
+// cappedCount counts the rows of "FROM ... WHERE ..." (from) up to
+// cappedTotalLimit, and reports whether there are more.
+func cappedCount(ctx context.Context, q interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}, from string, args []any) (int64, bool, error) {
+	var n int64
+	err := q.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM (SELECT 1 %s LIMIT %d) x`, from, cappedTotalLimit+1), args...).
+		Scan(&n)
+	if n > cappedTotalLimit {
+		return cappedTotalLimit, true, err
+	}
+	return n, false, err
 }
 
 func badPage(c *fiber.Ctx, err error) error {

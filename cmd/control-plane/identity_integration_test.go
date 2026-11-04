@@ -362,7 +362,9 @@ func TestLoginMethodAndLifetime(t *testing.T) {
 	// GET security shows every method when none is restricted.
 	ownerOrg, _, owner := h.org(auth.RoleOwner)
 	sec := h.expect(200, "GET", "/v1/organizations/"+ownerOrg.String()+"/security", owner, "")
-	if sec["require_mfa"] != false || sec["session_lifetime_hours"] != float64(12) || len(sec["allowed_login_methods"].([]any)) < 1 {
+	// Unrestricted login methods read as null, not a list pinned to today's
+	// providers.
+	if sec["require_mfa"] != false || sec["session_lifetime_hours"] != float64(12) || sec["allowed_login_methods"] != nil {
 		t.Errorf("security %v", sec)
 	}
 	h.expect(400, "PUT", "/v1/organizations/"+ownerOrg.String()+"/security", owner, `{"allowed_login_methods":[]}`)
@@ -750,7 +752,7 @@ func (h *cpHarness) ssoCallbackAt(provider, state, code, cookie string) (string,
 	}
 	loc := resp.Header.Get("Location")
 	path, query, ok := strings.Cut(loc, "?")
-	if resp.StatusCode != 302 || !ok || !strings.HasPrefix(path, "/ui/#/") {
+	if resp.StatusCode != 302 || !ok || !strings.HasPrefix(path, "/ui/") {
 		h.t.Fatalf("callback: %d %q", resp.StatusCode, loc)
 	}
 	v, _ := url.ParseQuery(query)
@@ -886,15 +888,24 @@ func TestOIDCLogin(t *testing.T) {
 	lq := linkStart(victimTok)
 	idp.grant("code9", lq.Get("code_challenge"), claims(lq.Get("nonce"), "sub-victim", victim))
 	path, cb := h.ssoCallbackAt(pid, lq.Get("state"), "code9", "")
-	if path != "/ui/#/account" || cb.Get("link_code") == "" {
+	if path != "/ui/account" || cb.Get("link_code") == "" {
 		t.Fatalf("link callback %s %v", path, cb)
 	}
 	if me := h.expect(200, "GET", "/v1/auth/me", victimTok, ""); len(me["identities"].([]any)) != 0 {
 		t.Error("linked before completion")
 	}
-	h.expect(401, "POST", "/v1/auth/identities/link/complete", session, `{"code":"`+cb.Get("link_code")+`"}`)
-	h.expect(200, "POST", "/v1/auth/identities/link/complete", victimTok, `{"code":"`+cb.Get("link_code")+`"}`)
-	h.expect(401, "POST", "/v1/auth/identities/link/complete", victimTok, `{"code":"`+cb.Get("link_code")+`"}`)
+	if status, out := h.do("POST", "/v1/auth/identities/link/complete", session, `{"code":"`+cb.Get("link_code")+`"}`); status != 409 ||
+		out["code"] != "link_wrong_user" {
+		t.Errorf("another user's link: %d %v", status, out)
+	}
+	done := h.expect(200, "POST", "/v1/auth/identities/link/complete", victimTok, `{"code":"`+cb.Get("link_code")+`"}`)
+	if done["provider_id"] != pid || done["display_name"] != "Corp SSO" || done["email"] != victim {
+		t.Errorf("link complete %v", done)
+	}
+	if status, out := h.do("POST", "/v1/auth/identities/link/complete", victimTok, `{"code":"`+cb.Get("link_code")+`"}`); status != 400 ||
+		out["code"] != "link_expired" {
+		t.Errorf("reused link code: %d %v", status, out)
+	}
 	if me := h.expect(200, "GET", "/v1/auth/me", victimTok, ""); len(me["identities"].([]any)) != 1 {
 		t.Errorf("not linked: %v", me)
 	}
@@ -913,7 +924,13 @@ func TestOIDCLogin(t *testing.T) {
 	idp.grant("code9b", lq.Get("code_challenge"), claims(lq.Get("nonce"), "sub-target", target))
 	_, cb = h.ssoCallbackAt(pid, lq.Get("state"), "code9b", "")
 	targetTok, _ := h.user("target-password-12")
-	h.expect(401, "POST", "/v1/auth/identities/link/complete", targetTok, `{"code":"`+cb.Get("link_code")+`"}`)
+	h.expect(409, "POST", "/v1/auth/identities/link/complete", targetTok, `{"code":"`+cb.Get("link_code")+`"}`)
+	// A link that fails at the provider reports to the account page.
+	lq = linkStart(attackerTok)
+	idp.grant("code9c", lq.Get("code_challenge"), claims(lq.Get("nonce"), "sub-x", "x@elsewhere.example"))
+	if path, cb := h.ssoCallbackAt(pid, lq.Get("state"), "code9c", ""); path != "/ui/account" || cb.Get("link_error") != "domain_not_allowed" {
+		t.Errorf("link error: %s %v", path, cb)
+	}
 	var linked int
 	if err := h.db.QueryRow(context.Background(), `SELECT count(*) FROM user_identities WHERE user_id = $1`, attackerID).
 		Scan(&linked); err != nil || linked != 0 {

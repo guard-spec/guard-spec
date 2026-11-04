@@ -45,6 +45,10 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   `{"items","next_cursor","total"}` with keyset cursors.
 - `TRUSTED_PROXIES` (control plane): the client address behind reverse
   proxies, read from the right of `X-Forwarded-For`.
+- Filters: `q` on requests (metadata only, never content) and API keys,
+  `revoked` on API keys, action families (`?action=invite`) on the activity
+  log; `total` (capped at 10,000, `total_capped`) on requests and activity.
+  An unrestricted org's `allowed_login_methods` reads and saves as `null`.
 
 ### Security
 
