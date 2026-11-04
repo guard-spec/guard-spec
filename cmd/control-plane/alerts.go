@@ -10,6 +10,7 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -36,12 +37,13 @@ import (
 // is stored in the database.
 type alertsConfig struct {
 	getenv          func(string) string
-	allowPrivate    bool   // ALERTS_ALLOW_PRIVATE_URLS=1
-	telegramToken   string // TELEGRAM_BOT_TOKEN: personal chats and the /start link
-	telegramBot     string // TELEGRAM_BOT_USERNAME, for deep links
-	telegramSecret  string // TELEGRAM_WEBHOOK_SECRET
-	telegramPolling bool   // TELEGRAM_POLLING=1
-	slackToken      string // SLACK_BOT_TOKEN: personal DMs and lookupByEmail
+	privateOrgs     alerts.PrivateOrgs // ALERTS_PRIVATE_ORGS
+	emailDailyCap   int                // ALERTS_EMAIL_DAILY_CAP
+	telegramToken   string             // TELEGRAM_BOT_TOKEN: personal chats and the /start link
+	telegramBot     string             // TELEGRAM_BOT_USERNAME, for deep links
+	telegramSecret  string             // TELEGRAM_WEBHOOK_SECRET
+	telegramPolling bool               // TELEGRAM_POLLING=1
+	slackToken      string             // SLACK_BOT_TOKEN: personal DMs and lookupByEmail
 	smtp            channels.SMTPConfig
 	secretOrgs      alerts.SecretOrgs // ALERTS_SECRET_ORGS
 	lang            string            // ALERTS_LANG: en (default) or vi
@@ -51,6 +53,25 @@ type alertsConfig struct {
 
 func loadAlertsConfig(getenv func(string) string) (alertsConfig, error) {
 	secretOrgs, err := alerts.ParseSecretOrgs(getenv("ALERTS_SECRET_ORGS"))
+	privateOrgs, perr := alerts.ParsePrivateOrgs(getenv("ALERTS_PRIVATE_ORGS"))
+	if err == nil {
+		err = perr
+	}
+	if err == nil && getenv("ALERTS_ALLOW_PRIVATE_URLS") != "" {
+		err = errors.New("ALERTS_ALLOW_PRIVATE_URLS was replaced by ALERTS_PRIVATE_ORGS, a list of the org ids " +
+			"whose channels may reach private addresses")
+	}
+	emailCap := alerts.DefaultEmailDailyCap
+	if v := getenv("ALERTS_EMAIL_DAILY_CAP"); v != "" {
+		n, cerr := strconv.Atoi(v)
+		if cerr != nil || n < 1 {
+			if err == nil {
+				err = errors.New("ALERTS_EMAIL_DAILY_CAP must be a positive number")
+			}
+		} else {
+			emailCap = n
+		}
+	}
 	lang := getenv("ALERTS_LANG")
 	if lang != "vi" {
 		lang = "en"
@@ -58,7 +79,8 @@ func loadAlertsConfig(getenv func(string) string) (alertsConfig, error) {
 	return alertsConfig{
 		secretOrgs:      secretOrgs,
 		getenv:          getenv,
-		allowPrivate:    getenv("ALERTS_ALLOW_PRIVATE_URLS") == "1",
+		privateOrgs:     privateOrgs,
+		emailDailyCap:   emailCap,
 		telegramToken:   getenv(alerts.EnvTelegramToken),
 		telegramBot:     strings.TrimPrefix(getenv("TELEGRAM_BOT_USERNAME"), "@"),
 		telegramSecret:  getenv("TELEGRAM_WEBHOOK_SECRET"),
@@ -111,7 +133,7 @@ func newAlertsRuntime(db *pgxpool.Pool, s *appSettings, sessions auth.SessionLoo
 		cfg = &c
 	}
 	api := proxy.SafeClient(false, channels.Timeout) // fixed operator origins
-	guard := channels.NewGuard(cfg.allowPrivate)
+	guard := channels.NewGuard(cfg.privateOrgs)
 	tg := &channels.Telegram{Base: cfg.telegramAPI, Client: api}
 	slack := &channels.Slack{Base: cfg.slackAPI, Client: api, Guard: guard}
 	caps := alerts.Caps{Telegram: cfg.telegramToken != "", Slack: cfg.slackToken != "", SMTP: cfg.smtp.Enabled()}
@@ -123,7 +145,7 @@ func newAlertsRuntime(db *pgxpool.Pool, s *appSettings, sessions auth.SessionLoo
 		db: db, cfg: *cfg, publicURL: s.publicURL, hub: alerts.NewHub(), tg: tg, slack: slack, guard: guard,
 		sessions: sessions, base: base,
 		engine: &alerts.Engine{DB: db, PublicURL: s.publicURL, Caps: caps, Lang: cfg.lang},
-		disp: &alerts.Dispatcher{DB: db, Getenv: cfg.getenv, Lang: cfg.lang, TelegramToken: cfg.telegramToken, SlackToken: cfg.slackToken, SecretOrgs: cfg.secretOrgs, Senders: map[string]channels.Sender{
+		disp: &alerts.Dispatcher{DB: db, Getenv: cfg.getenv, Lang: cfg.lang, TelegramToken: cfg.telegramToken, SlackToken: cfg.slackToken, SecretOrgs: cfg.secretOrgs, EmailDailyCap: cfg.emailDailyCap, Senders: map[string]channels.Sender{
 			channels.KindTelegram: tg,
 			channels.KindSlack:    slack,
 			channels.KindTeams:    &channels.Teams{Guard: guard},
@@ -193,6 +215,7 @@ func registerAlertRoutes(v1, authed fiber.Router, db *pgxpool.Pool, rt *alertsRu
 	authed.Get("/me/channel-links", rt.listLinks)
 	authed.Delete("/me/channel-links/:kind", rt.deleteLink)
 	authed.Put("/me/channel-links/email", perUser, rt.emailLink)
+	authed.Post("/me/channel-links/email/confirm", perUser, rt.emailLinkConfirm)
 	authed.Post("/me/channel-links/telegram/start", perUser, rt.telegramStart)
 	authed.Post("/me/channel-links/slack", perUser, rt.slackLink)
 	authed.Get("/notifications", rt.listNotifications)
@@ -213,6 +236,8 @@ func registerAlertRoutes(v1, authed fiber.Router, db *pgxpool.Pool, rt *alertsRu
 	authed.Patch(org+"/notification-channels/:id", admin, rt.updateChannel)
 	authed.Delete(org+"/notification-channels/:id", admin, rt.deleteChannel)
 	authed.Post(org+"/notification-channels/:id/test", admin, perUser, rt.testChannel)
+	authed.Post(org+"/notification-channels/:id/telegram-link", admin, perUser, rt.telegramChannelLink)
+	authed.Post(org+"/notification-channels/:id/email-confirmations", admin, perUser, rt.resendConfirmations)
 
 	authed.Get(org+"/user-groups", viewer, rt.listGroups)
 	authed.Post(org+"/user-groups", admin, rt.createGroup)
@@ -265,8 +290,25 @@ func envelope[T any](c *fiber.Ctx, items []T, next *string, total int64, capped 
 	return c.JSON(fiber.Map{"items": items, "next_cursor": next, "total": total, "total_capped": capped})
 }
 
-// capabilities answers GET /v1/alerts/capabilities.
+// capabilities answers GET /v1/alerts/capabilities[?org_id=]. allow_private_urls
+// is per org (ALERTS_PRIVATE_ORGS): true only with an org_id the caller
+// belongs to and the operator listed.
 func (rt *alertsRuntime) capabilities(c *fiber.Ctx) error {
+	private := false
+	if raw := c.Query("org_id"); raw != "" {
+		org, err := uuid.Parse(raw)
+		if err != nil {
+			return badRequest(c, "invalid org_id")
+		}
+		if rt.guard.AllowsPrivate(org.String()) {
+			var member bool
+			if err := rt.db.QueryRow(c.Context(), `SELECT EXISTS (SELECT 1 FROM user_organizations($1) WHERE id = $2)`,
+				authUser(c), org).Scan(&member); err != nil {
+				return serverError(c, err)
+			}
+			private = member
+		}
+	}
 	tgEnabled := rt.cfg.telegramToken != "" && rt.bot() != "" &&
 		(rt.cfg.telegramSecret != "" || rt.cfg.telegramPolling)
 	return c.JSON(fiber.Map{
@@ -276,6 +318,8 @@ func (rt *alertsRuntime) capabilities(c *fiber.Ctx) error {
 		"a2a":                true,
 		"webhook":            true,
 		"teams":              true,
-		"allow_private_urls": rt.cfg.allowPrivate,
+		"allow_private_urls": private,
+		"email_confirmation": rt.cfg.smtp.Enabled(),
+		"email_daily_cap":    rt.cfg.emailDailyCap,
 	})
 }

@@ -55,7 +55,7 @@ func (t *Teams) Send(ctx context.Context, m *Message) (Result, error) {
 	if hook == "" {
 		return Result{}, permanent(0, "teams: workflow url is not set")
 	}
-	client, check := t.Guard.pick(true)
+	client, check := t.Guard.pick(true, m.Payload.OrgID)
 	if err := check(hook); err != nil {
 		return Result{}, permanent(0, "%s", Redact("teams: "+err.Error(), hook))
 	}

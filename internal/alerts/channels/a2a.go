@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -100,23 +102,56 @@ func (c *agentCard) endpoint() (string, string, error) {
 }
 
 // auth returns the header that carries the secret.
-func (c *agentCard) auth(secret string) (string, string) {
+func (c *agentCard) auth(secret string) (string, string, error) {
 	if secret == "" {
-		return "", ""
+		return "", "", nil
 	}
-	for _, s := range c.SecuritySchemes {
+	names := make([]string, 0, len(c.SecuritySchemes))
+	for n := range c.SecuritySchemes {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		s := c.SecuritySchemes[n]
+		header := ""
 		switch {
 		case s.HTTPAuth != nil && strings.EqualFold(s.HTTPAuth.Scheme, "bearer"),
 			strings.EqualFold(s.Type, "http") && strings.EqualFold(s.Scheme, "bearer"):
-			return "Authorization", "Bearer " + secret
-		case s.APIKey != nil && strings.EqualFold(s.APIKey.Location, "header") && s.APIKey.Name != "":
-			return s.APIKey.Name, secret
-		case strings.EqualFold(s.Type, "apiKey") && strings.EqualFold(s.In, "header") && s.Name != "":
-			return s.Name, secret
+			return "Authorization", "Bearer " + secret, nil
+		case s.APIKey != nil && strings.EqualFold(s.APIKey.Location, "header"):
+			header = s.APIKey.Name
+		case strings.EqualFold(s.Type, "apiKey") && strings.EqualFold(s.In, "header"):
+			header = s.Name
+		default:
+			continue
 		}
+		if !apiKeyHeaderRe.MatchString(header) || reservedHeaders[strings.ToLower(header)] ||
+			strings.HasPrefix(strings.ToLower(header), "proxy-") {
+			return "", "", permanent(0, "a2a: the agent card names a header the key cannot be sent in")
+		}
+		return http.CanonicalHeaderKey(header), secret, nil
 	}
 	// No scheme we can use: a bearer token is the common case.
-	return "Authorization", "Bearer " + secret
+	return "Authorization", "Bearer " + secret, nil
+}
+
+var apiKeyHeaderRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]{0,63}$`)
+
+// reservedHeaders are hop-by-hop and request-framing headers, and those this
+// client sets itself: a card cannot have the key sent in them.
+var reservedHeaders = map[string]bool{
+	"host": true, "content-length": true, "content-type": true, "content-encoding": true, "transfer-encoding": true,
+	"connection": true, "keep-alive": true, "upgrade": true, "te": true, "trailer": true, "expect": true,
+	"cookie": true, "set-cookie": true, "user-agent": true, "a2a-version": true, "forwarded": true,
+	"x-forwarded-for": true, "x-forwarded-host": true, "x-forwarded-proto": true, "x-real-ip": true,
+}
+
+// sameOrigin reports whether a and b have the same scheme and host (and port).
+func sameOrigin(a, b string) bool {
+	ua, err1 := url.Parse(a)
+	ub, err2 := url.Parse(b)
+	return err1 == nil && err2 == nil && ua.Host != "" && strings.EqualFold(ua.Scheme, ub.Scheme) &&
+		strings.EqualFold(ua.Host, ub.Host)
 }
 
 // cardURL is the well-known card location of the configured URL's origin
@@ -230,7 +265,7 @@ func (a *A2A) Send(ctx context.Context, m *Message) (Result, error) {
 	if raw == "" {
 		return Result{}, permanent(0, "a2a: no agent_card_url")
 	}
-	client, check := a.Guard.pick(configBool(m.Config, "allow_private"))
+	client, check := a.Guard.pick(configBool(m.Config, "allow_private"), m.Payload.OrgID)
 	card, err := a.card(ctx, raw, client, check)
 	if err != nil {
 		return Result{}, err
@@ -238,6 +273,9 @@ func (a *A2A) Send(ctx context.Context, m *Message) (Result, error) {
 	endpoint, version, err := card.endpoint()
 	if err != nil {
 		return Result{}, err
+	}
+	if cu, _ := cardURL(raw); !sameOrigin(endpoint, cu) {
+		return Result{}, permanent(0, "a2a: the agent card names an endpoint on another origin than the card")
 	}
 	if err := check(endpoint); err != nil {
 		return Result{}, permanent(0, "%s", Redact("a2a endpoint: "+err.Error(), m.Secret))
@@ -247,7 +285,11 @@ func (a *A2A) Send(ctx context.Context, m *Message) (Result, error) {
 		return Result{}, err
 	}
 	req.Header.Set("A2A-Version", majorMinor(version))
-	if h, v := card.auth(m.Secret); h != "" {
+	h, v, err := card.auth(m.Secret)
+	if err != nil {
+		return Result{}, err
+	}
+	if h != "" {
 		req.Header.Set(h, v)
 	}
 	r, err := do(client, req, m.Secret)

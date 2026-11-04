@@ -252,6 +252,7 @@ func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins 
 	// with its own secret header, so it is mounted before the session check.
 	settings.alertsRT = newAlertsRuntime(db, settings, id.lookup)
 	v1.Post("/integrations/telegram/webhook", perIP(120), settings.alertsRT.telegramWebhook)
+	v1.Get("/integrations/email/confirm", perIP(30), settings.alertsRT.confirmEmail)
 
 	authed := v1.Group("", auth.Required(secret, id.lookup))
 
