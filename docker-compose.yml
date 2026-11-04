@@ -107,6 +107,17 @@ services:
       UPSTREAM_LLM_URL: ${UPSTREAM_LLM_URL:-}
       # Same allowlist as the gateway's; checked when upstreams are saved.
       UPSTREAM_KEY_ORGS: "${UPSTREAM_KEY_ORGS:-UPSTREAM_KEY_MAIN=*}"
+      # Connection tests of model providers use the same keys and address
+      # rules as the gateway.
+      UPSTREAM_KEY_MAIN: ${UPSTREAM_KEY_MAIN:-}
+      UPSTREAM_ALLOW_PRIVATE: ${UPSTREAM_ALLOW_PRIVATE:-true}
+      # Encrypts TOTP 2FA secrets: 32 random bytes, base64 (openssl rand -base64 32).
+      # Keep it: losing it disables every user's 2FA.
+      MFA_ENC_KEY: ${MFA_ENC_KEY:-}
+      # External origin of the control plane, for SSO callback urls.
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
+      # Client secrets of SSO providers; a provider names its variable.
+      OIDC_SECRET_GOOGLE: ${OIDC_SECRET_GOOGLE:-}
       METRICS_ADDR: ":9091"
       # Audit rows older than this are deleted hourly; 0 keeps them forever.
       AUDIT_RETENTION_DAYS: ${AUDIT_RETENTION_DAYS:-90}

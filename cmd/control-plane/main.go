@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -1020,6 +1021,12 @@ func (cfg appConfig) check() error {
 			u.RawQuery != "" || u.User != nil {
 			return errors.New("PUBLIC_BASE_URL must be an origin such as https://guard.example.com")
 		}
+	}
+	// The dev key of docker-compose.override.yml decodes to "dev-only-...".
+	if raw, err := base64.StdEncoding.DecodeString(cfg.MFAEncKey); err == nil && cfg.MFAEncKey != "" &&
+		config.IsKnownDefault(string(raw)) && !config.DevMode() {
+		return errors.New("MFA_ENC_KEY is the development key; set MFA_ENC_KEY to 32 random bytes in base64 " +
+			"(openssl rand -base64 32)")
 	}
 	var c config.Checker
 	c.Secret("JWT_SECRET", cfg.JWTSecret)

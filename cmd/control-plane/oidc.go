@@ -170,7 +170,6 @@ func (p *providerRow) validate() error {
 
 type oidcProvider struct {
 	row      providerRow
-	provider *oidc.Provider
 	verifier *oidc.IDTokenVerifier
 	config   oauth2.Config
 }
@@ -220,7 +219,6 @@ func (id *identity) provider(ctx context.Context, pid uuid.UUID) (*oidcProvider,
 	}
 	op := &oidcProvider{
 		row:      row,
-		provider: prov,
 		verifier: prov.Verifier(&oidc.Config{ClientID: row.ClientID}),
 		config: oauth2.Config{ClientID: row.ClientID, ClientSecret: secret, Endpoint: prov.Endpoint(),
 			RedirectURL: id.callbackURL(pid), Scopes: row.Scopes},

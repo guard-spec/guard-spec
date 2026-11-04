@@ -33,6 +33,9 @@ services:
       PGPASSWORD: ${GUARDSPEC_APP_PASSWORD:-${PS_APP_PASSWORD:-guardspec_app}}
       JWT_SECRET: ${JWT_SECRET:-dev-only-insecure-jwt-secret-do-not-deploy}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-change-on-first-login}
+      # base64 of "dev-only-insecure-mfa-key-000000"; refused outside GUARD_ENV=dev.
+      MFA_ENC_KEY: ${MFA_ENC_KEY:-ZGV2LW9ubHktaW5zZWN1cmUtbWZhLWtleS0wMDAwMDA=}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:18081}
 
   migrate:
     environment:

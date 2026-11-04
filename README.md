@@ -416,6 +416,10 @@ in a second table.
 | `ALLOWED_ORIGINS` | empty (compose: `http://localhost:3000`) | CORS origins; empty disables CORS. The UI at `/ui/` is same-origin and needs none |
 | `UPSTREAM_LLM_URL` | empty | The gateway's value, so that the policy simulator can show the `env` step; credentials in it are not shown |
 | `UPSTREAM_KEY_ORGS` | empty (compose: `UPSTREAM_KEY_MAIN=*`) | As on the gateway. Saving an upstream (or a config file) that names a key variable not allowed for the org is refused |
+| `UPSTREAM_KEY_*`, `UPSTREAM_ALLOW_PRIVATE` | empty, `false` (compose: `true`) | As on the gateway; used only by `POST .../upstreams/:id/test`, which applies the same key allowlist and address rules |
+| `MFA_ENC_KEY` | empty (dev: a fixed key) | 32 random bytes in base64 (`openssl rand -base64 32`). Encrypts TOTP secrets with AES-256-GCM. Without it 2FA cannot be turned on; when users already have 2FA the control plane refuses to start without it. The development key is refused outside `GUARD_ENV=dev` |
+| `PUBLIC_BASE_URL` | empty (dev: `http://localhost:18081`) | External origin of the control plane, such as `https://guard.example.com`. SSO callbacks go to `<PUBLIC_BASE_URL>/v1/auth/oidc/<provider id>/callback`; SSO is unavailable without it |
+| `OIDC_SECRET_*` | empty | Client secrets of SSO providers; each provider names its variable in `client_secret_env` |
 | `METRICS_ADDR` | `:9091` | Metrics listener; `off` disables it |
 | `AUDIT_RETENTION_DAYS` | `90` | Delete audit rows older than this; `0` keeps them |
 | `AUDIT_RETENTION_INTERVAL` | `1h` | Time between retention runs, at least `1m` |
@@ -494,7 +498,19 @@ needs `Authorization: Bearer <token from /v1/auth/login>`. Roles are `owner`,
 
 | Method and path | Role |
 |---|---|
-| `POST /auth/login` | none (rate limited) |
+| `POST /auth/login` (a session, or the 2FA step; see [Identity](#identity-sso-and-two-factor-authentication)) | none (rate limited) |
+| `POST /auth/mfa/verify` (`{mfa_token, code}`) | none (rate limited; 5 attempts per `mfa_token`) |
+| `GET /auth/providers` (enabled SSO providers) | none |
+| `GET /auth/oidc/:id/start?redirect=/ui/...`, `GET /auth/oidc/:id/callback` | none (browser redirects) |
+| `POST /auth/oidc/exchange` (`{code}`) | none (rate limited) |
+| `POST /auth/mfa/totp/setup`, `POST /auth/mfa/totp/confirm` | any user, or an enrollment `mfa_token` |
+| `GET /auth/me`, `POST /auth/logout`, `GET /auth/sessions`, `DELETE /auth/sessions/:id`, `POST /auth/password` | any user |
+| `POST /auth/mfa/recovery-codes/regenerate`, `DELETE /auth/mfa` (`{code}`) | any user |
+| `POST /auth/identities/:providerId/link/start` (returns `{url}`), `DELETE /auth/identities/:providerId` | any user |
+| `GET /permissions` (role-to-capability table), `GET /providers/catalog` (model provider presets) | none |
+| `GET`, `POST /admin/users`; `PUT`, `DELETE /admin/users/:id` | instance admin |
+| `GET`, `POST /admin/identity-providers`; `PUT`, `DELETE /admin/identity-providers/:id` | instance admin |
+| `GET /admin/activity` | instance admin |
 | `POST /invites/accept` | none (rate limited) |
 | `GET /organizations` (the caller's organizations and role in each) | any user |
 | `POST /organizations` | any user |
@@ -505,21 +521,40 @@ needs `Authorization: Bearer <token from /v1/auth/login>`. Roles are `owner`,
 | `GET /organizations/:orgId` (includes `default_upstream_id`) | viewer |
 | `PATCH /organizations/:orgId` (`audit_store_content`) | admin |
 | `GET`, `PUT /organizations/:orgId/guard-settings` | viewer, admin |
+| `GET`, `PUT /organizations/:orgId/security` (2FA requirement, login methods, domain join, session lifetime) | admin, owner |
+| `GET /organizations/:orgId/members?q=&role=` | admin |
+| `PUT`, `DELETE /organizations/:orgId/members/:userId`, `POST .../revoke-sessions` (owners: owner only; the last owner stays) | admin |
+| `POST /organizations/:orgId/members/:userId/reset-mfa` | owner |
+| `GET /organizations/:orgId/activity?actor=&action=` | admin |
+| `GET`, `PUT`, `DELETE /organizations/:orgId/projects/:projectId/members[/:userId]` | viewer, admin |
 | `GET`, `POST /organizations/:orgId/api-keys` | admin |
 | `PATCH`, `DELETE /organizations/:orgId/api-keys/:keyId` | admin |
 | `GET`, `POST /organizations/:orgId/projects` (list includes `default_upstream_id`) | viewer, admin |
 | `GET`, `POST /organizations/:orgId/upstreams` | viewer, admin |
 | `PUT`, `DELETE /organizations/:orgId/upstreams/:id` (409 while a rule or default uses it) | admin |
+| `POST /organizations/:orgId/upstreams/:id/test` (`GET {base_url}/models`, 5 s; returns `{ok, latency_ms, status, models_found, error}`) | admin |
 | `PUT /organizations/:orgId/default-upstream` (`{"upstream_id": id or null}`) | admin |
 | `PUT /organizations/:orgId/projects/:projectId/default-upstream` | admin |
 | `GET`, `PUT /organizations/:orgId/config[?dry_run=true]` (YAML; `GET` is 409 when the stored config would not apply again) | viewer, admin |
 | `GET`, `POST /organizations/:orgId/policies` (409 on a name the org already uses; `enabled` defaults to true) | viewer, admin |
 | `POST /organizations/:orgId/policies/simulate` | viewer |
 | `PUT`, `DELETE /organizations/:orgId/policies/:id` | admin |
-| `GET /organizations/:orgId/requests?limit=100` (includes `route_target`) | viewer |
+| `GET /organizations/:orgId/requests?limit=&cursor=&action=` (includes `route_target`) | viewer |
 | `GET`, `POST /organizations/:orgId/exemplars` | viewer, admin |
 | `PUT`, `DELETE /organizations/:orgId/exemplars/:id` | admin |
 | `GET`, `POST /organizations/:orgId/invites`, `DELETE .../invites/:inviteId` (also under `/orgs/:orgId`) | admin |
+
+**Pagination.** List endpoints take `?limit=50&cursor=<opaque>` (`limit` at
+most 200) and answer `{"items": [...], "next_cursor": "..." | null, "total": n}`
+(`total` is left out of requests and activity). Cursors are keyset positions,
+so rows added between pages do not shift them. For one release, the endpoints
+that existed before answer in their old shape (`{"data": [...]}`) when the
+request has neither `limit` nor `cursor`.
+
+**Errors** are `{"error": "message"}`; the identity endpoints add a
+machine-readable `"code"` (such as `mfa_required`, `login_method_not_allowed`,
+`last_owner`, `invalid_code`). The gateway refuses a model an upstream does
+not allow with 400 and the OpenAI-style code `model_not_allowed`.
 
 Both services also serve `GET /health`. The control plane serves the admin UI
 at `/ui/` (no token; the UI logs in through `/v1/auth/login`) and redirects
@@ -1103,6 +1138,61 @@ a role above their own.
 A project groups API keys inside an organization. A key or a policy created
 with a `project_id` belongs to that project; the gateway evaluates the
 project's policies first, then the org-wide ones.
+
+### Identity, SSO and two-factor authentication
+
+**Sessions.** A login creates a row in `sessions`; the token (12 hours)
+carries its id as `sid`. Logout, `DELETE /v1/auth/sessions/:id`, a password
+change (other sessions), disabling a user and an admin's `revoke-sessions`
+end sessions at once on the replica that made the change and within 15
+seconds on the others. Tokens issued before migration 013 have no `sid` and
+are refused: everyone logs in again after the upgrade.
+
+**Two-factor authentication** (TOTP, RFC 6238: SHA-1, 6 digits, 30 s, one
+step of skew). `POST /v1/auth/mfa/totp/setup` returns the secret and an
+`otpauth://` URL (the UI draws the QR code itself); `.../confirm {code}`
+turns it on and returns 10 recovery codes, shown once and stored as bcrypt
+hashes. A login of a user with 2FA returns
+`{"mfa_required": true, "mfa_token", "methods": ["totp","recovery"]}`;
+`POST /v1/auth/mfa/verify {mfa_token, code}` finishes it. The `mfa_token` is a
+5-minute JWT allowing 5 attempts and one success; a TOTP code is refused for
+the step it was used in (and earlier ones), a recovery code works once. The
+secret is encrypted with `MFA_ENC_KEY` (AES-256-GCM, bound to the user id).
+
+**Org security** (`PUT /v1/organizations/:orgId/security`, owner):
+`require_mfa` makes members without 2FA enroll at their next login
+(`{"mfa_enroll_required": true, "mfa_token"}`; that token can only call the 2FA
+setup endpoints) and refuses existing sessions without 2FA (403
+`mfa_required`); `sso_satisfies_mfa` lets SSO sessions pass;
+`allowed_login_methods` (`password`, `google`, `oidc:<provider id>`; unset
+allows all) refuses sessions of other methods (403
+`login_method_not_allowed`); `session_lifetime_hours` (1-12) shortens
+sessions for this org; `domain_join` adds SSO users of a verified email domain
+on first login, with a role up to admin. A domain can be joined only if the
+instance administrator listed it in the provider's `allowed_domains`.
+
+**SSO** (OpenID Connect, Google as a preset). An instance administrator
+(`users.is_instance_admin`; the bootstrap admin, and the owners of the default
+org at migration 013) adds providers at `/v1/admin/identity-providers`
+`{"type":"google","client_id":"...","client_secret_env":"OIDC_SECRET_GOOGLE","allowed_domains":["example.com"],"auto_provision":true}`.
+Register `<PUBLIC_BASE_URL>/v1/auth/oidc/<id>/callback` as the redirect URI.
+The flow uses PKCE (S256), `state` and `nonce` (stored server-side for 10
+minutes), verifies the ID token through the provider's JWKS and requires
+`email_verified`; Google logins with `allowed_domains` must also carry a
+matching `hd` claim. The callback redirects to
+`/ui/#/auth/callback?code=<60 s one-time code>` (or `?error=<code>`), which
+`POST /v1/auth/oidc/exchange` turns into the same answer as a password
+login, so 2FA still applies. Identities match on (provider, subject). An
+email that matches an existing account is linked only if that account has no
+password; otherwise the login is refused with `account_exists` and the owner
+of the account links the identity from their profile
+(`POST /v1/auth/identities/:providerId/link/start`). New users are created
+only with `auto_provision` and an allowed domain.
+
+**Activity log.** Member, invite, API key, policy, upstream, security and
+config changes, 2FA resets and logins (success and failure) are recorded per
+org (`GET /v1/organizations/:orgId/activity`); SSO provider and instance user
+changes at `GET /v1/admin/activity`. Details never hold secrets.
 
 ### Audit retention
 
