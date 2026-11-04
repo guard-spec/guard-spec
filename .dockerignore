@@ -6,3 +6,5 @@ models
 !models/manifest.yaml
 .onnx
 *.log
+# the UI is installed and built inside the image (build/control-plane.Dockerfile)
+web/node_modules

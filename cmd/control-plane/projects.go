@@ -73,22 +73,23 @@ func listProjects(db *pgxpool.Pool) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		org := orgID(c)
 		type row struct {
-			ID        uuid.UUID `json:"id"`
-			Name      string    `json:"name"`
-			Slug      string    `json:"slug"`
-			CreatedAt time.Time `json:"created_at"`
+			ID                uuid.UUID  `json:"id"`
+			Name              string     `json:"name"`
+			Slug              string     `json:"slug"`
+			DefaultUpstreamID *uuid.UUID `json:"default_upstream_id"`
+			CreatedAt         time.Time  `json:"created_at"`
 		}
 		projects := []row{}
 		err := tenant.WithOrg(c.Context(), db, org, func(tx pgx.Tx) error {
 			rows, err := tx.Query(c.Context(),
-				`SELECT id, name, slug, created_at FROM projects WHERE org_id = $1 ORDER BY created_at`, org)
+				`SELECT id, name, slug, default_upstream_id, created_at FROM projects WHERE org_id = $1 ORDER BY created_at`, org)
 			if err != nil {
 				return err
 			}
 			defer rows.Close()
 			for rows.Next() {
 				var r row
-				if err := rows.Scan(&r.ID, &r.Name, &r.Slug, &r.CreatedAt); err != nil {
+				if err := rows.Scan(&r.ID, &r.Name, &r.Slug, &r.DefaultUpstreamID, &r.CreatedAt); err != nil {
 					return err
 				}
 				projects = append(projects, r)

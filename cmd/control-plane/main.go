@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"io/fs"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
@@ -20,6 +22,7 @@ import (
 	"github.com/giaplee/guard-spec/internal/policy"
 	"github.com/giaplee/guard-spec/internal/retention"
 	"github.com/giaplee/guard-spec/internal/tenant"
+	"github.com/giaplee/guard-spec/web"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/limiter"
@@ -62,6 +65,11 @@ func main() {
 		slog.Error("config", "err", err)
 		os.Exit(1)
 	}
+	keyOrgs, err := config.ParseKeyOrgs(os.Getenv("UPSTREAM_KEY_ORGS"))
+	if err != nil {
+		slog.Error("config", "err", err)
+		os.Exit(1)
+	}
 	secret := []byte(cfg.JWTSecret)
 
 	db, err := pgxpool.New(context.Background(), cfg.DatabaseURL)
@@ -87,7 +95,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	app := newApp(db, secret, eng, cfg.AllowedOrigins)
+	app := newApp(db, secret, eng, cfg.AllowedOrigins, withEnvUpstream(cfg.UpstreamURL), withKeyOrgs(keyOrgs))
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -110,8 +118,37 @@ func main() {
 	_ = app.Shutdown()
 }
 
+// appSettings are optional settings of newApp.
+type appSettings struct {
+	// envUpstreamURL is UPSTREAM_LLM_URL, for the simulator's env step.
+	envUpstreamURL string
+	ui             fs.FS // the admin UI; nil: web.Dist()
+	// keyOrgs is UPSTREAM_KEY_ORGS: which orgs may name which UPSTREAM_KEY_*
+	// variable as an upstream's api_key_env. The zero value allows none.
+	keyOrgs config.KeyOrgs
+}
+
+// withKeyOrgs sets the UPSTREAM_KEY_ORGS allowlist.
+func withKeyOrgs(k config.KeyOrgs) appOption {
+	return func(s *appSettings) { s.keyOrgs = k }
+}
+
+type appOption func(*appSettings)
+
+// withEnvUpstream tells the simulator the gateway's UPSTREAM_LLM_URL.
+func withEnvUpstream(url string) appOption {
+	return func(s *appSettings) { s.envUpstreamURL = url }
+}
+
 // newApp builds the Fiber app with all control plane routes.
-func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins string) *fiber.App {
+func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins string, opts ...appOption) *fiber.App {
+	settings := &appSettings{}
+	for _, o := range opts {
+		o(settings)
+	}
+	if settings.ui == nil {
+		settings.ui = web.Dist()
+	}
 	app := fiber.New(fiber.Config{
 		ServerHeader: "guard-spec-cp",
 		ReadTimeout:  30 * time.Second,
@@ -126,6 +163,7 @@ func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins 
 	app.Get("/health", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{"status": "ok"})
 	})
+	mountUI(app, settings.ui)
 
 	v1 := app.Group("/v1")
 
@@ -143,6 +181,10 @@ func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins 
 
 	authed.Post("/organizations", createOrg(db))
 	authed.Post("/cel/validate", validateCEL(eng))
+	// Rule editing helpers; they read no org data.
+	authed.Get("/policy/schema", policySchema())
+	authed.Post("/policy/parse", parseCondition(eng))
+	authed.Post("/policy/format", formatCondition())
 
 	viewer := auth.RequireRole(db, auth.RoleViewer)
 	admin := auth.RequireRole(db, auth.RoleAdmin)
@@ -160,7 +202,21 @@ func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins 
 	authed.Get("/organizations/:orgId/projects", viewer, listProjects(db))
 	authed.Post("/organizations/:orgId/projects", admin, createProject(db))
 
+	// Named upstreams and routing defaults (migration 011).
+	authed.Get("/organizations/:orgId/upstreams", viewer, listUpstreams(db))
+	authed.Post("/organizations/:orgId/upstreams", admin, createUpstream(db, settings))
+	authed.Put("/organizations/:orgId/upstreams/:id", admin, updateUpstream(db, settings))
+	authed.Delete("/organizations/:orgId/upstreams/:id", admin, deleteUpstream(db))
+	authed.Put("/organizations/:orgId/default-upstream", admin, putOrgDefaultUpstream(db))
+	authed.Put("/organizations/:orgId/projects/:projectId/default-upstream", admin, putProjectDefaultUpstream(db))
+
+	// Config as code: the org's upstreams, defaults and policies as one YAML file.
+	authed.Get("/organizations/:orgId/config", viewer, getConfig(db, eng))
+	authed.Put("/organizations/:orgId/config", admin, putConfig(db, eng, settings))
+
 	authed.Get("/organizations/:orgId/policies", viewer, listPolicies(db))
+	// Before /policies/:id, which would take "simulate" as an id.
+	authed.Post("/organizations/:orgId/policies/simulate", viewer, simulatePolicies(db, eng, settings))
 	authed.Post("/organizations/:orgId/policies", admin, createPolicy(db, eng))
 	authed.Put("/organizations/:orgId/policies/:id", admin, updatePolicy(db, eng))
 	authed.Delete("/organizations/:orgId/policies/:id", admin, deletePolicy(db))
@@ -286,17 +342,19 @@ func getOrg(db *pgxpool.Pool) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		id := orgID(c)
 		var org struct {
-			ID                uuid.UUID `json:"id"`
-			Name              string    `json:"name"`
-			Slug              string    `json:"slug"`
-			Tier              string    `json:"tier"`
-			AuditStoreContent bool      `json:"audit_store_content"`
-			CreatedAt         time.Time `json:"created_at"`
+			ID                uuid.UUID  `json:"id"`
+			Name              string     `json:"name"`
+			Slug              string     `json:"slug"`
+			Tier              string     `json:"tier"`
+			AuditStoreContent bool       `json:"audit_store_content"`
+			DefaultUpstreamID *uuid.UUID `json:"default_upstream_id"`
+			CreatedAt         time.Time  `json:"created_at"`
 		}
 		err := tenant.WithOrg(c.Context(), db, id, func(tx pgx.Tx) error {
 			return tx.QueryRow(c.Context(),
-				`SELECT id, name, slug, tier, audit_store_content, created_at FROM organizations WHERE id = $1`, id).
-				Scan(&org.ID, &org.Name, &org.Slug, &org.Tier, &org.AuditStoreContent, &org.CreatedAt)
+				`SELECT id, name, slug, tier, audit_store_content, default_upstream_id, created_at
+				 FROM organizations WHERE id = $1`, id).
+				Scan(&org.ID, &org.Name, &org.Slug, &org.Tier, &org.AuditStoreContent, &org.DefaultUpstreamID, &org.CreatedAt)
 		})
 		if err != nil {
 			return c.Status(404).JSON(fiber.Map{"error": "not found"})
@@ -497,7 +555,7 @@ func createPolicy(db *pgxpool.Pool, eng *policy.Engine) fiber.Handler {
 		if err := c.BodyParser(&req); err != nil || req.Name == "" {
 			return c.Status(400).JSON(fiber.Map{"error": "name and rules are required"})
 		}
-		rules, err := validateRules(eng, req.Rules)
+		rules, targets, err := validateRules(eng, req.Rules)
 		if err != nil {
 			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
 		}
@@ -506,13 +564,23 @@ func createPolicy(db *pgxpool.Pool, eng *policy.Engine) fiber.Handler {
 			if err := checkProject(c.Context(), tx, org, req.ProjectID); err != nil {
 				return err
 			}
+			if err := checkPolicyName(c.Context(), tx, org, req.Name, uuid.Nil); err != nil {
+				return err
+			}
+			if err := checkRouteTargets(c.Context(), tx, org, targets); err != nil {
+				return err
+			}
 			_, err := tx.Exec(c.Context(),
 				`INSERT INTO policies (id, org_id, project_id, name, description, rules) VALUES ($1,$2,$3,$4,$5,$6)`,
 				id, org, req.ProjectID, req.Name, req.Description, rules)
 			return err
 		})
-		if errors.Is(err, errUnknownProject) {
+		var unknownTarget *unknownTargetError
+		if errors.Is(err, errUnknownProject) || errors.As(err, &unknownTarget) {
 			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+		}
+		if errors.Is(err, errDuplicatePolicyName) {
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": err.Error()})
 		}
 		if err != nil {
 			return serverError(c, err)
@@ -538,14 +606,21 @@ func updatePolicy(db *pgxpool.Pool, eng *policy.Engine) fiber.Handler {
 		if err := c.BodyParser(&req); err != nil {
 			return c.Status(400).JSON(fiber.Map{"error": "invalid body"})
 		}
+		var targets []string
 		if req.Rules != nil {
-			if req.Rules, err = validateRules(eng, req.Rules); err != nil {
+			if req.Rules, targets, err = validateRules(eng, req.Rules); err != nil {
 				return c.Status(400).JSON(fiber.Map{"error": err.Error()})
 			}
 		}
 		var updated int64
 		err = tenant.WithOrg(c.Context(), db, org, func(tx pgx.Tx) error {
 			if err := checkProject(c.Context(), tx, org, req.ProjectID.Value); err != nil {
+				return err
+			}
+			if err := checkPolicyName(c.Context(), tx, org, req.Name, pID); err != nil {
+				return err
+			}
+			if err := checkRouteTargets(c.Context(), tx, org, targets); err != nil {
 				return err
 			}
 			tag, err := tx.Exec(c.Context(),
@@ -563,8 +638,12 @@ func updatePolicy(db *pgxpool.Pool, eng *policy.Engine) fiber.Handler {
 			updated = tag.RowsAffected()
 			return err
 		})
-		if errors.Is(err, errUnknownProject) {
+		var unknownTarget *unknownTargetError
+		if errors.Is(err, errUnknownProject) || errors.As(err, &unknownTarget) {
 			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+		}
+		if errors.Is(err, errDuplicatePolicyName) {
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": err.Error()})
 		}
 		if err != nil {
 			return serverError(c, err)
@@ -614,13 +693,40 @@ func validateCEL(eng *policy.Engine) fiber.Handler {
 	}
 }
 
-// validateRules checks each rule and returns the list to store, with rule IDs filled in.
-func validateRules(eng *policy.Engine, raw json.RawMessage) (json.RawMessage, error) {
+var errDuplicatePolicyName = errors.New("a policy with this name already exists in this organization")
+
+// checkPolicyName refuses a name another policy of org (other than self)
+// already has: the config file names policies by name. The org row lock
+// serializes concurrent saves, as a config apply does; older databases may
+// still hold duplicates, so there is no unique index.
+func checkPolicyName(ctx context.Context, tx pgx.Tx, org uuid.UUID, name string, self uuid.UUID) error {
+	if name == "" {
+		return nil // an update that keeps the name
+	}
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM organizations WHERE id = $1 FOR UPDATE`, org); err != nil {
+		return err
+	}
+	var taken bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM policies WHERE org_id = $1 AND name = $2 AND id <> $3)`,
+		org, name, self).Scan(&taken); err != nil {
+		return err
+	}
+	if taken {
+		return errDuplicatePolicyName
+	}
+	return nil
+}
+
+// validateRules checks each rule and returns the list to store, with rule IDs
+// filled in, and the route targets the rules name (checked against the org's
+// upstreams by checkRouteTargets, inside the transaction that saves them).
+func validateRules(eng *policy.Engine, raw json.RawMessage) (json.RawMessage, []string, error) {
 	rules, err := eng.ValidateRules(raw)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return json.Marshal(rules)
+	stored, err := json.Marshal(rules)
+	return stored, routeTargets(rules), err
 }
 
 func listRequests(db *pgxpool.Pool) fiber.Handler {
@@ -647,6 +753,9 @@ func listRequests(db *pgxpool.Pool) fiber.Handler {
 			RequestBytes   *int       `json:"request_bytes"`
 			ResponseSHA256 *string    `json:"response_sha256"`
 			ResponseBytes  *int       `json:"response_bytes"`
+			// The named upstream the request went to (or failed to reach);
+			// null for UPSTREAM_LLM_URL, the stub and refused requests.
+			RouteTarget *string `json:"route_target"`
 			// Present only when the org or gateway enabled content storage.
 			RequestContent  *string   `json:"request_content,omitempty"`
 			ResponseContent *string   `json:"response_content,omitempty"`
@@ -657,7 +766,7 @@ func listRequests(db *pgxpool.Pool) fiber.Handler {
 			rows, err := tx.Query(c.Context(),
 				`SELECT id, model, action, rule_id, injection_label, injection_score, toxicity_score, anomaly_score,
 				        had_tag_chars, had_bidi, latency_ms,
-				        request_sha256, request_bytes, response_sha256, response_bytes,
+				        request_sha256, request_bytes, response_sha256, response_bytes, route_target,
 				        request_content, response_content, created_at
 				 FROM requests WHERE org_id = $1
 				 ORDER BY created_at DESC LIMIT $2`, id, limit)
@@ -669,7 +778,7 @@ func listRequests(db *pgxpool.Pool) fiber.Handler {
 				var r row
 				if err := rows.Scan(&r.ID, &r.Model, &r.Action, &r.RuleID, &r.InjectionLabel, &r.InjectionScore, &r.ToxicityScore,
 					&r.AnomalyScore, &r.HadTagChars, &r.HadBidi, &r.LatencyMs,
-					&r.RequestSHA256, &r.RequestBytes, &r.ResponseSHA256, &r.ResponseBytes,
+					&r.RequestSHA256, &r.RequestBytes, &r.ResponseSHA256, &r.ResponseBytes, &r.RouteTarget,
 					&r.RequestContent, &r.ResponseContent, &r.CreatedAt); err != nil {
 					return err
 				}
@@ -693,6 +802,9 @@ type appConfig struct {
 	AdminEmail     string
 	AdminPassword  string
 	AllowedOrigins string
+	// UpstreamURL is the gateway's UPSTREAM_LLM_URL, shown by the simulator
+	// (without credentials). Optional.
+	UpstreamURL string
 }
 
 func loadConfig() appConfig {
@@ -703,7 +815,18 @@ func loadConfig() appConfig {
 		AdminEmail:     os.Getenv("ADMIN_EMAIL"),
 		AdminPassword:  os.Getenv("ADMIN_PASSWORD"),
 		AllowedOrigins: os.Getenv("ALLOWED_ORIGINS"),
+		UpstreamURL:    redactURL(os.Getenv("UPSTREAM_LLM_URL")),
 	}
+}
+
+// redactURL drops credentials and the query from a URL that is shown to users.
+func redactURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || raw == "" {
+		return ""
+	}
+	u.User, u.RawQuery, u.Fragment = nil, "", ""
+	return u.String()
 }
 
 // check refuses missing, default and weak secrets unless GUARD_ENV=dev.

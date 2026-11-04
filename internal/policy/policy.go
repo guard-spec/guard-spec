@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -339,6 +340,8 @@ func (e *Engine) CheckRules(rules []Rule) []error {
 		}
 		if err := checkAction(rule.Action); err != nil {
 			errs = append(errs, fmt.Errorf("rule %q: %w", name, err))
+		} else if err := checkRouteTarget(&rule); err != nil {
+			errs = append(errs, fmt.Errorf("rule %q: %w", name, err))
 		}
 		celExpr, err := JSONASTToCEL(rule.Condition)
 		if err == nil {
@@ -351,15 +354,58 @@ func (e *Engine) CheckRules(rules []Rule) []error {
 	return errs
 }
 
+// Actions lists the actions a rule may take, in the order the schema shows them.
+var Actions = []Action{ActionAllow, ActionBlock, ActionLog, ActionRoute}
+
 func checkAction(action Action) error {
 	switch action {
-	case ActionAllow, ActionBlock, ActionLog:
+	case ActionAllow, ActionBlock, ActionLog, ActionRoute:
 		return nil
-	case ActionRedact, ActionRoute:
+	case ActionRedact:
 		return fmt.Errorf("action %q is not implemented by the gateway", action)
 	default:
 		return fmt.Errorf("unknown action %q", action)
 	}
+}
+
+// upstreamNameRe is the form of an upstream name, and so of a route target.
+var upstreamNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
+
+// ValidUpstreamName reports whether name is a valid upstream name.
+func ValidUpstreamName(name string) bool { return upstreamNameRe.MatchString(name) }
+
+// checkRouteTarget requires a well-formed target on a route rule and none on
+// any other rule. Whether the target names an upstream of the org is checked
+// by the control plane, which can see the org's upstreams.
+func checkRouteTarget(rule *Rule) error {
+	if rule.Action != ActionRoute {
+		if rule.RouteTarget != "" {
+			return errors.New("route_target is only valid with action route")
+		}
+		return nil
+	}
+	if rule.RouteTarget == "" {
+		return errors.New("a route rule needs a route_target")
+	}
+	if !ValidUpstreamName(rule.RouteTarget) {
+		return fmt.Errorf("route_target %q is not a valid upstream name", rule.RouteTarget)
+	}
+	return nil
+}
+
+// ValidateRule checks one rule as ValidateRules does, without filling in its ID.
+func (e *Engine) ValidateRule(rule *Rule) error {
+	if err := checkAction(rule.Action); err != nil {
+		return err
+	}
+	if err := checkRouteTarget(rule); err != nil {
+		return err
+	}
+	celExpr, err := JSONASTToCEL(rule.Condition)
+	if err != nil {
+		return err
+	}
+	return e.ValidateCEL(celExpr)
 }
 
 // ValidateRules checks a rule list before it is saved and returns it with every
@@ -378,14 +424,7 @@ func (e *Engine) ValidateRules(raw json.RawMessage) ([]Rule, error) {
 	seen := make(map[uuid.UUID]bool, len(rules))
 	for i := range rules {
 		rule := &rules[i]
-		if err := checkAction(rule.Action); err != nil {
-			return nil, fmt.Errorf("rule %q: %w", rule.Name, err)
-		}
-		celExpr, err := JSONASTToCEL(rule.Condition)
-		if err != nil {
-			return nil, fmt.Errorf("rule %q: %w", rule.Name, err)
-		}
-		if err := e.ValidateCEL(celExpr); err != nil {
+		if err := e.ValidateRule(rule); err != nil {
 			return nil, fmt.Errorf("rule %q: %w", rule.Name, err)
 		}
 		if rule.ID == uuid.Nil {
@@ -607,6 +646,19 @@ func leafToCEL(node queryBuilderNode, legacy bool) (string, error) {
 			return fmt.Sprintf("%s in %s", lit, field), nil
 		}
 		return fmt.Sprintf("%s.contains(%s)", field, lit), nil
+	case "beginsWith", "endsWith":
+		if typ != cel.StringType {
+			return "", unsupported
+		}
+		lit, err := celValue(cel.StringType, node.Value)
+		if err != nil {
+			return "", fmt.Errorf("%s: %w", field, err)
+		}
+		method := "startsWith"
+		if node.Operator == "endsWith" {
+			method = "endsWith"
+		}
+		return fmt.Sprintf("%s.%s(%s)", field, method, lit), nil
 	case "in":
 		switch {
 		case isList:
