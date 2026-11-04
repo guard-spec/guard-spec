@@ -59,6 +59,25 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   training-time no-diacritics / teencode augmentation. New validation split
   `train/data/val_vi_variants.jsonl`. The gateway loads
   `models/local/guardspec-classifier-v2` first, then `-v1`, then `-v0`.
+- L2 classifier `guardspec-classifier-v3b` (`train/`), the new default: the
+  v3 recipe (English hard negatives from `data/gen_v3.py`, English prompts
+  from `nvidia/HelpSteer2` (CC-BY-4.0), realistic EN/VI rows in
+  `data/realistic/` with formal Vietnamese seen twice per epoch, a
+  per-language benign:attack ratio of EN 2.0 / VI 1.75) plus owner-supplied
+  rows and OTP/eKYC rows read at build time and not redistributed
+  (`GUARD_OWNER_*`, `GUARD_OTPKYC_*`, `GUARD_BUILD_OUT`). On the eval set
+  (fused, 0.85): FPR 1.4% (v2 2.0%), TPR 0.932 (v2 0.933), Vietnamese
+  no-diacritics FPR 0.4% (v2 3.0%), but teencode FPR 3.5% (v2 1.4%).
+  New validation split `train/data/val_v3.jsonl` (also used by
+  `cmd/calibrate fit`) and hold-outs `val_v3_holdout`,
+  `val_realistic_holdout`. Built-in fusion calibration for v3b. The gateway
+  loads `models/local/guardspec-classifier-v3b` first, then `-v2`, `-v1`,
+  `-v0`. Classifier v3 (the same recipe without the owner rows) failed the
+  eval set (FPR 2.2%, TPR 0.915) and is not shipped or searched by default.
+- `train/soup.py` (weight averaging of seed runs; tried for v3, not used),
+  and `train.py` / `export.py` flags to override seed, learning rate, epochs,
+  label smoothing, run, output and data directories, and the training file.
+- `eval/baseline-onnx.json` now holds the v3b run.
 - Sanitizer: content that HTML hides from the reader (`display:none`,
   `visibility:hidden`, `font-size:0`, `opacity:0`, white on white,
   `aria-hidden`, `hidden`, `sr-only`-style classes, HTML comments) is kept

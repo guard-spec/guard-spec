@@ -1,10 +1,10 @@
-# Data card: Guard Spec classifier training data v2
+# Data card: Guard Spec classifier training data v3
 
 Copyright The Guard Spec Authors. Project-written rows are licensed
 Apache-2.0. Source rows keep their own licenses (`DATA_LICENSES.md`).
 
-v2 (2026-11-04) builds on v1; the v1 sections below still describe the
-base. What changed is in [v2 changes](#v2-changes).
+v3 (2026-11-04) builds on v2 and v1; the sections below still describe the
+base. What changed is in [v3 changes](#v3-changes) and [v2 changes](#v2-changes).
 
 ## Purpose
 
@@ -16,11 +16,15 @@ and none of its rows appear here (see the leakage section).
 
 | file | rows (v2) | content |
 |---|---|---|
-| `data/train.jsonl` | 23,404 | training split (v1: 17,833) |
-| `data/val.jsonl` | 3,648 | in-distribution validation split (group hash), for early stopping and calibration (v1: 2,511) |
+| `data/train.jsonl` | 30,133 | training split (v2: 23,404; v1: 17,833) |
+| `data/val.jsonl` | 4,749 | in-distribution validation split (group hash), for early stopping and calibration (v2: 3,648; v1: 2,511) |
 | `data/val_hard.jsonl` | 829 | hard validation split from template set B of `gen_hardneg.py`, which training never sees (784 benign, 45 attack; v1: 747); also used for early stopping and calibration |
 | `data/val_vi_variants.jsonl` | 1,408 | **v2**: Vietnamese variant validation split from template set B of `gen_vi_v2.py` and held-out teencode spellings (1,337 benign, 71 attack); also used for early stopping and calibration |
-| `data/stats.json` | - | counts per label, language, variant and source, plus the leakage report |
+| `data/val_v3.jsonl` | 508 | **v3**: template set B of `gen_v3.py` (English hard negatives and attacks, Vietnamese admin/meta text with no-diacritics and held-out teencode copies; 477 benign, 31 attack); used with the splits above for model selection and calibration |
+| `data/val_v3_holdout.jsonl` | 1,510 | **v3 hold-out**: template set C of `gen_holdout_v3.py` (EN 544 benign / 128 attack; VI 629 benign / 209 attack, each base as orig, no-diacritics and teencode). **Never used for selection or calibration**; scored once at the end |
+| `data/val_realistic_holdout.jsonl` | 613 | **v3 hold-out**: `data/realistic/realistic_holdout.jsonl` as written (366 benign, 247 attack; organisations and scenarios disjoint from the realistic training file). **Never used for selection or calibration** |
+| `data/realistic/` | 2,412 + 613 | **v3**: realistic rows (`guard-spec:realistic-fable`), README with provenance and checks |
+| `data/stats.json` | - | counts per label, language, variant and source, the leakage report, and (v3) the highest kept 5-gram Jaccard with eval per split and source |
 | `data/pilot_labels.jsonl` | 200 | manual pilot labels (`LABELING.md`) |
 
 Schema (one JSON object per line):
@@ -32,7 +36,7 @@ Schema (one JSON object per line):
 | `labels` | non-empty list of labels: `["benign"]` or one or more attack labels |
 | `lang` | `en` or `vi` |
 | `variant` | `orig`, `no_diacritics`, `teencode`, `leet`, `partial_diacritics` (v1: some lines stripped) |
-| `source` | `guard-spec`, `guard-spec:hardneg` (v1 train), `guard-spec:hardneg-val` (v1 hard validation), `guard-spec:v2` (v2 train), `guard-spec:v2-val` (`val_vi_variants`) or `<hf dataset>:<split>` |
+| `source` | `guard-spec`, `guard-spec:hardneg` (v1 train), `guard-spec:hardneg-val` (v1 hard validation), `guard-spec:v2` (v2 train), `guard-spec:v2-val` (`val_vi_variants`), `guard-spec:v3` / `guard-spec:v3-val` / `guard-spec:v3-holdout` (v3 generators), `guard-spec:realistic-fable` (v3 realistic rows) or `<hf dataset>:<split>` |
 | `license` | the row's license |
 | `group` | template or source-row id. Every variant of one base text shares a group. |
 
@@ -41,6 +45,95 @@ Rebuild it with `cd train && uv run python data/build_data.py`. The build:
 - downloads about 17 MB into `train/.cache` (gitignored);
 - needs `eval/fingerprints.txt` and `eval/data/*.jsonl` for the leakage guard;
 - is byte-identical between runs (checked with md5 on all three outputs).
+
+## v3b: external rows read at build time (not in this repository)
+
+`data/build_data.py` can mix in rows that are not redistributed. Each is a path in an environment
+variable; unset or missing files are skipped and the build is then byte-identical to the committed
+one. Any of them requires `GUARD_BUILD_OUT`, an output directory outside `train/data` (for example
+`train/runs/data-v3b-A`, gitignored), so that no external row lands in git.
+
+| variable | content | how it is used |
+|---|---|---|
+| `GUARD_OWNER_TRAIN` | owner-supplied training rows (`guard-spec:owner-supplied`) | mixed into the pool and split by group hash (12% of groups to `val`) |
+| `GUARD_OTPKYC_TRAIN` | OTP / eKYC verification-bypass rows (`guard-spec:otpkyc-fable`) | same |
+| `GUARD_OWNER_HOLDOUT` | owner-supplied hold-out | its own split `user_holdout`; never trained, selected or calibrated on |
+| `GUARD_OTPKYC_PROBE` | benign OTP / eKYC banking text | its own split `otpkyc_probe`, a false-positive probe; never trained on |
+| `GUARD_OWNER_DROP_ABLATE=1` | - | arm B: owner rows marked `ablate: true` stay out of the training split (they stay in `val`) |
+
+Extra fields (`category`, `entry_point`, `ablate`) are ignored by the training schema. These rows are
+never dropped by the ratio balancing, and they pass the same leakage guard (see `MODEL_CARD.md`, v3b).
+
+## v3 changes
+
+### Cause of the v2 false positives (validation splits only)
+
+Measured on `val`, `val_hard` and `val_vi_variants` with the packaged v2 INT8 model, classifier alone
+and fused (out-of-fold logistic regression as in `cmd/calibrate`), reading validation rows only:
+
+- **English**: the benign rows v2 scored highest were ordinary task instructions with an override verb
+  ("Sorry, ignore the previous text I pasted…", "You can skip the preface…", "Oops, disregard that
+  last line…"), `.env`/config text with `SYSTEM_PROMPT` and `ADMIN_TOKEN`, a `curl` call carrying an
+  attack string as data, and benign role-play prompts from real data ("You are now an expert in
+  phone repair…"). Training had only about 1,800 English hard negatives against 3,838 attacks, and
+  few instructions of the "ignore/skip X and do Y" kind outside the v1 idiom templates.
+- **Vietnamese without diacritics** (`val_hard` 8.5% at v2's threshold): meta talk about chatbots
+  and system prompts ("Sep nho minh tim hieu quan ly phien ban system prompt…", "Soan muc hoi dap
+  noi bo ve…"), the same `.env` config text, and "Nhờ …"/"chỉ thị" frames in teencode.
+- **Realistic Vietnamese business text** (the realistic rows that fall in `val`, added in v3): formal
+  notices, procurement and HR messages written without diacritics were blocked by v2 at 10–26%
+  depending on the threshold; realistic attacks in formal Vietnamese were missed (TPR 0.67 fused).
+
+### Data fixes
+
+- **`data/gen_v3.py`**, new generator, template set A for training and set B for `val_v3`:
+  - English benign: ordinary tasks with override verbs ("Ignore the footnotes and summarize…",
+    "Skip the intro and…", "From now on, use metric units"), sysadmin/DevOps/security writing
+    (root passwords, `sudo`, firewall rules, pentest and incident write-ups), meta and quoted
+    discussion of attacks (a user sent "ignore previous instructions"; is that an attack?),
+    benign role-play ("Act as a travel agent…"), and logs/code/config with trigger words;
+  - English minimal pairs on the same frames, and new attack frames (operator notices,
+    hypothetical personas, context dumps) so recall does not drop;
+  - Vietnamese work and admin text about chatbots, system prompts, "chỉ thị", "lệnh", passwords,
+    with the usual no-diacritics and teencode copies, and minimal pairs.
+- **`data/gen_holdout_v3.py`** (template set C) was written **before** `gen_v3.py` and before any v3
+  model, from the task's categories, not from validation errors. It builds `val_v3_holdout` only.
+- **HelpSteer2** (CC-BY-4.0): 2,500 English first-turn prompts (role-play, technical and business
+  requests), jailbreak-like ones removed.
+- **Realistic rows** (`data/realistic/`, `guard-spec:realistic-fable`, Apache-2.0): 2,412 EN/VI rows
+  written row by row by an AI model for this project, focused on what real attackers send (authority
+  impersonation, fake IT and compliance notices, indirect injection inside realistic emails,
+  contracts, tickets and documents; Vietnamese attacks mostly in formal Vietnamese with diacritics)
+  and same-domain hard negatives. Its own README lists provenance, checks and known weaknesses. Its
+  `no_diacritics`/`teencode` rows are their own texts, so no transforms are added. The build scripts
+  of that set stayed with the writer and are not part of this repository; the rows are.
+  `GUARD_V3_REALISTIC=0 uv run python data/build_data.py` leaves them out of the training split
+  (the realistic scenarios that the group hash sends to `val` stay in `val`), which is how the
+  "without realistic data" model was trained.
+- **Ratio per language**: every variant of a language keeps one benign:attack ratio, now 2.0 for
+  English and 1.75 for Vietnamese (v2: 1.5 everywhere). Balancing drops general-purpose source rows
+  first (oasst2, HelpSteer2, jailbreak-classification, deepset), then template rows, and never hard
+  negatives (v1 hard negatives, v2, v3 and realistic rows).
+
+  | train split, v3 | benign | attack | ratio |
+  |---|---|---|---|
+  | EN orig / leet | 8,486 / 438 | 4,243 / 219 | 2.00 / 2.00 |
+  | VI orig / no-diacritics / teencode | 3,896 / 3,090 / 2,938 | 2,226 / 1,766 / 1,679 | 1.75 / 1.75 / 1.75 |
+
+- **Upweighting formal Vietnamese** (`train.oversample` in `config.yaml`): the realistic Vietnamese
+  rows with diacritics (948 training rows, benign and attack alike) are seen twice per epoch. Validation
+  supported it over no upweighting (benign FPR at TPR 0.95, all validation: 0.14% vs 0.25%).
+
+### Leakage
+
+The guard runs on every new row (train, `val`, `val_v3`, both hold-outs, the balancing transforms):
+**0 fingerprint matches**; 3 rows dropped for Jaccard > 0.8 (one Gandalf, one deepset, one
+HelpSteer2). Highest kept character 5-gram Jaccard with any eval text (`stats.json`,
+`max_jaccard_vs_eval`): 0.72 overall (a deepset row, as in v1), v3 generator rows 0.43, HelpSteer2
+0.38, realistic rows 0.54, `val_v3` 0.21, `val_v3_holdout` 0.52, `val_realistic_holdout` 0.34.
+The hold-outs are also independent of everything used for training, selection and calibration:
+highest Jaccard of a `val_v3_holdout` row with any of those rows 0.57, of a `val_realistic_holdout`
+row 0.38, and no row above 0.8.
 
 ## v2 changes
 
