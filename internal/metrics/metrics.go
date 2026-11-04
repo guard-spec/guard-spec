@@ -126,6 +126,39 @@ var (
 		Help: "Audit retention runs by result: ok, skipped (another replica holds the lock) or error.",
 	}, []string{"result"})
 
+	// EventsDropped counts events the emitter dropped because its buffer was
+	// full or the database refused the batch, by source (gateway, control_plane).
+	EventsDropped = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: namespace, Name: "events_dropped_total",
+		Help: "Alert events dropped (buffer full or write failed), by source.",
+	}, []string{"source"})
+
+	// EventsWritten counts events stored for the alert worker, by source.
+	EventsWritten = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: namespace, Name: "events_written_total",
+		Help: "Alert events written to the events table, by source.",
+	}, []string{"source"})
+
+	// AlertsFired counts alert notifications queued, by state (firing, resolved).
+	AlertsFired = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: namespace, Subsystem: "alerts", Name: "notified_total",
+		Help: "Alert notifications queued, by alert state (firing, resolved).",
+	}, []string{"state"})
+
+	// Deliveries counts delivery attempts by channel kind and result (sent,
+	// retry, dead).
+	Deliveries = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: namespace, Subsystem: "alerts", Name: "deliveries_total",
+		Help: "Notification delivery attempts by channel kind and result (sent, retry, dead).",
+	}, []string{"kind", "result"})
+
+	// DeliveryLatency is the time from the event to the delivery attempt.
+	DeliveryLatency = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: namespace, Subsystem: "alerts", Name: "delivery_latency_seconds",
+		Help:    "Time from the newest event of an alert to its first delivery attempt, by channel kind.",
+		Buckets: latencyBuckets,
+	}, []string{"kind"})
+
 	// RetentionDeleted counts audit rows deleted by retention.
 	RetentionDeleted = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: namespace, Subsystem: "audit_retention", Name: "deleted_rows_total",
@@ -140,6 +173,7 @@ func init() {
 		RequestsTotal, RequestDuration, DetectorDuration, DetectorErrors,
 		UpstreamDuration, UpstreamErrors, PolicyErrors, RouteSelections, OutputActions, RateLimited,
 		HTTPRequests, HTTPDuration, RetentionRuns, RetentionDeleted,
+		EventsDropped, EventsWritten, AlertsFired, Deliveries, DeliveryLatency,
 	)
 }
 
