@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/giaplee/guard-spec/internal/metrics"
@@ -73,14 +74,81 @@ func (e *Error) Error() string {
 
 func (e *Error) Unwrap() error { return e.cause }
 
-// New validates cfg and builds a Proxy.
-func New(cfg Config) (*Proxy, error) {
-	u, err := url.Parse(cfg.BaseURL)
+// maxBaseURL is the longest base URL ValidateBaseURL accepts.
+const maxBaseURL = 2048
+
+// deniedHosts are cloud metadata names. Their addresses are link-local, which
+// the dialer refuses anyway; the names are refused early for a clear error.
+var deniedHosts = map[string]bool{
+	"metadata.google.internal": true,
+	"metadata.goog":            true,
+	"metadata":                 true,
+}
+
+// ValidateBaseURL checks the base URL of an upstream an organization defines
+// (the upstreams table). It applies the rules of New and also refuses
+// credentials, a query or fragment, and addresses no LLM API lives at: cloud
+// metadata names and link-local, multicast or unspecified IPs. The dialer
+// refuses those addresses too, after DNS, so a name that resolves to one is
+// refused when the gateway connects.
+func ValidateBaseURL(raw string) error {
+	if len(raw) > maxBaseURL {
+		return fmt.Errorf("base_url is longer than %d bytes", maxBaseURL)
+	}
+	u, err := checkURL(raw)
+	if err != nil {
+		return err
+	}
+	if u.User != nil {
+		return errors.New("base_url must not contain credentials; use api_key_env")
+	}
+	if u.RawQuery != "" || u.Fragment != "" || u.ForceQuery {
+		return errors.New("base_url must not have a query or fragment")
+	}
+	host := strings.ToLower(strings.TrimSuffix(u.Hostname(), "."))
+	if deniedHosts[host] {
+		return fmt.Errorf("base_url host %s is not allowed", host)
+	}
+	if ip := net.ParseIP(host); ip != nil && deniedIP(ip) {
+		return fmt.Errorf("base_url address %s is not allowed", host)
+	}
+	return nil
+}
+
+func checkURL(raw string) (*url.URL, error) {
+	u, err := url.Parse(raw)
 	if err != nil {
 		return nil, fmt.Errorf("upstream url: %w", err)
 	}
 	if (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		return nil, errors.New("upstream url must be an absolute http or https url")
+	}
+	return u, nil
+}
+
+// deniedIP reports addresses the gateway never connects to: link-local (cloud
+// metadata services live there), multicast and unspecified.
+func deniedIP(ip net.IP) bool {
+	return ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast() ||
+		ip.IsMulticast() || ip.IsUnspecified()
+}
+
+// dialControl refuses denied addresses after name resolution.
+func dialControl(_, address string, _ syscall.RawConn) error {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return err
+	}
+	if ip := net.ParseIP(host); ip != nil && deniedIP(ip) {
+		return fmt.Errorf("upstream address %s is not allowed", host)
+	}
+	return nil
+}
+
+// New validates cfg and builds a Proxy.
+func New(cfg Config) (*Proxy, error) {
+	if _, err := checkURL(cfg.BaseURL); err != nil {
+		return nil, err
 	}
 	if cfg.Timeout <= 0 {
 		cfg.Timeout = DefaultTimeout
@@ -93,7 +161,7 @@ func New(cfg Config) (*Proxy, error) {
 		client: &http.Client{
 			// No client-wide Timeout: it would also cut off a long stream.
 			Transport: &http.Transport{
-				DialContext:           (&net.Dialer{Timeout: connectTimeout}).DialContext,
+				DialContext:           (&net.Dialer{Timeout: connectTimeout, Control: dialControl}).DialContext,
 				TLSHandshakeTimeout:   connectTimeout,
 				ResponseHeaderTimeout: cfg.Timeout,
 				DisableCompression:    true, // gzip would buffer an event stream

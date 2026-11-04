@@ -78,8 +78,16 @@ var (
 	// be loaded or evaluated.
 	PolicyErrors = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: namespace, Subsystem: "gateway", Name: "policy_eval_errors_total",
-		Help: "Policy load or evaluation failures (stage load or eval); each one fails the request closed.",
+		Help: "Policy load, evaluation or upstream lookup failures (stage load, eval or route); each one fails the request closed.",
 	}, []string{"stage"})
+
+	// RouteSelections counts where chat requests that passed the guard were
+	// sent. The upstream's name is not a label: names are per org and unbounded.
+	RouteSelections = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: namespace, Subsystem: "gateway", Name: "route_selections_total",
+		Help: "Upstream choice of allowed requests by source (rule, project, org, env, stub) and outcome " +
+			"(ok, or failed: the target was missing, disabled or had no key, and the request failed closed).",
+	}, []string{"source", "outcome"})
 
 	// OutputActions counts what the output guard removed or caught, by kind.
 	OutputActions = prometheus.NewCounterVec(prometheus.CounterOpts{
@@ -130,7 +138,7 @@ func init() {
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 		RequestsTotal, RequestDuration, DetectorDuration, DetectorErrors,
-		UpstreamDuration, UpstreamErrors, PolicyErrors, OutputActions, RateLimited,
+		UpstreamDuration, UpstreamErrors, PolicyErrors, RouteSelections, OutputActions, RateLimited,
 		HTTPRequests, HTTPDuration, RetentionRuns, RetentionDeleted,
 	)
 }
