@@ -16,6 +16,7 @@ import type {
   Exemplar,
   ExemplarInput,
   GuardSettings,
+  Membership,
   NewApiKey,
   Org,
   Policy,
@@ -136,6 +137,11 @@ export class ApiClient {
   async login(email: string, password: string): Promise<string> {
     const r = await this.request<{ token: string }>('POST', '/auth/login', { body: { email, password }, anonymous: true });
     return r.token;
+  }
+
+  /** The organizations the signed-in user belongs to, with the role. */
+  async listMyOrgs(): Promise<Membership[]> {
+    return (await this.request<{ data: Membership[] }>('GET', '/organizations')).data;
   }
 
   getOrg(orgId: UUID): Promise<Org> {

@@ -33,6 +33,11 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 - The control plane serves the admin UI at `/ui/` (embedded from `web/dist`,
   strict CSP, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`) and
   redirects `/` there. Builds without Node show a placeholder.
+- `GET /v1/organizations`: the organizations of the signed-in user, with the
+  role in each (migration 012 adds `user_organizations`, a narrow
+  `SECURITY DEFINER` lookup, since memberships are row-level secured per org).
+- `POST /v1/organizations/:orgId/policies` accepts `enabled` (default true), so
+  a policy can be created disabled without being live in between.
 - **Admin UI** (`web/`, React and TypeScript): a flow diagram of the request
   path with the policy rules as editable nodes (visual and text conditions,
   drag to reorder, connect a rule to an upstream to route it), a policy
@@ -63,6 +68,11 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   upstream's `model` rewrite.
 - `GET /organizations/:orgId` and the project list include
   `default_upstream_id`.
+
+### Fixed
+
+- `GET /v1/organizations/:orgId/requests` no longer fails (500) on audit rows
+  whose scores or flags are NULL; they read as 0 and false.
 
 ## [0.1.0] - unreleased (release candidate)
 

@@ -661,6 +661,11 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
       return json(200, { text: formatCondition((body as { condition: ConditionNode }).condition) });
     }
     if (method === 'POST' && path === '/cel/validate') return json(200, { valid: true });
+    if (method === 'GET' && path === '/organizations') {
+      // Older control planes have no such list (the UI falls back to an id).
+      if (opts.noRouting) return json(404, { error: 'Cannot GET /v1/organizations' });
+      return json(200, { data: [{ id: state.org.id, name: state.org.name, slug: state.org.slug, role: 'owner' }] });
+    }
     if (method === 'POST' && path === '/organizations') {
       const b = body as { name: string; slug: string };
       return json(201, { id: uuid(), name: b.name, slug: b.slug });
@@ -726,7 +731,7 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
 
     if (sub === '/policies' && method === 'GET') return json(200, { data: state.policies });
     if (sub === '/policies' && method === 'POST') {
-      const b = body as { name: string; rules: Rule[]; project_id?: string | null };
+      const b = body as { name: string; rules: Rule[]; project_id?: string | null; enabled?: boolean };
       if (state.policies.some((x) => x.name === b.name)) return json(409, { error: 'a policy with this name already exists in this organization' });
       const err = validateRules(state, b.rules);
       if (err) return json(400, { error: err });
@@ -736,7 +741,7 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
         name: b.name,
         description: null,
         version: 1,
-        enabled: true,
+        enabled: b.enabled ?? true,
         rules: withIds(b.rules),
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),

@@ -40,12 +40,27 @@ export const test = base.extend<{ mock: MockState; mockOptions: MockOptions }>({
 
 export { expect };
 
+/**
+ * Picks the first organization of the user's list, or opens the prefilled
+ * default org id when the control plane has no list.
+ */
+export async function chooseOrg(page: Page, openLabel = 'Open'): Promise<void> {
+  const item = page.getByTestId('my-orgs').getByRole('button').first();
+  const byId = page.getByRole('button', { name: openLabel, exact: true });
+  await expect(item.or(byId).first()).toBeVisible();
+  // The list loads after the page: give it a moment before falling back.
+  try {
+    await item.click({ timeout: 2000 });
+  } catch {
+    await byId.click();
+  }
+}
+
 export async function login(page: Page): Promise<void> {
   await page.goto('/ui/');
   await page.getByLabel('Email').fill(EMAIL);
   await page.getByLabel('Password').fill(PASSWORD);
   await page.getByRole('button', { name: 'Sign in' }).click();
-  // First visit: choose the org (the default org id is prefilled).
-  await page.getByRole('button', { name: 'Open' }).click();
+  await chooseOrg(page);
   await expect(page.getByRole('heading', { name: 'Flow', level: 1 })).toBeVisible();
 }

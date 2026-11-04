@@ -23,7 +23,7 @@ import '@xyflow/react/dist/style.css';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ConfirmDialog, Dialog, ErrorBanner, Field, Loading, PageHeader } from '../components/ui';
 import { errorText, useApp, useOrg } from '../context';
-import { navigate, takeParam } from '../router';
+import { navigate, setNavigationGuard, takeParam } from '../router';
 import type { GuardSettings, PolicySchema, SimulateRequest, SimulateResponse, SimValue } from '../types';
 import { addRule, connectRule, danglingRoutes, deleteRule, findRule, moveRule, moveRuleByPosition, updateRule } from './edit';
 import { applyHighlight, buildGraph, simulationPath, type DefaultUpstream, type FlowEdge, type FlowNode } from './graph';
@@ -35,15 +35,15 @@ import {
   makeRule,
   newKey,
   policyNameTaken,
-  ruleNameInError,
   toEditable,
   toWireRules,
   type EditablePolicy,
   type EditableRule,
 } from './model';
 import { DirectionContext, nodeTypes } from './nodes';
-import { RulePanel } from './RulePanel';
+import { RulePanel, type TextState } from './RulePanel';
 import { FALLBACK_SCHEMA, fieldTypesOf } from './schema';
+import { mergeAfterSave, savePolicies } from './save';
 import { Simulator } from './Simulator';
 
 const EDGE_CLASS: Record<string, string> = {
@@ -90,6 +90,10 @@ function FlowPageInner() {
   const [ruleErrors, setRuleErrors] = useState<Record<string, string>>({});
   const [saveErrors, setSaveErrors] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+  // A navigation held by unsaved edits, completed on confirmation.
+  const [leaving, setLeaving] = useState<(() => void) | null>(null);
+  // The open rule's Text tab: Save waits until its text parses.
+  const [textState, setTextState] = useState<TextState>('ok');
   const [activePolicy, setActivePolicy] = useState<string | null>(null);
   // The new-policy dialog; with key, it renames that policy.
   const [newPolicy, setNewPolicy] = useState<{ key?: string; name: string; project: string } | null>(null);
@@ -266,35 +270,34 @@ function FlowPageInner() {
     setSelected(rule.key);
   };
 
+  // Unsaved edits: ask before leaving the page, and before closing the tab.
+  const hasEdits = (policies ?? []).some((p) => p.dirty);
+  useEffect(() => {
+    if (!hasEdits) return;
+    setNavigationGuard((proceed) => {
+      setLeaving(() => proceed);
+      return true;
+    });
+    const onUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener('beforeunload', onUnload);
+    return () => {
+      setNavigationGuard(null);
+      window.removeEventListener('beforeunload', onUnload);
+    };
+  }, [hasEdits]);
+
   const save = async () => {
     if (!policies) return;
     setSaving(true);
-    const errors: string[] = [];
-    const ruleErrs: Record<string, string> = {};
-    const failed = new Set<string>();
-    for (const p of policies.filter((x) => x.dirty)) {
-      try {
-        const rules = toWireRules(p.rules);
-        if (p.id) {
-          await api.updatePolicy(org.id, p.id, { name: p.name, rules, enabled: p.enabled });
-        } else {
-          const created = await api.createPolicy(org.id, { name: p.name, rules, project_id: p.project_id });
-          if (!p.enabled) await api.updatePolicy(org.id, created.id, { enabled: false });
-        }
-      } catch (e) {
-        failed.add(p.key);
-        const msg = errorText(e);
-        errors.push(t('flow.saveFailed', { name: p.name, error: msg }));
-        const bad = ruleNameInError(msg);
-        for (const r of p.rules) if (bad !== undefined && r.name === bad) ruleErrs[r.key] = msg;
-      }
-    }
+    const result = await savePolicies(api, org.id, policies);
+    const errors = result.errors.map((e) => t('flow.saveFailed', { name: e.policy, error: e.message }));
     setSaveErrors(errors);
-    setRuleErrors(ruleErrs);
+    setRuleErrors(result.ruleErrors);
     try {
       const fresh = (await api.listPolicies(org.id)).map(toEditable);
-      const keep = policies.filter((p) => failed.has(p.key));
-      const merged = [...fresh.map((f) => keep.find((k) => k.id === f.id) ?? f), ...keep.filter((k) => !k.id)];
+      const merged = mergeAfterSave(fresh, result.keep);
       setOriginal(fresh);
       setPolicies(merged);
       if (errors.length === 0) {
@@ -337,7 +340,17 @@ function FlowPageInner() {
               }}>
               {t('flow.discard')}
             </button>
-            <button type="button" className="btn btn-primary" disabled={dirtyCount === 0 || saving} onClick={() => void save()}>
+            {textState !== 'ok' ? (
+              <span className="badge badge-warn" role="status">
+                {textState === 'pending' ? t('flow.textPending') : t('flow.textError')}
+              </span>
+            ) : null}
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={dirtyCount === 0 || saving || textState !== 'ok'}
+              onClick={() => void save()}
+            >
               {saving ? t('common.saving') : t('flow.save')}
             </button>
           </>
@@ -517,6 +530,7 @@ function FlowPageInner() {
               }}
               onMove={(d) => edit((ps) => moveRule(ps, sel.policy.key, sel.index, sel.index + d))}
               onClose={() => setSelected(null)}
+              onTextState={setTextState}
             />
           ) : null}
           <Simulator orgId={org.id} schema={schema} makeRequest={makeSimRequest} result={sim} onResult={setSim} />
@@ -583,6 +597,21 @@ function FlowPageInner() {
           </Field>
         )}
       </Dialog>
+
+      <ConfirmDialog
+        open={leaving !== null}
+        title={t('flow.leaveTitle')}
+        body={t('flow.leaveBody')}
+        confirmLabel={t('flow.leave')}
+        danger
+        onClose={() => setLeaving(null)}
+        onConfirm={() => {
+          const proceed = leaving;
+          setLeaving(null);
+          setNavigationGuard(null);
+          proceed?.();
+        }}
+      />
 
       <ConfirmDialog
         open={deleting !== null}
