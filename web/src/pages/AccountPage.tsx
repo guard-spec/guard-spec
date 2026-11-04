@@ -8,6 +8,7 @@
 import { KeyRound, Link2, Monitor, ShieldCheck, ShieldOff, Unlink } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { ApiError, isNotFound } from '../api';
+import { NotificationSettings } from '../alerts/NotificationSettings';
 import { authErrorText } from '../auth/errors';
 import { isTotpCode } from '../auth/loginMachine';
 import { describeUserAgent } from '../auth/userAgent';
@@ -78,6 +79,7 @@ export default function AccountPage() {
           <PasswordCard />
           <MfaCard />
           <IdentitiesCard />
+          <NotificationSettings />
           <SessionsCard />
         </>
       ) : loaded ? (
