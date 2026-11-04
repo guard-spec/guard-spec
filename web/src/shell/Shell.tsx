@@ -6,6 +6,7 @@
 
 import { ArrowLeftRight, ChevronDown, ChevronRight, ChevronsUpDown, LogOut, Menu, PanelLeftClose, PanelLeftOpen, UserRound, X } from 'lucide-react';
 import { useCallback, useEffect, useId, useRef, useState, type MouseEvent, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { nonEmpty, useApp } from '../context';
 import type { MessageKey } from '../i18n';
 import { NAV, navEntry, type NavGroup } from '../nav';
@@ -71,6 +72,11 @@ export function Shell({
     return () => window.removeEventListener('keydown', onKey);
   }, [drawer, closeDrawer]);
 
+  // The nav scrolls on its own: keep the current page in view.
+  useEffect(() => {
+    sidebarRef.current?.querySelector<HTMLElement>('.nav a[aria-current="page"]')?.scrollIntoView({ block: 'nearest' });
+  }, [route, drawer]);
+
   const toggleRail = () => {
     setRail((r) => {
       prefs.set('sidebar', r ? 'full' : 'rail');
@@ -111,6 +117,16 @@ export function Shell({
               <span className="muted">{t('app.subtitle')}</span>
             </span>
           </a>
+          <button
+            type="button"
+            className="btn-icon nav-rail-toggle"
+            onClick={toggleRail}
+            aria-pressed={rail}
+            aria-label={rail ? t('app.expand') : t('app.collapse')}
+            title={rail ? t('app.expand') : t('app.collapse')}
+          >
+            {rail ? <PanelLeftOpen size={16} aria-hidden="true" /> : <PanelLeftClose size={16} aria-hidden="true" />}
+          </button>
           <button type="button" className="btn-icon drawer-close" aria-label={t('app.closeMenu')} onClick={closeDrawer}>
             <X size={18} aria-hidden="true" />
           </button>
@@ -173,10 +189,6 @@ export function Shell({
           <div className="spacer" />
         )}
         <div className="sidebar-foot">
-          <button type="button" className="nav-rail-toggle" onClick={toggleRail} aria-pressed={rail} title={rail ? t('app.expand') : t('app.collapse')}>
-            {rail ? <PanelLeftOpen size={16} aria-hidden="true" /> : <PanelLeftClose size={16} aria-hidden="true" />}
-            <span className="nav-label">{rail ? t('app.expand') : t('app.collapse')}</span>
-          </button>
           <ProfileMenu onNavigate={() => setDrawer(false)} />
         </div>
       </aside>
@@ -219,15 +231,32 @@ function initials(name: string): string {
   return ((parts[0]?.[0] ?? '?') + (parts[1]?.[0] ?? '')).toUpperCase();
 }
 
+/** Where the profile panel goes: above the button, within the viewport (8px margins). */
+export function panelPosition(r: { left: number; top: number }, vw: number, vh: number): { left: number; bottom: number; width: number } {
+  const width = Math.min(288, vw - 16);
+  const left = Math.max(8, Math.min(r.left, vw - width - 8));
+  return { left, bottom: Math.max(8, vh - r.top + 6), width };
+}
+
 function ProfileMenu({ onNavigate }: { onNavigate: () => void }) {
   const { t, me, logout } = useApp();
   const [open, setOpen] = useState(false);
   const panelId = useId();
   const wrap = useRef<HTMLDivElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
+  const [pos, setPos] = useState<{ left: number; bottom: number; width: number } | null>(null);
 
   useEffect(() => {
     if (!open) return;
+    // The panel lives in document.body (the sidebar clips overflow): place it
+    // above the button, inside the viewport.
+    const place = () => {
+      const r = button.current?.getBoundingClientRect();
+      if (!r) return;
+      setPos(panelPosition(r, window.innerWidth, window.innerHeight));
+    };
+    place();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setOpen(false);
@@ -235,21 +264,36 @@ function ProfileMenu({ onNavigate }: { onNavigate: () => void }) {
       }
     };
     const onDown = (e: PointerEvent) => {
-      if (wrap.current && !wrap.current.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      if (!wrap.current?.contains(target) && !panel.current?.contains(target)) setOpen(false);
     };
     window.addEventListener('keydown', onKey);
     window.addEventListener('pointerdown', onDown);
+    window.addEventListener('resize', place);
     return () => {
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('pointerdown', onDown);
+      window.removeEventListener('resize', place);
     };
   }, [open]);
+
+  useEffect(() => {
+    if (open && pos) panel.current?.querySelector<HTMLElement>('a, button, select')?.focus();
+  }, [open, pos]);
 
   const name = nonEmpty(me?.display_name) ?? nonEmpty(me?.email) ?? t('profile.you');
   return (
     <div className="profile" ref={wrap}>
-      {open ? (
-        <div id={panelId} className="profile-panel" role="group" aria-label={t('profile.menu')}>
+      {open && pos
+        ? createPortal(
+        <div
+          id={panelId}
+          ref={panel}
+          className="profile-panel"
+          role="group"
+          aria-label={t('profile.menu')}
+          style={{ left: pos.left, bottom: pos.bottom, width: pos.width }}
+        >
           {me ? (
             <div className="profile-who">
               <strong>{name}</strong>
@@ -283,8 +327,10 @@ function ProfileMenu({ onNavigate }: { onNavigate: () => void }) {
             <LogOut size={16} aria-hidden="true" />
             <span>{t('app.logout')}</span>
           </button>
-        </div>
-      ) : null}
+        </div>,
+            document.body,
+          )
+        : null}
       <button
         ref={button}
         type="button"

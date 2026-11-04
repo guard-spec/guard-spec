@@ -5,7 +5,7 @@ import { Key, Plus } from 'lucide-react';
 import { useCallback, useState } from 'react';
 import { Badge, DataTable, EmptyState, SearchBox, type Column } from '../components/DataTable';
 import { usePaged } from '../components/usePaged';
-import { ConfirmDialog, CopyButton, Dialog, ErrorBanner, Field, formatTime, PageHeader, useDebounced } from '../components/ui';
+import { ConfirmDialog, CopyButton, Dialog, ErrorBanner, Field, formatTime, PageHeader, useDebounced, Day } from '../components/ui';
 import { errorText, useApp, useOrg } from '../context';
 import type { ApiKey, CreatedApiKey, NewApiKey } from '../types';
 
@@ -61,7 +61,7 @@ export function KeysPage() {
     { key: 'rpm', header: t('keys.rpm'), cell: (k) => k.rpm_limit ?? '—' },
     { key: 'tpm', header: t('keys.tpm'), cell: (k) => k.tpm_limit ?? '—' },
     { key: 'created', header: t('common.created'), className: 'nowrap small', cell: (k) => formatTime(k.created_at) },
-    { key: 'expires', header: t('keys.expires'), className: 'nowrap small', cell: (k) => (k.expires_at ? formatTime(k.expires_at) : t('keys.never')) },
+    { key: 'expires', header: t('keys.expires'), className: 'nowrap small', cell: (k) => (k.expires_at ? <Day value={k.expires_at} /> : t('keys.never')) },
     { key: 'status', header: t('keys.status'), cell: (k) => <Badge tone={k.revoked ? 'off' : 'ok'}>{k.revoked ? t('keys.revoked') : t('keys.active')}</Badge> },
     {
       key: 'actions',

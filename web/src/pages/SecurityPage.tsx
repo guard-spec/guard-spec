@@ -8,6 +8,7 @@ import { Plus, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { isNotFound } from '../api';
 import { authErrorText } from '../auth/errors';
+import { methodKey, methodLabel } from '../auth/methods';
 import { Badge, Forbidden, NotAvailable } from '../components/DataTable';
 import { ErrorBanner, Field, Loading, PageHeader, Toggle, useLoad } from '../components/ui';
 import { useApp, useOrg } from '../context';
@@ -16,9 +17,6 @@ import { ROLES, type LoginProvider, type OrgSecurity, type Role } from '../types
 
 const DOMAIN_RE = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 
-export function methodKey(p: LoginProvider): string {
-  return p.type === 'google' ? 'google' : `oidc:${p.id}`;
-}
 
 export function validateSecurity(s: OrgSecurity): string[] {
   const errs: string[] = [];
@@ -72,7 +70,7 @@ export function SecurityPage() {
   const errs = touched ? validateSecurity(s) : [];
   const methods = [{ key: 'password', label: t('sec.methodPassword') }, ...providers.map((p) => ({ key: methodKey(p), label: p.display_name }))];
   // Methods saved before a provider was removed stay listed.
-  for (const m of s.allowed_login_methods ?? []) if (!methods.some((x) => x.key === m)) methods.push({ key: m, label: m });
+  for (const m of s.allowed_login_methods ?? []) if (!methods.some((x) => x.key === m)) methods.push({ key: m, label: methodLabel(m, providers, t) });
   const restricted = s.allowed_login_methods !== null;
   const setMethods = (v: string[] | null) => {
     setMethodsTouched(true);

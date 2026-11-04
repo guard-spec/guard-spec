@@ -63,7 +63,7 @@ export default function SimulatorPage() {
         </div>
       </div>
       <div className="card">
-        <Simulator orgId={org.id} schema={schema} makeRequest={(vars) => ({ project_id: projectId, vars })} result={result} onResult={setResult} />
+        <Simulator embedded orgId={org.id} schema={schema} makeRequest={(vars) => ({ project_id: projectId, vars })} result={result} onResult={setResult} />
       </div>
     </div>
   );

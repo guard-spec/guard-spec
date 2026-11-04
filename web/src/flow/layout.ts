@@ -111,6 +111,22 @@ export function initialViewport(
   return { x, y, zoom };
 }
 
+/**
+ * The whole diagram in view, centred (as the fit view control): the opening
+ * view of the flow page. The zoom stays between min and 1.
+ */
+export function fitViewport(
+  b: { x: number; y: number; width: number; height: number },
+  pane: { width: number; height: number },
+  min = 0.2,
+): { x: number; y: number; zoom: number } {
+  const pad = 24;
+  const zoom = Math.max(min, Math.min(1, (pane.width - 2 * pad) / Math.max(b.width, 1), (pane.height - 2 * pad) / Math.max(b.height, 1)));
+  const x = (pane.width - b.width * zoom) / 2 - b.x * zoom;
+  const y = (pane.height - b.height * zoom) / 2 - b.y * zoom;
+  return { x, y, zoom };
+}
+
 /** The coordinate along the main axis of the layout, used to reorder rules after a drag. */
 export function mainAxis(n: { position: { x: number; y: number } }, direction: Direction): number {
   return direction === 'LR' ? n.position.x : n.position.y;

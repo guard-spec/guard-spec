@@ -10,6 +10,12 @@ import { PageHeader } from '../components/ui';
 import { useApp, useOrg } from '../context';
 import type { MessageKey } from '../i18n';
 
+/** "api_keys" → "API keys": the capability group in sentence case. */
+function groupLabel(g: string): string {
+  const s = g.replace(/_/g, ' ');
+  return (s.charAt(0).toUpperCase() + s.slice(1)).replace(/^Api\b/, 'API');
+}
+
 export function RolesPage() {
   const { t } = useApp();
   const { permissions, role } = useOrg();
@@ -48,9 +54,10 @@ export function RolesPage() {
           {[...groups.entries()].map(([g, caps]) => (
             <tbody key={g}>
               <tr className="matrix-group">
-                <th scope="rowgroup" colSpan={matrix.roles.length + 1}>
-                  {g}
-                </th>
+                <th scope="rowgroup">{groupLabel(g)}</th>
+                {matrix.roles.map((r) => (
+                  <td key={r} className={r === role ? 'matrix-col matrix-current' : 'matrix-col'} aria-hidden="true" />
+                ))}
               </tr>
               {caps.map((c) => (
                 <tr key={c.key}>

@@ -107,6 +107,51 @@ type activityRow struct {
 	Target  *string         `json:"target"`
 	IP      *string         `json:"ip"`
 	Details json.RawMessage `json:"details"`
+	// TargetLabel names a target that is a user id (the user's email), for
+	// the UI; the id stays in target.
+	TargetLabel *string `json:"target_label,omitempty"`
+}
+
+// labelTargets sets TargetLabel on rows whose target is a user id.
+func labelTargets(ctx context.Context, tx pgx.Tx, rows []activityRow) error {
+	ids := []uuid.UUID{}
+	for _, r := range rows {
+		if r.Target == nil {
+			continue
+		}
+		if id, err := uuid.Parse(*r.Target); err == nil {
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	res, err := tx.Query(ctx, `SELECT id::text, email FROM users WHERE id = ANY($1)`, ids)
+	if err != nil {
+		return err
+	}
+	emails, err := pgx.CollectRows(res, func(r pgx.CollectableRow) ([2]string, error) {
+		var p [2]string
+		return p, r.Scan(&p[0], &p[1])
+	})
+	if err != nil {
+		return err
+	}
+	byID := make(map[string]string, len(emails))
+	for _, p := range emails {
+		byID[p[0]] = p[1]
+	}
+	for i := range rows {
+		if rows[i].Target == nil {
+			continue
+		}
+		if id, err := uuid.Parse(*rows[i].Target); err == nil {
+			if email, ok := byID[id.String()]; ok {
+				rows[i].TargetLabel = &email
+			}
+		}
+	}
+	return nil
 }
 
 // queryActivity lists rows of one org (org set) or the instance (org nil),
@@ -170,6 +215,9 @@ func queryActivity(c *fiber.Ctx, tx pgx.Tx, org *uuid.UUID) (fiber.Map, error) {
 		out = append(out, r)
 	}
 	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := labelTargets(c.Context(), tx, out); err != nil {
 		return nil, err
 	}
 	items, next := page(out, pg.Limit, func(r activityRow) pageCursor { return timeCursor(r.At, r.ID.String()) })
