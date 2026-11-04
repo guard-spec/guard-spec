@@ -20,8 +20,7 @@ Product
 
 - **Admin UI: members and invites.** The UI (N12) covers routing, policies,
   guard settings, keys, projects, exemplars and the audit log. Members, roles
-  and invites are still REST-only, and the API has no "organizations of the
-  current user" list, so the UI asks for an organization id.
+  and invites are still REST-only.
 - **Output guard: strip auto-linked URLs.** Many chat UIs turn a bare URL into
   a clickable link. The output guard removes markdown and HTML links to
   hosts off the allowlist, but leaves bare URLs without a query string; v0.2

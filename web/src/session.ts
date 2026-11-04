@@ -55,6 +55,9 @@ export const prefs = {
       return [];
     }
   },
+  clearRecentOrgs() {
+    set(ls, RECENT, null);
+  },
   addRecentOrg(o: RecentOrg) {
     const list = [o, ...prefs.recentOrgs().filter((r) => r.id !== o.id)].slice(0, 5);
     set(ls, RECENT, JSON.stringify(list));

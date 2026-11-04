@@ -30,7 +30,7 @@ test('routes a rule edited as text, simulates it and round-trips the config', as
   await page.getByLabel('Email').fill(process.env.LIVE_EMAIL ?? '');
   await page.getByLabel('Password').fill(process.env.LIVE_PASSWORD ?? '');
   await page.getByRole('button', { name: 'Sign in' }).click();
-  await page.getByRole('button', { name: 'Open' }).click();
+  await page.getByTestId('my-orgs').getByRole('button').first().click();
   await expect(page.getByRole('heading', { name: 'Flow', level: 1 })).toBeVisible();
 
   // Two upstreams; the first becomes the org default.
@@ -154,7 +154,7 @@ test('screenshots against the real control plane', async ({ page }) => {
   await page.getByLabel('Email').fill(process.env.LIVE_EMAIL ?? '');
   await page.getByLabel('Password').fill(process.env.LIVE_PASSWORD ?? '');
   await page.getByRole('button', { name: 'Sign in' }).click();
-  await page.getByRole('button', { name: 'Open' }).click();
+  await page.getByTestId('my-orgs').getByRole('button').first().click();
   await expect(page.getByRole('heading', { name: 'Flow', level: 1 })).toBeVisible();
 
   const sim = page.getByTestId('simulator');

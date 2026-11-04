@@ -1,19 +1,22 @@
 // Copyright 2026 The Guard Spec Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useState, type FormEvent } from 'react';
-import { ErrorBanner, Field, PageHeader } from '../components/ui';
+import { useCallback, useState, type FormEvent } from 'react';
+import { ErrorBanner, Field, Loading, PageHeader, useLoad } from '../components/ui';
 import { errorText, useApp } from '../context';
+import type { MessageKey } from '../i18n';
 import { prefs, session } from '../session';
 import type { Org } from '../types';
 
 /** The organization seeded by migration 002. */
 export const DEFAULT_ORG_ID = '00000000-0000-0000-0000-000000000001';
 
-// The API has no "my organizations" list, so the user enters an org id; the
-// default org and recently opened ones are offered.
+// The organizations of the signed-in user (GET /v1/organizations). Opening
+// one by id stays available: for a control plane without that list, and for
+// pasting an id.
 export function OrgPicker({ onChoose }: { onChoose: (org: Org) => void }) {
   const { api, t } = useApp();
+  const mine = useLoad(useCallback(() => api.listMyOrgs(), [api]));
   const [id, setId] = useState(session.orgId() ?? DEFAULT_ORG_ID);
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState('');
@@ -45,21 +48,27 @@ export function OrgPicker({ onChoose }: { onChoose: (org: Org) => void }) {
 
   return (
     <div className="narrow">
-      <PageHeader title={t('org.title')} help={t('org.help', { id: DEFAULT_ORG_ID })} />
+      <PageHeader title={t('org.title')} help={t('org.listHelp')} />
       <ErrorBanner error={error} />
-      <form
-        className="card form-row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void open(id);
-        }}
-      >
-        <Field label={t('org.id')}>{(p) => <input {...p} className="mono" value={id} onChange={(e) => setId(e.target.value)} required />}</Field>
-        <button type="submit" className="btn btn-primary">
-          {t('org.open')}
-        </button>
-      </form>
-      {recent.length > 0 ? (
+      {mine.loading && !mine.data ? <Loading /> : null}
+      {mine.data ? (
+        <section className="card" aria-labelledby="my-orgs">
+          <h2 id="my-orgs">{t('org.mine')}</h2>
+          {mine.data.length === 0 ? <p className="muted">{t('org.none')}</p> : null}
+          <ul className="org-list" data-testid="my-orgs">
+            {mine.data.map((o) => (
+              <li key={o.id}>
+                <button type="button" className="org-item" onClick={() => void open(o.id)}>
+                  <strong>{o.name}</strong>
+                  <span className="muted mono small">{o.slug}</span>
+                  <span className="badge">{t(`org.role.${o.role}` as MessageKey)}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+      {!mine.data && !mine.loading && recent.length > 0 ? (
         <section className="card">
           <h2>{t('org.recent')}</h2>
           <ul className="plain-list">
@@ -73,6 +82,22 @@ export function OrgPicker({ onChoose }: { onChoose: (org: Org) => void }) {
           </ul>
         </section>
       ) : null}
+      <form
+        className="card"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void open(id);
+        }}
+      >
+        <h2>{t('org.byId')}</h2>
+        <p className="muted small">{t('org.help', { id: DEFAULT_ORG_ID })}</p>
+        <div className="form-row">
+          <Field label={t('org.id')}>{(p) => <input {...p} className="mono" value={id} onChange={(e) => setId(e.target.value)} required />}</Field>
+          <button type="submit" className="btn">
+            {t('org.open')}
+          </button>
+        </div>
+      </form>
       <form className="card" onSubmit={create}>
         <h2>{t('org.createTitle')}</h2>
         <div className="form-grid">

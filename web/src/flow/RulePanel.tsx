@@ -72,6 +72,8 @@ export function builderFields(schema: PolicySchema): Field[] {
 
 type Tab = 'visual' | 'text';
 
+export type TextState = 'ok' | 'pending' | 'error';
+
 export interface RulePanelProps {
   rule: EditableRule;
   policyName: string;
@@ -83,6 +85,12 @@ export interface RulePanelProps {
   onDelete: () => void;
   onMove: (delta: -1 | 1) => void;
   onClose: () => void;
+  /**
+   * The Text tab's state: "pending" while an edit is not parsed yet, "error"
+   * while it does not parse. The rule's condition is the last text that
+   * parsed, so saving then would store something else than the text shows.
+   */
+  onTextState?: (state: TextState) => void;
 }
 
 export function RulePanel(props: RulePanelProps) {
@@ -104,6 +112,16 @@ export function RulePanel(props: RulePanelProps) {
   const seq = useRef(0);
   // Last condition that came from the text tab: not formatted back into it.
   const fromText = useRef<ConditionNode | null>(null);
+  const [textState, setTextState] = useState<TextState>('ok');
+  const onTextState = useRef(props.onTextState);
+  useEffect(() => {
+    onTextState.current = props.onTextState;
+  });
+  useEffect(() => {
+    onTextState.current?.(textState);
+  }, [textState]);
+  // Closing the panel ends the edit.
+  useEffect(() => () => onTextState.current?.('ok'), []);
 
   const format = async (cond: ConditionNode) => {
     const my = ++seq.current;
@@ -114,11 +132,13 @@ export function RulePanel(props: RulePanelProps) {
         setText(s);
         setDiag([]);
         setTextError(null);
+        setTextState('ok');
       }
     } catch (e) {
       if (my === seq.current) {
         // No /policy/format (older control plane) or an invalid tree: show the local rendering.
         setText(conditionText(cond, fieldTypesOf(schema)));
+        setTextState('ok');
         setTextError(e instanceof ApiError && e.status === 422 ? t('rule.formatError', { error: e.message }) : null);
       }
     } finally {
@@ -155,6 +175,7 @@ export function RulePanel(props: RulePanelProps) {
 
   const onText = (value: string) => {
     setText(value);
+    setTextState('pending');
     // The user is typing: a pending or running format must not overwrite it.
     window.clearTimeout(formatTimer.current);
     seq.current += 1;
@@ -169,6 +190,7 @@ export function RulePanel(props: RulePanelProps) {
           fromText.current = cond;
           setDiag([]);
           setTextError(null);
+          setTextState('ok');
           props.onChange({ condition: cond });
         })
         .catch((e: unknown) => {
@@ -177,6 +199,7 @@ export function RulePanel(props: RulePanelProps) {
           const msg = errorText(e);
           setDiag([{ from: pos, message: msg }]);
           setTextError(t('rule.parseError', { position: pos, error: msg }));
+          setTextState('error');
         })
         .finally(() => {
           if (my === seq.current) setSyncing(false);

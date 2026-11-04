@@ -496,6 +496,7 @@ needs `Authorization: Bearer <token from /v1/auth/login>`. Roles are `owner`,
 |---|---|
 | `POST /auth/login` | none (rate limited) |
 | `POST /invites/accept` | none (rate limited) |
+| `GET /organizations` (the caller's organizations and role in each) | any user |
 | `POST /organizations` | any user |
 | `POST /cel/validate` | any user |
 | `GET /policy/schema` (fields, operators per type, actions) | any user |
@@ -512,7 +513,7 @@ needs `Authorization: Bearer <token from /v1/auth/login>`. Roles are `owner`,
 | `PUT /organizations/:orgId/default-upstream` (`{"upstream_id": id or null}`) | admin |
 | `PUT /organizations/:orgId/projects/:projectId/default-upstream` | admin |
 | `GET`, `PUT /organizations/:orgId/config[?dry_run=true]` (YAML; `GET` is 409 when the stored config would not apply again) | viewer, admin |
-| `GET`, `POST /organizations/:orgId/policies` (409 on a name the org already uses) | viewer, admin |
+| `GET`, `POST /organizations/:orgId/policies` (409 on a name the org already uses; `enabled` defaults to true) | viewer, admin |
 | `POST /organizations/:orgId/policies/simulate` | viewer |
 | `PUT`, `DELETE /organizations/:orgId/policies/:id` | admin |
 | `GET /organizations/:orgId/requests?limit=100` (includes `route_target`) | viewer |
@@ -712,8 +713,10 @@ curl -s -X PUT "$CP/organizations/$ORG/config?dry_run=true" -H "$AUTH" -H 'Conte
 
 The control plane serves the admin UI at `/ui/` (with compose:
 <http://localhost:18081/ui/>). Sign in with a control-plane user (for a new
-install, `ADMIN_EMAIL` and `ADMIN_PASSWORD`), then open an organization by id;
-the one created at install is `00000000-0000-0000-0000-000000000001`. The token
+install, `ADMIN_EMAIL` and `ADMIN_PASSWORD`), then pick one of your
+organizations (`GET /v1/organizations`), or open one by id; the one created at
+install is `00000000-0000-0000-0000-000000000001`. The Flow page asks before
+leaving with unsaved changes. The token
 is kept in the browser tab's session storage and sent as a bearer token; the UI
 uses the same `/v1` API, roles and validation as any other client. English and
 Vietnamese, light and dark themes, keyboard accessible.

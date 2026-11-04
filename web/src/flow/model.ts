@@ -71,10 +71,37 @@ export function gatewayOrder(a: EditablePolicy, b: EditablePolicy): number {
   const ao = a.project_id === null ? 1 : 0;
   const bo = b.project_id === null ? 1 : 0;
   if (ao !== bo) return ao - bo;
-  const at = a.id ? a.created_at : '\uffff';
-  const bt = b.id ? b.created_at : '\uffff';
-  if (at !== bt) return at < bt ? -1 : 1;
-  return a.key < b.key ? -1 : a.key > b.key ? 1 : 0;
+  // Unsaved policies are created last.
+  if (!a.id || !b.id) return a.id ? -1 : b.id ? 1 : compareKeys(a.key, b.key);
+  const t = compareTimes(a.created_at, b.created_at);
+  return t !== 0 ? t : compareKeys(a.id, b.id);
+}
+
+function compareKeys(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/**
+ * Splits an RFC 3339 time into whole milliseconds since the epoch (without
+ * the fraction) and nanoseconds. Go's RFC3339Nano drops trailing zeros
+ * ("\u202600.12Z" vs "\u202600.123456Z"), so the strings do not sort like the times;
+ * the gateway orders by time (ORDER BY created_at).
+ */
+export function timeKey(s: string): [number, number] {
+  const m = /^(.*T\d\d:\d\d:\d\d)(?:\.(\d{1,9}))?(Z|[+-]\d\d:\d\d)$/i.exec(s.trim());
+  if (!m) {
+    const ms = Date.parse(s);
+    return [Number.isNaN(ms) ? Number.MAX_SAFE_INTEGER : ms, 0];
+  }
+  const seconds = Date.parse(`${m[1] ?? ''}${m[3] ?? 'Z'}`);
+  const nanos = Number((m[2] ?? '').padEnd(9, '0'));
+  return [Number.isNaN(seconds) ? Number.MAX_SAFE_INTEGER : seconds, nanos];
+}
+
+export function compareTimes(a: string, b: string): number {
+  const [as, an] = timeKey(a);
+  const [bs, bn] = timeKey(b);
+  return as !== bs ? (as < bs ? -1 : 1) : an !== bn ? (an < bn ? -1 : 1) : 0;
 }
 
 /** Pulls `rule "name"` out of a server validation error. */

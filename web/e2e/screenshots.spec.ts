@@ -6,7 +6,7 @@
 
 import type { Page } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
-import { expect, login, test } from './fixtures';
+import { chooseOrg, expect, login, test } from './fixtures';
 
 const OUT = fileURLToPath(new URL('../../docs/images/', import.meta.url));
 
@@ -56,7 +56,7 @@ test('flow, dark theme, Vietnamese', async ({ page }) => {
   await page.getByLabel('Email').fill('admin@example.com');
   await page.getByLabel('Mật khẩu').fill('correct-horse-battery');
   await page.getByRole('button', { name: 'Đăng nhập' }).click();
-  await page.getByRole('button', { name: 'Mở' }).click();
+  await chooseOrg(page, 'Mở');
   await expect(page.getByRole('heading', { name: 'Luồng xử lý', level: 1 })).toBeVisible();
   await page.getByLabel('Phạm vi').selectOption({ label: 'Dự án: Billing bot' });
   await shot(page, 'flow-dark-vi');

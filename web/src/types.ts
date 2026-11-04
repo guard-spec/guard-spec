@@ -20,6 +20,14 @@ export interface Org {
   default_upstream_id?: UUID | null;
 }
 
+/** An organization the user belongs to (GET /v1/organizations). */
+export interface Membership {
+  id: UUID;
+  name: string;
+  slug: string;
+  role: 'owner' | 'admin' | 'member' | 'viewer';
+}
+
 export interface Project {
   id: UUID;
   name: string;

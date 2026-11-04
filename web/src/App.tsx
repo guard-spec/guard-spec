@@ -67,9 +67,11 @@ export function App() {
 
   const logout = useCallback((wasExpired = false) => {
     session.clear();
+    // Org names are not left behind on a shared browser.
+    prefs.clearRecentOrgs();
     setToken(null);
     setExpired(wasExpired);
-    navigate('login', true);
+    navigate('login', true, undefined, true);
   }, []);
 
   const api = useMemo(

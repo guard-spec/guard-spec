@@ -81,21 +81,49 @@ export function Dialog({
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
+  const openRef = useRef(open);
+  // Set when this component closes the element (the parent set open=false).
+  const closing = useRef(false);
+  // When Escape was last pressed in the dialog.
+  const escapeAt = useRef(0);
   useEffect(() => {
+    openRef.current = open;
     const d = ref.current;
     if (!d) return;
     if (open && !d.open) d.showModal();
-    if (!open && d.open) d.close();
+    if (!open && d.open) {
+      closing.current = true;
+      d.close();
+    }
   }, [open]);
+  // Only the user closes a dialog: Escape or its buttons. The browser also
+  // sends close requests of its own (Chrome treats a history step as one),
+  // which would otherwise dismiss a dialog such as "leave unsaved changes?".
+  const byEscape = () => Date.now() - escapeAt.current < 1000;
+  useEffect(() => {
+    const d = ref.current;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') escapeAt.current = Date.now();
+    };
+    d?.addEventListener('keydown', onKey);
+    return () => d?.removeEventListener('keydown', onKey);
+  }, []);
   return (
     <dialog
       ref={ref}
       className={wide ? 'dialog dialog-wide' : 'dialog'}
       aria-labelledby={titleId}
-      onClose={onClose}
       onCancel={(e) => {
         e.preventDefault();
-        onClose();
+        if (byEscape()) onClose();
+      }}
+      onClose={() => {
+        if (closing.current) {
+          closing.current = false;
+          return;
+        }
+        if (byEscape()) onClose();
+        else if (openRef.current) ref.current?.showModal();
       }}
     >
       {open ? (
