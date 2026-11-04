@@ -1,0 +1,157 @@
+{
+  "parity": {
+    "torch_vs_onnx_fp32_max_abs": 7.003545761108398e-07,
+    "int8_vs_fp32_max_abs": 0.8914206624031067,
+    "int8_vs_fp32_mean_abs": 0.002136356895789504,
+    "seconds": 94.46906995773315,
+    "risk_auc_delta_int8_minus_fp32": {
+      "1-p_benign": -0.0002753805635155038,
+      "max_attack": -0.0016901740902089957
+    },
+    "risk_abs_diff": {
+      "max": 0.8606516122817993,
+      "p99": 0.11263815313577652,
+      "rows_over_0_1": 83
+    },
+    "decision_agreement_at_threshold": 0.9935948759007206
+  },
+  "thresholds": {
+    "model": "guardspec-classifier-v3",
+    "labels": [
+      "benign",
+      "direct_injection",
+      "indirect_injection",
+      "jailbreak",
+      "prompt_extraction",
+      "data_exfiltration",
+      "tool_poisoning",
+      "obfuscation"
+    ],
+    "output": "logits; apply sigmoid per label (multi-label head)",
+    "max_len": 256,
+    "risk_score": "1-p_benign",
+    "risk_score_doc": "risk = 1 - sigmoid(logit_benign)",
+    "risk_threshold": 0.030119478702545166,
+    "risk_threshold_target_benign_fpr": 0.01,
+    "risk_threshold_review": 0.004251807928085327,
+    "risk_threshold_review_target_benign_fpr": 0.05,
+    "validation": {
+      "n": 7494,
+      "n_attack": 1654,
+      "choice": {
+        "1-p_benign": {
+          "val_auc_int8": 0.9968394386377566,
+          "val_auc_fp32": 0.9971148192012721,
+          "val_tpr_at_fpr": 0.9824667472793228,
+          "val_fpr": 0.00993150684931507,
+          "threshold": 0.030119478702545166
+        },
+        "max_attack": {
+          "val_auc_int8": 0.9923064260986234,
+          "val_auc_fp32": 0.9939966001888324,
+          "val_tpr_at_fpr": 0.9824667472793228,
+          "val_fpr": 0.00993150684931507,
+          "threshold": 0.032989758998155594
+        }
+      },
+      "by_lang_at_threshold": {
+        "val": {
+          "tpr": 0.993364299933643,
+          "benign_fpr": 0.010178901912399754,
+          "n_attack": 1507,
+          "n_benign": 3242
+        },
+        "val_hard": {
+          "tpr": 0.9111111111111111,
+          "benign_fpr": 0.01020408163265306,
+          "n_attack": 45,
+          "n_benign": 784
+        },
+        "val_v3": {
+          "tpr": 0.967741935483871,
+          "benign_fpr": 0.0020964360587002098,
+          "n_attack": 31,
+          "n_benign": 477
+        },
+        "val_vi_variants": {
+          "tpr": 0.8028169014084507,
+          "benign_fpr": 0.011967090501121914,
+          "n_attack": 71,
+          "n_benign": 1337
+        },
+        "en": {
+          "tpr": 0.9839181286549707,
+          "benign_fpr": 0.011299435028248588,
+          "auc": 0.9986268047708726
+        },
+        "vi": {
+          "tpr": 0.9814432989690721,
+          "benign_fpr": 0.00914962325080732,
+          "auc": 0.9962012972601068
+        }
+      }
+    },
+    "label_thresholds": {
+      "direct_injection": 0.5762646198272705,
+      "indirect_injection": 0.8755729794502258,
+      "jailbreak": 0.6977884769439697,
+      "prompt_extraction": 0.626882791519165,
+      "data_exfiltration": 0.2001286745071411,
+      "tool_poisoning": 0.22214002907276154,
+      "obfuscation": 0.23212774097919464
+    },
+    "label_threshold_method": "max F1 on the validation split, one-vs-rest",
+    "label_validation": {
+      "direct_injection": {
+        "threshold": 0.5762646198272705,
+        "val_f1": 0.9243697478991596,
+        "val_precision": 0.9322033898305084,
+        "val_recall": 0.9166666666666666,
+        "val_auc": 0.9932331765041346
+      },
+      "indirect_injection": {
+        "threshold": 0.8755729794502258,
+        "val_f1": 0.9681528662420382,
+        "val_precision": 0.9934640522875817,
+        "val_recall": 0.9440993788819876,
+        "val_auc": 0.9942651373699654
+      },
+      "jailbreak": {
+        "threshold": 0.6977884769439697,
+        "val_f1": 0.8773747841105355,
+        "val_precision": 0.9657794676806084,
+        "val_recall": 0.8037974683544303,
+        "val_auc": 0.9884739234863207
+      },
+      "prompt_extraction": {
+        "threshold": 0.626882791519165,
+        "val_f1": 0.927807486631016,
+        "val_precision": 0.9506849315068493,
+        "val_recall": 0.9060052219321149,
+        "val_auc": 0.9895506281776516
+      },
+      "data_exfiltration": {
+        "threshold": 0.2001286745071411,
+        "val_f1": 0.9730538922155688,
+        "val_precision": 0.9848484848484849,
+        "val_recall": 0.9615384615384616,
+        "val_auc": 0.9952131864351841
+      },
+      "tool_poisoning": {
+        "threshold": 0.22214002907276154,
+        "val_f1": 0.9966101694915254,
+        "val_precision": 1.0,
+        "val_recall": 0.9932432432432432,
+        "val_auc": 0.999698309799045
+      },
+      "obfuscation": {
+        "threshold": 0.23212774097919464,
+        "val_f1": 0.8811881188118812,
+        "val_precision": 0.8725490196078431,
+        "val_recall": 0.89,
+        "val_auc": 0.9879889099269679
+      }
+    },
+    "calibrated_on": "validation splits data/val.jsonl, data/val_hard.jsonl, data/val_vi_variants.jsonl, data/val_v3.jsonl, INT8 model"
+  }
+}

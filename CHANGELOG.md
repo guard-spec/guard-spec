@@ -59,6 +59,21 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   training-time no-diacritics / teencode augmentation. New validation split
   `train/data/val_vi_variants.jsonl`. The gateway loads
   `models/local/guardspec-classifier-v2` first, then `-v1`, then `-v0`.
+- L2 classifier `guardspec-classifier-v3` (`train/`): English hard negatives
+  (ordinary tasks with override verbs, sysadmin and security writing, meta
+  and quoted discussion of attacks, benign role-play; `data/gen_v3.py`),
+  English prompts from `nvidia/HelpSteer2` (CC-BY-4.0), realistic EN/VI
+  attacks and hard negatives (`data/realistic/`, formal Vietnamese with
+  diacritics seen twice per epoch), a per-language benign:attack ratio
+  (EN 2.0, VI 1.75) that drops general-purpose rows before hard negatives,
+  and two hold-out splits that are never used for selection or calibration
+  (`val_v3_holdout`, `val_realistic_holdout`). New validation split
+  `train/data/val_v3.jsonl`, also used by `cmd/calibrate fit`. Built-in
+  fusion calibration for v3. The gateway loads
+  `models/local/guardspec-classifier-v3` first, then `-v2`, `-v1`, `-v0`.
+- `train/soup.py` (weight averaging of seed runs; tried for v3, not used),
+  and `train.py` / `export.py` flags to override seed, learning rate, epochs,
+  label smoothing, run and output directories, and the training file.
 - Sanitizer: content that HTML hides from the reader (`display:none`,
   `visibility:hidden`, `font-size:0`, `opacity:0`, white on white,
   `aria-hidden`, `hidden`, `sr-only`-style classes, HTML comments) is kept

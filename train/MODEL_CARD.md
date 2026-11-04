@@ -6,9 +6,125 @@ pipeline_tag: text-classification
 tags: [prompt-injection, jailbreak, guardrail, onnx, int8]
 ---
 
-# guardspec-classifier-v2
+# guardspec-classifier-v3
 
 Copyright The Guard Spec Authors. Licensed under the Apache License 2.0.
+
+## v3 (2026-11-04)
+
+v3 has the same architecture, labels, export and runtime as v1/v2 (below):
+`intfloat/multilingual-e5-small` at the pinned MIT revision, 8-label sigmoid head, risk
+1 − p(benign), INT8 ONNX, 118.5 MB, same latency. It targets v2's English false positives and
+its Vietnamese no-diacritics regression on `val_hard`, and adds realistic attacks. The data changes
+are in `DATA_CARD.md` ("v3 changes"): English hard negatives and minimal pairs (`data/gen_v3.py`),
+HelpSteer2 prompts (CC-BY-4.0), realistic EN/VI rows (`data/realistic/`), a per-language
+benign:attack ratio (EN 2.0, VI 1.75) and formal Vietnamese with diacritics seen twice per epoch.
+Recipe unchanged (AdamW 5e-5, 5 epochs, batch 32, BCE, v2 augmentation).
+
+**The eval-set results are pending measurement by the coordinator** (measured once, after this
+work). Everything below uses training and validation data only, plus two hold-outs.
+
+| | v3 |
+|---|---|
+| data | 30,133 train (31,081 rows per epoch with the oversampling); selection/calibration on `val` 4,749 + `val_hard` 829 + `val_vi_variants` 1,408 + `val_v3` 508 = 7,494 rows |
+| hold-outs (never used for selection or calibration) | `val_v3_holdout` 1,510 rows (template set C, written before the training templates); `val_realistic_holdout` 613 rows (disjoint organisations and scenarios) |
+| run | 5 epochs, best epoch 5 by validation loss (0.0813, 0.0426, 0.0296, 0.0296, 0.0247); 42.0 min on Apple M3 Max, MPS |
+| `risk_threshold` | 0.0301 (benign FPR ≤ 1% on the four validation splits combined, INT8; v3 is far more confident on benign rows than v2, whose threshold was 0.9237) |
+| INT8 vs FP32 | ΔAUC −0.0003; p99 \|Δrisk\| 0.11; same decision at the threshold on 99.4% of rows; PyTorch vs ONNX FP32 max \|Δp\| 7e-7 |
+| latency (onnxbench, INT8, M3 Max, 1 stream) | 64 tokens p50 4.0 ms; 256 tokens p50 14.4 ms; 512 tokens p50 35.6 ms (same model size as v2) |
+
+SHA-256 of `models/local/guardspec-classifier-v3/`:
+
+```
+8f4fa2550651a510fef6b7aefb80b9a4132597f208a3598a2b8ab7cfe27194a2  model_int8.onnx
+2b95ee17661f8dfbbceaba374f6d277a6b5d8e1898c070a16331622024f58c67  tokenizer.json
+c89d10db99567d790a4a33d551eef09dcd0b0786877d22a67033c09c34cf9f72  config.json
+c3b33b7cf18f9523f1784078276c21aadc16e7f8d9fd9002596f1923769a6fdd  thresholds.json
+```
+
+Fusion calibration for v3 (`go run -tags onnx ./cmd/calibrate fit`, on the four validation splits,
+built in as `ml.BuiltinCalibrations`): Platt A 0.9853, B 0.3199; logreg(L1,L2,L3) W (0.6047, 0.9279,
+0.2477), B 0.5491. Out-of-fold (5-fold) on the same 7,494 rows: AUC 0.996, TPR@FPR≤1% 0.981, and at
+the gateway's 0.85 block threshold **TPR 0.965 at benign FPR 0.24%**. v2 on the same rows (its
+calibration refitted the same way): TPR 0.888 at FPR 0.48%.
+
+### Validation, fused L1+L2+L3 at 0.85, out-of-fold, per group
+
+Benign FPR (false positives / benign rows) and TPR; L1 and L3 are the same for both models.
+
+| group | benign / attack | v2 FPR | v3 FPR | v2 TPR | v3 TPR |
+|---|---|---|---|---|---|
+| all | 5,840 / 1,654 | 0.55% (32) | **0.24% (14)** | 0.872 | **0.965** |
+| EN | 2,124 / 684 | 0.85% (18) | **0.33% (7)** | 0.895 | **0.963** |
+| VI orig | 1,105 / 315 | 0.27% (3) | **0.00% (0)** | 0.937 | **0.990** |
+| VI no-diacritics | 1,038 / 272 | 0.48% (5) | 0.48% (5) | 0.919 | **0.974** |
+| VI teencode | 1,437 / 323 | 0.42% (6) | **0.14% (2)** | 0.777 | **0.938** |
+| `val` EN | 1,489 / 650 | 1.14% (17) | **0.47% (7)** | 0.894 | 0.971 |
+| `val_hard` VI no-diacritics | 129 / 8 | 0.78% (1) | 1.55% (2) | 0.750 | 0.750 |
+| `val_vi_variants` teencode | 681 / 47 | 0.44% (3) | 0.15% (1) | 0.468 | 0.723 |
+| `val_v3` | 477 / 31 | 0.21% (1) | 0.00% (0) | 1.000 | 0.871 |
+
+The `val_hard` Vietnamese no-diacritics regression of v2 is fixed in the classifier itself: at v2's
+threshold (0.9237) v2 blocked 8.5% of those 129 benign rows and v3 blocks 0.8%; at v3's own
+threshold, 3.1% (`reports/variant_report_v3.json`). Fused, the two models differ by one row there.
+These splits chose the epoch, the threshold and the fusion weights, so they flatter both models.
+
+### Hold-outs, scored once at the end
+
+Fused L1+L2+L3 at 0.85 with each model's calibration fixed beforehand on validation (v2: its
+built-in calibration). "v3 without realistic" is the same recipe trained with
+`GUARD_V3_REALISTIC=0` (and its own validation calibration).
+
+| hold-out / group | benign / attack | v2 FPR / TPR | v3 without realistic FPR / TPR | **v3** FPR / TPR |
+|---|---|---|---|---|
+| `val_v3_holdout` all | 1,173 / 337 | 3.1% / 0.964 | 1.8% / 0.988 | **0.4% / 0.979** |
+| EN | 544 / 128 | 4.6% / 0.961 | 1.7% / 0.992 | **0.9% / 0.977** |
+| VI orig | 210 / 70 | 2.9% / 1.000 | 1.0% / 1.000 | **0.0% / 1.000** |
+| VI no-diacritics | 210 / 70 | 1.4% / 0.971 | 3.3% / 1.000 | **0.0% / 0.971** |
+| VI teencode | 209 / 69 | 1.0% / 0.928 | 1.4% / 0.957 | **0.0% / 0.971** |
+| `val_realistic_holdout` all | 366 / 247 | 6.8% / 0.810 | 4.1% / 0.814 | **1.4% / 0.895** |
+| EN | 162 / 120 | 6.2% / 0.750 | 3.1% / 0.725 | **1.2% / 0.825** |
+| VI orig (formal, diacritics) | 169 / 102 | 7.7% / 0.892 | 4.1% / 0.922 | **1.2% / 0.971** |
+| VI no-diacritics | 26 / 21 | 7.7% / 0.714 | 11.5% / 0.810 | 3.8% (1 row) / 0.905 |
+| VI teencode | 9 / 4 | 0.0% / 1.000 | 0.0% / 0.750 | 0.0% / 1.000 |
+
+AUC (fused): `val_v3_holdout` v2 0.995, v3 0.998; `val_realistic_holdout` v2 0.955, without
+realistic 0.961, v3 0.985. Caveats: both hold-outs are machine-written (set C by the same author
+as the training templates, the realistic hold-out by the same model family as the realistic
+training rows), so they are optimistic about real traffic; small groups (realistic VI
+no-diacritics and teencode) cannot be read row for row.
+
+### What was tried
+
+Five training runs of 30–42 minutes each (the v3 data is about 30% larger than v2's) and one weight average:
+
+| run | data | change | validation: benign FPR at TPR 0.95 (L2 alone, all four splits) | result |
+|---|---|---|---|---|
+| r1 | without realistic | v2 recipe, seed 20261105 | 0.72% (v2: 1.46%) | big EN gain, VI teencode FPs on `val_vi_variants` |
+| r2 | without realistic | seed 20261106 | 0.70% | similar to r1: the data, not the seed |
+| soup(r1, r2) | without realistic | uniform weight average (`soup.py`) | 0.91% | worse than either run; dropped |
+| r3 | **with realistic** | formal VI with diacritics ×2 per epoch | **0.14%** | **chosen as v3** |
+| r4 | with realistic | no upweighting | 0.25% | slightly worse than r3 on every summary |
+| no-realistic re-run | without realistic | r1 recipe, retrained only to score the hold-outs (r1/r2 checkpoints had been deleted) | 0.72% | as r1 |
+
+The realistic data helps even on validation rows that are not from it (FPR at TPR 0.95 0.14% vs
+0.46–0.49%). Label smoothing, a learning-rate sweep and `multilingual-e5-base` were not tried: the
+small model met every validation and hold-out target, so the base model's 2–3× latency was not
+needed.
+
+Reproduce v3:
+
+```sh
+cd train
+uv sync
+uv run python data/build_data.py   # deterministic; GUARD_V3_REALISTIC=0 for the "without" arm
+uv run python train.py             # writes runs/guardspec-classifier-v3/best
+uv run python export.py            # writes ../models/local/guardspec-classifier-v3
+uv run python variant_report.py --model ../models/local/guardspec-classifier-v3
+cd .. && go run -tags onnx ./cmd/calibrate fit   # cgo flags: see the Makefile
+```
+
+The sections below describe v2 and v1.
 
 ## v2 (2026-11-04)
 

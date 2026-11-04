@@ -11,9 +11,9 @@ import (
 )
 
 // Calibrations below are fitted by `go run -tags onnx ./cmd/calibrate fit` on
-// the classifiers' validation splits (train/data/val.jsonl + val_hard.jsonl,
-// 3,258 rows), never on eval/. Those splits also chose v1's threshold and
-// early stopping, so L2 v1 looks a little better on them than on unseen data.
+// each classifier's validation splits (see FittedOn), never on eval/ and never
+// on the hold-out splits. Those splits also chose each model's epoch and
+// threshold, so the L2 layer looks a little better on them than on unseen data.
 
 // CalibrationFile is the calibration of one classifier: the Platt scaling of
 // its risk score and the logistic-regression combiners fitted with it, keyed
@@ -28,6 +28,18 @@ type CalibrationFile struct {
 
 // BuiltinCalibrations are the calibrations of the classifiers we ship.
 var BuiltinCalibrations = map[string]CalibrationFile{
+	// v3: fitted on val + val_hard + val_vi_variants + val_v3 (7,494 rows;
+	// never val_v3_holdout or val_realistic_holdout); the combiners use the
+	// built-in L1 and L3 scalings, as at run time.
+	"guardspec-classifier-v3": {
+		Model:    "guardspec-classifier-v3",
+		FittedOn: "train/data/val.jsonl + val_hard.jsonl + val_vi_variants.jsonl + val_v3.jsonl (7494 rows), 5-fold CV for the method choice",
+		Platt:    fusion.Calibration{A: 0.9853, B: 0.3199},
+		LogReg: map[string]fusion.LogReg{
+			"l1,l2":    {W: [3]float64{0.6242, 0.9610, 0}, B: 0.4544},
+			"l1,l2,l3": {W: [3]float64{0.6047, 0.9279, 0.2477}, B: 0.5491},
+		},
+	},
 	// v2: fitted on val + val_hard + val_vi_variants (5,885 rows); the
 	// combiners use the built-in L1 and L3 scalings, as at run time.
 	"guardspec-classifier-v2": {

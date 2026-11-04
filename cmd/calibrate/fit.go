@@ -48,10 +48,10 @@ const ridge = 0.01
 
 func runFit(args []string) int {
 	fs := flag.NewFlagSet("fit", flag.ContinueOnError)
-	val := fs.String("val", "train/data/val.jsonl,train/data/val_hard.jsonl,train/data/val_vi_variants.jsonl",
+	val := fs.String("val", "train/data/val.jsonl,train/data/val_hard.jsonl,train/data/val_vi_variants.jsonl,train/data/val_v3.jsonl",
 		"calibration split, comma-separated files (the classifier's validation splits; never eval/)")
 	modelDir := fs.String("model-dir", "models", "MODEL_DIR")
-	l2Dir := fs.String("l2", "", "L2_MODEL_DIR (default: MODEL_DIR/local/guardspec-classifier-v2, then -v1, then -v0)")
+	l2Dir := fs.String("l2", "", "L2_MODEL_DIR (default: MODEL_DIR/local/guardspec-classifier-v3, then -v2, -v1, -v0)")
 	l3Dir := fs.String("l3", "", "L3_MODEL_DIR (default: MODEL_DIR/cache/multilingual-e5-small)")
 	folds := fs.Int("folds", 5, "cross-validation folds")
 	write := fs.Bool("write", false, "write calibration.json into the classifier directory")
