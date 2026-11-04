@@ -99,6 +99,8 @@ export interface SimulatorProps {
   makeRequest: (vars: Record<string, SimValue>) => SimulateRequest;
   result: SimulateResponse | null;
   onResult: (r: SimulateResponse | null) => void;
+  /** On the simulator page, which has its own title and help. */
+  embedded?: boolean;
 }
 
 const DEFAULTS: Record<string, string> = {
@@ -109,7 +111,7 @@ const DEFAULTS: Record<string, string> = {
   'injection.category': 'jailbreak',
 };
 
-export function Simulator({ orgId, schema, makeRequest, result, onResult }: SimulatorProps) {
+export function Simulator({ orgId, schema, makeRequest, result, onResult, embedded = false }: SimulatorProps) {
   const { api, t } = useApp();
   const [form, setForm] = useState<Record<string, string>>(DEFAULTS);
   const [error, setError] = useState<string | null>(null);
@@ -131,8 +133,10 @@ export function Simulator({ orgId, schema, makeRequest, result, onResult }: Simu
 
   return (
     <section className="simulator" aria-labelledby="sim-title" data-testid="simulator">
-      <h2 id="sim-title">{t('sim.title')}</h2>
-      <p className="muted small">{t('sim.help')}</p>
+      <h2 id="sim-title" className={embedded ? 'sr-only' : undefined}>
+        {t('sim.title')}
+      </h2>
+      {embedded ? null : <p className="muted small">{t('sim.help')}</p>}
       <form onSubmit={run}>
         <div className="sim-grid">
           {schema.fields.map((f) => (

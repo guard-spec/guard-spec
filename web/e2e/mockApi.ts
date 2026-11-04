@@ -401,10 +401,10 @@ export function seedState(rich = false): MockState {
   };
   const now = Date.parse('2026-11-04T08:00:00Z');
   const baseRows: (string | number | null)[][] = [
-    ['gpt-4o', 'allow', null, 'benign', 0.04, 210],
+    ['gpt-4o', 'allow', null, 'BENIGN', 0.04, 210],
     ['gpt-4o', 'route', 'safe-model', 'injection', 0.71, 480],
     ['gpt-4o-mini', 'block', null, 'injection', 0.97, 35],
-    ['gpt-4o', 'allow', null, 'benign', 0.11, 190],
+    ['gpt-4o', 'allow', null, 'BENIGN', 0.11, 190],
     ['gpt-4o', 'route', 'safe-model', 'injection', 0.63, 512],
     ['gpt-4o', 'block', null, 'injection', 0.93, 31],
   ];
@@ -412,7 +412,7 @@ export function seedState(rich = false): MockState {
   const richRows: (string | number | null)[][] = Array.from({ length: 420 }, (_, i) => {
     const r = (i * 7919) % 100;
     const action = r < 71 ? 'allow' : r < 84 ? 'block' : r < 93 ? 'log' : 'route';
-    const label = action === 'allow' ? 'benign' : (['injection', 'jailbreak', 'exfiltration', 'role_play'][r % 4] ?? 'injection');
+    const label = action === 'allow' ? 'BENIGN' : (['injection', 'jailbreak', 'exfiltration', 'role_play'][r % 4] ?? 'injection');
     return [r % 3 ? 'gpt-4o' : 'gpt-4o-mini', action, action === 'route' ? 'safe-model' : null, label, action === 'allow' ? r / 400 : 0.5 + r / 220, 120 + ((r * 37) % 900)];
   });
   const rows = rich ? richRows : baseRows;
@@ -434,7 +434,28 @@ export function seedState(rich = false): MockState {
   return {
     org: { id: ORG_ID, name: 'Acme Corp', slug: 'acme', tier: 'free', audit_store_content: false, created_at: T0, default_upstream_id: main.id },
     projects: [billing, support],
-    upstreams: [main, safe, sandbox],
+    upstreams: rich
+      ? [
+          main,
+          safe,
+          sandbox,
+          {
+            id: uuid(),
+            name: 'azure-eastasia-production-gpt4o',
+            display_name: 'Azure OpenAI (East Asia, production)',
+            provider: 'azure_openai',
+            base_url: 'https://acmebank-eastasia-production.openai.azure.com/openai/deployments/gpt-4o',
+            model: 'gpt-4o',
+            default_model: 'gpt-4o',
+            models: ['gpt-4o', 'gpt-4o-mini'],
+            api_key_env: 'UPSTREAM_KEY_AZURE_EASTASIA_PRODUCTION',
+            timeout_ms: 30000,
+            enabled: true,
+            created_at: T0,
+            updated_at: T0,
+          },
+        ]
+      : [main, safe, sandbox],
     policies: [baseline, strict],
     keys: [
       { key_prefix: 'gs_3fa9c1d2', alias: 'billing prod', project_id: billing.id, rpm_limit: 600, tpm_limit: null, created_at: T0, expires_at: null, revoked: false },
@@ -706,7 +727,7 @@ export function seedIdentity(rich = false): IdentityState {
         display_name: `${first} ${last}`,
         role: roles[i % roles.length] ?? 'viewer',
         mfa_enabled: i % 3 !== 1,
-        login_methods: i % 2 ? ['google'] : ['password'],
+        login_methods: i % 3 === 0 ? ['password', 'oidc:okta'] : i % 3 === 1 ? ['google'] : i === 2 ? ['oidc:9b6cac98-141b-4641-9026-c1a2a86b9627'] : ['password'],
         last_login_at: new Date(Date.parse('2026-11-04T08:00:00Z') - (i + 1) * 3_600_000 * 7).toISOString(),
         joined_at: new Date(Date.parse(T0) + i * 86_400_000).toISOString(),
         disabled: i === 4,
@@ -719,7 +740,8 @@ export function seedIdentity(rich = false): IdentityState {
     at: new Date(Date.parse('2026-11-04T08:00:00Z') - i * 47 * 60_000).toISOString(),
     actor: { id: ME_ID, email: i % 4 === 3 ? (members[2]?.email ?? EMAIL) : EMAIL },
     action: actions[i % actions.length] ?? 'auth.login',
-    target: i % 2 ? (members[(i % 5) + 1]?.email ?? null) : 'Acme Corp',
+    target: i % 3 === 2 ? (members[(i % 5) + 1]?.user_id ?? null) : i % 2 ? (members[(i % 5) + 1]?.email ?? null) : 'Acme Corp',
+    target_label: i % 3 === 2 ? (members[(i % 5) + 1]?.email ?? null) : undefined,
     ip: `203.0.113.${(i * 7) % 250}`,
     details: i % 9 === 1 ? { from: 'viewer', to: 'member' } : i % 9 === 4 ? { name: 'main', fields: 'models' } : null,
   }));
@@ -775,8 +797,8 @@ export function seedIdentity(rich = false): IdentityState {
       },
     ],
     sessions: [
-      { id: 's-1', created_at: '2026-11-04T07:55:00Z', last_seen_at: '2026-11-04T08:00:00Z', user_agent: 'Chrome 142 on macOS', ip: '203.0.113.10', current: true },
-      { id: 's-2', created_at: '2026-11-02T10:12:00Z', last_seen_at: '2026-11-03T18:40:00Z', user_agent: 'Firefox 145 on Ubuntu', ip: '198.51.100.23', current: false },
+      { id: 's-1', created_at: '2026-11-04T07:55:00Z', last_seen_at: '2026-11-04T08:00:00Z', user_agent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36', ip: '203.0.113.10', current: true },
+      { id: 's-2', created_at: '2026-11-02T10:12:00Z', last_seen_at: '2026-11-03T18:40:00Z', user_agent: 'node', ip: '198.51.100.23', current: false },
     ],
   };
 }

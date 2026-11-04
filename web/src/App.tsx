@@ -8,6 +8,7 @@ import { can as canDo } from './auth/permissions';
 import { Loading } from './components/ui';
 import { AppContext, errorText, OrgContext, useApp, type AppState, type OrgState, type Theme, type ThemePref } from './context';
 import { translator, type Lang } from './i18n';
+import { setDateLocale } from './dates';
 import type { NavGroup } from './nav';
 import InstanceActivityPage, { ActivityPage } from './pages/ActivityPage';
 import { DashboardPage } from './pages/DashboardPage';
@@ -146,7 +147,11 @@ export function App() {
     if (token) void reloadMe();
   }, [token, reloadMe]);
 
-  const t = useMemo(() => translator(lang), [lang]);
+  const t = useMemo(() => {
+    // Dates follow the UI language (formatTime and friends read it).
+    setDateLocale(lang);
+    return translator(lang);
+  }, [lang]);
   const dismiss = useCallback((id: number) => setToasts((ts) => ts.filter((x) => x.id !== id)), []);
   const notify = useCallback(
     (message: string, kind: 'ok' | 'error' = 'ok') => {

@@ -406,6 +406,30 @@ func TestActivityFamilyFilterAndTotals(t *testing.T) {
 	}
 }
 
+// A target that is a user id comes with the user's email (target_label).
+func TestActivityTargetLabel(t *testing.T) {
+	h := newCPHarness(t)
+	org, user, admin := h.org(auth.RoleAdmin)
+	var email string
+	if err := h.db.QueryRow(context.Background(), `SELECT email FROM users WHERE id = $1`, user).Scan(&email); err != nil {
+		t.Fatal(err)
+	}
+	writeActivity(context.Background(), h.db, activityEntry{Org: &org, Action: "project_member.role_changed", Target: user.String()})
+	writeActivity(context.Background(), h.db, activityEntry{Org: &org, Action: "upstream.tested", Target: "prod-up"})
+	act := h.expect(200, "GET", "/v1/organizations/"+org.String()+"/activity?limit=10", admin, "")
+	labels := map[string]any{}
+	for _, it := range act["items"].([]any) {
+		row := it.(map[string]any)
+		labels[row["action"].(string)] = row["target_label"]
+	}
+	if labels["project_member.role_changed"] != email {
+		t.Errorf("user target: %v, want %s", labels["project_member.role_changed"], email)
+	}
+	if labels["upstream.tested"] != nil {
+		t.Errorf("a name target gets no label: %v", labels["upstream.tested"])
+	}
+}
+
 func TestRequestsAndKeysFilters(t *testing.T) {
 	h := newCPHarness(t)
 	org, _, admin := h.org(auth.RoleAdmin)

@@ -24,9 +24,25 @@ export function actionTone(action: string): Tone {
   return 'neutral';
 }
 
-function detailsText(d: ActivityEntry['details']): string {
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The target by name: the control plane's label (a user's email), never a bare id. */
+function TargetCell({ e }: { e: ActivityEntry }) {
+  const { t } = useApp();
+  if (!e.target) return <>—</>;
+  const label = e.target_label ?? (UUID_RE.test(e.target) ? null : e.target);
+  return (
+    <span className="ellipsis" title={e.target}>
+      {label ?? <span className="muted">{t('act.unknownTarget', { id: e.target.slice(0, 8) })}</span>}
+    </span>
+  );
+}
+
+/** The details as text; with brief, ids (uuid values) are left to the tooltip. */
+export function detailsText(d: ActivityEntry['details'], brief = false): string {
   if (!d) return '';
   return Object.entries(d)
+    .filter(([, v]) => !brief || typeof v !== 'string' || !UUID_RE.test(v))
     .map(([k, v]) => `${k}: ${typeof v === 'string' ? v : JSON.stringify(v)}`)
     .join(' · ');
 }
@@ -60,8 +76,20 @@ export function ActivityLog({
   });
 
   const columns: Column<ActivityEntry>[] = [
-    { key: 'at', header: t('act.at'), className: 'nowrap', cell: (e) => formatTime(e.at) },
-    { key: 'actor', header: t('act.actor'), cell: (e) => e.actor?.email ?? <span className="muted">{t('act.system')}</span> },
+    { key: 'at', header: t('act.at'), className: 'nowrap', cell: (e) => <span title={formatTime(e.at)}>{formatTime(e.at)}</span> },
+    {
+      key: 'actor',
+      header: t('act.actor'),
+      className: 'col-target',
+      cell: (e) =>
+        e.actor?.email ? (
+          <span className="ellipsis" title={e.actor.email}>
+            {e.actor.email}
+          </span>
+        ) : (
+          <span className="muted">{t('act.system')}</span>
+        ),
+    },
     {
       key: 'action',
       header: t('act.action'),
@@ -71,9 +99,18 @@ export function ActivityLog({
         </Badge>
       ),
     },
-    { key: 'target', header: t('act.target'), className: 'small', cell: (e) => e.target ?? '—' },
+    { key: 'target', header: t('act.target'), className: 'small col-target', cell: (e) => <TargetCell e={e} /> },
     { key: 'ip', header: t('act.ip'), className: 'mono small', cell: (e) => e.ip ?? '—' },
-    { key: 'details', header: t('act.details'), className: 'small muted text-cell', cell: (e) => detailsText(e.details) || '—' },
+    {
+      key: 'details',
+      header: t('act.details'),
+      className: 'small muted cell-wrap',
+      cell: (e) => {
+        const full = detailsText(e.details);
+        const text = detailsText(e.details, true) || full;
+        return text ? <span className="clamp-2" title={full}>{text}</span> : '—';
+      },
+    },
   ];
 
   return (

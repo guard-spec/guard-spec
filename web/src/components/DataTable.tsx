@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { ChevronLeft, ChevronRight, Inbox, Lock, PlugZap, RefreshCw, Search, UserCog, type LucideIcon } from 'lucide-react';
-import { useId, type ReactNode } from 'react';
+import { Fragment, useId, type ReactNode } from 'react';
 import { useApp } from '../context';
 import { PAGE_SIZES, type PageSize } from '../paging';
 import type { UsePaged } from './usePaged';
@@ -117,6 +117,13 @@ export interface Column<T> {
   hiddenHeader?: boolean;
 }
 
+/** Cell classes that style values (code, wrapping) do not apply to the header. */
+const VALUE_CLASSES = new Set(['mono', 'small', 'text-cell', 'wrap', 'cell-ellipsis', 'cell-wrap']);
+export function headerClass(className: string | undefined): string | undefined {
+  const kept = (className ?? '').split(/\s+/).filter((c) => c && !VALUE_CLASSES.has(c));
+  return kept.length ? kept.join(' ') : undefined;
+}
+
 /**
  * A table over a usePaged list: toolbar slot (search, filters), loading,
  * error with retry, "not on this control plane", empty state and the pager.
@@ -131,11 +138,14 @@ export function DataTable<T>({
   feature,
   testId,
   caption,
+  rowDetail,
 }: {
   columns: Column<T>[];
   paged: UsePaged<T>;
   rowKey: (row: T) => string;
   rowClassName?: (row: T) => string;
+  /** A full-width line under a row (a test result), or null. */
+  rowDetail?: (row: T) => ReactNode;
   toolbar?: ReactNode;
   empty?: ReactNode;
   /** Named in the "not available" state. */
@@ -179,7 +189,7 @@ export function DataTable<T>({
             <thead>
               <tr>
                 {columns.map((c) => (
-                  <th key={c.key} scope="col" className={c.className}>
+                  <th key={c.key} scope="col" className={headerClass(c.className)}>
                     {c.hiddenHeader ? <span className="sr-only">{c.header}</span> : c.header}
                   </th>
                 ))}
@@ -196,15 +206,25 @@ export function DataTable<T>({
                       ))}
                     </tr>
                   ))
-                : paged.rows.map((r) => (
-                    <tr key={rowKey(r)} className={rowClassName?.(r)}>
-                      {columns.map((c) => (
-                        <td key={c.key} className={c.className}>
-                          {c.cell(r)}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
+                : paged.rows.map((r) => {
+                    const detail = rowDetail?.(r);
+                    return (
+                      <Fragment key={rowKey(r)}>
+                        <tr className={[rowClassName?.(r) ?? '', detail ? 'has-detail' : ''].join(' ').trim() || undefined}>
+                          {columns.map((c) => (
+                            <td key={c.key} className={c.className}>
+                              {c.cell(r)}
+                            </td>
+                          ))}
+                        </tr>
+                        {detail ? (
+                          <tr className="row-detail">
+                            <td colSpan={columns.length}>{detail}</td>
+                          </tr>
+                        ) : null}
+                      </Fragment>
+                    );
+                  })}
             </tbody>
           </table>
         )}

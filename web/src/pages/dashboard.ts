@@ -5,7 +5,20 @@
 // TODO(N15+): use a server-side aggregate endpoint when the control plane has
 // one; until then the dashboard reads the latest pages of /requests.
 
-import type { AuditRow } from '../types';
+import type { AuditRow, Policy } from '../types';
+
+/** A detector label in one case: the gateway stores BENIGN, the classifier jailbreak. */
+export function normLabel(label: string | null | undefined): string | null {
+  const l = label?.trim().toLowerCase();
+  return l === undefined || l === '' ? null : l;
+}
+
+/** Rule id → rule and policy names, for logs that store rule ids. */
+export function ruleNames(policies: readonly Policy[]): Map<string, { rule: string; policy: string }> {
+  const out = new Map<string, { rule: string; policy: string }>();
+  for (const p of policies) for (const r of p.rules) if (r.id) out.set(r.id, { rule: r.name, policy: p.name });
+  return out;
+}
 
 export interface Stats {
   count: number;
@@ -37,7 +50,9 @@ export function computeStats(rows: AuditRow[], buckets = 24): Stats {
   let to = -Infinity;
   for (const r of rows) {
     byAction.set(r.action, (byAction.get(r.action) ?? 0) + 1);
-    if (r.injection_label && r.injection_label !== 'benign') byLabel.set(r.injection_label, (byLabel.get(r.injection_label) ?? 0) + 1);
+    // The gateway stores labels in upper case (BENIGN): compare and group case-insensitively.
+    const label = normLabel(r.injection_label);
+    if (label && label !== 'benign') byLabel.set(label, (byLabel.get(label) ?? 0) + 1);
     if (typeof r.latency_ms === 'number') lat.push(r.latency_ms);
     const at = Date.parse(r.created_at);
     if (!Number.isNaN(at)) {

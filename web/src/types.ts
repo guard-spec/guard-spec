@@ -435,6 +435,8 @@ export interface ActivityEntry {
   actor: { id: string | null; email: string | null } | null;
   action: string;
   target: string | null;
+  /** The user a user-id target names (its email), from the control plane. */
+  target_label?: string | null;
   ip: string | null;
   details?: Record<string, unknown> | null;
 }

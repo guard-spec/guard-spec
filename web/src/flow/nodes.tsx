@@ -58,7 +58,7 @@ export function StepNode({ data }: NodeProps<Node<StepData>>) {
 export function RuleNode({ data, selected }: NodeProps<Node<RuleData>>) {
   const { inPos, nextPos, matchPos } = useHandles();
   const { t } = useApp();
-  const target = data.action === 'route' ? ` → ${data.routeTarget ?? '?'}` : '';
+  const target = data.action === 'route' ? <span className="action-target">{` → ${data.routeTarget ?? '?'}`}</span> : null;
   return (
     <div
       className={cls('fnode fnode-rule', data.hl, `${selected ? 'fnode-selected' : ''} ${data.error ? 'fnode-error' : ''}`)}

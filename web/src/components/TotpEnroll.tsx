@@ -1,7 +1,7 @@
 // Copyright 2026 The Guard Spec Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useState, type FormEvent } from 'react';
+import { Fragment, useState, type FormEvent } from 'react';
 import { isTotpCode } from '../auth/loginMachine';
 import { useApp } from '../context';
 import type { TotpSetup } from '../types';
@@ -30,7 +30,13 @@ export function TotpEnroll({ setup, onConfirm, busy }: { setup: TotpSetup; onCon
         <div className="totp-secret">
           <span className="muted small">{t('mfa.secret')}</span>
           <code className="secret" data-testid="totp-secret">
-            {setup.secret.replace(/(.{4})/g, '$1 ').trim()}
+            {/* Groups of four that never break inside; lines wrap between groups. */}
+            {(setup.secret.match(/.{1,4}/g) ?? []).map((g, i) => (
+              <Fragment key={i}>
+                {i > 0 ? ' ' : null}
+                <span className="secret-group">{g}</span>
+              </Fragment>
+            ))}
           </code>
           <CopyButton text={setup.secret} />
         </div>
@@ -49,7 +55,7 @@ export function TotpEnroll({ setup, onConfirm, busy }: { setup: TotpSetup; onCon
           />
         )}
       </Field>
-      <button type="submit" className="btn btn-primary" disabled={busy}>
+      <button type="submit" className="btn btn-primary btn-block" disabled={busy}>
         {t('mfa.enable')}
       </button>
     </form>

@@ -740,6 +740,18 @@ export const en = {
   'ex.empty': 'No exemplars yet',
   'proj.search': 'Search projects',
   'proj.empty': 'No projects yet',
+
+  // ── Polish (RF-N16) ─────────────────────────────────────────────────
+  'prov.keyEnvShort': 'Key variable',
+  'prov.testResultOf': 'Connection test of {name}',
+  'sec.methodPasswordShort': 'Password',
+  'sec.methodSso': 'SSO',
+  'account.apiClient': 'API client',
+  'account.browserOn': '{browser} on {os}',
+  'account.unknownDevice': 'Unknown device',
+  'act.unknownTarget': 'Deleted user ({id}…)',
+  'orgPage.auditContentHelpStored': 'The operator turned on content storage for this organization: the log keeps request and response text, not only hashes and sizes.',
+  'cfg.sideHint': 'Validate to see the changes and errors of the file here.',
 } as const;
 
 export type MessageKey = keyof typeof en;

@@ -7,7 +7,7 @@ import { Pencil, Plus, Trash2, UserCog } from 'lucide-react';
 import { useCallback, useState } from 'react';
 import { Badge, DataTable, EmptyState, InstanceAdminOnly, SearchBox, type Column } from '../components/DataTable';
 import { usePaged } from '../components/usePaged';
-import { ConfirmDialog, Dialog, ErrorBanner, Field, formatTime, PageHeader, useDebounced } from '../components/ui';
+import { ConfirmDialog, Dialog, ErrorBanner, Field, PageHeader, useDebounced, RelativeTime, Day } from '../components/ui';
 import { authErrorText } from '../auth/errors';
 import { nonEmpty, useApp } from '../context';
 import type { InstanceUser } from '../types';
@@ -86,8 +86,8 @@ export default function AdminUsersPage() {
         </span>
       ),
     },
-    { key: 'last', header: t('members.lastLogin'), className: 'nowrap small', cell: (u) => formatTime(u.last_login_at) },
-    { key: 'created', header: t('common.created'), className: 'nowrap small', cell: (u) => formatTime(u.created_at) },
+    { key: 'last', header: t('members.lastLogin'), className: 'nowrap small', cell: (u) => <RelativeTime value={u.last_login_at} /> },
+    { key: 'created', header: t('common.created'), className: 'nowrap small', cell: (u) => <Day value={u.created_at} /> },
     {
       key: 'actions',
       header: t('common.actions'),
