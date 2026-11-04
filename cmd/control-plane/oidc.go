@@ -356,7 +356,7 @@ func (id *identity) linkStart(c *fiber.Ctx) error {
 		return auth.Deny(c, fiber.StatusServiceUnavailable, "sso_unavailable", "this sign-in provider is not configured correctly")
 	}
 	user := auth.UserID(c)
-	to, err := id.beginAuth(c.Context(), p, "/ui/#/account", &user, "")
+	to, err := id.beginAuth(c.Context(), p, accountPath, &user, "")
 	if err != nil {
 		return serverError(c, err)
 	}
@@ -364,7 +364,7 @@ func (id *identity) linkStart(c *fiber.Ctx) error {
 }
 
 // accountPath is where a profile link's callback sends the browser.
-const accountPath = "/ui/#/account"
+const accountPath = "/ui/account"
 
 // ssoError ends a callback with an error code for the UI.
 func ssoError(c *fiber.Ctx, code string) error {
@@ -459,46 +459,53 @@ func (id *identity) oidcCallback(c *fiber.Ctx) error {
 			return ssoError(c, "invalid_state")
 		}
 	}
+	// From here on a profile link reports to the account page.
+	fail := func(code string) error {
+		if linkUser != nil {
+			return c.Redirect(accountPath+"?link_error="+url.QueryEscape(code), fiber.StatusFound)
+		}
+		return ssoError(c, code)
+	}
 	if e := c.Query("error"); e != "" {
-		return ssoError(c, "provider_error")
+		return fail("provider_error")
 	}
 	p, err := id.provider(ctx, pid)
 	if err != nil {
 		slog.Warn("sso callback: provider unavailable", "provider", pid, "err", err)
-		return ssoError(c, "sso_unavailable")
+		return fail("sso_unavailable")
 	}
 	hctx, cancel := context.WithTimeout(oidc.ClientContext(context.Background(), id.client), 15*time.Second)
 	defer cancel()
 	tok, err := p.config.Exchange(hctx, c.Query("code"), oauth2.VerifierOption(verifier))
 	if err != nil {
 		slog.Warn("sso callback: code exchange failed", "provider", pid, "err", err)
-		return ssoError(c, "exchange_failed")
+		return fail("exchange_failed")
 	}
 	rawID, _ := tok.Extra("id_token").(string)
 	if rawID == "" {
-		return ssoError(c, "invalid_token")
+		return fail("invalid_token")
 	}
 	idt, err := p.verifier.Verify(hctx, rawID)
 	if err != nil {
 		slog.Warn("sso callback: id token refused", "provider", pid, "err", err)
-		return ssoError(c, "invalid_token")
+		return fail("invalid_token")
 	}
 	if subtle.ConstantTimeCompare([]byte(idt.Nonce), []byte(nonce)) != 1 {
-		return ssoError(c, "invalid_nonce")
+		return fail("invalid_nonce")
 	}
 	var claims idClaims
 	if err := idt.Claims(&claims); err != nil {
-		return ssoError(c, "invalid_token")
+		return fail("invalid_token")
 	}
 	email := strings.ToLower(strings.TrimSpace(claims.Email))
 	if email == "" || !claims.verified() || len(idt.Subject) == 0 || len(idt.Subject) > 255 {
 		logUserEvent(ctx, id.db, uuid.Nil, "login.failed", clientIP(c), map[string]any{"method": p.row.method(), "reason": "email_not_verified"})
-		return ssoError(c, "email_not_verified")
+		return fail("email_not_verified")
 	}
 	if !domainAllowed(p.row, email, claims.HD) {
 		logUserEvent(ctx, id.db, uuid.Nil, "login.failed", clientIP(c),
 			map[string]any{"method": p.row.method(), "reason": "domain_not_allowed", "domain": emailDomain(email)})
-		return ssoError(c, "domain_not_allowed")
+		return fail("domain_not_allowed")
 	}
 
 	if linkUser != nil {
@@ -619,19 +626,32 @@ func (id *identity) linkComplete(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "code is required"})
 	}
 	user := auth.UserID(c)
-	var pid uuid.UUID
+	ctx := c.Context()
+	var owner, pid uuid.UUID
 	var subject, email string
-	err := id.db.QueryRow(c.Context(),
-		`UPDATE oidc_codes SET used_at = NOW()
-		 WHERE code_hash = $1 AND purpose = 'link' AND user_id = $2 AND used_at IS NULL AND expires_at > NOW()
-		 RETURNING provider_id, subject, email`, tenant.HashKey(req.Code), user).Scan(&pid, &subject, &email)
+	err := id.db.QueryRow(ctx,
+		`SELECT user_id, provider_id, subject, email FROM oidc_codes
+		 WHERE code_hash = $1 AND purpose = 'link' AND used_at IS NULL AND expires_at > NOW()`, tenant.HashKey(req.Code)).
+		Scan(&owner, &pid, &subject, &email)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return auth.Deny(c, fiber.StatusUnauthorized, "invalid_code", "invalid, expired or already used code, or another user's link")
+		return auth.Deny(c, fiber.StatusBadRequest, "link_expired", "this link code is invalid, expired or already used; start again")
 	}
 	if err != nil {
 		return serverError(c, err)
 	}
-	err = id.linkIdentity(c.Context(), user, pid, subject, email)
+	if owner != user {
+		// Someone else started this link: the URL was sent to this user.
+		return auth.Deny(c, fiber.StatusConflict, "link_wrong_user", "this link was started by another account")
+	}
+	tag, err := id.db.Exec(ctx, `UPDATE oidc_codes SET used_at = NOW() WHERE code_hash = $1 AND used_at IS NULL`,
+		tenant.HashKey(req.Code))
+	if err != nil {
+		return serverError(c, err)
+	}
+	if tag.RowsAffected() != 1 {
+		return auth.Deny(c, fiber.StatusBadRequest, "link_expired", "this link code was already used")
+	}
+	err = id.linkIdentity(ctx, user, pid, subject, email)
 	var se *errSSO
 	if errors.As(err, &se) {
 		return auth.Deny(c, fiber.StatusConflict, se.code, "this identity cannot be linked to your account")
@@ -639,8 +659,12 @@ func (id *identity) linkComplete(c *fiber.Ctx) error {
 	if err != nil {
 		return serverError(c, err)
 	}
-	logUserEvent(c.Context(), id.db, user, "identity.linked", clientIP(c), map[string]any{"provider_id": pid})
-	return c.JSON(fiber.Map{"provider_id": pid, "linked": true})
+	var display string
+	if err := id.db.QueryRow(ctx, `SELECT display_name FROM identity_providers WHERE id = $1`, pid).Scan(&display); err != nil {
+		return serverError(c, err)
+	}
+	logUserEvent(ctx, id.db, user, "identity.linked", clientIP(c), map[string]any{"provider_id": pid})
+	return c.JSON(fiber.Map{"provider_id": pid, "display_name": display, "email": email})
 }
 
 // applyDomainJoin adds a newly linked SSO user to the organizations whose

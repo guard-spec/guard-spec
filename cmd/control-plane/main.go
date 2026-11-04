@@ -496,14 +496,30 @@ func listAPIKeys(db *pgxpool.Pool) fiber.Handler {
 		}
 		keys := []fiber.Map{}
 		var total int64
+		args := []any{id}
+		filter := ""
+		if q := c.Query("q"); q != "" {
+			args = append(args, likePattern(q))
+			filter += fmt.Sprintf(" AND (alias ILIKE $%[1]d OR key_prefix ILIKE $%[1]d)", len(args))
+		}
+		switch c.Query("revoked") {
+		case "":
+		case "true":
+			filter += " AND revoked_at IS NOT NULL"
+		case "false":
+			filter += " AND revoked_at IS NULL"
+		default:
+			return c.Status(400).JSON(fiber.Map{"error": "revoked must be true or false"})
+		}
+		countArgs := args
 		err = tenant.WithOrg(c.Context(), db, id, func(tx pgx.Tx) error {
-			cond, args, err := ks.where(pg, []any{id})
+			cond, args, err := ks.where(pg, args)
 			if err != nil {
 				return err
 			}
 			rows, err := tx.Query(c.Context(),
 				`SELECT key_prefix, alias, project_id, rpm_limit::bigint, tpm_limit, created_at, expires_at, revoked_at
-				 FROM api_keys WHERE org_id = $1`+cond+ks.orderLimit(pg), args...)
+				 FROM api_keys WHERE org_id = $1`+filter+cond+ks.orderLimit(pg), args...)
 			if err != nil {
 				return err
 			}
@@ -533,7 +549,7 @@ func listAPIKeys(db *pgxpool.Pool) fiber.Handler {
 				return err
 			}
 			if pg.Enveloped {
-				return tx.QueryRow(c.Context(), `SELECT count(*) FROM api_keys WHERE org_id = $1`, id).Scan(&total)
+				return tx.QueryRow(c.Context(), `SELECT count(*) FROM api_keys WHERE org_id = $1`+filter, countArgs...).Scan(&total)
 			}
 			return nil
 		})
@@ -920,12 +936,27 @@ func listRequests(db *pgxpool.Pool) fiber.Handler {
 			CreatedAt       time.Time `json:"created_at"`
 		}
 		reqs := []row{}
+		var total int64
+		var capped bool
 		err = tenant.WithOrg(c.Context(), db, id, func(tx pgx.Tx) error {
 			args := []any{id}
 			filter := ""
 			if action := c.Query("action"); action != "" {
 				args = append(args, action)
-				filter = fmt.Sprintf(" AND action = $%d", len(args))
+				filter += fmt.Sprintf(" AND action = $%d", len(args))
+			}
+			// Search over the row's metadata, never the stored prompt or
+			// response content.
+			if q := c.Query("q"); q != "" {
+				args = append(args, likePattern(q))
+				filter += fmt.Sprintf(` AND (id::text ILIKE $%[1]d OR model ILIKE $%[1]d OR route_target ILIKE $%[1]d
+				  OR action ILIKE $%[1]d OR injection_label ILIKE $%[1]d)`, len(args))
+			}
+			if pg.Enveloped {
+				var err error
+				if total, capped, err = cappedCount(c.Context(), tx, `FROM requests WHERE org_id = $1`+filter, args); err != nil {
+					return err
+				}
 			}
 			cond, args, err := ks.where(pg, args)
 			if err != nil {
@@ -965,7 +996,8 @@ func listRequests(db *pgxpool.Pool) fiber.Handler {
 		}
 		reqs, next := page(reqs, pg.Limit, func(r row) pageCursor { return timeCursor(r.CreatedAt, r.ID.String()) })
 		if pg.Enveloped {
-			return pageJSON(c, reqs, next, -1) // no total: counting the audit log is not cheap
+			// The count stops at cappedTotalLimit rows (total_capped).
+			return c.JSON(fiber.Map{"items": reqs, "next_cursor": next, "total": total, "total_capped": capped})
 		}
 		return c.JSON(fiber.Map{"data": reqs, "total": len(reqs)})
 	}

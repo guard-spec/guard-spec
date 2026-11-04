@@ -38,7 +38,7 @@ type orgSecurity struct {
 func allLoginMethods(ctx context.Context, db *pgxpool.Pool) ([]string, error) {
 	rows, err := db.Query(ctx,
 		`SELECT DISTINCT CASE WHEN type = 'google' THEN 'google' ELSE 'oidc:' || id::text END FROM identity_providers
-		 ORDER BY 1`)
+		 WHERE enabled ORDER BY 1`)
 	if err != nil {
 		return nil, err
 	}
@@ -64,12 +64,7 @@ func loadOrgSecurity(ctx context.Context, db *pgxpool.Pool, org uuid.UUID) (orgS
 			return s, err
 		}
 	}
-	if methods == nil {
-		// Not restricted: every method there is.
-		if methods, err = allLoginMethods(ctx, db); err != nil {
-			return s, err
-		}
-	}
+	// nil (JSON null): not restricted, including providers added later.
 	s.AllowedLoginMethods = methods
 	return s, nil
 }

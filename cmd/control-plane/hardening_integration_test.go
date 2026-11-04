@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"errors"
+	"net/url"
 	"os"
 	"regexp"
 	"strings"
@@ -341,4 +342,124 @@ func TestInviteAcceptDisabled(t *testing.T) {
 	if h.role(user, org) != "" {
 		t.Error("membership added")
 	}
+}
+
+// Integration run of #25 + #26.
+
+// A save of the security page without restricting methods keeps the org
+// unrestricted: an SSO provider added later is not refused.
+func TestLoginMethodsStayUnrestricted(t *testing.T) {
+	h := newCPHarness(t)
+	org, _, owner := h.org(auth.RoleOwner)
+	base := "/v1/organizations/" + org.String() + "/security"
+	sec := h.expect(200, "GET", base, owner, "")
+	if sec["allowed_login_methods"] != nil {
+		t.Fatalf("unrestricted org: %v", sec["allowed_login_methods"])
+	}
+	// The UI sends back what it read (null), and omitting it means the same.
+	h.expect(200, "PUT", base, owner, `{"allowed_login_methods":null,"session_lifetime_hours":12}`)
+	h.expect(200, "PUT", base, owner, `{"session_lifetime_hours":10}`)
+	if sec = h.expect(200, "GET", base, owner, ""); sec["allowed_login_methods"] != nil {
+		t.Errorf("pinned after a save: %v", sec["allowed_login_methods"])
+	}
+	// A provider added afterwards: its sessions reach the org.
+	var pid uuid.UUID
+	if err := h.db.QueryRow(context.Background(),
+		`INSERT INTO identity_providers (type, display_name, issuer, client_id, client_secret_env)
+		 VALUES ('oidc', 'Later', 'https://idp.example', 'c', 'OIDC_SECRET_LATER') RETURNING id`).Scan(&pid); err != nil {
+		t.Fatal(err)
+	}
+	_, user := h.user("")
+	h.addMember(org, user, auth.RoleViewer)
+	sess, err := auth.NewSessions(h.db).Create(context.Background(), auth.NewSession{UserID: user, Method: "oidc:" + pid.String()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok, _ := auth.IssueSessionToken(testSecret, user, sess.ID, sess.ExpiresAt)
+	h.expect(200, "GET", "/v1/organizations/"+org.String(), tok, "")
+	// A disabled provider's method is not a known method.
+	if _, err := h.db.Exec(context.Background(), `UPDATE identity_providers SET enabled = false WHERE id = $1`, pid); err != nil {
+		t.Fatal(err)
+	}
+	h.expect(400, "PUT", base, owner, `{"allowed_login_methods":["password","oidc:`+pid.String()+`"]}`)
+}
+
+// ?action= matches an action or its family; totals come with the page.
+func TestActivityFamilyFilterAndTotals(t *testing.T) {
+	h := newCPHarness(t)
+	org, _, admin := h.org(auth.RoleAdmin)
+	for _, e := range []string{"a@example.com", "b@example.com"} {
+		h.expect(201, "POST", "/v1/orgs/"+org.String()+"/invites", admin, `{"email":"`+e+`","role":"viewer"}`)
+	}
+	h.expect(201, "POST", "/v1/organizations/"+org.String()+"/api-keys", admin, `{"alias":"k"}`)
+	writeActivity(context.Background(), h.db, activityEntry{Org: &org, Action: "invitex.other"})
+	writeActivity(context.Background(), h.db, activityEntry{Org: &org, Action: "inv%te.wild"})
+	act := h.expect(200, "GET", "/v1/organizations/"+org.String()+"/activity?action=invite&limit=1", admin, "")
+	if act["total"] != float64(2) || act["total_capped"] != false || len(act["items"].([]any)) != 1 || act["next_cursor"] == nil {
+		t.Errorf("family filter: %v", act)
+	}
+	if act := h.expect(200, "GET", "/v1/organizations/"+org.String()+"/activity?action=invite.created", admin, ""); act["total"] != float64(2) {
+		t.Errorf("exact action: %v", act)
+	}
+	if act := h.expect(200, "GET", "/v1/organizations/"+org.String()+"/activity?action=inv%25te", admin, ""); act["total"] != float64(1) {
+		t.Errorf("LIKE characters must be literal: %v", act)
+	}
+}
+
+func TestRequestsAndKeysFilters(t *testing.T) {
+	h := newCPHarness(t)
+	org, _, admin := h.org(auth.RoleAdmin)
+	ctx := context.Background()
+	err := withOrgTx(h, org, func(tx pgx.Tx) error {
+		for _, q := range []string{
+			`INSERT INTO requests (org_id, action, model, route_target, injection_label) VALUES ($1, 'block', 'gpt-4o', 'prod-up', 'jailbreak')`,
+			`INSERT INTO requests (org_id, action, model, request_content) VALUES ($1, 'allow', 'llama3', 'secret prompt jailbreak')`,
+		} {
+			if _, err := tx.Exec(ctx, q, org); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := "/v1/organizations/" + org.String() + "/requests?limit=10"
+	all := h.expect(200, "GET", base, admin, "")
+	if all["total"] != float64(2) || all["total_capped"] != false {
+		t.Errorf("requests total: %v", all)
+	}
+	for q, want := range map[string]float64{"JAILBREAK": 1, "prod-UP": 1, "llama": 1, "block": 1, "secret prompt": 0} {
+		out := h.expect(200, "GET", base+"&q="+url.QueryEscape(q), admin, "")
+		if out["total"] != want || float64(len(out["items"].([]any))) != want {
+			t.Errorf("q=%q: %v", q, out)
+		}
+	}
+
+	keys := "/v1/organizations/" + org.String() + "/api-keys"
+	h.expect(201, "POST", keys, admin, `{"alias":"Billing service"}`)
+	gone := h.expect(201, "POST", keys, admin, `{"alias":"old"}`)
+	h.expect(204, "DELETE", keys+"/"+gone["key_prefix"].(string), admin, "")
+	check := func(query string, want float64) {
+		t.Helper()
+		out := h.expect(200, "GET", keys+"?limit=10&"+query, admin, "")
+		if out["total"] != want || float64(len(out["items"].([]any))) != want {
+			t.Errorf("%s: %v", query, out)
+		}
+	}
+	check("q=billing", 1)
+	check("q="+url.QueryEscape(gone["key_prefix"].(string)), 1)
+	check("revoked=true", 1)
+	check("revoked=false", 1)
+	check("revoked=false&q=old", 0)
+	h.expect(400, "GET", keys+"?revoked=maybe", admin, "")
+}
+
+func withOrgTx(h *cpHarness, org uuid.UUID, fn func(pgx.Tx) error) error {
+	return pgx.BeginFunc(context.Background(), h.db, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(context.Background(), `SELECT set_config('app.org_id', $1, true)`, org.String()); err != nil {
+			return err
+		}
+		return fn(tx)
+	})
 }
