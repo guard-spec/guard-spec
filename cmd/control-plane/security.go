@@ -160,7 +160,7 @@ func putOrgSecurity(db *pgxpool.Pool) fiber.Handler {
 				"allowed_login_methods must include the method of your current session ("+sess.Method+")")
 		}
 		if sess, ok := auth.CurrentSession(c); ok && s.RequireMFA && !sess.MFA &&
-			!(s.SSOSatisfiesMFA && auth.IsSSOMethod(sess.Method)) {
+			(!s.SSOSatisfiesMFA || !auth.IsSSOMethod(sess.Method)) {
 			return auth.Deny(c, fiber.StatusConflict, "would_lock_out",
 				"turn on 2FA for your own account and log in with it before requiring 2FA")
 		}
