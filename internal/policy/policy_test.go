@@ -122,14 +122,16 @@ func TestValidateRules(t *testing.T) {
 	}
 
 	refused := map[string]string{
-		"redact":       `[{"name":"a","action":"redact","condition":` + cond + `}]`,
-		"route":        `[{"name":"a","action":"route","route_target":"x","condition":` + cond + `}]`,
-		"unknown":      `[{"name":"a","action":"delete","condition":` + cond + `}]`,
-		"no action":    `[{"name":"a","condition":` + cond + `}]`,
-		"bad field":    `[{"name":"a","action":"block","condition":{"field":"x","operator":"=","value":"a"}}]`,
-		"null":         `null`,
-		"not a list":   `{}`,
-		"duplicate id": `[{"id":"` + id.String() + `","action":"log","condition":` + cond + `},{"id":"` + id.String() + `","action":"log","condition":` + cond + `}]`,
+		"redact":                 `[{"name":"a","action":"redact","condition":` + cond + `}]`,
+		"route without target":   `[{"name":"a","action":"route","condition":` + cond + `}]`,
+		"route to a bad name":    `[{"name":"a","action":"route","route_target":"Safe Model","condition":` + cond + `}]`,
+		"target on a block rule": `[{"name":"a","action":"block","route_target":"x","condition":` + cond + `}]`,
+		"unknown":                `[{"name":"a","action":"delete","condition":` + cond + `}]`,
+		"no action":              `[{"name":"a","condition":` + cond + `}]`,
+		"bad field":              `[{"name":"a","action":"block","condition":{"field":"x","operator":"=","value":"a"}}]`,
+		"null":                   `null`,
+		"not a list":             `{}`,
+		"duplicate id":           `[{"id":"` + id.String() + `","action":"log","condition":` + cond + `},{"id":"` + id.String() + `","action":"log","condition":` + cond + `}]`,
 	}
 	for name, raw := range refused {
 		t.Run(name, func(t *testing.T) {

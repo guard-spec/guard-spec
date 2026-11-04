@@ -72,9 +72,17 @@ gateway:
     port: 8080
   metricsPort: 9090
   # Extra environment, such as UPSTREAM_LLM_URL, OUTPUT_*, SCAN_ROLES.
-  # Secrets (UPSTREAM_LLM_KEY) belong in extraEnvFrom.
+  # Secrets (UPSTREAM_LLM_KEY, and UPSTREAM_KEY_* for named upstreams) belong
+  # in extraEnvFrom.
   env:
     UPSTREAM_LLM_URL: ""
+    # Routing: which orgs may use which UPSTREAM_KEY_* variable, as
+    # "UPSTREAM_KEY_MAIN=*;UPSTREAM_KEY_ACME=<org-id>". Empty: no org may name
+    # a key. Set the same value on the control plane.
+    UPSTREAM_KEY_ORGS: ""
+    # "true" lets org-defined upstreams reach loopback, private and CGNAT
+    # addresses (the cluster network). Keep "false" unless org admins are trusted.
+    UPSTREAM_ALLOW_PRIVATE: "false"
     AUDIT_STORE_CONTENT: "false"
     # Per-key limits for keys without their own; 0 = unlimited. Counted per
     # replica: N replicas allow up to N times the limit.
@@ -107,6 +115,8 @@ controlPlane:
   adminEmail: ""
   env:
     ALLOWED_ORIGINS: ""
+    # Same as gateway.env.UPSTREAM_KEY_ORGS; checked when upstreams are saved.
+    UPSTREAM_KEY_ORGS: ""
     # Audit rows older than this are deleted; 0 keeps them forever. Safe with
     # several replicas (advisory lock).
     AUDIT_RETENTION_DAYS: "90"

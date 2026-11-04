@@ -69,10 +69,24 @@ fix needs longer.
 ## Verifying releases
 
 Release container images are signed with cosign (keyless, through GitHub
-Actions OIDC) and come with an SPDX SBOM. To verify an image:
+Actions OIDC) and come with an SPDX SBOM and SLSA provenance (BuildKit
+attestations; `docker buildx imagetools inspect <image> --format '{{json .SBOM}}'`).
+The gateway image is built by `.github/workflows/release.yml`, the
+control-plane image by GoReleaser; both are verified the same way:
 
 ```bash
 cosign verify ghcr.io/giaplee/guard-spec-gateway:<version> \
   --certificate-identity-regexp '^https://github.com/giaplee/guard-spec/' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+Archives are covered by `checksums.txt` (GoReleaser, L1-only binaries) and
+`checksums-onnx.txt` (the linux `_onnx` tarballs), each signed with a cosign
+bundle next to it:
+
+```bash
+cosign verify-blob checksums-onnx.txt --bundle checksums-onnx.txt.sigstore.json \
+  --certificate-identity-regexp '^https://github.com/giaplee/guard-spec/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+sha256sum --ignore-missing -c checksums-onnx.txt
 ```
