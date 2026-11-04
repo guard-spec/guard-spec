@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { isNotFound } from '../api';
 import { errorText, useApp } from '../context';
 
 export function PageHeader({ title, help, actions }: { title: string; help?: string; actions?: ReactNode }) {
@@ -199,18 +200,23 @@ export function useLoad<T>(fn: () => Promise<T>): {
   data: T | undefined;
   error: string | null;
   loading: boolean;
+  /** The endpoint does not exist on this control plane (404). */
+  notFound: boolean;
   reload: () => Promise<void>;
 } {
   const [data, setData] = useState<T | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
+  const [notFound, setNotFound] = useState(false);
   const [loading, setLoading] = useState(true);
   const reload = useCallback(async () => {
     setLoading(true);
     try {
       setData(await fn());
       setError(null);
+      setNotFound(false);
     } catch (e) {
       setError(errorText(e));
+      setNotFound(isNotFound(e));
     } finally {
       setLoading(false);
     }
@@ -218,7 +224,59 @@ export function useLoad<T>(fn: () => Promise<T>): {
   useEffect(() => {
     void reload();
   }, [reload]);
-  return { data, error, loading, reload };
+  return { data, error, loading, notFound, reload };
+}
+
+/** A checkbox with a title and a help line. */
+export function Toggle({
+  label,
+  help,
+  checked,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  help?: string;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  const id = useId();
+  return (
+    <div className="switch-row">
+      <input id={id} type="checkbox" checked={checked} disabled={disabled} aria-describedby={help ? `${id}-help` : undefined} onChange={(e) => onChange(e.target.checked)} />
+      <div className="switch-text">
+        <label htmlFor={id}>{label}</label>
+        {help ? (
+          <small id={`${id}-help`} className="muted">
+            {help}
+          </small>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+/** value, once it has not changed for ms (search boxes). */
+export function useDebounced<T>(value: T, ms = 300): T {
+  const [v, setV] = useState(value);
+  useEffect(() => {
+    const id = window.setTimeout(() => setV(value), ms);
+    return () => window.clearTimeout(id);
+  }, [value, ms]);
+  return v;
+}
+
+/** Offers text as a file download (recovery codes). A blob: URL, allowed by the CSP for downloads. */
+export function downloadText(filename: string, text: string): void {
+  const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 export function Loading() {

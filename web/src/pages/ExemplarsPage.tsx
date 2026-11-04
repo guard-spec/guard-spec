@@ -1,8 +1,11 @@
 // Copyright 2026 The Guard Spec Authors
 // SPDX-License-Identifier: Apache-2.0
 
+import { Library, Plus } from 'lucide-react';
 import { useCallback, useState } from 'react';
-import { ConfirmDialog, Dialog, ErrorBanner, Field, formatTime, Loading, PageHeader, useLoad } from '../components/ui';
+import { DataTable, EmptyState, SearchBox, type Column } from '../components/DataTable';
+import { usePaged } from '../components/usePaged';
+import { ConfirmDialog, Dialog, ErrorBanner, Field, formatTime, PageHeader, useDebounced } from '../components/ui';
 import { errorText, useApp, useOrg } from '../context';
 import type { Exemplar } from '../types';
 
@@ -15,8 +18,20 @@ interface Draft {
 
 export function ExemplarsPage() {
   const { api, t, notify } = useApp();
-  const { org } = useOrg();
-  const { data, error, loading, reload } = useLoad(useCallback(() => api.listExemplars(org.id), [api, org.id]));
+  const { org, can } = useOrg();
+  const writable = can('exemplars.write');
+  const [q, setQ] = useState('');
+  const [label, setLabel] = useState('');
+  const query = useDebounced(q);
+  const fetchPage = useCallback(
+    (p: { limit: number; cursor?: string }) => api.listExemplarsPage(org.id, { ...p, q: query || undefined, label: label || undefined }),
+    [api, org.id, query, label],
+  );
+  const needle = query.trim().toLowerCase();
+  const paged = usePaged<Exemplar>(fetchPage, {
+    clientFilter: needle || label ? (x) => (!label || x.label === label) && (!needle || `${x.text} ${x.source}`.toLowerCase().includes(needle)) : undefined,
+  });
+  const reload = paged.reload;
   const [draft, setDraft] = useState<Draft | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<Exemplar | null>(null);
@@ -36,61 +51,64 @@ export function ExemplarsPage() {
     }
   };
 
+  const columns: Column<Exemplar>[] = [
+    { key: 'label', header: t('ex.label'), cell: (x) => <span className={`action action-${x.label}`}>{x.label}</span> },
+    { key: 'text', header: t('ex.text'), className: 'text-cell', cell: (x) => x.text },
+    { key: 'source', header: t('ex.source'), cell: (x) => x.source },
+    { key: 'created', header: t('common.created'), className: 'nowrap small', cell: (x) => formatTime(x.created_at) },
+    {
+      key: 'actions',
+      header: t('common.actions'),
+      hiddenHeader: true,
+      className: 'row-actions',
+      cell: (x) =>
+        writable ? (
+          <>
+            <button type="button" className="btn btn-small" onClick={() => setDraft({ id: x.id, label: x.label, text: x.text, source: x.source })}>
+              {t('common.edit')}
+            </button>
+            <button type="button" className="btn btn-small btn-danger" onClick={() => setDeleting(x)}>
+              {t('common.delete')}
+            </button>
+          </>
+        ) : null,
+    },
+  ];
+
   return (
     <div>
       <PageHeader
         title={t('ex.title')}
         help={t('ex.help')}
         actions={
-          <button type="button" className="btn btn-primary" onClick={() => setDraft({ id: null, label: 'block', text: '', source: '' })}>
-            + {t('ex.new')}
-          </button>
+          writable ? (
+            <button type="button" className="btn btn-primary btn-icon-text" onClick={() => setDraft({ id: null, label: 'block', text: '', source: '' })}>
+              <Plus size={16} aria-hidden="true" />
+              <span>{t('ex.new')}</span>
+            </button>
+          ) : null
         }
       />
-      <ErrorBanner error={error} />
-      {loading && !data ? <Loading /> : null}
-      <div className="card table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th scope="col">{t('ex.label')}</th>
-              <th scope="col">{t('ex.text')}</th>
-              <th scope="col">{t('ex.source')}</th>
-              <th scope="col">{t('common.created')}</th>
-              <th scope="col">
-                <span className="sr-only">{t('common.actions')}</span>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {data?.data.length === 0 ? (
-              <tr>
-                <td colSpan={5} className="muted">
-                  {t('common.empty')}
-                </td>
-              </tr>
-            ) : null}
-            {data?.data.map((x) => (
-              <tr key={x.id}>
-                <td>
-                  <span className={`action action-${x.label}`}>{x.label}</span>
-                </td>
-                <td className="text-cell">{x.text}</td>
-                <td>{x.source}</td>
-                <td>{formatTime(x.created_at)}</td>
-                <td className="row-actions">
-                  <button type="button" className="btn btn-small" onClick={() => setDraft({ id: x.id, label: x.label, text: x.text, source: x.source })}>
-                    {t('common.edit')}
-                  </button>
-                  <button type="button" className="btn btn-small btn-danger" onClick={() => setDeleting(x)}>
-                    {t('common.delete')}
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <DataTable
+        columns={columns}
+        paged={paged}
+        rowKey={(x) => x.id}
+        testId="exemplars-table"
+        toolbar={
+          <>
+            <SearchBox value={q} onChange={setQ} label={t('ex.search')} />
+            <div className="field field-inline">
+              <label htmlFor="ex-label-filter">{t('ex.label')}</label>
+              <select id="ex-label-filter" value={label} onChange={(e) => setLabel(e.target.value)}>
+                <option value="">{t('audit.all')}</option>
+                <option value="block">block</option>
+                <option value="allow">allow</option>
+              </select>
+            </div>
+          </>
+        }
+        empty={<EmptyState icon={Library} title={needle || label ? t('table.noMatch') : t('ex.empty')} />}
+      />
       <Dialog
         open={draft !== null}
         title={draft?.id ? t('common.edit') : t('ex.new')}
