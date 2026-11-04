@@ -50,15 +50,30 @@ type Config struct {
 	// unless UPSTREAM_ALLOW_PRIVATE=true; UPSTREAM_LLM_URL is the operator's
 	// and never has it.
 	DenyPrivate bool
+	// Headers are extra non-secret headers (upstreams.headers); invalid
+	// ones are dropped.
+	Headers map[string]string
+	// KeyHeader sends Key in this header as is, instead of as a bearer
+	// token in Authorization (Azure OpenAI: "api-key").
+	KeyHeader string
+	// APIVersion is added as ?api-version= to every request (Azure OpenAI).
+	APIVersion string
+	// Retries is how many times a request that failed before the upstream
+	// answered (connection error or 5xx) is sent again, 0 to 3.
+	Retries int
 }
 
 // Proxy sends requests to one upstream.
 type Proxy struct {
-	base      string
-	key       string
-	timeout   time.Duration
-	propagate bool
-	client    *http.Client
+	base       string
+	key        string
+	keyHeader  string
+	apiVersion string
+	headers    map[string]string
+	retries    int
+	timeout    time.Duration
+	propagate  bool
+	client     *http.Client
 }
 
 // Error is an upstream failure in a form that is safe to show the client.
@@ -188,10 +203,14 @@ func New(cfg Config) (*Proxy, error) {
 		cfg.Timeout = DefaultTimeout
 	}
 	return &Proxy{
-		base:      strings.TrimRight(cfg.BaseURL, "/"),
-		key:       cfg.Key,
-		timeout:   cfg.Timeout,
-		propagate: cfg.Propagate,
+		base:       strings.TrimRight(cfg.BaseURL, "/"),
+		key:        cfg.Key,
+		keyHeader:  cfg.KeyHeader,
+		apiVersion: cfg.APIVersion,
+		headers:    safeHeaders(cfg.Headers),
+		retries:    min(max(cfg.Retries, 0), 3),
+		timeout:    cfg.Timeout,
+		propagate:  cfg.Propagate,
 		client: &http.Client{
 			// No client-wide Timeout: it would also cut off a long stream.
 			Transport: &http.Transport{
@@ -235,18 +254,60 @@ func (p *Proxy) Forward(ctx context.Context, path string, body []byte) (resp *Re
 	return p.forward(ctx, path, body)
 }
 
+// url is base+path with the api-version query when one is set.
+func (p *Proxy) url(path string) string {
+	if p.apiVersion == "" {
+		return p.base + path
+	}
+	return p.base + path + "?api-version=" + url.QueryEscape(p.apiVersion)
+}
+
+// setHeaders sets the configured extra headers, then the credentials, so
+// that no extra header can replace them.
+func (p *Proxy) setHeaders(req *http.Request) {
+	req.Header.Set("User-Agent", "") // keep Go's default out
+	for k, v := range p.headers {
+		req.Header.Set(k, v)
+	}
+	if p.key != "" {
+		if p.keyHeader != "" {
+			req.Header.Set(p.keyHeader, p.key)
+		} else {
+			req.Header.Set("Authorization", "Bearer "+p.key)
+		}
+	}
+}
+
+// retryable reports a failure the upstream did not answer, or answered with
+// a 5xx: sending the same body again is safe.
+func retryable(err error) bool {
+	var e *Error
+	if !errors.As(err, &e) {
+		return false
+	}
+	return e.Code == "upstream_unavailable" || (e.Code == "upstream_error" && e.Status == http.StatusBadGateway &&
+		e.Message == "upstream error")
+}
+
 func (p *Proxy) forward(ctx context.Context, path string, body []byte) (*Response, error) {
+	for attempt := 0; ; attempt++ {
+		resp, err := p.forwardOnce(ctx, path, body)
+		if err == nil || attempt >= p.retries || !retryable(err) || ctx.Err() != nil {
+			return resp, err
+		}
+		slog.Warn("upstream request failed, retrying", "attempt", attempt+1, "err", err)
+	}
+}
+
+func (p *Proxy) forwardOnce(ctx context.Context, path string, body []byte) (*Response, error) {
 	ctx, cancel := context.WithCancel(ctx)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.base+path, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.url(path), bytes.NewReader(body))
 	if err != nil {
 		cancel()
 		return nil, classify(err)
 	}
+	p.setHeaders(req)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "") // keep Go's default out
-	if p.key != "" {
-		req.Header.Set("Authorization", "Bearer "+p.key)
-	}
 	if p.propagate {
 		otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(req.Header))
 	}
