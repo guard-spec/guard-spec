@@ -32,8 +32,14 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   action `route` when a route rule decided.
 - The control plane serves the admin UI at `/ui/` (embedded from `web/dist`,
   strict CSP, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`) and
-  redirects `/` there. The UI itself is in progress; builds without it show a
-  placeholder.
+  redirects `/` there. Builds without Node show a placeholder.
+- **Admin UI** (`web/`, React and TypeScript): a flow diagram of the request
+  path with the policy rules as editable nodes (visual and text conditions,
+  drag to reorder, connect a rule to an upstream to route it), a policy
+  simulator, upstreams and defaults, config as code (YAML with validation,
+  diff and apply), guard settings, API keys, projects, exemplars and the audit
+  log. English and Vietnamese, light and dark themes. Released control-plane
+  binaries and images embed it (GoReleaser builds it before the Go builds).
 - Metric `guardspec_gateway_route_selections_total{source,outcome}`.
 
 - `UPSTREAM_KEY_ORGS` (gateway and control plane): which organizations may

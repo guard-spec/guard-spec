@@ -25,6 +25,7 @@ before you rely on it.
 - [Configuration](#configuration)
 - [APIs](#apis)
 - [Routing](#routing)
+- [Admin UI](#admin-ui)
 - [Benchmarks](#benchmarks)
 - [Security model and limitations](#security-model-and-limitations)
 - [Operations](#operations)
@@ -62,9 +63,10 @@ Trade-offs to know about:
 - The classifier and the Vietnamese data are young. The Vietnamese data is
   synthetic, and the classifier blocks more benign Vietnamese chat than we
   want (see [Benchmarks](#benchmarks)).
-- The admin UI is in progress. The control plane serves it at `/ui/`; a build
-  without it shows a placeholder page. Everything is also available through
-  the REST API.
+- The admin UI covers routing, policies, guard settings, keys, projects,
+  exemplars and the audit log, but not users and invites yet; those stay in
+  the REST API. A control plane built without Node shows a placeholder page
+  at `/ui/`.
 
 ## Architecture
 
@@ -151,7 +153,7 @@ What each stage does:
   `route` rule, the project default or the org default picks one, otherwise
   `UPSTREAM_LLM_URL`. See [Routing](#routing).
 - **Admin UI** (`web/`). A single-page app served by the control plane at
-  `/ui/`, in progress.
+  `/ui/`. See [Admin UI](#admin-ui).
 - **Output guard** (`internal/outputguard`). Rewrites whole responses and
   streams (with a 256-character window): strips images and links to hosts off
   an allowlist, redacts e-mail, Vietnamese phone numbers, CCCD numbers, card
@@ -706,6 +708,69 @@ curl -s $CP/organizations/$ORG/config -H "$AUTH" > guard.yaml
 curl -s -X PUT "$CP/organizations/$ORG/config?dry_run=true" -H "$AUTH" -H 'Content-Type: text/yaml' --data-binary @guard.yaml
 ```
 
+## Admin UI
+
+The control plane serves the admin UI at `/ui/` (with compose:
+<http://localhost:18081/ui/>). Sign in with a control-plane user (for a new
+install, `ADMIN_EMAIL` and `ADMIN_PASSWORD`), then open an organization by id;
+the one created at install is `00000000-0000-0000-0000-000000000001`. The token
+is kept in the browser tab's session storage and sent as a bearer token; the UI
+uses the same `/v1` API, roles and validation as any other client. English and
+Vietnamese, light and dark themes, keyboard accessible.
+
+**Flow** shows how a request of the chosen scope (keys without a project, or a
+project) moves through the gateway: request, API key, L0 sanitizer, the L1, L2
+and L3 detectors with the parts guard settings let them scan, then every
+enabled policy rule in gateway order, the Block, Log and Allow outcomes, the
+upstreams, the output guard and the client.
+
+![Flow page with a simulated request](docs/images/admin-flow.png)
+
+- Click a rule (or its entry in "Rules in order") to edit it. The condition
+  has a **Visual** tab (a query builder with the fields and operators of
+  `GET /v1/policy/schema`) and a **Text** tab (`scores.l2 > 0.9 &&
+  injection.category != "benign"`), kept in sync by `/v1/policy/parse` and
+  `/v1/policy/format`; parse errors are marked where they occur.
+- Drag a rule up or down to reorder it within its policy (or use the arrow
+  buttons). Drag from a rule's round **match** handle to Block, Allow, Log or
+  an upstream to set its action; an upstream makes it a `route` rule.
+- Add rules and policies, enable or disable policies, then **Save changes**.
+  The server validates every rule; its errors are shown on the rule.
+- The **Simulator** evaluates a request (scores, category, model and other
+  schema fields) against the rules shown, unsaved changes included, highlights
+  the path and lists every rule's outcome.
+
+| Rule editor, visual | Rule editor, text |
+|---|---|
+| ![Visual condition builder](docs/images/admin-rule-visual.png) | ![Condition as text](docs/images/admin-rule-text.png) |
+
+**Upstreams** manages the named upstreams and the org and project defaults.
+An upstream's key is never entered in the UI: `api_key_env` names a
+`UPSTREAM_KEY_*` variable set on the gateway.
+
+**Config as code** edits the whole routing and policy configuration as YAML,
+validates it (`?dry_run=true`, errors by path, marked in the editor), shows a
+diff against the loaded version and applies it after a confirmation that
+lists the changes.
+
+| Upstreams | Config as code |
+|---|---|
+| ![Upstreams](docs/images/admin-upstreams.png) | ![Config as code with a diff](docs/images/admin-config.png) |
+
+Guard settings, API keys (the secret is shown once, at creation), projects,
+exemplars and the audit log (with the route target of each request) have
+pages of their own.
+
+| Dark theme, Vietnamese | Audit log |
+|---|---|
+| ![Flow in Vietnamese, dark theme](docs/images/admin-flow-dark-vi.png) | ![Audit log](docs/images/admin-audit.png) |
+
+The UI loads nothing from other origins and runs under the control plane's
+`Content-Security-Policy` (`default-src 'self'`, no inline scripts or styles);
+the e2e tests run the production build under that policy and fail on any
+violation. Screenshots are taken against the mocked API of the e2e tests
+(`npm run screenshots` in `web/`).
+
 ## Benchmarks
 
 All numbers below were measured by us on **2026-11-04** at commit `2275698`
@@ -1149,6 +1214,12 @@ go run ./cmd/eval -baseline eval/baseline.json   # detector eval vs the committe
 
 # Admin UI (optional: without it, go build embeds the placeholder in web/dist)
 npm --prefix web ci && npm --prefix web run build
+# UI checks: lint, types, unit tests (Vitest), e2e against a mocked API (Playwright)
+cd web && npm run lint && npm run typecheck && npm test
+npx playwright install chromium && npx playwright test --project=chromium
+npm run screenshots                        # regenerates docs/images/admin-*.png
+npm run dev                                # http://localhost:5173/ui/, proxies /v1 to :18081
+# A build replaces the committed placeholder web/dist/index.html; do not commit it.
 
 # Integration tests need Postgres (see .github/workflows/ci.yml for the setup)
 go test -race -tags integration ./...
