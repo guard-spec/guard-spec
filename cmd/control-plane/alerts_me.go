@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/giaplee/guard-spec/internal/alerts"
 	"github.com/giaplee/guard-spec/internal/alerts/channels"
 	"github.com/giaplee/guard-spec/internal/auth"
 	"github.com/giaplee/guard-spec/internal/proxy"
@@ -307,13 +308,16 @@ func (rt *alertsRuntime) readNotifications(c *fiber.Ctx) error {
 			args = append(args, in.IDs)
 		}
 		tag, err := tx.Exec(c.Context(), q, args...)
+		if err != nil {
+			return err
+		}
 		n = tag.RowsAffected()
-		return err
+		// Other tabs and replicas: a read event and a fresh unread count.
+		return alerts.NotifyRead(c.Context(), tx, user, in.IDs, in.All)
 	})
 	if err != nil {
 		return serverError(c, err)
 	}
-	rt.hub.Publish(user) // other tabs refresh their count
 	return c.JSON(fiber.Map{"updated": n})
 }
 
@@ -323,7 +327,8 @@ const HeartbeatInterval = 25 * time.Second
 // stream is the SSE stream of the caller's notifications. Auth is the Bearer
 // header (fetch-based EventSource), never a token in the URL. Events:
 // "unread" {count} on connect and after changes, "notification" {...} for
-// each new one. The session is checked again at every heartbeat.
+// each new one, "read" {ids} or {all:true} when notifications are marked read
+// (in any tab), "end" {reason} when the session ends. The session is checked again at every heartbeat.
 func (rt *alertsRuntime) stream(c *fiber.Ctx) error {
 	user := authUser(c)
 	sess, hasSession := auth.CurrentSession(c)
@@ -380,7 +385,17 @@ func (rt *alertsRuntime) stream(c *fiber.Ctx) error {
 				if !write("", nil) {
 					return
 				}
-			case <-sub:
+			case sig := <-sub:
+				if sig.Read != nil || sig.Refresh {
+					if sig.Read != nil && !write("read", sig.Read) {
+						return
+					}
+					n, err := unread()
+					if err != nil || !write("unread", fiber.Map{"count": n}) {
+						return
+					}
+					continue
+				}
 				var fresh []notificationView
 				err := withUser(base, rt.db, user, func(tx pgx.Tx) error {
 					rows, err := tx.Query(base, `SELECT `+notificationColumns+` FROM notifications WHERE `+notificationScope+

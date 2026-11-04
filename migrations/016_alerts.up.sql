@@ -261,9 +261,12 @@ CREATE POLICY tenant_isolation_notification_outbox ON notification_outbox
 
 -- The delivery log the UI reads.
 CREATE VIEW notification_deliveries WITH (security_invoker = true) AS
-    SELECT o.id, o.org_id, o.alert_id, o.rule_id, a.rule_name, o.channel_kind, o.channel_id, o.user_id, o.target,
-           o.state, o.attempts, o.next_attempt_at, o.last_error, o.last_status, o.remote_id, o.created_at, o.sent_at
-    FROM notification_outbox o LEFT JOIN alerts a ON a.id = o.alert_id;
+    SELECT o.id, o.org_id, o.alert_id, o.rule_id, a.rule_name, o.channel_kind, o.channel_id, c.name AS channel_name,
+           o.user_id, o.target, o.state, o.attempts, o.next_attempt_at, o.last_error, o.last_status, o.remote_id,
+           o.created_at, o.sent_at
+    FROM notification_outbox o
+    LEFT JOIN alerts a ON a.id = o.alert_id
+    LEFT JOIN notification_channels c ON c.id = o.channel_id;
 
 -- In-app notifications: visible to their org, and to their user across orgs.
 CREATE TABLE notifications (

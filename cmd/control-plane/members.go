@@ -794,10 +794,9 @@ var capabilities = []capability{
 	{"activity.read", auth.RoleAdmin, "View the activity log"},
 	{"security.read", auth.RoleAdmin, "View the security policy"},
 	{"security.write", auth.RoleOwner, "Change the security policy (2FA, login methods, domain join)"},
-	{"alerts.read", auth.RoleMember, "View alert rules, channels, groups and alert history"},
+	{"alerts.read", auth.RoleViewer, "View alert rules, channels (never their secrets), groups and alert history"},
 	{"alerts.write", auth.RoleAdmin, "Create, edit, test and delete alert rules, channels and groups"},
-	{"alerts.deliveries", auth.RoleAdmin, "View the notification delivery log"},
-	{"alerts.prefs", auth.RoleViewer, "Choose your own notification channels and severities"},
+	{"alerts.deliveries.read", auth.RoleAdmin, "View the notification delivery log"},
 }
 
 func permissions(c *fiber.Ctx) error {
