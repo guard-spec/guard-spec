@@ -10,6 +10,85 @@ tags: [prompt-injection, jailbreak, guardrail, onnx, int8]
 
 Copyright The Guard Spec Authors. Licensed under the Apache License 2.0.
 
+## v3b experiment (2026-11-04): not adopted, v3 stays the default
+
+v3b retrains the v3 recipe (r3) with owner-supplied rows and OTP / eKYC rows added. It **did not pass
+the decision rule** (better `user_holdout` and banking TPR *without* raising FPR on any hold-out group
+or the probe by more than 1 row per 100), so the gateway keeps loading v3. The checkpoint of arm A is
+kept locally as `models/local/guardspec-classifier-v3b/` with its own `calibration.json`; the gateway
+does not load it by default (`L2_MODEL_DIR` can point at it).
+
+**Provenance (not redistributed).** None of these rows is in this repository; `data/build_data.py`
+reads them from paths at build time (`DATA_CARD.md`, "v3b") into a gitignored directory.
+
+| file | rows | content | use |
+|---|---|---|---|
+| owner `user_train.jsonl` (`guard-spec:owner-supplied`) | 580 (348 attack / 232 benign; EN/VI translation pairs; 200 banking OTP/KYC rows; 60 `ablate`) | supplied by the owner | training, 12% of groups to `val` (517 train / 63 val) |
+| owner `user_holdout.jsonl` | 220 (132 / 88; 60 banking `udbank.*`; 22 `ablate`) | supplied by the owner, split by the owner | hold-out, scored once |
+| `otpkyc_train.jsonl` (`guard-spec:otpkyc-fable`) | 181 (91 EN attacks; 90 benign, 52 of them VI) | AI-written for this project; several slices were stopped by safety systems and not retried (its README) | training (166 train / 15 val) |
+| `otpkyc_probe.jsonl` | 120, all benign banking OTP/KYC (47 EN, 73 VI) | AI-written, disjoint scenarios | false-positive probe, scored once |
+
+Leakage guard on all four files: 0 fingerprint hits, 0 rows above Jaccard 0.8; highest 5-gram
+Jaccard with eval 0.41 (owner train), 0.18 (OTP/KYC train), 0.35 (`user_holdout`), 0.13 (probe);
+the hold-out and probe against everything trained, selected or calibrated on: 0.40 and 0.31.
+
+**Arms** (same recipe, seed and epochs as v3; validation identical for both): A = v3 data + all
+owner training rows + OTP/KYC training rows; B = the same without the 53 `ablate` owner rows that
+landed in the training split. Validation chose **A** (fused out-of-fold log loss 0.0410 vs 0.0469;
+FPR 0.26% vs 0.36% at TPR 0.964 / 0.961). Both were scored on the hold-outs, once.
+
+Fused L1+L2+L3 at 0.85; validation out of fold; hold-outs with each model's calibration fitted on
+validation (v2 and v3: their built-in ones; v3b on the v3b validation, which adds the owner and
+OTP/KYC validation rows):
+
+| group | benign / attack | v2 FPR / TPR | v3 FPR / TPR | v3b-A FPR / TPR | v3b-B FPR / TPR |
+|---|---|---|---|---|---|
+| otpkyc_probe/all | 120 / 0 | 17.5% (21) / - | 0.8% (1) / - | 3.3% (4) / - | 3.3% (4) / - |
+| otpkyc_probe/en | 47 / 0 | 10.6% (5) / - | 0.0% (0) / - | 2.1% (1) / - | 2.1% (1) / - |
+| otpkyc_probe/vi | 73 / 0 | 21.9% (16) / - | 1.4% (1) / - | 4.1% (3) / - | 4.1% (3) / - |
+| user_holdout/ablate | 0 / 22 | - / 0.227 | - / 0.182 | - / 0.773 | - / 0.682 |
+| user_holdout/all | 88 / 132 | 0.0% (0) / 0.439 | 0.0% (0) / 0.386 | 1.1% (1) / 0.864 | 0.0% (0) / 0.803 |
+| user_holdout/banking (udbank.) | 24 / 36 | 0.0% (0) / 0.417 | 0.0% (0) / 0.361 | 0.0% (0) / 0.861 | 0.0% (0) / 0.806 |
+| user_holdout/en | 44 / 66 | 0.0% (0) / 0.485 | 0.0% (0) / 0.379 | 2.3% (1) / 0.939 | 0.0% (0) / 0.894 |
+| user_holdout/vi | 44 / 66 | 0.0% (0) / 0.394 | 0.0% (0) / 0.394 | 0.0% (0) / 0.788 | 0.0% (0) / 0.712 |
+| val_realistic_holdout/all | 366 / 247 | 6.8% (25) / 0.810 | 1.4% (5) / 0.895 | 1.6% (6) / 0.915 | 0.5% (2) / 0.907 |
+| val_realistic_holdout/en | 162 / 120 | 6.2% (10) / 0.750 | 1.2% (2) / 0.825 | 1.9% (3) / 0.850 | 0.6% (1) / 0.867 |
+| val_realistic_holdout/vi/no_diacritics | 26 / 21 | 7.7% (2) / 0.714 | 3.8% (1) / 0.905 | 3.8% (1) / 0.905 | 0.0% (0) / 0.810 |
+| val_realistic_holdout/vi/orig | 169 / 102 | 7.7% (13) / 0.892 | 1.2% (2) / 0.971 | 1.2% (2) / 0.990 | 0.6% (1) / 0.971 |
+| val_realistic_holdout/vi/teencode | 9 / 4 | 0.0% (0) / 1.000 | 0.0% (0) / 1.000 | 0.0% (0) / 1.000 | 0.0% (0) / 1.000 |
+| val_v3_holdout/all | 1173 / 337 | 3.1% (36) / 0.964 | 0.4% (5) / 0.979 | 0.5% (6) / 0.953 | 0.5% (6) / 0.944 |
+| val_v3_holdout/en | 544 / 128 | 4.6% (25) / 0.961 | 0.9% (5) / 0.977 | 0.4% (2) / 0.969 | 0.7% (4) / 0.945 |
+| val_v3_holdout/vi/no_diacritics | 210 / 70 | 1.4% (3) / 0.971 | 0.0% (0) / 0.971 | 1.0% (2) / 0.957 | 0.0% (0) / 0.943 |
+| val_v3_holdout/vi/orig | 210 / 70 | 2.9% (6) / 1.000 | 0.0% (0) / 1.000 | 1.0% (2) / 0.943 | 1.0% (2) / 1.000 |
+| val_v3_holdout/vi/teencode | 209 / 69 | 1.0% (2) / 0.928 | 0.0% (0) / 0.971 | 0.0% (0) / 0.928 | 0.0% (0) / 0.884 |
+| validation/all | 5873 / 1699 | 0.5% (32) / 0.868 | 0.3% (16) / 0.954 | 0.3% (15) / 0.964 | 0.4% (21) / 0.961 |
+| validation/en | 2142 / 712 | 0.8% (18) / 0.883 | 0.4% (8) / 0.951 | 0.3% (6) / 0.956 | 0.2% (5) / 0.963 |
+| validation/owner+otpkyc rows | 33 / 45 | 0.0% (0) / 0.444 | 0.0% (0) / 0.489 | 0.0% (0) / 0.867 | 0.0% (0) / 0.889 |
+| validation/vi/leet | 129 / 47 | 0.0% (0) / 0.511 | 0.0% (0) / 0.957 | 0.0% (0) / 0.915 | 2.3% (3) / 0.872 |
+| validation/vi/no_diacritics | 1038 / 272 | 0.5% (5) / 0.923 | 0.5% (5) / 0.978 | 0.2% (2) / 0.985 | 0.4% (4) / 0.974 |
+| validation/vi/orig | 1120 / 332 | 0.3% (3) / 0.916 | 0.0% (0) / 0.955 | 0.2% (2) / 0.985 | 0.2% (2) / 0.985 |
+| validation/vi/partial_diacritics | 7 / 13 | 0.0% (0) / 0.923 | 0.0% (0) / 1.000 | 0.0% (0) / 1.000 | 0.0% (0) / 1.000 |
+| validation/vi/teencode | 1437 / 323 | 0.4% (6) / 0.789 | 0.2% (3) / 0.938 | 0.3% (5) / 0.944 | 0.5% (7) / 0.929 |
+
+**Reading.** v3b-A raises owner hold-out TPR from 0.386 to 0.864 (banking 0.361 → 0.861, `ablate`
+0.18 → 0.77) and keeps the other hold-outs within about one row per 100, but the benign OTP/KYC probe
+rises from 1 to 4 of 120 blocked rows (Vietnamese 1 → 3 of 73), and `user_holdout` EN gets its first
+false positive (1 of 44). B has the same probe result with lower recall. A likely cause is the
+OTP/KYC training file itself: its attacks are all English and its Vietnamese rows all benign (the
+Vietnamese attack slice was refused while it was being written), so banking vocabulary carries
+language-dependent label signal. Balanced Vietnamese OTP/KYC attacks and benign rows, or more benign
+banking text, are the next step before adopting it.
+
+SHA-256 of `models/local/guardspec-classifier-v3b/` (arm A, not the default):
+
+```
+87368d45526ae4f3a1830231d9187814577568e894246a284c8689a9a6cc6ae3  model_int8.onnx
+9589f8de7912f805990eacd0eb1ad0f33eba7e51e20927150b84a75874fb99b6  thresholds.json
+09ef5f180c2f061db75e410c7197f7fcab9e18e698cc37d275ae578d32acafcf  calibration.json
+c89d10db99567d790a4a33d551eef09dcd0b0786877d22a67033c09c34cf9f72  config.json
+2b95ee17661f8dfbbceaba374f6d277a6b5d8e1898c070a16331622024f58c67  tokenizer.json
+```
+
 ## v3 (2026-11-04)
 
 v3 has the same architecture, labels, export and runtime as v1/v2 (below):

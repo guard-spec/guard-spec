@@ -17,6 +17,7 @@ import math
 import random
 import sys
 import time
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -100,6 +101,8 @@ def main():
     ap.add_argument("--epochs", type=int, help="override train.epochs")
     ap.add_argument("--label-smoothing", type=float, help="override train.label_smoothing")
     ap.add_argument("--run-dir", help="override export.run_dir (relative to train/)")
+    ap.add_argument("--data-dir", help="read the validation files (and, in train.py, the training file) from this "
+                    "directory instead of data/, e.g. a GUARD_BUILD_OUT build with external rows")
     ap.add_argument("--train", help="override data.train (relative to train/), e.g. a GUARD_V3_REALISTIC=0 build")
     a = ap.parse_args()
     cfg = load_config()
@@ -111,6 +114,9 @@ def main():
             tc[k] = getattr(a, k)
     if a.run_dir:
         cfg["export"]["run_dir"] = a.run_dir
+    if a.data_dir:
+        cfg["data"]["val"] = [f"{a.data_dir}/{Path(v).name}" for v in cfg["data"]["val"]]
+        cfg["data"]["train"] = f"{a.data_dir}/{Path(cfg['data']['train']).name}"
     if a.train:
         cfg["data"]["train"] = a.train
     seed_everything(cfg["seed"])

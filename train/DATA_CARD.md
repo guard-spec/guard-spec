@@ -46,6 +46,24 @@ Rebuild it with `cd train && uv run python data/build_data.py`. The build:
 - needs `eval/fingerprints.txt` and `eval/data/*.jsonl` for the leakage guard;
 - is byte-identical between runs (checked with md5 on all three outputs).
 
+## v3b: external rows read at build time (not in this repository)
+
+`data/build_data.py` can mix in rows that are not redistributed. Each is a path in an environment
+variable; unset or missing files are skipped and the build is then byte-identical to the committed
+one. Any of them requires `GUARD_BUILD_OUT`, an output directory outside `train/data` (for example
+`train/runs/data-v3b-A`, gitignored), so that no external row lands in git.
+
+| variable | content | how it is used |
+|---|---|---|
+| `GUARD_OWNER_TRAIN` | owner-supplied training rows (`guard-spec:owner-supplied`) | mixed into the pool and split by group hash (12% of groups to `val`) |
+| `GUARD_OTPKYC_TRAIN` | OTP / eKYC verification-bypass rows (`guard-spec:otpkyc-fable`) | same |
+| `GUARD_OWNER_HOLDOUT` | owner-supplied hold-out | its own split `user_holdout`; never trained, selected or calibrated on |
+| `GUARD_OTPKYC_PROBE` | benign OTP / eKYC banking text | its own split `otpkyc_probe`, a false-positive probe; never trained on |
+| `GUARD_OWNER_DROP_ABLATE=1` | - | arm B: owner rows marked `ablate: true` stay out of the training split (they stay in `val`) |
+
+Extra fields (`category`, `entry_point`, `ablate`) are ignored by the training schema. These rows are
+never dropped by the ratio balancing, and they pass the same leakage guard (see `MODEL_CARD.md`, v3b).
+
 ## v3 changes
 
 ### Cause of the v2 false positives (validation splits only)
