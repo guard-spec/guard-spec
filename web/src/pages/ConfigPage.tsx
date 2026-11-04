@@ -10,7 +10,9 @@ import { CodeEditor, type EditorDiagnostic } from '../components/CodeEditor';
 import { ConfirmDialog, ErrorBanner, Loading, PageHeader } from '../components/ui';
 import { errorText, useApp, useOrg } from '../context';
 import type { MessageKey } from '../i18n';
-import type { ConfigChange, ConfigError } from '../types';
+import { href, navigate } from '../router';
+import { ruleNameInError } from '../flow/model';
+import type { ConfigChange, ConfigError, ExportProblem } from '../types';
 import { locatePath } from './yamlPath';
 
 type Check = { kind: 'ok'; changes: ConfigChange[] } | { kind: 'errors'; errors: ConfigError[] } | null;
@@ -21,6 +23,7 @@ export default function ConfigPage() {
   const [loaded, setLoaded] = useState<string | null>(null);
   const [text, setText] = useState('');
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [problems, setProblems] = useState<ExportProblem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [check, setCheck] = useState<Check>(null);
   const [showDiff, setShowDiff] = useState(false);
@@ -33,11 +36,19 @@ export default function ConfigPage() {
       setLoaded(y);
       setText(y);
       setLoadError(null);
+      setProblems(null);
       setCheck(null);
     } catch (e) {
-      setLoadError(errorText(e));
+      if (e instanceof ApiError && e.status === 409 && e.problems) {
+        setProblems(e.problems);
+        setLoadError(e.message);
+      } else if (e instanceof ApiError && e.status === 404) {
+        setLoadError(t('common.notAvailable', { error: e.message }));
+      } else {
+        setLoadError(errorText(e));
+      }
     }
-  }, [api, org.id]);
+  }, [api, org.id, t]);
 
   useEffect(() => {
     void load();
@@ -88,7 +99,8 @@ export default function ConfigPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [check]);
 
-  if (loadError) return <ErrorBanner error={t('common.notAvailable', { error: loadError })} />;
+  if (problems) return <ExportProblems problems={problems} message={loadError ?? ''} onRetry={() => void load()} />;
+  if (loadError) return <ErrorBanner error={loadError} />;
   if (loaded === null) return <Loading />;
   const modified = text !== loaded;
 
@@ -170,6 +182,55 @@ export default function ConfigPage() {
           </>
         }
       />
+    </div>
+  );
+}
+
+/**
+ * GET /config refused to export (409): the stored policies would not apply
+ * again from the file. Each problem links to its policy (and rule) on the
+ * Flow page, where it can be fixed.
+ */
+function ExportProblems({ problems, message, onRetry }: { problems: ExportProblem[]; message: string; onRetry: () => void }) {
+  const { t } = useApp();
+  return (
+    <div className="narrow">
+      <PageHeader
+        title={t('cfg.title')}
+        help={t('cfg.help')}
+        actions={
+          <button type="button" className="btn" onClick={onRetry}>
+            {t('cfg.reload')}
+          </button>
+        }
+      />
+      <div className="banner banner-warn" role="alert">
+        {t('cfg.problemsIntro')}
+      </div>
+      <p className="muted small">{message}</p>
+      <ul className="problem-list card" data-testid="export-problems">
+        {problems.map((p, i) => {
+          const rule = ruleNameInError(p.message);
+          const params: Record<string, string> = { policy: p.policy_id };
+          if (rule !== undefined) params.rule = rule;
+          return (
+            <li key={`${p.policy_id}-${i}`}>
+              <a
+                href={`${href('flow')}?${new URLSearchParams(params).toString()}`}
+                onClick={(e) => {
+                  e.preventDefault();
+                  navigate('flow', false, params);
+                }}
+              >
+                {t('cfg.problemPolicy', { name: p.policy })}
+                {rule !== undefined ? ` · ${rule}` : ''}
+              </a>
+              <div>{p.message}</div>
+              <div className="muted small">{p.fix}</div>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }

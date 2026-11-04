@@ -615,6 +615,8 @@ function importConfig(state: MockState, text: string, dryRun: boolean) {
 export interface MockOptions {
   /** Simulate a control plane without the routing endpoints (404). */
   noRouting?: boolean;
+  /** GET /config refuses to export (409 with problems), as for duplicate policy names. */
+  exportProblems?: boolean;
 }
 
 export async function installMockApi(page: Page, state: MockState = seedState(), opts: MockOptions = {}): Promise<MockState> {
@@ -690,9 +692,16 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
     }
 
     if (sub === '/upstreams' && method === 'GET') return json(200, { data: state.upstreams });
+    // The operator's UPSTREAM_KEY_ORGS: in the mock, *_FORBIDDEN variables are not allowed.
+    const keyRefused = (b: Partial<Upstream>) =>
+      b.api_key_env?.includes('FORBIDDEN')
+        ? `api_key_env ${b.api_key_env} is not allowed for this organization; the operator lists usable key variables in UPSTREAM_KEY_ORGS`
+        : null;
     if (sub === '/upstreams' && method === 'POST') {
       const b = body as Upstream;
       if (state.upstreams.some((u) => u.name === b.name)) return json(409, { error: 'an upstream with this name exists' });
+      const refused = keyRefused(b);
+      if (refused) return json(400, { error: refused });
       const u: Upstream = { ...b, id: uuid(), created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
       state.upstreams.push(u);
       return json(201, u);
@@ -701,6 +710,8 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
       const u = state.upstreams.find((x) => x.id === mm?.[1]);
       if (!u) return json(404, { error: 'not found' });
       if (method === 'PUT') {
+        const refused = keyRefused(body as Upstream);
+        if (refused) return json(400, { error: refused });
         Object.assign(u, body as Upstream, { id: u.id });
         return json(200, u);
       }
@@ -716,6 +727,7 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
     if (sub === '/policies' && method === 'GET') return json(200, { data: state.policies });
     if (sub === '/policies' && method === 'POST') {
       const b = body as { name: string; rules: Rule[]; project_id?: string | null };
+      if (state.policies.some((x) => x.name === b.name)) return json(409, { error: 'a policy with this name already exists in this organization' });
       const err = validateRules(state, b.rules);
       if (err) return json(400, { error: err });
       const p: Policy = {
@@ -738,6 +750,9 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
       if (!p) return json(404, { error: 'not found' });
       if (method === 'PUT') {
         const b = body as { name?: string; rules?: Rule[]; enabled?: boolean };
+        if (b.name && b.name !== p.name && state.policies.some((x) => x.name === b.name)) {
+          return json(409, { error: 'a policy with this name already exists in this organization' });
+        }
         if (b.rules) {
           const err = validateRules(state, b.rules);
           if (err) return json(400, { error: err });
@@ -807,6 +822,20 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
       return json(200, { data: state.requests.slice(0, limit), total: Math.min(limit, state.requests.length) });
     }
 
+    if (sub === '/config' && method === 'GET' && opts.exportProblems) {
+      const p = state.policies[0];
+      return json(409, {
+        error: 'the stored config cannot be exported as a file that applies again; fix these policies first',
+        problems: [
+          {
+            policy_id: p?.id,
+            policy: p?.name,
+            message: `rule "high l2": toxicity.score: field was removed because no detector produces it`,
+            fix: `replace the rule with PUT /v1/organizations/${state.org.id}/policies/${p?.id ?? ''} {"rules": [...]}`,
+          },
+        ],
+      });
+    }
     if (sub === '/config' && method === 'GET') return route.fulfill({ status: 200, contentType: 'text/yaml', body: exportConfig(state) });
     if (sub === '/config' && method === 'PUT') {
       const r = importConfig(state, typeof body === 'string' ? body : '', url.searchParams.get('dry_run') === 'true');

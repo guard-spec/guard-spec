@@ -12,6 +12,7 @@ import type {
   ConfigApplyResult,
   ConfigError,
   CreatedApiKey,
+  ExportProblem,
   Exemplar,
   ExemplarInput,
   GuardSettings,
@@ -35,6 +36,8 @@ export class ApiError extends Error {
   readonly position: number | undefined;
   /** Errors by path (PUT /config). */
   readonly errors: ConfigError[] | undefined;
+  /** Policies that keep the config from being exported (GET /config, 409). */
+  readonly problems: ExportProblem[] | undefined;
   readonly body: unknown;
 
   constructor(status: number, message: string, body?: unknown) {
@@ -42,9 +45,10 @@ export class ApiError extends Error {
     this.name = 'ApiError';
     this.status = status;
     this.body = body;
-    const b = (body ?? {}) as { position?: unknown; errors?: unknown };
+    const b = (body ?? {}) as { position?: unknown; errors?: unknown; problems?: unknown };
     this.position = typeof b.position === 'number' ? b.position : undefined;
     this.errors = Array.isArray(b.errors) ? (b.errors as ConfigError[]) : undefined;
+    this.problems = Array.isArray(b.problems) ? (b.problems as ExportProblem[]) : undefined;
   }
 }
 

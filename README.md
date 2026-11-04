@@ -746,12 +746,16 @@ upstreams, the output guard and the client.
 
 **Upstreams** manages the named upstreams and the org and project defaults.
 An upstream's key is never entered in the UI: `api_key_env` names a
-`UPSTREAM_KEY_*` variable set on the gateway.
+`UPSTREAM_KEY_*` variable set on the gateway, and the operator's
+`UPSTREAM_KEY_ORGS` decides which organizations may use it; the form shows a
+refused variable at the field.
 
 **Config as code** edits the whole routing and policy configuration as YAML,
 validates it (`?dry_run=true`, errors by path, marked in the editor), shows a
 diff against the loaded version and applies it after a confirmation that
-lists the changes.
+lists the changes. When the stored policies cannot be exported as a file that
+applies again (for example, a rule naming a removed field), the page lists
+them, each linked to the policy and rule on the Flow page.
 
 | Upstreams | Config as code |
 |---|---|
