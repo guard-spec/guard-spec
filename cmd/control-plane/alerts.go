@@ -66,9 +66,17 @@ func loadAlertsConfig(getenv func(string) string) (alertsConfig, error) {
 		slackToken:      getenv(alerts.EnvSlackToken),
 		smtp:            channels.SMTPConfig{URL: getenv("SMTP_URL"), From: getenv("SMTP_FROM")},
 		lang:            lang,
-		telegramAPI:     channels.TelegramAPI,
-		slackAPI:        channels.SlackAPI,
+		// Test-only: point Telegram and Slack at fakes (end-to-end runs).
+		telegramAPI: originOr(getenv("ALERTS_TEST_TELEGRAM_API"), channels.TelegramAPI),
+		slackAPI:    originOr(getenv("ALERTS_TEST_SLACK_API"), channels.SlackAPI),
 	}, err
+}
+
+func originOr(v, def string) string {
+	if v = strings.TrimRight(v, "/"); v != "" {
+		return v
+	}
+	return def
 }
 
 // alertsRuntime holds what the alert handlers and the worker share.
