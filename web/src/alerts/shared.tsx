@@ -65,11 +65,17 @@ export function KindLabel({ kind }: { kind: ChannelKind | 'in_app' }) {
 /** Members of the org for pickers and names; empty when the role may not list them. */
 export function useMembers(): { members: Member[]; loaded: boolean } {
   const { api } = useApp();
-  const { org } = useOrg();
+  const { org, can } = useOrg();
+  // Viewers and members may not list members: skip the call the server refuses.
+  const allowed = can('members.read');
   const [members, setMembers] = useState<Member[]>([]);
   const [loaded, setLoaded] = useState(false);
   useEffect(() => {
     let live = true;
+    if (!allowed) {
+      setLoaded(true);
+      return;
+    }
     api.listMembers(org.id, { limit: 200 }).then(
       (r) => {
         if (!live) return;
@@ -81,7 +87,7 @@ export function useMembers(): { members: Member[]; loaded: boolean } {
     return () => {
       live = false;
     };
-  }, [api, org.id]);
+  }, [api, org.id, allowed]);
   return { members, loaded };
 }
 
