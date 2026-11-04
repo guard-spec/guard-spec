@@ -57,7 +57,7 @@ func hotp(key []byte, counter uint64, digits int) string {
 	var msg [8]byte
 	binary.BigEndian.PutUint64(msg[:], counter)
 	mac := hmac.New(sha1.New, key)
-	mac.Write(msg[:])
+	_, _ = mac.Write(msg[:])
 	sum := mac.Sum(nil)
 	off := sum[len(sum)-1] & 0x0f
 	bin := (uint32(sum[off])&0x7f)<<24 | uint32(sum[off+1])<<16 | uint32(sum[off+2])<<8 | uint32(sum[off+3])

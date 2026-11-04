@@ -23,6 +23,10 @@ func TestConfigCheck(t *testing.T) {
 		{"default jwt", func(c *appConfig) { c.JWTSecret = "change-me-in-production" }, "JWT_SECRET is a known default"},
 		{"default admin", func(c *appConfig) { c.AdminPassword = "change-on-first-login" }, "set ADMIN_PASSWORD"},
 		{"no admin bootstrap", func(c *appConfig) { c.AdminEmail, c.AdminPassword = "", "" }, ""},
+		{"dev mfa key", func(c *appConfig) { c.MFAEncKey = "ZGV2LW9ubHktaW5zZWN1cmUtbWZhLWtleS0wMDAwMDA=" }, "MFA_ENC_KEY is the development key"},
+		{"random mfa key", func(c *appConfig) { c.MFAEncKey = "q5V0b2v8YH8b0M1n4e9mF2Wc7ZrT1kLpQxS3uA6dJ0E=" }, ""},
+		{"public url with path", func(c *appConfig) { c.PublicBaseURL = "https://guard.example.com/x" }, "PUBLIC_BASE_URL"},
+		{"public url", func(c *appConfig) { c.PublicBaseURL = "https://guard.example.com" }, ""},
 		{"default db", func(c *appConfig) {
 			c.DatabaseURL = "postgres://guardspec_app:guardspec_app@localhost:5432/guardspec"
 		}, "database password"},

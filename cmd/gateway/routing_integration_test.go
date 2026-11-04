@@ -121,4 +121,24 @@ func TestUpstreamLoader(t *testing.T) {
 	if target == nil || *target != "named" {
 		t.Errorf("route_target = %v", target)
 	}
+
+	// The model provider fields of migration 014 reach the route.
+	setup(org, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `UPDATE upstreams SET provider = 'azure_openai', models = '{gpt-4o}', model = 'gpt-4o',
+			headers = '{"OpenAI-Organization":"org_x"}', api_version = '2024-10-21', max_tokens_cap = 64, retries = 2
+			WHERE org_id = $1 AND name = 'named'`, org)
+		return err
+	})
+	up, _, err := load(ctx, org, uuid.Nil, "named")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if up.Provider != "azure_openai" || len(up.Models) != 1 || up.Headers["OpenAI-Organization"] != "org_x" ||
+		up.APIVersion != "2024-10-21" || up.MaxTokensCap == nil || *up.MaxTokensCap != 64 || up.Retries != 2 {
+		t.Errorf("provider fields %+v", up)
+	}
+	r := route{model: up.Model, models: up.Models}
+	if _, err := r.applyModel("gpt-3.5"); !errors.Is(err, errModelNotAllowed) {
+		t.Errorf("model allowlist: %v", err)
+	}
 }

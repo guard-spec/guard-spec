@@ -144,8 +144,14 @@ func (id *identity) login(c *fiber.Ctx) error {
 		stored = *hash
 	}
 	if !auth.CheckPassword(stored, req.Password) {
-		logUserEvent(c.Context(), id.db, userID, "login.failed", c.IP(),
-			map[string]any{"method": auth.MethodPassword, "email": truncateRunes(req.Email, 254)})
+		// Written after the answer: a known user's row goes to each of their
+		// orgs, and the time that takes must not tell which emails exist.
+		ip, email := strings.Clone(c.IP()), strings.Clone(truncateRunes(req.Email, 254))
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			logUserEvent(ctx, id.db, userID, "login.failed", ip, map[string]any{"method": auth.MethodPassword, "email": email})
+		}()
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid credentials"})
 	}
 	if disabled != nil {
