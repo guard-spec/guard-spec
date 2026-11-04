@@ -123,7 +123,8 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   - Postgres is pinned as `postgres:17.11-alpine` (same digest as before;
     17.11 is the current 17.x patch) in Compose, CI and the Helm `dbRoles`
     job. Postgres 18 is a major upgrade that needs `pg_upgrade` of existing
-    volumes and is deferred to a planned upgrade with a migration path.
+    volumes and is deferred to a planned upgrade with a migration path;
+    Dependabot no longer proposes Postgres major versions.
   - The `eval` workflow pins `actions/checkout` v7.0.1, `actions/setup-go`
     v7.0.0 and `actions/upload-artifact` v7.0.2 by commit SHA, like the other
     workflows.
