@@ -7,9 +7,20 @@
 
 import type { Page, Route } from '@playwright/test';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
+import { FALLBACK_MATRIX } from '../src/auth/permissions';
 import { conditionText } from '../src/flow/conditionText';
 import {
   isGroup,
+  type ActivityEntry,
+  type IdentityProvider,
+  type InstanceUser,
+  type Invite,
+  type Me,
+  type Member,
+  type OrgSecurity,
+  type PermissionMatrix,
+  type Role,
+  type SessionInfo,
   type ApiKey,
   type AuditRow,
   type ConditionLeaf,
@@ -296,6 +307,8 @@ export interface MockState {
   guard: GuardSettings;
   exemplars: Exemplar[];
   requests: AuditRow[];
+  /** The identity contract (N15): users, members, security, activity, SSO. */
+  identity: IdentityState;
   /** Requests the mock received, for assertions. */
   calls: { method: string; path: string; body: unknown }[];
 }
@@ -306,7 +319,7 @@ function leaf(field: string, operator: string, value: unknown): ConditionLeaf {
   return { field, operator, value };
 }
 
-export function seedState(): MockState {
+export function seedState(rich = false): MockState {
   idSeq = 0;
   const main: Upstream = {
     id: uuid(),
@@ -387,14 +400,23 @@ export function seedState(): MockState {
     rules: [{ id: uuid(), name: 'any l1 hit', action: 'block', condition: { combinator: 'and', rules: [leaf('scores.l1', '>=', '0.7')] } }],
   };
   const now = Date.parse('2026-11-04T08:00:00Z');
-  const requests: AuditRow[] = [
+  const baseRows: (string | number | null)[][] = [
     ['gpt-4o', 'allow', null, 'benign', 0.04, 210],
     ['gpt-4o', 'route', 'safe-model', 'injection', 0.71, 480],
     ['gpt-4o-mini', 'block', null, 'injection', 0.97, 35],
     ['gpt-4o', 'allow', null, 'benign', 0.11, 190],
     ['gpt-4o', 'route', 'safe-model', 'injection', 0.63, 512],
     ['gpt-4o', 'block', null, 'injection', 0.93, 31],
-  ].map(([model, action, route, label, score, latency], i) => ({
+  ];
+  // Screenshots: a day of traffic with a daytime curve.
+  const richRows: (string | number | null)[][] = Array.from({ length: 420 }, (_, i) => {
+    const r = (i * 7919) % 100;
+    const action = r < 71 ? 'allow' : r < 84 ? 'block' : r < 93 ? 'log' : 'route';
+    const label = action === 'allow' ? 'benign' : (['injection', 'jailbreak', 'exfiltration', 'role_play'][r % 4] ?? 'injection');
+    return [r % 3 ? 'gpt-4o' : 'gpt-4o-mini', action, action === 'route' ? 'safe-model' : null, label, action === 'allow' ? r / 400 : 0.5 + r / 220, 120 + ((r * 37) % 900)];
+  });
+  const rows = rich ? richRows : baseRows;
+  const requests: AuditRow[] = rows.map(([model, action, route, label, score, latency], i) => ({
     id: uuid(),
     model: model as string,
     action: action as string,
@@ -407,7 +429,7 @@ export function seedState(): MockState {
     had_tag_chars: false,
     had_bidi: false,
     latency_ms: latency as number,
-    created_at: new Date(now - i * 7 * 60_000).toISOString(),
+    created_at: new Date(now - (rich ? Math.round(86_400_000 * ((i / 420) + 0.07 * Math.sin(4 * Math.PI * (i / 420)))) : i * 7 * 60_000)).toISOString(),
   }));
   return {
     org: { id: ORG_ID, name: 'Acme Corp', slug: 'acme', tier: 'free', audit_store_content: false, created_at: T0, default_upstream_id: main.id },
@@ -426,6 +448,7 @@ export function seedState(): MockState {
       { id: uuid(), label: 'allow', text: 'Summarize the attached invoice and list the overdue items', source: 'manual', created_at: T0, updated_at: T0 },
     ],
     requests,
+    identity: seedIdentity(rich),
     calls: [],
   };
 }
@@ -617,9 +640,178 @@ export interface MockOptions {
   noRouting?: boolean;
   /** GET /config refuses to export (409 with problems), as for duplicate policy names. */
   exportProblems?: boolean;
+  /** Simulate main before N15: no identity, provider or pagination endpoints (404, {data} lists). */
+  noIdentity?: boolean;
+  /** Sign-in asks for a TOTP code, or forces 2FA enrollment. */
+  mfa?: 'totp' | 'enroll';
+  /** The user's role in the org (GET /organizations). */
+  role?: Role;
+  /** More rows (requests, members, activity) for screenshots and paging. */
+  rich?: boolean;
 }
 
+// ── Identity contract (N15): state and seed ────────────────────────────────
+
+export const RECOVERY_CODES = ['k7p2-9xqm', 'v3nd-w8ra', 'h4tc-2lzf', 'p9bq-x6je', 'r2mw-k8ys', 'c5fu-n3ht', 'z8ga-q4vd', 'm6ke-t7rb', 'y3pj-d2wn', 'e9sx-u5lc'];
+export const TOTP_CODE = '123456';
+export const RECOVERY_CODE = 'k7p2-9xqm';
+export const SSO_CODE = 'sso-one-time';
+const MFA_TOKEN = 'mock-mfa-token';
+const ME_ID = '20000000-0000-4000-8000-000000000001';
+
+export interface IdentityState {
+  me: Me;
+  members: Member[];
+  invites: Invite[];
+  security: OrgSecurity;
+  activity: ActivityEntry[];
+  users: InstanceUser[];
+  idps: IdentityProvider[];
+  sessions: SessionInfo[];
+}
+
+const FIRST = ['An', 'Bình', 'Chi', 'Dũng', 'Emma', 'Farid', 'Giang', 'Hana', 'Ivan', 'Jade', 'Khoa', 'Lena', 'Minh', 'Noah', 'Oanh', 'Priya'];
+const LAST = ['Nguyen', 'Tran', 'Le', 'Pham', 'Smith', 'Garcia', 'Kim', 'Müller'];
+
+export function seedIdentity(rich = false): IdentityState {
+  const me: Me = {
+    id: ME_ID,
+    email: EMAIL,
+    display_name: 'Ada Admin',
+    mfa_enabled: true,
+    has_password: true,
+    identities: [{ provider_id: 'google', provider: 'google', display_name: 'Google', email: 'ada@acme.example' }],
+    is_instance_admin: true,
+  };
+  const roles: Role[] = ['admin', 'member', 'viewer', 'member', 'viewer'];
+  const n = rich ? 37 : 5;
+  const members: Member[] = [
+    {
+      user_id: ME_ID,
+      email: EMAIL,
+      display_name: 'Ada Admin',
+      role: 'owner',
+      mfa_enabled: true,
+      login_methods: ['password', 'google'],
+      last_login_at: '2026-11-04T07:55:00Z',
+      joined_at: T0,
+      disabled: false,
+    },
+    ...Array.from({ length: n }, (_, i): Member => {
+      const first = FIRST[i % FIRST.length] ?? 'User';
+      const last = LAST[i % LAST.length] ?? 'X';
+      return {
+        user_id: `20000000-0000-4000-8000-${String(i + 2).padStart(12, '0')}`,
+        email: `${first.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()}.${last.toLowerCase().replace('ü', 'u')}${i}@acme.example`,
+        display_name: `${first} ${last}`,
+        role: roles[i % roles.length] ?? 'viewer',
+        mfa_enabled: i % 3 !== 1,
+        login_methods: i % 2 ? ['google'] : ['password'],
+        last_login_at: new Date(Date.parse('2026-11-04T08:00:00Z') - (i + 1) * 3_600_000 * 7).toISOString(),
+        joined_at: new Date(Date.parse(T0) + i * 86_400_000).toISOString(),
+        disabled: i === 4,
+      };
+    }),
+  ];
+  const actions = ['member.invited', 'member.role_changed', 'api_key.created', 'policy.updated', 'upstream.updated', 'guard_settings.updated', 'security.updated', 'invite.created', 'mfa.reset'];
+  const activity: ActivityEntry[] = Array.from({ length: rich ? 64 : 6 }, (_, i) => ({
+    id: `act-${i}`,
+    at: new Date(Date.parse('2026-11-04T08:00:00Z') - i * 47 * 60_000).toISOString(),
+    actor: { id: ME_ID, email: i % 4 === 3 ? (members[2]?.email ?? EMAIL) : EMAIL },
+    action: actions[i % actions.length] ?? 'auth.login',
+    target: i % 2 ? (members[(i % 5) + 1]?.email ?? null) : 'Acme Corp',
+    ip: `203.0.113.${(i * 7) % 250}`,
+    details: i % 9 === 1 ? { from: 'viewer', to: 'member' } : i % 9 === 4 ? { name: 'main', fields: 'models' } : null,
+  }));
+  return {
+    me,
+    members,
+    invites: [
+      { id: 'inv-1', email: 'new.hire@acme.example', role: 'member', status: 'pending', expires_at: '2026-11-11T08:00:00Z', created_at: '2026-11-04T08:00:00Z' },
+      { id: 'inv-2', email: 'contractor@partner.example', role: 'viewer', status: 'expired', expires_at: '2026-10-20T08:00:00Z', created_at: '2026-10-13T08:00:00Z' },
+    ],
+    security: {
+      require_mfa: true,
+      sso_satisfies_mfa: false,
+      allowed_login_methods: null,
+      domain_join: [{ domain: 'acme.example', provider_id: 'google', role: 'viewer' }],
+      session_lifetime_hours: 12,
+    },
+    activity,
+    users: members.map((m, i) => ({
+      id: m.user_id,
+      email: m.email,
+      display_name: m.display_name,
+      is_instance_admin: i === 0,
+      disabled: m.disabled,
+      mfa_enabled: m.mfa_enabled,
+      last_login_at: m.last_login_at,
+      created_at: m.joined_at ?? T0,
+    })),
+    idps: [
+      {
+        id: 'google',
+        type: 'google',
+        display_name: 'Google',
+        issuer: 'https://accounts.google.com',
+        client_id: '1234-abc.apps.googleusercontent.com',
+        client_secret_env: 'OIDC_SECRET_GOOGLE',
+        scopes: ['openid', 'email', 'profile'],
+        allowed_domains: ['acme.example'],
+        auto_provision: true,
+        enabled: true,
+      },
+      {
+        id: 'okta',
+        type: 'oidc',
+        display_name: 'Okta',
+        issuer: 'https://acme.okta.com',
+        client_id: '0oa1b2c3',
+        client_secret_env: 'OIDC_SECRET_OKTA',
+        scopes: ['openid', 'email', 'profile'],
+        allowed_domains: [],
+        auto_provision: false,
+        enabled: true,
+      },
+    ],
+    sessions: [
+      { id: 's-1', created_at: '2026-11-04T07:55:00Z', last_seen_at: '2026-11-04T08:00:00Z', user_agent: 'Chrome 142 on macOS', ip: '203.0.113.10', current: true },
+      { id: 's-2', created_at: '2026-11-02T10:12:00Z', last_seen_at: '2026-11-03T18:40:00Z', user_agent: 'Firefox 145 on Ubuntu', ip: '198.51.100.23', current: false },
+    ],
+  };
+}
+
+/** GET /providers/catalog as the control plane sends it (cmd/control-plane/providers.go). */
+export const CATALOG = [
+  { id: 'openai', display_name: 'OpenAI', default_base_url: 'https://api.openai.com/v1', key_required: true, key_env_hint: 'UPSTREAM_KEY_OPENAI', needs_api_version: false, openai_compatible_endpoint: false, known_models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1'], docs_url: 'https://platform.openai.com/docs', notes: '' },
+  { id: 'anthropic', display_name: 'Anthropic', default_base_url: 'https://api.anthropic.com/v1', key_required: true, key_env_hint: 'UPSTREAM_KEY_ANTHROPIC', needs_api_version: false, openai_compatible_endpoint: true, known_models: ['claude-sonnet-4-5'], docs_url: 'https://docs.anthropic.com/en/api/openai-sdk', notes: 'Uses the OpenAI SDK compatibility endpoint.' },
+  { id: 'azure_openai', display_name: 'Azure OpenAI', default_base_url: 'https://RESOURCE.openai.azure.com/openai/deployments/DEPLOYMENT', key_required: true, key_env_hint: 'UPSTREAM_KEY_AZURE', needs_api_version: true, openai_compatible_endpoint: false, known_models: null, docs_url: '', notes: '' },
+  { id: 'gemini', display_name: 'Google Gemini', default_base_url: 'https://generativelanguage.googleapis.com/v1beta/openai', key_required: true, key_env_hint: 'UPSTREAM_KEY_GEMINI', needs_api_version: false, openai_compatible_endpoint: true, known_models: ['gemini-2.5-flash', 'gemini-2.5-pro'], docs_url: 'https://ai.google.dev/gemini-api/docs/openai', notes: '' },
+  { id: 'ollama', display_name: 'Ollama', default_base_url: 'http://ollama:11434/v1', key_required: false, key_env_hint: '', needs_api_version: false, openai_compatible_endpoint: false, known_models: null, docs_url: '', notes: 'Self-hosted; no key.' },
+  { id: 'vllm', display_name: 'vLLM', default_base_url: 'http://vllm:8000/v1', key_required: false, key_env_hint: '', needs_api_version: false, openai_compatible_endpoint: false, known_models: null, docs_url: '', notes: '' },
+  { id: 'openai_compatible', display_name: 'OpenAI-compatible', default_base_url: 'https://llm.example.com/v1', key_required: false, key_env_hint: '', needs_api_version: false, openai_compatible_endpoint: false, known_models: null, docs_url: '', notes: '' },
+];
+
+/** GET /permissions: the control plane's table (cmd/control-plane/members.go), mirrored by FALLBACK_MATRIX. */
+export const PERMISSIONS: PermissionMatrix = FALLBACK_MATRIX;
+
+/** The envelope of the contract when the client sent limit or cursor; the older {data} otherwise. */
+function listBody(items: unknown[], url: URL, legacy: boolean, extra: Record<string, unknown> = {}): unknown {
+  const limitRaw = url.searchParams.get('limit');
+  const cursorRaw = url.searchParams.get('cursor');
+  if (legacy || (limitRaw === null && cursorRaw === null)) return { data: items, ...extra };
+  const limit = Math.min(200, Math.max(1, Number(limitRaw ?? 50)));
+  const start = cursorRaw ? Number(Buffer.from(cursorRaw, 'base64url').toString()) : 0;
+  const slice = items.slice(start, start + limit);
+  const next = start + limit < items.length ? Buffer.from(String(start + limit)).toString('base64url') : null;
+  return { items: slice, next_cursor: next, total: items.length };
+}
+
+const IDENTITY_PATH =
+  /^\/(auth\/(me|mfa|sessions|providers|oidc|identities|logout|password)|permissions|admin\/|providers\/catalog)|\/(members|security|activity)(\/|$)|\/upstreams\/[^/]+\/test$/;
+
 export async function installMockApi(page: Page, state: MockState = seedState(), opts: MockOptions = {}): Promise<MockState> {
+  const id = state.identity;
   await page.route('**/v1/**', async (route: Route) => {
     const req = route.request();
     const url = new URL(req.url());
@@ -635,11 +827,137 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
     const json = (status: number, data?: unknown) =>
       route.fulfill({ status, contentType: 'application/json', body: data === undefined ? '' : JSON.stringify(data) });
 
+    let mm0: RegExpExecArray | null;
+    const legacy = opts.noIdentity === true;
+    if (legacy && IDENTITY_PATH.test(path)) return json(404, { error: `Cannot ${method} /v1${path}` });
+    const auth = await req.headerValue('authorization');
+    const signedIn = { token: TOKEN, user: { id: id.me.id, email: id.me.email } };
+
     if (method === 'POST' && path === '/auth/login') {
       const b = body as { email?: string; password?: string };
-      return b.email === EMAIL && b.password === PASSWORD ? json(200, { token: TOKEN }) : json(401, { error: 'invalid credentials' });
+      if (b.email !== EMAIL || b.password !== PASSWORD) return json(401, { error: 'invalid credentials' });
+      if (opts.mfa === 'totp') return json(200, { mfa_required: true, mfa_token: MFA_TOKEN, methods: ['totp', 'recovery'] });
+      if (opts.mfa === 'enroll') return json(200, { mfa_enroll_required: true, mfa_token: MFA_TOKEN });
+      return json(200, legacy ? { token: TOKEN } : signedIn);
     }
-    if ((await req.headerValue('authorization')) !== `Bearer ${TOKEN}`) return json(401, { error: 'missing or invalid token' });
+    if (method === 'POST' && path === '/invites/accept') {
+      const b = body as { token?: string; password?: string; display_name?: string };
+      if (!b.token?.startsWith('inv_')) return json(404, { error: 'invalid or expired invite' });
+      if (!b.password || b.password.length < 12) return json(400, { error: 'password must be 12 to 72 bytes long' });
+      if (opts.mfa === 'enroll') return json(201, { mfa_enroll_required: true, mfa_token: MFA_TOKEN, org_id: state.org.id, role: 'member' });
+      return json(201, { token: TOKEN, user_id: uuid(), org_id: state.org.id, role: 'member' });
+    }
+    if (method === 'GET' && path === '/auth/providers') return json(200, id.idps.filter((p) => p.enabled).map((p) => ({ id: p.id, type: p.type, display_name: p.display_name })));
+    if (method === 'POST' && path === '/auth/oidc/exchange') {
+      const b = body as { code?: string };
+      if (b.code !== SSO_CODE) return json(400, { error: 'an account with this email already exists', code: 'account_exists' });
+      return json(200, opts.mfa === 'totp' ? { mfa_required: true, mfa_token: MFA_TOKEN, methods: ['totp'] } : signedIn);
+    }
+    if (method === 'POST' && path === '/auth/mfa/verify') {
+      const b = body as { mfa_token?: string; code?: string };
+      if (b.mfa_token !== MFA_TOKEN) return json(401, { error: 'expired' });
+      return b.code === TOTP_CODE || b.code === RECOVERY_CODE ? json(200, signedIn) : json(401, { error: 'invalid code', code: 'invalid_code' });
+    }
+    if (path.startsWith('/auth/mfa/totp/') && auth === `Bearer ${MFA_TOKEN}`) {
+      if (path.endsWith('/setup')) return json(200, { secret: 'JBSWY3DPEHPK3PXPJBSWY3DP', otpauth_url: 'otpauth://totp/Guard%20Spec:admin%40example.com?secret=JBSWY3DPEHPK3PXPJBSWY3DP&issuer=Guard%20Spec' });
+      if (path.endsWith('/confirm')) {
+        return (body as { code?: string }).code === TOTP_CODE
+          ? json(200, { recovery_codes: RECOVERY_CODES, token: TOKEN })
+          : json(401, { error: 'invalid code', code: 'invalid_code' });
+      }
+    }
+    if (auth !== `Bearer ${TOKEN}`) return json(401, { error: 'missing or invalid token' });
+
+    // Self service (identity contract §1, §2)
+    if (method === 'GET' && path === '/auth/me') return json(200, id.me);
+    if (method === 'POST' && path === '/auth/logout') return json(204);
+    if (method === 'POST' && path === '/auth/password') {
+      const b = body as { current_password?: string };
+      return b.current_password === PASSWORD ? json(204) : json(401, { error: 'current password is wrong' });
+    }
+    if (method === 'POST' && path === '/auth/mfa/totp/setup') return json(200, { secret: 'JBSWY3DPEHPK3PXPJBSWY3DP', otpauth_url: 'otpauth://totp/Guard%20Spec:admin%40example.com?secret=JBSWY3DPEHPK3PXPJBSWY3DP&issuer=Guard%20Spec' });
+    if (method === 'POST' && path === '/auth/mfa/totp/confirm') {
+      if ((body as { code?: string }).code !== TOTP_CODE) return json(401, { error: 'invalid code', code: 'invalid_code' });
+      id.me.mfa_enabled = true;
+      return json(200, { recovery_codes: RECOVERY_CODES });
+    }
+    if (method === 'POST' && path === '/auth/mfa/recovery-codes/regenerate') return json(200, { recovery_codes: RECOVERY_CODES });
+    if (method === 'DELETE' && path === '/auth/mfa') {
+      if (id.security.require_mfa) return json(409, { error: 'an organization of this user requires 2FA', code: 'mfa_required_by_org' });
+      id.me.mfa_enabled = false;
+      return json(204);
+    }
+    if (method === 'GET' && path === '/auth/sessions') return json(200, id.sessions);
+    if ((mm0 = /^\/auth\/sessions\/([^/]+)$/.exec(path)) && method === 'DELETE') {
+      id.sessions = id.sessions.filter((s) => s.id !== mm0?.[1]);
+      return json(204);
+    }
+    if ((mm0 = /^\/auth\/identities\/([^/]+)$/.exec(path)) && method === 'DELETE') {
+      id.me.identities = id.me.identities.filter((i) => i.provider_id !== mm0?.[1]);
+      return json(204);
+    }
+    // Profile linking (N15): start answers {url}; the provider's callback sends
+    // the browser to /ui/account?link_code=, which the UI completes with its token.
+    if ((mm0 = /^\/auth\/identities\/([^/]+)\/link\/start$/.exec(path)) && method === 'POST') {
+      return json(200, { url: `/ui/account?link_code=${mm0[1] === 'okta' ? 'mock-link-okta' : 'mock-link-expired'}` });
+    }
+    if (method === 'POST' && path === '/auth/identities/link/complete') {
+      const code = (body as { code?: string }).code;
+      if (code !== 'mock-link-okta') return json(400, { error: 'invalid, expired or already used code', code: 'link_expired' });
+      id.me.identities.push({ provider_id: 'okta', provider: 'oidc', display_name: 'Okta', email: 'ada@acme.okta.example' });
+      return json(200, { provider_id: 'okta', linked: true, display_name: 'Okta', email: 'ada@acme.okta.example' });
+    }
+    if (method === 'GET' && path === '/permissions') return json(200, PERMISSIONS);
+    if (method === 'GET' && path === '/providers/catalog') return json(200, { items: CATALOG });
+
+    // Instance admin (identity contract §2, §4)
+    if (path === '/admin/users' && method === 'GET') {
+      const q = (url.searchParams.get('q') ?? '').toLowerCase();
+      return json(200, listBody(id.users.filter((u) => !q || `${u.email} ${u.display_name ?? ''}`.toLowerCase().includes(q)), url, false));
+    }
+    if (path === '/admin/users' && method === 'POST') {
+      const b = body as { email: string; display_name: string };
+      const u: InstanceUser = { id: uuid(), email: b.email, display_name: b.display_name, is_instance_admin: false, disabled: false, created_at: new Date().toISOString() };
+      id.users.unshift(u);
+      return json(201, u);
+    }
+    if ((mm0 = /^\/admin\/users\/([^/]+)$/.exec(path))) {
+      const u = id.users.find((x) => x.id === mm0?.[1]);
+      if (!u) return json(404, { error: 'not found' });
+      if (method === 'PUT') {
+        Object.assign(u, body as Partial<InstanceUser>);
+        return json(200, u);
+      }
+      if (method === 'DELETE') {
+        u.disabled = true;
+        u.email = `deleted-${u.id.slice(-4)}@invalid`;
+        u.display_name = null;
+        return json(204);
+      }
+    }
+    if (path === '/admin/identity-providers' && method === 'GET') return json(200, listBody(id.idps, url, false));
+    if (path === '/admin/activity' && method === 'GET') {
+      const action = url.searchParams.get('action') ?? '';
+      const rows = [...id.activity.map((e, i) => (i % 3 === 0 ? { ...e, id: `i-${e.id}`, action: i % 2 ? 'login.failed' : 'login.succeeded', target: e.actor?.email ?? null } : e))];
+      return json(200, listBody(rows.filter((e) => !action || e.action.startsWith(action)), url, false));
+    }
+    if (path === '/admin/identity-providers' && method === 'POST') {
+      const p = { ...(body as IdentityProvider), id: uuid() };
+      id.idps.push(p);
+      return json(201, p);
+    }
+    if ((mm0 = /^\/admin\/identity-providers\/([^/]+)$/.exec(path))) {
+      const p = id.idps.find((x) => x.id === mm0?.[1]);
+      if (!p) return json(404, { error: 'not found' });
+      if (method === 'PUT') {
+        Object.assign(p, body as IdentityProvider, { id: p.id });
+        return json(200, p);
+      }
+      if (method === 'DELETE') {
+        id.idps = id.idps.filter((x) => x !== p);
+        return json(204);
+      }
+    }
 
     const routing = /\/(upstreams|default-upstream|config|simulate)$|\/upstreams\/|^\/policy\//.test(path);
     if (opts.noRouting && routing) return json(404, { error: 'Cannot ' + method + ' /v1' + path });
@@ -664,7 +982,7 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
     if (method === 'GET' && path === '/organizations') {
       // Older control planes have no such list (the UI falls back to an id).
       if (opts.noRouting) return json(404, { error: 'Cannot GET /v1/organizations' });
-      return json(200, { data: [{ id: state.org.id, name: state.org.name, slug: state.org.slug, role: 'owner' }] });
+      return json(200, { data: [{ id: state.org.id, name: state.org.name, slug: state.org.slug, role: opts.role ?? 'owner' }] });
     }
     if (method === 'POST' && path === '/organizations') {
       const b = body as { name: string; slug: string };
@@ -678,7 +996,7 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
     let mm: RegExpExecArray | null;
 
     if (sub === '' && method === 'GET') return json(200, state.org);
-    if (sub === '/projects' && method === 'GET') return json(200, { data: state.projects });
+    if (sub === '/projects' && method === 'GET') return json(200, listBody(state.projects, url, legacy));
     if (sub === '/projects' && method === 'POST') {
       const b = body as { name: string; slug: string };
       const p: Project = { id: uuid(), name: b.name, slug: b.slug, created_at: new Date().toISOString(), default_upstream_id: null };
@@ -696,7 +1014,7 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
       return json(200, { upstream_id: state.org.default_upstream_id });
     }
 
-    if (sub === '/upstreams' && method === 'GET') return json(200, { data: state.upstreams });
+    if (sub === '/upstreams' && method === 'GET') return json(200, listBody(state.upstreams, url, legacy));
     // The operator's UPSTREAM_KEY_ORGS: in the mock, *_FORBIDDEN variables are not allowed.
     const keyRefused = (b: Partial<Upstream>) =>
       b.api_key_env?.includes('FORBIDDEN')
@@ -729,7 +1047,7 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
       }
     }
 
-    if (sub === '/policies' && method === 'GET') return json(200, { data: state.policies });
+    if (sub === '/policies' && method === 'GET') return json(200, listBody(state.policies, url, legacy));
     if (sub === '/policies' && method === 'POST') {
       const b = body as { name: string; rules: Rule[]; project_id?: string | null; enabled?: boolean };
       if (state.policies.some((x) => x.name === b.name)) return json(409, { error: 'a policy with this name already exists in this organization' });
@@ -780,7 +1098,13 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
       return json(200, state.guard);
     }
 
-    if (sub === '/api-keys' && method === 'GET') return json(200, { data: state.keys });
+    if (sub === '/api-keys' && method === 'GET') {
+      if (opts.role === 'viewer') return json(403, { error: 'requires role admin' });
+      const q = (url.searchParams.get('q') ?? '').toLowerCase();
+      const hideRevoked = url.searchParams.get('revoked') === 'false';
+      const keys = legacy ? state.keys : state.keys.filter((k) => (!hideRevoked || !k.revoked) && (!q || `${k.alias ?? ''} ${k.key_prefix}`.toLowerCase().includes(q)));
+      return json(200, listBody(keys, url, legacy));
+    }
     if (sub === '/api-keys' && method === 'POST') {
       const b = body as { alias: string; project_id: string | null; rpm_limit: number | null; tpm_limit: number | null; expires_at?: string };
       const key = 'gs_' + 'f'.repeat(8) + '0123456789abcdef01234567';
@@ -802,7 +1126,7 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
       return json(204);
     }
 
-    if (sub === '/exemplars' && method === 'GET') return json(200, { data: state.exemplars, version: 1 });
+    if (sub === '/exemplars' && method === 'GET') return json(200, listBody(state.exemplars, url, legacy, { version: 1 }));
     if (sub === '/exemplars' && method === 'POST') {
       const b = body as Exemplar;
       const x: Exemplar = { id: uuid(), label: b.label, text: b.text, source: b.source || 'manual', created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
@@ -824,7 +1148,75 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
 
     if (sub === '/requests' && method === 'GET') {
       const limit = Number(url.searchParams.get('limit') ?? 100);
-      return json(200, { data: state.requests.slice(0, limit), total: Math.min(limit, state.requests.length) });
+      // main: the latest rows up to limit, no cursor.
+      if (legacy) return json(200, { data: state.requests.slice(0, limit), total: Math.min(limit, state.requests.length) });
+      const action = url.searchParams.get('action');
+      const q = (url.searchParams.get('q') ?? '').toLowerCase();
+      const rows = state.requests.filter((r) => (!action || r.action === action) && (!q || `${r.model ?? ''} ${r.route_target ?? ''} ${r.injection_label ?? ''}`.toLowerCase().includes(q)));
+      // N15 counts up to a cap and says so (total_capped).
+      const body = listBody(rows, url, false) as { total?: number; total_capped?: boolean };
+      if (rows.length > 400) Object.assign(body, { total: 400, total_capped: true });
+      return json(200, body);
+    }
+
+    // Members, invites, security, activity (identity contract §3–§5): admin and up.
+    if (opts.role === 'viewer' && /^\/(members|security|activity|invites)(\/|$)/.test(sub)) return json(403, { error: 'requires role admin' });
+    if (sub === '/members' && method === 'GET') {
+      const q = (url.searchParams.get('q') ?? '').toLowerCase();
+      const role = url.searchParams.get('role');
+      return json(200, listBody(id.members.filter((m) => (!role || m.role === role) && (!q || `${m.email} ${m.display_name ?? ''}`.toLowerCase().includes(q))), url, false));
+    }
+    if ((mm = /^\/members\/([^/]+)(\/[a-z-]+)?$/.exec(sub))) {
+      const m = id.members.find((x) => x.user_id === mm?.[1]);
+      if (!m) return json(404, { error: 'not found' });
+      const action = mm[2] ?? '';
+      if (method === 'PUT' && action === '') {
+        const role = (body as { role: Role }).role;
+        if (m.role === 'owner' && id.members.filter((x) => x.role === 'owner').length === 1) return json(409, { error: 'the last owner cannot be demoted' });
+        id.activity.unshift({ id: uuid(), at: new Date().toISOString(), actor: { id: ME_ID, email: EMAIL }, action: 'member.role_changed', target: m.email, ip: '127.0.0.1', details: { from: m.role, to: role } });
+        m.role = role;
+        return json(200, m);
+      }
+      if (method === 'DELETE' && action === '') {
+        id.members = id.members.filter((x) => x !== m);
+        return json(204);
+      }
+      if (method === 'POST' && action === '/reset-mfa') {
+        m.mfa_enabled = false;
+        return json(200, { ok: true });
+      }
+      if (method === 'POST' && action === '/revoke-sessions') return json(200, { revoked: 2 });
+    }
+    if (sub === '/invites' && method === 'GET') return json(200, listBody(id.invites, url, legacy));
+    if (sub === '/invites' && method === 'POST') {
+      const b = body as { email: string; role: Role };
+      const inv: Invite = { id: uuid(), email: b.email, role: b.role, status: 'pending', expires_at: '2026-11-11T08:00:00Z', created_at: new Date().toISOString() };
+      id.invites.unshift(inv);
+      return json(201, { ...inv, token: 'inv_8f3a2c71d94e4b0f9a6c5e1d2b7f3a90' });
+    }
+    if ((mm = /^\/invites\/([^/]+)$/.exec(sub)) && method === 'DELETE') {
+      const inv = id.invites.find((x) => x.id === mm?.[1]);
+      if (inv) inv.status = 'revoked';
+      return json(204);
+    }
+    if (sub === '/security' && method === 'GET') return json(200, id.security);
+    if (sub === '/security' && method === 'PUT') {
+      // allowed_login_methods is kept when absent (N15), null means unrestricted.
+      id.security = { ...id.security, ...(body as Partial<OrgSecurity>) };
+      return json(200, id.security);
+    }
+    if (sub === '/activity' && method === 'GET') {
+      const actor = (url.searchParams.get('actor') ?? '').toLowerCase();
+      const action = url.searchParams.get('action') ?? '';
+      return json(200, listBody(id.activity.filter((e) => (!actor || (e.actor?.email ?? '').includes(actor)) && (!action || e.action.startsWith(action))), url, false));
+    }
+    if ((mm = /^\/upstreams\/([^/]+)\/test$/.exec(sub)) && method === 'POST') {
+      const u = state.upstreams.find((x) => x.id === mm?.[1]);
+      if (!u) return json(404, { error: 'not found' });
+      if (!u.enabled) return json(200, { ok: false, latency_ms: null, status: null, models_found: [], error: 'upstream is disabled' });
+      if (u.base_url.includes('ollama')) return json(200, { ok: true, latency_ms: 38, status: 200, models_found: ['qwen3:4b', 'llama3.2:3b'], error: null });
+      // UPSTREAM_KEY_MAIN is allowed through * in the mock: the key is not sent (N15 key_sent).
+      return json(200, { ok: true, latency_ms: 212, status: 200, models_found: ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'o4-mini'], error: null, key_sent: u.api_key_env !== 'UPSTREAM_KEY_MAIN' });
     }
 
     if (sub === '/config' && method === 'GET' && opts.exportProblems) {

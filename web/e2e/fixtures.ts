@@ -29,7 +29,7 @@ export const test = base.extend<{ mock: MockState; mockOptions: MockOptions }>({
         window.__cspViolations?.push(`${e.violatedDirective} ${e.blockedURI} ${e.sourceFile}:${e.lineNumber}:${e.columnNumber} ${e.sample}`);
       });
     });
-    const state = await installMockApi(page, seedState(), mockOptions);
+    const state = await installMockApi(page, seedState(mockOptions.rich), mockOptions);
     await use(state);
     const violations = await page.evaluate(() => window.__cspViolations ?? []).catch(() => [] as string[]);
     expect([...errors, ...violations], 'CSP violations and page errors').toEqual([]);
@@ -56,11 +56,30 @@ export async function chooseOrg(page: Page, openLabel = 'Open'): Promise<void> {
   }
 }
 
-export async function login(page: Page): Promise<void> {
+/** Signs in and opens the org (the dashboard), then the policy flow unless to is null. */
+export async function login(page: Page, to: string | null = 'Policy flow'): Promise<void> {
   await page.goto('/ui/');
   await page.getByLabel('Email').fill(EMAIL);
   await page.getByLabel('Password').fill(PASSWORD);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await chooseOrg(page);
-  await expect(page.getByRole('heading', { name: 'Flow', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Dashboard', level: 1 })).toBeVisible();
+  if (to) await go(page, to);
+}
+
+/** Opens a page from the sidebar and waits for its heading. */
+export async function go(page: Page, name: string, heading = name): Promise<void> {
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name, exact: true }).click();
+  await expect(page.getByRole('heading', { name: heading, level: 1 })).toBeVisible();
+}
+
+/** Opens the profile menu at the bottom of the sidebar. */
+export async function openProfile(page: Page): Promise<void> {
+  const button = page.getByRole('button', { name: /^(Profile menu|Menu hồ sơ)/ });
+  if ((await button.getAttribute('aria-expanded')) !== 'true') await button.click();
+}
+
+export async function logout(page: Page): Promise<void> {
+  await openProfile(page);
+  await page.getByRole('button', { name: 'Log out' }).click();
 }

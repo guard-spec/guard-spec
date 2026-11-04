@@ -187,6 +187,17 @@ export interface Upstream {
   enabled: boolean;
   created_at?: string;
   updated_at?: string;
+  // Provider fields (identity contract §6, migration 014); absent on older
+  // control planes. model stays the alias of default_model for one release.
+  provider?: ProviderKind;
+  display_name?: string;
+  models?: string[];
+  default_model?: string;
+  headers?: Record<string, string>;
+  api_version?: string;
+  max_tokens_cap?: number | null;
+  retries?: number;
+  tags?: string[];
 }
 
 export type UpstreamInput = Omit<Upstream, 'id' | 'created_at' | 'updated_at'>;
@@ -272,4 +283,200 @@ export interface ExportProblem {
   policy: string;
   message: string;
   fix: string;
+}
+
+// ── Pagination (identity contract §0) ───────────────────────────────────────
+
+/** The paginated envelope; older endpoints answer {data: [...]} or a plain array. */
+export interface PageEnvelope<T> {
+  items: T[];
+  next_cursor?: string | null;
+  total?: number;
+}
+
+// ── Identity, 2FA and SSO (identity contract §1–§3) ─────────────────────────
+
+export type Role = 'viewer' | 'member' | 'admin' | 'owner';
+export const ROLES: readonly Role[] = ['viewer', 'member', 'admin', 'owner'];
+
+export interface Me {
+  id: UUID;
+  email: string;
+  display_name: string | null;
+  mfa_enabled: boolean;
+  has_password: boolean;
+  /** provider is the type (google, oidc); provider_id names the identity provider. */
+  identities: { provider_id?: string; provider: string; display_name?: string; email: string | null }[];
+  is_instance_admin: boolean;
+}
+
+/** POST /auth/login and POST /auth/oidc/exchange answer one of these. */
+export type LoginResponse =
+  | { token: string; user?: Partial<Me> }
+  | { mfa_required: true; mfa_token: string; methods?: ('totp' | 'recovery')[] }
+  | { mfa_enroll_required: true; mfa_token: string };
+
+export interface TotpSetup {
+  secret: string;
+  otpauth_url: string;
+}
+
+export interface SessionInfo {
+  id: string;
+  created_at: string;
+  last_seen_at: string | null;
+  user_agent: string | null;
+  ip: string | null;
+  current: boolean;
+}
+
+/** GET /auth/providers: the buttons of the login page. */
+export interface LoginProvider {
+  id: string;
+  type: 'oidc' | 'google';
+  display_name: string;
+}
+
+export interface IdentityProvider {
+  id: string;
+  type: 'google' | 'oidc';
+  display_name: string;
+  issuer: string;
+  client_id: string;
+  /** The name of the env var holding the secret; the secret itself never reaches the UI. */
+  client_secret_env: string;
+  scopes: string[];
+  allowed_domains: string[];
+  auto_provision: boolean;
+  /** Lets this provider sign in to an existing password-less account with the same verified email (off by default). */
+  trust_email_for_linking?: boolean;
+  enabled: boolean;
+}
+
+export type IdentityProviderInput = Omit<IdentityProvider, 'id'>;
+export const CLIENT_SECRET_ENV_RE = /^OIDC_SECRET_[A-Z0-9_]{1,64}$/;
+export const GOOGLE_ISSUER = 'https://accounts.google.com';
+
+export interface DomainJoinRule {
+  domain: string;
+  provider_id: string;
+  role: Role;
+}
+
+export interface OrgSecurity {
+  require_mfa: boolean;
+  sso_satisfies_mfa: boolean;
+  /** null: unrestricted (every method of the instance). */
+  allowed_login_methods: string[] | null;
+  domain_join: DomainJoinRule[];
+  session_lifetime_hours: number;
+}
+
+// ── User management (identity contract §4) ──────────────────────────────────
+
+export interface Member {
+  user_id: UUID;
+  email: string;
+  display_name: string | null;
+  role: Role;
+  mfa_enabled: boolean;
+  login_methods: string[];
+  last_login_at: string | null;
+  joined_at: string | null;
+  disabled: boolean;
+}
+
+export interface Invite {
+  id: UUID;
+  email: string;
+  role: Role;
+  status: 'pending' | 'accepted' | 'revoked' | 'expired';
+  expires_at: string;
+  created_at: string;
+}
+
+export interface CreatedInvite {
+  id: UUID;
+  email: string;
+  role: Role;
+  expires_at: string;
+  created_at: string;
+  /** Shown once. */
+  token: string;
+}
+
+export interface InstanceUser {
+  id: UUID;
+  email: string;
+  display_name: string | null;
+  is_instance_admin: boolean;
+  disabled: boolean;
+  mfa_enabled?: boolean;
+  last_login_at?: string | null;
+  created_at?: string;
+}
+
+export interface Capability {
+  key: string;
+  min_role: Role;
+  description?: string;
+}
+
+export interface PermissionMatrix {
+  roles: Role[];
+  capabilities: Capability[];
+}
+
+// ── Activity log (identity contract §5) ─────────────────────────────────────
+
+export interface ActivityEntry {
+  id: string;
+  at: string;
+  actor: { id: string | null; email: string | null } | null;
+  action: string;
+  target: string | null;
+  ip: string | null;
+  details?: Record<string, unknown> | null;
+}
+
+// ── Model providers (identity contract §6) ──────────────────────────────────
+
+export type ProviderKind = 'openai' | 'anthropic' | 'azure_openai' | 'gemini' | 'ollama' | 'vllm' | 'openai_compatible';
+export const PROVIDER_KINDS: readonly ProviderKind[] = ['openai', 'anthropic', 'azure_openai', 'gemini', 'ollama', 'vllm', 'openai_compatible'];
+
+/** GET /providers/catalog: one preset (field names of the control plane). */
+export interface CatalogEntry {
+  id: ProviderKind;
+  display_name: string;
+  default_base_url: string;
+  key_required: boolean;
+  key_env_hint?: string;
+  known_models: string[];
+  docs_url?: string;
+  notes?: string;
+  needs_api_version?: boolean;
+  /** The preset uses the provider's OpenAI-compatible API (Anthropic, Gemini). */
+  openai_compatible_endpoint?: boolean;
+}
+
+/** POST .../upstreams/:id/test */
+export interface ConnectionTest {
+  ok: boolean;
+  latency_ms: number | null;
+  status: number | null;
+  models_found: string[] | null;
+  error: string | null;
+  /** false: the key was not sent (UPSTREAM_KEY_ORGS allows it only through *). */
+  key_sent?: boolean;
+  note?: string;
+}
+
+/** POST /invites/accept: a login answer plus the membership. */
+export type InviteAcceptResponse = LoginResponse & { user_id?: UUID; org_id?: UUID; role?: Role };
+
+/** POST /auth/identities/link/complete */
+export interface LinkResult {
+  provider_id: string;
+  display_name?: string;
+  email?: string | null;
 }
