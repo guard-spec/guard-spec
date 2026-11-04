@@ -151,6 +151,10 @@ describe('channels', () => {
     expect(channelBody(ch({ kind: 'email', config: { to: ['a@b.co'], url: 'x' }, secret_env: 'X' }))).toEqual({ name: 'ops', kind: 'email', config: { to: ['a@b.co'] }, secret_env: null, enabled: true });
     expect(channelBody(ch({ kind: 'slack', config: { mode: 'webhook', channel: ' ' }, secret_env: ' SLACK_WEBHOOK_OPS ' })).config).toEqual({ mode: 'webhook' });
     expect(channelBody(ch({ config: { url: ' https://x.example/h ' } })).config).toEqual({ url: 'https://x.example/h', allow_private: false });
+    // A2A keeps allow_private like webhooks (docs/alerts.md §4).
+    expect(channelBody(ch({ kind: 'a2a', config: { agent_card_url: 'http://10.0.0.7:9000', allow_private: true } })).config).toEqual({ agent_card_url: 'http://10.0.0.7:9000', allow_private: true });
+    expect(validateChannel(ch({ kind: 'a2a', config: { agent_card_url: 'http://10.0.0.7:9000', allow_private: true }, secret_env: '' }), true).agent_card_url).toBeUndefined();
+    expect(validateChannel(ch({ kind: 'a2a', config: { agent_card_url: 'http://10.0.0.7:9000' }, secret_env: '' }), true).agent_card_url).toBe('https');
     expect(channelTarget('email', { to: ['a@b.co', 'c@d.co'] })).toBe('a@b.co, c@d.co');
   });
 });

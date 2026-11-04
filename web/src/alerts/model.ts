@@ -165,7 +165,7 @@ export function validateChannel(c: ChannelInput, allowPrivate = false): ChannelE
       if (!httpsUrl(str('url'), allowPrivate && cfg.allow_private === true)) e.url = 'https';
       break;
     case 'a2a':
-      if (!httpsUrl(str('agent_card_url'), allowPrivate)) e.agent_card_url = 'https';
+      if (!httpsUrl(str('agent_card_url'), allowPrivate && cfg.allow_private === true)) e.agent_card_url = 'https';
       break;
     case 'email': {
       const to = Array.isArray(cfg.to) ? (cfg.to as string[]) : [];
@@ -187,7 +187,7 @@ export function defaultConfig(kind: ChannelKind): Record<string, unknown> {
     case 'webhook':
       return { url: '', allow_private: false };
     case 'a2a':
-      return { agent_card_url: '' };
+      return { agent_card_url: '', allow_private: false };
     case 'email':
       return { to: [] };
     default:
@@ -211,7 +211,7 @@ export function channelBody(c: ChannelInput): ChannelInput {
       config = { url: s('url'), allow_private: cfg.allow_private === true };
       break;
     case 'a2a':
-      config = { agent_card_url: s('agent_card_url') };
+      config = { agent_card_url: s('agent_card_url'), allow_private: cfg.allow_private === true };
       break;
     case 'email':
       config = { to: Array.isArray(cfg.to) ? (cfg.to as string[]) : [] };
