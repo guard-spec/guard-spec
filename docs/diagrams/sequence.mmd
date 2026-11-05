@@ -1,0 +1,43 @@
+%%{init: {"theme": "base", "fontFamily": "Inter, system-ui, sans-serif", "themeVariables": {"fontFamily": "Inter, system-ui, sans-serif", "fontSize": "15px", "primaryColor": "#e8f0fc", "primaryBorderColor": "#1d5fbf", "primaryTextColor": "#0f172a", "actorBkg": "#ffffff", "actorBorder": "#1d5fbf", "actorTextColor": "#0f2f57", "actorLineColor": "#b9cdef", "signalColor": "#334155", "signalTextColor": "#0f172a", "labelBoxBkgColor": "#0f2f57", "labelBoxBorderColor": "#0f2f57", "labelTextColor": "#ffffff", "loopTextColor": "#0f2f57", "noteBkgColor": "#fdf3e3", "noteBorderColor": "#b45309", "noteTextColor": "#7c2d12", "sequenceNumberColor": "#ffffff"}, "sequence": {"actorMargin": 40, "width": 200, "height": 56, "actorFontWeight": 600, "messageFontFamily": "Inter, system-ui, sans-serif", "actorFontFamily": "Inter, system-ui, sans-serif", "noteFontFamily": "Inter, system-ui, sans-serif", "messageMargin": 38, "boxMargin": 12, "mirrorActors": false, "showSequenceNumbers": true, "useMaxWidth": false}}}%%
+%% Copyright 2026 The Guard Spec Authors. SPDX-License-Identifier: Apache-2.0
+sequenceDiagram
+    autonumber
+    actor C as Customer
+    box rgb(246,248,251) Your application
+        participant E as Public ALB / API gateway
+        participant A as Bank chatbot backend
+        participant K as Knowledge base, tools
+    end
+    box rgb(232,240,252) Guard Spec
+        participant G as Gateway
+        participant P as Control plane
+    end
+    box rgb(246,247,249) External services
+        participant L as LLM provider
+        participant S as Slack, SIEM, SOC agent
+    end
+
+    C->>E: "What is the fee for an international transfer?"
+    E->>A: forward
+    A->>K: retrieve documents
+    K-->>A: 3 documents, one hides an instruction
+    A->>G: POST /v1/chat/completions (question + documents)
+    G->>G: sanitize, L1 rules, L2 classifier,<br/>L3 similarity, CEL policies
+
+    alt Clean request
+        rect rgb(230,244,242)
+            G->>L: forward the request
+            L-->>G: answer
+            G->>G: output guard: links, personal data, canary
+            G-->>A: answer
+            A-->>C: answer
+        end
+    else Injection in a document
+        rect rgb(253,238,232)
+            G-->>A: 400 content_filter + request id
+            Note over G,L: the LLM is never called
+            A-->>C: safe fallback answer
+            G--)P: detection.blocked event (async, via Postgres)
+            P--)S: alert, per the organization's rules
+        end
+    end
