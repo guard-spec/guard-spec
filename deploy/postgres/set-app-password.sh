@@ -1,9 +1,6 @@
 #!/bin/sh
 # Sets the password of the application role guardspec_app from
-# GUARDSPEC_APP_PASSWORD. PS_APP_PASSWORD, its name before the rename to Guard
-# Spec (formerly PromptShield), is still read when GUARDSPEC_APP_PASSWORD is
-# unset, with a warning; it will be removed in the next release.
-# Run it after the migrations (010 renames the old role ps_app), with
+# GUARDSPEC_APP_PASSWORD. Run it after the migrations, with
 # superuser credentials in the libpq environment (PGHOST, PGUSER, PGDATABASE,
 # PGPASSWORD). It is idempotent, so it also rotates the password.
 #
@@ -18,17 +15,12 @@ lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 # weak VALUE: true when VALUE is a known default or shorter than min_len.
 weak() {
 	case "$(lower "$1")" in
-	ps | ps_app | guardspec_app | postgres | password | secret | changeme | change-me | admin | \
-		promptshield | guardspec | test | dev | change-me-in-production | dev-only-*)
+	ps | guardspec_app | postgres | password | secret | changeme | change-me | admin | \
+		guardspec | test | dev | change-me-in-production | dev-only-*)
 		return 0 ;;
 	esac
 	[ "${#1}" -lt "$min_len" ]
 }
-
-if [ -z "${GUARDSPEC_APP_PASSWORD:-}" ] && [ -n "${PS_APP_PASSWORD:-}" ]; then
-	echo "warning: PS_APP_PASSWORD is deprecated and will be removed in the next release; rename it to GUARDSPEC_APP_PASSWORD" >&2
-	GUARDSPEC_APP_PASSWORD=$PS_APP_PASSWORD
-fi
 
 if [ -z "${GUARDSPEC_APP_PASSWORD:-}" ]; then
 	echo "GUARDSPEC_APP_PASSWORD is not set; set GUARDSPEC_APP_PASSWORD to a unique password of at least $min_len characters (see .env.example)" >&2

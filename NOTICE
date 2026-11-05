@@ -2,7 +2,6 @@ Guard Spec
 Copyright 2026 The Guard Spec Authors
 
 This product is licensed under the Apache License, Version 2.0 (see LICENSE).
-Guard Spec was formerly named PromptShield.
 
 The licenses of the Go modules compiled into the binaries are listed in
 THIRD_PARTY_LICENSES.md (regenerate with `make licenses`).

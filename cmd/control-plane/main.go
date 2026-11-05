@@ -625,8 +625,7 @@ func createAPIKey(db *pgxpool.Pool) fiber.Handler {
 			}
 		}
 
-		// Generate random key: gs_<32 hex chars>. Keys made before the rename
-		// start with ps_; they keep working, since only the hash is looked up.
+		// Generate random key: gs_<32 hex chars>.
 		buf := make([]byte, 16)
 		if _, err := rand.Read(buf); err != nil {
 			return c.Status(500).JSON(fiber.Map{"error": "key gen failed"})

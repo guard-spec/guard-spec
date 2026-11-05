@@ -118,23 +118,6 @@ jobs:
             -path migrations \
             -database "postgres://ps:${PGPASSWORD}@localhost:5432/guardspec?sslmode=disable" up
           sh deploy/postgres/set-app-password.sh
-      # Upgrade from a PromptShield database: role ps_app with its password,
-      # schema at 009. Migration 010 renames the role; the password and the
-      # grants must survive, and the old PS_APP_PASSWORD still works (warned).
-      - name: Upgrade from the ps_app role
-        run: |
-          migrate() { go run -tags postgres github.com/golang-migrate/migrate/v4/cmd/migrate@v4.20.1 -path migrations -database "postgres://ps:${PGPASSWORD}@localhost:5432/guardspec?sslmode=disable" "$@"; }
-          migrate down -all
-          migrate up 9
-          psql -v ON_ERROR_STOP=1 -q -c "ALTER ROLE ps_app WITH PASSWORD 'old-ps-app-password-123'"
-          migrate up
-          test "$(psql -tAc "SELECT count(*) FROM pg_roles WHERE rolname = 'ps_app'")" = 0
-          PGUSER=guardspec_app PGPASSWORD=old-ps-app-password-123 \
-            psql -v ON_ERROR_STOP=1 -tAc "SELECT set_config('app.org_id', '00000000-0000-0000-0000-000000000000', false); SELECT count(*) FROM policies"
-          env -u GUARDSPEC_APP_PASSWORD PS_APP_PASSWORD="$GUARDSPEC_APP_PASSWORD" \
-            sh deploy/postgres/set-app-password.sh 2> warn.txt
-          cat warn.txt
-          grep -q "PS_APP_PASSWORD is deprecated" warn.txt
       - run: go test -race -tags integration ./...
 
   licenses:

@@ -1,7 +1,5 @@
 # Guard Spec design notes
 
-> Formerly PromptShield; renamed to avoid confusion with Microsoft's Prompt Shields.
-
 This document describes the design **as built in v0.1.0**. It replaces the
 pre-implementation draft of 2026-09-22. That draft also planned a dashboard,
 ClickHouse, GPU serving and several third-party models; those parts were not

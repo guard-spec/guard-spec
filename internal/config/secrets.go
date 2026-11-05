@@ -42,13 +42,9 @@ var knownDefaults = map[string]bool{
 	"postgres":                true,
 	"ps":                      true,
 	"guardspec_app":           true,
-	// Defaults of releases from before the rename to Guard Spec (formerly
-	// PromptShield), still refused.
-	"ps_app":       true,
-	"promptshield": true,
-	"guardspec":    true,
-	"test":         true,
-	"dev":          true,
+	"guardspec":               true,
+	"test":                    true,
+	"dev":                     true,
 }
 
 // DevMode reports whether GUARD_ENV=dev is set.

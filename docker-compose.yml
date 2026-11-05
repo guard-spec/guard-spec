@@ -2,12 +2,6 @@
 # in, and run `docker compose -f docker-compose.yml up -d` (so that the dev
 # override is not loaded). The services refuse to start with missing, default
 # or weak secrets unless GUARD_ENV=dev, which docker-compose.override.yml sets.
-#
-# Upgrading from PromptShield (the former name): the project name, the default
-# database name and the application role changed. To keep an existing stack's
-# volumes, set COMPOSE_PROJECT_NAME to the old project name (the directory name
-# by default) and POSTGRES_DB=promptshield in .env; migration 010 renames the
-# role ps_app to guardspec_app. See README, "Upgrading from PromptShield".
 
 #
 # Images: the released ones from ghcr.io (GUARDSPEC_VERSION picks the tag).
@@ -34,7 +28,7 @@ services:
       GUARD_ENV: ${GUARD_ENV:-}
       # The password comes from PGPASSWORD so that it is never part of a URL here.
       DATABASE_URL: postgres://guardspec_app@postgres:5432/${POSTGRES_DB:-guardspec}?sslmode=disable
-      PGPASSWORD: ${GUARDSPEC_APP_PASSWORD:-${PS_APP_PASSWORD:-}}
+      PGPASSWORD: ${GUARDSPEC_APP_PASSWORD:-}
       # Audit rows keep hashes and lengths only; true also stores the content.
       AUDIT_STORE_CONTENT: ${AUDIT_STORE_CONTENT:-false}
       # Detection layers (internal/inference/ml). L1 rules always load; L2 (our
@@ -108,7 +102,7 @@ services:
     environment:
       GUARD_ENV: ${GUARD_ENV:-}
       DATABASE_URL: postgres://guardspec_app@postgres:5432/${POSTGRES_DB:-guardspec}?sslmode=disable
-      PGPASSWORD: ${GUARDSPEC_APP_PASSWORD:-${PS_APP_PASSWORD:-}}
+      PGPASSWORD: ${GUARDSPEC_APP_PASSWORD:-}
       JWT_SECRET: ${JWT_SECRET:-}
       # The first owner is created only when both are set.
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@localhost}
@@ -172,7 +166,6 @@ services:
 
   # Sets the guardspec_app password from GUARDSPEC_APP_PASSWORD after migrating,
   # and refuses default or weak database passwords unless GUARD_ENV=dev.
-  # PS_APP_PASSWORD, the old name, is still read for one release, with a warning.
   db-roles:
     image: postgres:17.11-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b
     entrypoint: ["/bin/sh", "/set-app-password.sh"]
@@ -183,7 +176,6 @@ services:
       PGDATABASE: ${POSTGRES_DB:-guardspec}
       PGPASSWORD: ${POSTGRES_PASSWORD:-}
       GUARDSPEC_APP_PASSWORD: ${GUARDSPEC_APP_PASSWORD:-}
-      PS_APP_PASSWORD: ${PS_APP_PASSWORD:-}   # deprecated
     volumes:
       - ./deploy/postgres/set-app-password.sh:/set-app-password.sh:ro
     depends_on:
