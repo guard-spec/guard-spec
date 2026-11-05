@@ -426,7 +426,21 @@ Gateway:
 | `ALERTS_EVENTS` | on | `off` emits no events. |
 
 Pass every variable to the container; `docker-compose.yml` passes the
-instance ones. Channel secret variables you add yourself.
+instance ones. Channel secret variables you add yourself. With the Helm
+chart, the instance ones are under `controlPlane.env` and `gateway.env`;
+secrets (`SMTP_URL`, bot tokens, channel secrets, `MFA_ENC_KEY`) go in a
+Secret named in `controlPlane.extraEnvFrom`.
+
+To check an SMTP server before relying on it, send two test alerts (English
+and Vietnamese) through it:
+
+```sh
+SMTP_LIVE_URL='smtp://user:pass@smtp.example.com:587' \
+SMTP_LIVE_FROM='Guard Spec <alerts@example.com>' SMTP_LIVE_TO='you@example.com' \
+  go test ./internal/alerts/channels -run TestEmailLiveSMTP -count=1 -v
+```
+
+`SMTP_LIVE_CA=cert.pem` trusts a test server's self-signed certificate.
 
 ## 10. Setting up each channel
 
