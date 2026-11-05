@@ -7,9 +7,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/giaplee/guard-spec/internal/metrics"
-	"github.com/giaplee/guard-spec/internal/ratelimit"
-	"github.com/giaplee/guard-spec/internal/tracing"
+	"github.com/guard-spec/guard-spec/internal/metrics"
+	"github.com/guard-spec/guard-spec/internal/ratelimit"
+	"github.com/guard-spec/guard-spec/internal/tracing"
 )
 
 // opsConfig is the observability and rate limit configuration.

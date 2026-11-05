@@ -37,8 +37,8 @@ var (
 		`\shidden(?:\s*=\s*["']?(?:hidden|true|["']))?(?:\s|/?>)`)
 	whiteText = regexp.MustCompile(`(?i)(?:^|[;"'\s])color\s*:\s*(?:#fff(?:fff)?\b|white\b|rgba?\(\s*255\s*,\s*255\s*,\s*255)`)
 	whiteBack = regexp.MustCompile(`(?i)background(?:-color)?\s*:\s*(?:#fff(?:fff)?\b|white\b|rgba?\(\s*255\s*,\s*255\s*,\s*255)`)
-	anyTag   = regexp.MustCompile(`(?i)<(/?)([a-z][a-z0-9-]*)(?:\s[^<>]*)?(/?)>`)
-	voidTags = map[string]bool{"area": true, "base": true, "br": true, "col": true, "embed": true, "hr": true,
+	anyTag    = regexp.MustCompile(`(?i)<(/?)([a-z][a-z0-9-]*)(?:\s[^<>]*)?(/?)>`)
+	voidTags  = map[string]bool{"area": true, "base": true, "br": true, "col": true, "embed": true, "hr": true,
 		"img": true, "input": true, "link": true, "meta": true, "source": true, "track": true, "wbr": true}
 )
 

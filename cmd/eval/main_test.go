@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/giaplee/guard-spec/internal/evalset"
+	"github.com/guard-spec/guard-spec/internal/evalset"
 )
 
 func runWith(t *testing.T, args ...string) int {

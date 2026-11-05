@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/giaplee/guard-spec/internal/inference/fusion"
+	"github.com/guard-spec/guard-spec/internal/inference/fusion"
 )
 
 // Calibrations below are fitted by `go run -tags onnx ./cmd/calibrate fit` on

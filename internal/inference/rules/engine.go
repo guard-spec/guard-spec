@@ -36,7 +36,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/giaplee/guard-spec/internal/inference/skeleton"
+	"github.com/guard-spec/guard-spec/internal/inference/skeleton"
 )
 
 // Categories reported by the engine (the eval set uses the same names).
@@ -67,7 +67,7 @@ const (
 	cueStep         = 0.03 // per distinct cue word, for ranking only
 	maxCues         = 5
 	maxDecodeLen    = 4096
-	hiddenBoostMin  = 0.5  // a rule at least this strong in hidden content gets ii.hidden.boost
+	hiddenBoostMin  = 0.5 // a rule at least this strong in hidden content gets ii.hidden.boost
 	hiddenBoost     = 0.1
 	flagHidden      = "hidden"
 )

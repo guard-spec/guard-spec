@@ -12,7 +12,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/giaplee/guard-spec/internal/metrics"
+	"github.com/guard-spec/guard-spec/internal/metrics"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 

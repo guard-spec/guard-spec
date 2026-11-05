@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/giaplee/guard-spec/internal/inference"
+	"github.com/guard-spec/guard-spec/internal/inference"
 )
 
 func TestToolDefinition(t *testing.T) {

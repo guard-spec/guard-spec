@@ -4,9 +4,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/giaplee/guard-spec/internal/auth"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"github.com/guard-spec/guard-spec/internal/auth"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 

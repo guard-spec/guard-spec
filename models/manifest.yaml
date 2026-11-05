@@ -44,9 +44,9 @@ models:
     repo: guard-spec/guardspec-classifier
     revision: "0000000000000000000000000000000000000000" # TODO(RF-ac559919): pin the HF commit
     mirrors:
-      - https://github.com/giaplee/guard-spec/releases/download/model-guardspec-classifier-v3b/{file}
+      - https://github.com/guard-spec/guard-spec/releases/download/model-guardspec-classifier-v3b/{file}
     license: Apache-2.0
-    license_url: https://github.com/giaplee/guard-spec/blob/main/train/MODEL_CARD.md
+    license_url: https://github.com/guard-spec/guard-spec/blob/main/train/MODEL_CARD.md
     files:
       - src: model_int8.onnx
         dest: model_int8.onnx

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/giaplee/guard-spec/internal/outputguard"
+	"github.com/guard-spec/guard-spec/internal/outputguard"
 )
 
 func jsonCompletion(content string) string {

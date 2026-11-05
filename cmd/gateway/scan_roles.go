@@ -8,10 +8,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/giaplee/guard-spec/internal/indirect"
-	"github.com/giaplee/guard-spec/internal/inference"
-	"github.com/giaplee/guard-spec/internal/tenant"
 	"github.com/google/uuid"
+	"github.com/guard-spec/guard-spec/internal/indirect"
+	"github.com/guard-spec/guard-spec/internal/inference"
+	"github.com/guard-spec/guard-spec/internal/tenant"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )

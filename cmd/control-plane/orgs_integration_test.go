@@ -6,8 +6,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/giaplee/guard-spec/internal/auth"
-	"github.com/giaplee/guard-spec/internal/tenant"
+	"github.com/guard-spec/guard-spec/internal/auth"
+	"github.com/guard-spec/guard-spec/internal/tenant"
 	"github.com/jackc/pgx/v5"
 )
 

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/giaplee/guard-spec/internal/sanitizer"
+	"github.com/guard-spec/guard-spec/internal/sanitizer"
 )
 
 // FuzzChatRequest drives the chat request parser and guard with arbitrary

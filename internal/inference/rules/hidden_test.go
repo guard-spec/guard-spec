@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/giaplee/guard-spec/internal/sanitizer"
+	"github.com/guard-spec/guard-spec/internal/sanitizer"
 )
 
 // scoreSanitized runs the gateway's input path: sanitizer, then L1.

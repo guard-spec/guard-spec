@@ -21,10 +21,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/giaplee/guard-spec/internal/alerts"
-	"github.com/giaplee/guard-spec/internal/auth"
-	"github.com/giaplee/guard-spec/internal/tenant"
 	"github.com/google/uuid"
+	"github.com/guard-spec/guard-spec/internal/alerts"
+	"github.com/guard-spec/guard-spec/internal/auth"
+	"github.com/guard-spec/guard-spec/internal/tenant"
 	"github.com/jackc/pgx/v5"
 )
 

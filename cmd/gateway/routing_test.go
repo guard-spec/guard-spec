@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	appconfig "github.com/giaplee/guard-spec/internal/config"
-	"github.com/giaplee/guard-spec/internal/policy"
 	"github.com/google/uuid"
+	appconfig "github.com/guard-spec/guard-spec/internal/config"
+	"github.com/guard-spec/guard-spec/internal/policy"
 )
 
 // fakeUpstreams resolves like dbUpstreamLoader over in-memory rows.

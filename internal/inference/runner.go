@@ -19,7 +19,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/giaplee/guard-spec/internal/inference/fusion"
+	"github.com/guard-spec/guard-spec/internal/inference/fusion"
 )
 
 // ErrInputTooLong means the text needs more windows than we are willing to scan.

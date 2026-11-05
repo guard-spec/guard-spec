@@ -2,7 +2,7 @@
 
 | Name | GitHub | Areas |
 |---|---|---|
-| Lê Văn Giáp | [@giaplee](https://github.com/giaplee) | All |
+| Lê Văn Giáp (creator, lead maintainer) | [@giaplee](https://github.com/giaplee) | All |
 
 Maintainers review and merge pull requests, triage issues, cut releases and
 handle security reports (see [SECURITY.md](SECURITY.md)) and conduct reports

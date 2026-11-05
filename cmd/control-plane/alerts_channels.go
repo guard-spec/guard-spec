@@ -15,10 +15,10 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/giaplee/guard-spec/internal/alerts"
-	"github.com/giaplee/guard-spec/internal/alerts/channels"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"github.com/guard-spec/guard-spec/internal/alerts"
+	"github.com/guard-spec/guard-spec/internal/alerts/channels"
 	"github.com/jackc/pgx/v5"
 )
 

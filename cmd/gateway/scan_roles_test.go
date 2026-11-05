@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/giaplee/guard-spec/internal/indirect"
-	"github.com/giaplee/guard-spec/internal/inference/rules"
-	"github.com/giaplee/guard-spec/internal/policy"
 	"github.com/google/uuid"
+	"github.com/guard-spec/guard-spec/internal/indirect"
+	"github.com/guard-spec/guard-spec/internal/inference/rules"
+	"github.com/guard-spec/guard-spec/internal/policy"
 )
 
 func TestLoadScanConfig(t *testing.T) {

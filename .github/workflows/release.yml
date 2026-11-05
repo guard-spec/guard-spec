@@ -254,7 +254,7 @@ jobs:
   # TODO(L2 publication): set the repository variable GATEWAY_FULL_L2_SOURCE
   # (Settings > Secrets and variables > Actions > Variables) once
   # guardspec-classifier-v3b is on Hugging Face, as <hf-repo>@<commit-sha>, e.g.
-  #   giaplee/guardspec-classifier@0123456789abcdef0123456789abcdef01234567
+  #   guard-spec/guardspec-classifier@0123456789abcdef0123456789abcdef01234567
   # The commit must hold the five files of build/gateway-full.l2.sha256 at the
   # repository root (train/hf/stage.sh stages exactly those). Until it is set,
   # these jobs are skipped with a notice and the rest of the release is unchanged.

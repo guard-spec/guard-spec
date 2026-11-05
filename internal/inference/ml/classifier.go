@@ -16,7 +16,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/giaplee/guard-spec/internal/inference/fusion"
+	"github.com/guard-spec/guard-spec/internal/inference/fusion"
 )
 
 // Classifier is the part of *onnx.Classifier that L2 uses.

@@ -9,8 +9,8 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/giaplee/guard-spec/internal/inference/fusion"
-	"github.com/giaplee/guard-spec/internal/onnx"
+	"github.com/guard-spec/guard-spec/internal/inference/fusion"
+	"github.com/guard-spec/guard-spec/internal/onnx"
 )
 
 // TestBuildWithModels loads the real layers from models/ (skips without them)
