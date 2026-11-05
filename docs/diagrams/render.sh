@@ -2,7 +2,7 @@
 # Copyright 2026 The Guard Spec Authors
 # SPDX-License-Identifier: Apache-2.0
 #
-# Renders the README diagrams (context, component; English and Vietnamese) to
+# Renders the README diagrams (context, component, flow; English and Vietnamese) to
 # docs/images/*.png with headless Chrome. The pages load the Inter font and
 # the Lucide icons (ISC) from the network.
 #
@@ -29,3 +29,5 @@ render context 1600,990
 render context.vi 1600,990
 render component 1800,1080
 render component.vi 1800,1080
+render flow 1500,1700
+render flow.vi 1500,1700

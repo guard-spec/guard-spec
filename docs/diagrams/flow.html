@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="kit.css">
+<style>
+#canvas { width: 1500px; height: 1700px; background: #fbfcfe; }
+.zone { border-radius: 18px; border: 1.5px solid var(--line); z-index: 0; }
+.zone > .zl { position: absolute; top: 12px; left: 18px; font-size: 12.5px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted); }
+.gs { border: 2px solid var(--blue); background: linear-gradient(180deg, #f2f6fd, #f8fafe); }
+.gs > .zl { color: var(--blue); display: flex; align-items: center; gap: 8px; font-size: 15px; letter-spacing: .3px; text-transform: none; font-weight: 800; }
+.gs > .zl .port { font-family: ui-monospace, Menlo, monospace; font-size: 12px; font-weight: 600; color: var(--blue); opacity: .8; }
+.box { display: flex; gap: 14px; align-items: flex-start; background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px;
+  box-shadow: 0 1px 2px rgba(15,23,42,.05), 0 6px 18px rgba(15,47,87,.06); }
+.box .icon { width: 44px; height: 44px; border-radius: 12px; }
+.box h4 { margin: 1px 0 3px; font-size: 16px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+.box p { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.45; }
+.box code, .pill code { font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: var(--navy); }
+.n { display: inline-flex; align-items: center; justify-content: center; min-width: 26px; height: 22px; padding: 0 7px; border-radius: 6px;
+  background: var(--navy); color: #fff; font: 600 11.5px ui-monospace, Menlo, monospace; }
+.n.teal { background: var(--teal); }
+.n.opt { background: #fff; color: var(--slate); border: 1px dashed #9aa8ba; }
+.pills { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.pill { font-size: 12.5px; font-weight: 600; padding: 5px 10px; border-radius: 8px; background: var(--blue-soft); color: var(--blue); }
+.pill.warn { background: var(--amber-soft); color: var(--amber); }
+.det { background: #fff; border: 1.5px solid #b9cdef; border-radius: 16px; padding: 14px 16px 16px;
+  box-shadow: 0 1px 2px rgba(15,23,42,.05), 0 8px 22px rgba(15,47,87,.08); }
+.det > h4 { margin: 0 0 12px; font-size: 16px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+.layers { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.layer { border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: #fbfcfe; }
+.layer b { display: inline-block; font: 600 11.5px ui-monospace, Menlo, monospace; color: #fff; background: var(--blue); padding: 2px 7px; border-radius: 6px; }
+.layer h5 { margin: 8px 0 3px; font-size: 14px; }
+.layer p { margin: 0; font-size: 12px; color: var(--muted); line-height: 1.4; }
+.fusion { margin-top: 12px; border-radius: 12px; padding: 11px 14px; background: var(--navy); color: #fff; font-size: 13.5px; font-weight: 600;
+  display: flex; align-items: center; gap: 10px; }
+.fusion span { color: #b9cdef; font-weight: 500; }
+.block { border: 1.5px solid #f4cdbd; }
+.block h4 { color: var(--red); }
+.llm { border: 1.5px solid #a7d8d1; }
+.title { left: 40px; top: 28px; }
+.title .kicker { font-size: 13px; font-weight: 700; letter-spacing: 1.6px; color: var(--blue); text-transform: uppercase; }
+.title h1 { margin: 4px 0 0; font-size: 26px; font-weight: 800; color: var(--navy); }
+.legend { position: absolute; right: 40px; top: 40px; display: flex; gap: 18px; font-size: 13px; color: var(--slate); font-weight: 500; z-index: 2; }
+.legend span::before { content: ""; display: inline-block; width: 22px; height: 0; border-top: 3px solid var(--c); vertical-align: middle; margin-right: 7px; }
+.legend span.d::before { border-top-style: dashed; }
+.app { flex-direction: column; align-items: center; text-align: center; gap: 10px; }
+.app .icon { width: 56px; height: 56px; border-radius: 50%; }
+</style></head>
+<body><div id="canvas"><svg id="wires"></svg>
+<div class="title"><div class="kicker">Architecture</div><h1>How one request flows through Guard Spec</h1></div>
+<div class="legend">
+  <span style="--c:#1d5fbf">request path</span>
+  <span style="--c:#c2410c">blocked</span>
+  <span style="--c:#0f766e">to and from the LLM</span>
+  <span class="d" style="--c:#64748b">data</span>
+</div>
+
+<!-- your application -->
+<div class="node box app" id="app" style="left:40px; top:118px; width:240px">
+  <div class="icon" style="background:var(--blue-soft);color:var(--blue)"><i data-lucide="app-window" width="28" height="28"></i></div>
+  <div><h4 style="justify-content:center">Your application</h4><p>OpenAI SDK with <code>base_url</code> set to the gateway</p></div></div>
+<div class="node box app" id="app2" style="left:40px; top:1250px; width:240px">
+  <div class="icon" style="background:var(--teal-soft);color:var(--teal)"><i data-lucide="message-square-text" width="28" height="28"></i></div>
+  <div><h4 style="justify-content:center">Answer to your app</h4><p>same response format, streaming included</p></div></div>
+
+<!-- gateway -->
+<div class="zone gs" style="left:330px; top:110px; width:760px; height:1330px"><div class="zl">
+  <svg viewBox="0 0 32 32" width="20" height="20"><path d="M16 1.5 3.5 6.5v8.3c0 7.7 5.3 13.8 12.5 15.7 7.2-1.9 12.5-8 12.5-15.7V6.5z" fill="#0f2f57"/><path d="M16 1.5v29c7.2-1.9 12.5-8 12.5-15.7V6.5z" fill="#1d5fbf"/><path d="M10 11h12M11.5 16h9M13.5 21h5" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/></svg>
+  Gateway <span class="port">data plane · :8080</span></div></div>
+
+<div class="node box" id="auth" style="left:370px; top:160px; width:680px">
+  <div class="icon" style="background:var(--blue-soft);color:var(--blue)"><i data-lucide="key-round" width="24" height="24"></i></div>
+  <div><h4><span class="n">1</span>Tenant lookup and rate limit</h4><p>The API key selects the organization and project; per-key rate limits apply.</p></div></div>
+
+<div class="node box" id="l0" style="left:370px; top:280px; width:680px">
+  <div class="icon" style="background:var(--blue-soft);color:var(--blue)"><i data-lucide="eraser" width="24" height="24"></i></div>
+  <div><h4><span class="n">L0</span>Sanitizer</h4><p>NFKC; strips invisible, tag, bidi and control characters, ANSI, HTML and entities; flags homoglyphs and scores anomalies.</p></div></div>
+
+<div class="node box" id="split" style="left:370px; top:405px; width:680px">
+  <div class="icon" style="background:var(--blue-soft);color:var(--blue)"><i data-lucide="split" width="24" height="24"></i></div>
+  <div><h4><span class="n">2</span>Split by source, score each part</h4>
+  <div class="pills"><span class="pill">user and system messages</span><span class="pill">tool results, documents</span><span class="pill warn">MCP tool descriptions + poisoning signals</span></div></div></div>
+
+<div class="node det" id="det" style="left:370px; top:550px; width:680px">
+  <h4><span class="n">3</span>Detector, three layers fused into one score</h4>
+  <div class="layers">
+    <div class="layer" id="ly1"><b>L1</b><h5>Rules</h5><p>on a skeleton of the text: Vietnamese diacritics, teencode, leetspeak, homoglyphs</p></div>
+    <div class="layer" id="ly2"><b>L2</b><h5>Classifier</h5><p>our own ONNX model (multilingual-e5-small fine-tune), in process</p></div>
+    <div class="layer" id="ly3"><b>L3</b><h5>Similarity</h5><p>embedding match with built-in and per-organization exemplars</p></div>
+  </div>
+  <div class="fusion" id="fusion"><i data-lucide="sigma" width="18" height="18"></i>Calibration and fusion <span>→ injection score 0 to 1</span></div>
+</div>
+
+<div class="node box" id="thr" style="left:370px; top:870px; width:680px">
+  <div class="icon" style="background:var(--blue-soft);color:var(--blue)"><i data-lucide="gauge" width="24" height="24"></i></div>
+  <div><h4><span class="n">4</span>Fixed thresholds</h4><p>Direct injection blocks at 0.85; each tool result, document and tool description at <code>INDIRECT_BLOCK_THRESHOLD</code>.</p></div></div>
+
+<div class="node box" id="spot" style="left:370px; top:990px; width:680px">
+  <div class="icon" style="background:var(--slate-soft);color:var(--slate)"><i data-lucide="highlighter" width="24" height="24"></i></div>
+  <div><h4><span class="n opt">opt</span>Spotlighting</h4><p>Marks tool results as data (<code>SPOTLIGHT=delimit</code> or <code>datamark</code>) before they reach the model.</p></div></div>
+
+<div class="node box" id="pol" style="left:370px; top:1100px; width:680px">
+  <div class="icon" style="background:var(--violet-soft);color:var(--violet)"><i data-lucide="list-checks" width="24" height="24"></i></div>
+  <div><h4><span class="n">5</span>CEL policies</h4><p>Project rules, then organization rules: allow, block, log, or route to a named upstream. They can only tighten the thresholds.</p></div></div>
+
+<div class="node box" id="og" style="left:370px; top:1260px; width:680px">
+  <div class="icon" style="background:var(--teal-soft);color:var(--teal)"><i data-lucide="shield-check" width="24" height="24"></i></div>
+  <div><h4><span class="n teal">6</span>Output guard</h4><p>Strips links and images to unknown hosts, redacts personal data and a leaked canary, checks reasoning and tool-call arguments, also when streaming.</p></div></div>
+
+<!-- right column -->
+<div class="node box block" id="blk" style="left:1150px; top:430px; width:310px">
+  <div class="icon" style="background:var(--red-soft);color:var(--red)"><i data-lucide="octagon-x" width="24" height="24"></i></div>
+  <div><h4>Blocked</h4><p>HTTP 400 <code>content_filter</code> with a request id. The LLM is never called; an alert goes out.</p></div></div>
+
+<div class="node box llm" id="llm" style="left:1150px; top:1150px; width:310px">
+  <div class="icon" style="background:var(--teal-soft);color:var(--teal)"><i data-lucide="sparkles" width="24" height="24"></i></div>
+  <div><h4>LLM provider</h4><p>OpenAI, Azure OpenAI, Anthropic, Gemini, vLLM, Ollama; picked by routing</p></div></div>
+
+<!-- data -->
+<div class="node box" id="pg" style="left:370px; top:1530px; width:440px">
+  <div class="icon" style="background:var(--slate-soft);color:var(--slate)"><i data-lucide="database" width="24" height="24"></i></div>
+  <div><h4>Postgres</h4><p>API keys, policies, settings, exemplars; one audit row per request; row-level security per organization</p></div></div>
+<div class="node box" id="cp" style="left:880px; top:1530px; width:400px">
+  <div class="icon" style="background:var(--violet-soft);color:var(--violet)"><i data-lucide="layout-dashboard" width="24" height="24"></i></div>
+  <div><h4>Control plane <code>:8081</code></h4><p>admin UI and management API; writes keys, policies and settings</p></div></div>
+</div>
+<script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+<script src="kit.js"></script>
+<script>
+lucide.createIcons();
+document.fonts.ready.then(() => {
+  const blue = '#1d5fbf', red = '#c2410c', teal = '#0f766e', slate = '#64748b';
+  link('app', 'auth', {from: 'r', to: 'l', color: blue, width: 3, label: 'POST /v1/chat/completions', dy: -30, bend: .3});
+  link('auth', 'l0', {from: 'b', to: 't', color: blue});
+  link('l0', 'split', {from: 'b', to: 't', color: blue});
+  link('split', 'det', {from: 'b', to: 't', color: blue});
+  link('det', 'thr', {from: 'b', to: 't', color: blue});
+  link('thr', 'spot', {from: 'b', to: 't', color: blue, label: 'below the thresholds', t: .5});
+  link('spot', 'pol', {from: 'b', to: 't', color: blue});
+  link('pol', 'llm', {from: 'r', to: 'l', color: teal, width: 3, label: 'allow, log or route', t: .5, fromOff: -10});
+  link('llm', 'og', {from: 'b', to: 'r', color: teal, width: 3, label: 'answer', t: .45});
+  link('og', 'app2', {from: 'l', to: 'r', color: teal, width: 3, bend: .3});
+  link('l0', 'blk', {from: 'r', to: 't', color: red, dash: '7 6', label: 'anomaly ≥ 0.6', t: .45});
+  link('thr', 'blk', {from: 'r', to: 'b', color: red, dash: '7 6', label: 'score over threshold', fromOff: -10, t: .5});
+  link('pol', 'blk', {from: 'r', to: 'b', color: red, dash: '7 6', label: 'block rule', fromOff: -30, toOff: 90, t: .55, bend: .5});
+  link('og', 'pg', {from: 'b', to: 't', color: slate, dash: '6 5', both: true, label: 'reads keys and policies · writes the audit row', fromOff: -100, toOff: 120, t: .5});
+  link('cp', 'pg', {from: 'l', to: 'r', color: slate, dash: '6 5', both: true});
+  document.title = 'ready';
+});
+</script></body></html>

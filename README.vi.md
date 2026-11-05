@@ -149,30 +149,7 @@ Nguồn của các sơ đồ ở [docs/diagrams/](docs/diagrams/)
 
 ## Kiến trúc
 
-```mermaid
-flowchart TD
-    C[Ứng dụng] -->|"POST /v1/chat/completions + API key"| T[Xác thực key + rate limit]
-    T --> L0["L0 sanitizer: NFKC, xoá ký tự ẩn/tag/bidi, ANSI, HTML"]
-    L0 -->|anomaly ≥ 0.6| B[400 content_filter]
-    L0 --> DET
-    subgraph DET [Bộ phát hiện]
-        L1["L1 luật trên skeleton (dấu, teencode, leet, homoglyph)"]
-        L2["L2 classifier ONNX riêng (fine-tune multilingual-e5-small)"]
-        L3["L3 tương đồng embedding + exemplar theo tổ chức"]
-        F["Hiệu chỉnh Platt + hợp nhất logistic"]
-        L1 --> F
-        L2 --> F
-        L3 --> F
-    end
-    DET -->|"trực tiếp ≥ 0.85 hoặc gián tiếp ≥ INDIRECT_BLOCK_THRESHOLD"| B
-    DET --> P["Policy CEL (project, rồi tổ chức)"]
-    P -->|block| B
-    P --> U[LLM upstream]
-    U --> OG["Output guard: link/ảnh, PII, canary, tool-call"]
-    OG --> C
-    B -.-> A[(Audit trong Postgres)]
-    OG -.-> A
-```
+![Một request đi qua Guard Spec: xác định tổ chức, làm sạch, tách theo nguồn, ba lớp phát hiện, ngưỡng, chính sách, LLM và kiểm tra đầu ra](docs/images/diagram-flow.vi.png)
 
 - **L0 sanitizer**: chuẩn hoá NFKC, xoá ký tự vô hình, tag, bidi, variation
   selector, ký tự điều khiển, ANSI, HTML, giải mã entity lặp lại đến khi ổn
@@ -187,7 +164,7 @@ flowchart TD
 - **Hợp nhất**: hiệu chỉnh Platt cho từng lớp, hồi quy logistic trên các lớp;
   được fit trên tập validation của classifier, **không bao giờ** trên `eval/`.
 - **Policy CEL**: luật theo tổ chức/project, lưu dạng cây JSON và biên dịch
-  sang CEL ở server; hành động `allow`, `block`, `log`.
+  sang CEL ở server; hành động `allow`, `block`, `log`, `route`.
 - **Output guard**: xoá ảnh/link tới host ngoài allowlist, che email, số điện
   thoại Việt Nam, CCCD, số thẻ, phát hiện canary bị lộ, kể cả khi stream.
 - **Quét gián tiếp và MCP**: kết quả tool, tài liệu và mô tả tool được chấm
