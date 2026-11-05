@@ -142,9 +142,10 @@ release:
     | Artifact | Layers | Notes |
     |---|---|---|
     | `ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/guard-spec-gateway:{{ .Version }}` | L1 + L2 + L3 | Built with `-tags onnx`, ships libonnxruntime. Mount the models at `/models` (read-only is fine); without them it runs L1 only and logs a warning. `GET /readyz` lists the active layers. |
+    | `ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/guard-spec-gateway-full:{{ .Version }}` | L1 + L2 + L3 | The gateway image with `guardspec-classifier-v3b` and `multilingual-e5-small` baked in (read-only), for air-gapped installs. Built only when the `GATEWAY_FULL_L2_SOURCE` variable is set. |
     | `guard-spec_{{ .Version }}_linux_<arch>_onnx.tar.gz` | L1 + L2 + L3 | Gateway built with `-tags onnx` plus `libonnxruntime.so`. Linux, glibc 2.36 or newer; set `ONNXRUNTIME_LIB` and `MODEL_DIR`. |
     | `guard-spec_{{ .Version }}_<os>_<arch>.tar.gz` | **L1 only** | Static binaries (`CGO_ENABLED=0`), no ONNX Runtime. |
     | `ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/guard-spec-control-plane:{{ .Version }}` | n/a | Static, no cgo. Serves the admin UI at `/ui/`. |
 
-    Models are never baked into images or archives; fetch them with `models pull` (see README).
+    Apart from `guard-spec-gateway-full`, models are never baked into images or archives; fetch them with `models pull` (see README).
 
