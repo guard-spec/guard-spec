@@ -46,7 +46,8 @@ sha256() {
 }
 
 fetch() { # url sha256 out
-  curl -fsSL --retry 3 -o "$3" "$1"
+  # A release download hit four 504s in 7 s (v0.1.0-rc.3): retry for longer.
+  curl -fsSL --retry 6 --retry-delay 10 --retry-max-time 300 -o "$3" "$1"
   got=$(sha256 "$3")
   if [ "$got" != "$2" ]; then
     echo "sha256 mismatch for $1: got $got, want $2" >&2
