@@ -9,6 +9,8 @@
 FROM golang:1.26.10-bookworm@sha256:23ce71337b726608afb1bc00986e630a05034a87a87ea1fc2cd1ae5cf33387eb AS builder
 ARG TARGETOS=linux
 ARG TARGETARCH
+# Release version, linked into the binaries (gateway --version).
+ARG VERSION=dev
 
 WORKDIR /src
 COPY build/onnx-deps.sh /tmp/onnx-deps.sh
@@ -20,9 +22,9 @@ RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY . .
 ENV CGO_ENABLED=1 CGO_LDFLAGS=-L/opt/onnx/lib GOTOOLCHAIN=local
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
-    go build -tags onnx -trimpath -ldflags="-s -w" -o /out/gateway ./cmd/gateway/ \
+    go build -tags onnx -trimpath -ldflags="-s -w -X github.com/guard-spec/guard-spec/internal/version.Version=${VERSION#v}" -o /out/gateway ./cmd/gateway/ \
  && go build -tags onnx -trimpath -ldflags="-s -w" -o /out/onnxbench ./cmd/onnxbench/ \
- && go build -trimpath -ldflags="-s -w" -o /out/models ./cmd/models/
+ && go build -trimpath -ldflags="-s -w -X github.com/guard-spec/guard-spec/internal/version.Version=${VERSION#v}" -o /out/models ./cmd/models/
 
 # --- dist: the linux onnx tarball of a release (.github/workflows/release.yml) ---
 # docker buildx build --target dist --output type=local,dest=out ...
