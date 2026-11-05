@@ -27,9 +27,10 @@ func (gw gateway) forOrg(org uuid.UUID) gateway {
 	return gw
 }
 
-// buildDetector loads the detection layers (DETECTOR_LAYERS, L2_MODEL_DIR,
-// L3_MODEL_DIR, ...). A missing model or a binary built without -tags onnx
-// leaves that layer out with a warning, and the gateway runs on what loaded
+// buildDetector loads the detection layers (DETECTOR_LAYERS, L2_MODEL,
+// L2_MODEL_DIR, L3_MODEL, L3_MODEL_DIR, ...; ml.ResolveL2Dir gives the order).
+// A missing model or a binary built without -tags onnx leaves that layer out
+// with a warning, and the gateway runs on what loaded
 // (L1 at least); scores.l2 / scores.l3 are then -1. Outside GUARD_ENV=dev,
 // DETECTOR_REQUIRE_ML=true makes that fatal.
 func buildDetector(ctx context.Context, cfg ml.Config, store ml.TenantStore) (*ml.Stack, error) {

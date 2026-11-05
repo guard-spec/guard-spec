@@ -11,9 +11,15 @@
 # The superuser password matches earlier versions of this file, so an existing
 # local volume keeps working; the db-roles service sets the application role's
 # password on every start. Values set in .env or the shell take precedence.
+#
+# It also builds the images from source, under local names, instead of using
+# the released ghcr.io images of docker-compose.yml: `docker compose up --build`
+# rebuilds them after a change. (This is where the build sections live; there
+# is no separate build file.)
 
 services:
   gateway:
+    image: guard-spec-gateway:latest
     build:
       context: .
       dockerfile: build/gateway.Dockerfile
@@ -24,7 +30,22 @@ services:
       GUARD_ENV: ${GUARD_ENV:-dev}
       PGPASSWORD: ${GUARDSPEC_APP_PASSWORD:-${PS_APP_PASSWORD:-guardspec_app}}
 
+  # The model helpers run the same locally built gateway image (its `models`
+  # binary and manifest).
+  models-init:
+    image: guard-spec-gateway:latest
+    build:
+      context: .
+      dockerfile: build/gateway.Dockerfile
+
+  models-pull:
+    image: guard-spec-gateway:latest
+    build:
+      context: .
+      dockerfile: build/gateway.Dockerfile
+
   control-plane:
+    image: guard-spec-control-plane:latest
     build:
       context: .
       dockerfile: build/control-plane.Dockerfile

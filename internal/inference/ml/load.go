@@ -12,17 +12,22 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/giaplee/guard-spec/internal/inference/fusion"
 	"github.com/giaplee/guard-spec/internal/onnx"
+	"github.com/giaplee/guard-spec/models"
 )
 
 // Environment variables read by ConfigFromEnv.
 const (
-	EnvModelDir      = "MODEL_DIR"   // root of the model files (default ./models)
-	EnvModelsPath    = "MODELS_PATH" // older name of MODEL_DIR
-	EnvL2Dir         = "L2_MODEL_DIR"
-	EnvL3Dir         = "L3_MODEL_DIR"
+	EnvModelDir      = "MODEL_DIR"             // root of the model files (default ./models)
+	EnvModelsPath    = "MODELS_PATH"           // older name of MODEL_DIR
+	EnvL2Dir         = "L2_MODEL_DIR"          // classifier directory; wins over L2_MODEL
+	EnvL3Dir         = "L3_MODEL_DIR"          // embedder directory; wins over L3_MODEL
+	EnvL2Model       = "L2_MODEL"              // name[@version], e.g. guardspec-classifier@v3b
+	EnvL3Model       = "L3_MODEL"              // name[@version], e.g. multilingual-e5-small@614241f
+	ModelCacheSubdir = "cache"                 // where `models pull` installs <name>/<version>/
 	EnvLayers        = "DETECTOR_LAYERS"       // e.g. l1,l2,l3 (default)
 	EnvCascade       = "DETECTOR_CASCADE"      // true: skip L2/L3 when L1 is decisive
 	EnvCascadeLow    = "DETECTOR_CASCADE_LOW"  // default DefaultCascade.Low
@@ -49,11 +54,15 @@ var DefaultCascade = fusion.Cascade{Low: 0.03, High: 0.965}
 // Config selects and locates the detection layers.
 type Config struct {
 	ModelDir string
-	// L2Dir is the classifier directory. Empty: the first of L2Defaults
-	// (ModelDir/local/guardspec-classifier-v3b, then -v2, -v1, -v0) that exists.
+	// L2Dir is the classifier directory. Empty: see ResolveL2Dir.
 	L2Dir string
-	// L3Dir is the embedding model directory. Empty: ModelDir/cache/multilingual-e5-small.
-	L3Dir   string
+	// L2Model is a classifier reference, name or name@version, installed by
+	// `models pull` in ModelDir/cache/<name>/<version>. Used when L2Dir is empty.
+	L2Model string
+	// L3Dir is the embedding model directory. Empty: see ResolveL3Dir.
+	L3Dir string
+	// L3Model is an embedder reference, like L2Model. Used when L3Dir is empty.
+	L3Model string
 	Layers  [3]bool // L1, L2, L3
 	Cascade *fusion.Cascade
 	// RequireML: a requested ML layer that cannot load is fatal (the gateway
@@ -64,9 +73,21 @@ type Config struct {
 	Fusion string
 }
 
-// ConfigFromEnv reads the DETECTOR_* and *_MODEL_DIR variables.
+// ConfigFromEnv reads the DETECTOR_*, *_MODEL and *_MODEL_DIR variables.
 func ConfigFromEnv(get func(string) string) (Config, error) {
-	cfg := Config{ModelDir: get(EnvModelDir), L2Dir: get(EnvL2Dir), L3Dir: get(EnvL3Dir), Fusion: "logreg"}
+	cfg := Config{
+		ModelDir: get(EnvModelDir),
+		L2Dir:    get(EnvL2Dir), L2Model: strings.TrimSpace(get(EnvL2Model)),
+		L3Dir: get(EnvL3Dir), L3Model: strings.TrimSpace(get(EnvL3Model)),
+		Fusion: "logreg",
+	}
+	for _, kv := range [][2]string{{EnvL2Model, cfg.L2Model}, {EnvL3Model, cfg.L3Model}} {
+		if kv[1] != "" {
+			if _, _, err := onnx.ParseRef(kv[1]); err != nil {
+				return Config{}, fmt.Errorf("%s: %w", kv[0], err)
+			}
+		}
+	}
 	if cfg.ModelDir == "" {
 		cfg.ModelDir = get(EnvModelsPath)
 	}
@@ -224,16 +245,9 @@ func Build(ctx context.Context, cfg Config, tenants TenantStore) (*Stack, error)
 }
 
 func (s *Stack) loadL2(cfg Config, threads int) error {
-	dir := cfg.L2Dir
-	if dir == "" {
-		dir = DefaultL2Dir(cfg.ModelDir)
-		if dir == "" {
-			var tried []string
-			for _, sub := range L2Defaults {
-				tried = append(tried, filepath.Join(cfg.ModelDir, sub))
-			}
-			return fmt.Errorf("no classifier in %s", strings.Join(tried, ", "))
-		}
+	dir, err := ResolveL2Dir(cfg)
+	if err != nil {
+		return err
 	}
 	c, err := onnx.NewClassifier(dir, onnx.Options{IntraOpThreads: threads})
 	if err != nil {
@@ -260,9 +274,9 @@ func (s *Stack) loadL2(cfg Config, threads int) error {
 }
 
 func (s *Stack) loadL3(ctx context.Context, cfg Config, tenants TenantStore, threads int) error {
-	dir := cfg.L3Dir
-	if dir == "" {
-		dir = filepath.Join(cfg.ModelDir, L3DefaultSubdir)
+	dir, err := ResolveL3Dir(cfg)
+	if err != nil {
+		return err
 	}
 	e, err := onnx.NewEmbedder(dir, onnx.Options{Prefix: e5Prefix, MaxLength: l3WindowTokens, IntraOpThreads: threads})
 	if err != nil {
@@ -296,20 +310,98 @@ func (s *Stack) loadL3(ctx context.Context, cfg Config, tenants TenantStore, thr
 	return nil
 }
 
-// L2Defaults are the classifier directories under MODEL_DIR, newest first.
-// v3 never shipped (it failed the eval set), so it is not searched.
+// L2Defaults are the classifier directories under MODEL_DIR from before
+// versioned models, newest first. They are searched only when the manifest's
+// recommended classifier is not installed. v3 never shipped (it failed the
+// eval set), so it is not searched.
 var L2Defaults = []string{L2DefaultV3B, L2DefaultV2, L2DefaultV1, L2DefaultV0}
 
-// DefaultL2Dir is the first of L2Defaults under modelDir that holds a
-// classifier, or "" when none does.
-func DefaultL2Dir(modelDir string) string {
-	for _, sub := range L2Defaults {
-		d := filepath.Join(modelDir, sub)
-		if _, err := os.Stat(filepath.Join(d, onnx.ConfigFile)); err == nil {
-			return d
+// L3Defaults are the embedder directories under MODEL_DIR from before
+// versioned models.
+var L3Defaults = []string{L3DefaultSubdir}
+
+// builtinManifest is models/manifest.yaml as built into the binary.
+var builtinManifest = sync.OnceValues(func() (*onnx.Manifest, error) {
+	return onnx.ParseManifest(models.Manifest)
+})
+
+// ResolveL2Dir picks the classifier directory, in this order:
+//
+//  1. L2_MODEL_DIR (Config.L2Dir), as is;
+//  2. L2_MODEL=name@version: MODEL_DIR/cache/<name>/<version>; a bare name
+//     is its recommended version in the manifest;
+//  3. the manifest's recommended classifier, MODEL_DIR/cache/<name>/<version>,
+//     when installed;
+//  4. the directories from before versions (L2Defaults), the first installed.
+//
+// Steps 1 and 2 are explicit choices: the directory is returned even when it
+// holds no model, and loading it then fails (no silent fallback to another
+// model). An error from 3-4 lists every directory tried.
+func ResolveL2Dir(cfg Config) (string, error) {
+	return resolveDir(cfg.ModelDir, cfg.L2Dir, cfg.L2Model, EnvL2Model, "classifier", L2Defaults)
+}
+
+// ResolveL3Dir picks the embedder directory, in the order of ResolveL2Dir
+// with L3_MODEL_DIR, L3_MODEL and L3Defaults.
+func ResolveL3Dir(cfg Config) (string, error) {
+	return resolveDir(cfg.ModelDir, cfg.L3Dir, cfg.L3Model, EnvL3Model, "embedder", L3Defaults)
+}
+
+func resolveDir(modelDir, dir, ref, refEnv, kind string, legacy []string) (string, error) {
+	if dir != "" {
+		return dir, nil
+	}
+	m, merr := builtinManifest()
+	if ref != "" {
+		name, version, err := onnx.ParseRef(ref)
+		if err != nil {
+			return "", fmt.Errorf("%s: %w", refEnv, err)
+		}
+		if version == "" {
+			if merr != nil {
+				return "", fmt.Errorf("%s=%s needs a version (built-in manifest: %v)", refEnv, ref, merr)
+			}
+			mod, ok := m.Find(name)
+			if !ok {
+				return "", fmt.Errorf("%s=%s: not in the manifest; give name@version", refEnv, ref)
+			}
+			version = mod.Version
+		}
+		return filepath.Join(modelDir, ModelCacheSubdir, name, version), nil
+	}
+	var tried []string
+	if merr == nil {
+		if mod := m.Recommended(kind); mod != nil {
+			d := mod.Dir(filepath.Join(modelDir, ModelCacheSubdir))
+			if hasModel(d) {
+				return d, nil
+			}
+			tried = append(tried, d)
 		}
 	}
-	return ""
+	for _, sub := range legacy {
+		d := filepath.Join(modelDir, sub)
+		if hasModel(d) {
+			return d, nil
+		}
+		tried = append(tried, d)
+	}
+	return "", fmt.Errorf("no %s in %s (run `models pull`, see docs/models.md)", kind, strings.Join(tried, ", "))
+}
+
+func hasModel(dir string) bool {
+	_, err := os.Stat(filepath.Join(dir, onnx.ConfigFile))
+	return err == nil
+}
+
+// DefaultL2Dir is the classifier directory used when neither L2_MODEL_DIR
+// nor L2_MODEL is set, or "" when none is installed.
+func DefaultL2Dir(modelDir string) string {
+	d, err := ResolveL2Dir(Config{ModelDir: modelDir})
+	if err != nil {
+		return ""
+	}
+	return d
 }
 
 // modelName is the "model" field of dir/thresholds.json, else the dir name.
