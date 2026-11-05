@@ -1,0 +1,59 @@
+name: Publish model
+
+# Manual. Uploads guardspec-classifier v3b to Hugging Face from its GitHub
+# Release mirror (tag model-guardspec-classifier-v3b), after train/hf/stage.sh
+# checks every file against build/gateway-full.l2.sha256. Needs the repository
+# secret HF_TOKEN with write access to the Hugging Face org. The job summary
+# shows the Hugging Face commit to pin as `revision` in models/manifest.yaml
+# and in the GATEWAY_FULL_L2_SOURCE variable.
+
+on:
+  workflow_dispatch:
+    inputs:
+      hf_repo:
+        description: Hugging Face repository (org/name)
+        default: guard-spec/guardspec-classifier
+      private:
+        description: Create the repository as private (it keeps its visibility if it exists)
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download the release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download model-guardspec-classifier-v3b -R "$GITHUB_REPOSITORY" -D "$RUNNER_TEMP/model"
+      - name: Stage and check
+        run: train/hf/stage.sh "$RUNNER_TEMP/stage" "$RUNNER_TEMP/model"
+      - name: Upload to Hugging Face
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_REPO: ${{ inputs.hf_repo }}
+          PRIVATE: ${{ inputs.private }}
+          STAGE: ${{ runner.temp }}/stage
+        run: |
+          [ -n "$HF_TOKEN" ] || { echo "::error::the repository secret HF_TOKEN is not set"; exit 1; }
+          python3 -m pip install --quiet huggingface_hub==0.36.0
+          python3 - <<'EOF'
+          import os
+          from huggingface_hub import HfApi
+
+          api = HfApi(token=os.environ["HF_TOKEN"])
+          repo = os.environ["HF_REPO"]
+          api.create_repo(repo, repo_type="model", private=os.environ["PRIVATE"] == "true", exist_ok=True)
+          info = api.upload_folder(repo_id=repo, folder_path=os.environ["STAGE"],
+                                   commit_message="guardspec-classifier v3b")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
+              f.write(f"Uploaded to https://huggingface.co/{repo}\n\n")
+              f.write(f"revision: `{info.oid}`\n\nGATEWAY_FULL_L2_SOURCE: `{repo}@{info.oid}`\n")
+          print(f"revision {info.oid}")
+          EOF
