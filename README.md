@@ -190,38 +190,7 @@ Two Go services share one Postgres database:
   compose): login, organizations, roles, API keys, projects, policies, guard
   settings, exemplars, invites, the audit log and audit retention.
 
-```mermaid
-flowchart TD
-    C[Client app] -->|"POST /v1/chat/completions<br/>API key"| T[Tenant lookup + rate limit]
-    T --> L0["L0 sanitizer<br/>NFKC, strip invisible / tag / bidi chars,<br/>ANSI, HTML, entity unwrapping"]
-    L0 -->|anomaly ≥ 0.6| B[400 content_filter]
-    L0 --> SPLIT{Split by source}
-    SPLIT -->|user, system| DET
-    SPLIT -->|"tool results, documents"| DET
-    SPLIT -->|"tool descriptions (MCP)"| MCP[MCP poisoning signals] --> DET
-    subgraph DET [Detector]
-        direction TB
-        L1["L1 rules on a skeleton<br/>(Vietnamese diacritics, teencode, leet, homoglyphs)"]
-        L2["L2 own ONNX classifier<br/>multilingual-e5-small fine-tune"]
-        L3["L3 embedding similarity<br/>built-in + per-org exemplars"]
-        F["Platt calibration per layer,<br/>logistic-regression fusion"]
-        L1 --> F
-        L2 --> F
-        L3 --> F
-    end
-    DET -->|"direct ≥ 0.85 or<br/>indirect ≥ INDIRECT_BLOCK_THRESHOLD"| B
-    DET --> SP["Spotlighting of tool results (optional)"]
-    SP --> P["CEL policies<br/>project, then org"]
-    P -->|block| B
-    P --> U[Upstream LLM]
-    U --> OG["Output guard<br/>links/images, PII, canary,<br/>reasoning, tool-call args"]
-    OG --> C
-    T -.-> A[(Postgres audit row)]
-    B -.-> A
-    OG -.-> A
-    CP[control-plane] --> DB[(Postgres)]
-    DB -. keys, policies, settings, exemplars .-> T
-```
+![How one request flows through Guard Spec: tenant lookup, sanitizer, split by source, three detection layers, thresholds, policies, the LLM and the output guard](docs/images/diagram-flow.png)
 
 What each stage does:
 
