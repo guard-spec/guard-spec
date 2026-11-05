@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/giaplee/guard-spec/internal/metrics"
 	"github.com/google/uuid"
+	"github.com/guard-spec/guard-spec/internal/metrics"
 	dto "github.com/prometheus/client_model/go"
 )
 

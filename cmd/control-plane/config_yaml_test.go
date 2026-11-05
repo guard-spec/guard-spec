@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/giaplee/guard-spec/internal/config"
-	"github.com/giaplee/guard-spec/internal/policy"
 	"github.com/google/uuid"
+	"github.com/guard-spec/guard-spec/internal/config"
+	"github.com/guard-spec/guard-spec/internal/policy"
 )
 
 const contractYAML = `version: 1

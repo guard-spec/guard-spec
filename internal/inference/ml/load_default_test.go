@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/giaplee/guard-spec/internal/onnx"
+	"github.com/guard-spec/guard-spec/internal/onnx"
 )
 
 func installModel(t *testing.T, root, sub string) string {

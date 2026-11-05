@@ -17,8 +17,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/giaplee/guard-spec/internal/metrics"
-	"github.com/giaplee/guard-spec/internal/tracing"
+	"github.com/guard-spec/guard-spec/internal/metrics"
+	"github.com/guard-spec/guard-spec/internal/tracing"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"

@@ -17,8 +17,8 @@ import (
 
 	"golang.org/x/text/unicode/norm"
 
-	"github.com/giaplee/guard-spec/internal/inference/rules"
-	"github.com/giaplee/guard-spec/internal/sanitizer"
+	"github.com/guard-spec/guard-spec/internal/inference/rules"
+	"github.com/guard-spec/guard-spec/internal/sanitizer"
 )
 
 type fixed struct {

@@ -32,8 +32,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/giaplee/guard-spec/internal/onnx"
-	"github.com/giaplee/guard-spec/models"
+	"github.com/guard-spec/guard-spec/internal/onnx"
+	"github.com/guard-spec/guard-spec/models"
 )
 
 const defaultManifest = "models/manifest.yaml"

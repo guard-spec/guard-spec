@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/giaplee/guard-spec/internal/policy"
-	"github.com/giaplee/guard-spec/internal/proxy"
+	"github.com/guard-spec/guard-spec/internal/policy"
+	"github.com/guard-spec/guard-spec/internal/proxy"
 )
 
 func TestUpstreamFailuresAuditedAsError(t *testing.T) {

@@ -18,12 +18,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/giaplee/guard-spec/internal/alerts"
-	"github.com/giaplee/guard-spec/internal/alerts/channels"
-	"github.com/giaplee/guard-spec/internal/auth"
-	"github.com/giaplee/guard-spec/internal/proxy"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"github.com/guard-spec/guard-spec/internal/alerts"
+	"github.com/guard-spec/guard-spec/internal/alerts/channels"
+	"github.com/guard-spec/guard-spec/internal/auth"
+	"github.com/guard-spec/guard-spec/internal/proxy"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )

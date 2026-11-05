@@ -22,8 +22,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/giaplee/guard-spec/internal/metrics"
 	"github.com/google/uuid"
+	"github.com/guard-spec/guard-spec/internal/metrics"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )

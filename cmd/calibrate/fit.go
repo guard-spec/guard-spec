@@ -12,11 +12,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/giaplee/guard-spec/internal/evalset"
-	"github.com/giaplee/guard-spec/internal/inference/fusion"
-	"github.com/giaplee/guard-spec/internal/inference/ml"
-	"github.com/giaplee/guard-spec/internal/inference/rules"
-	"github.com/giaplee/guard-spec/internal/sanitizer"
+	"github.com/guard-spec/guard-spec/internal/evalset"
+	"github.com/guard-spec/guard-spec/internal/inference/fusion"
+	"github.com/guard-spec/guard-spec/internal/inference/ml"
+	"github.com/guard-spec/guard-spec/internal/inference/rules"
+	"github.com/guard-spec/guard-spec/internal/sanitizer"
 )
 
 // scoredRow is one validation row with its raw layer scores.

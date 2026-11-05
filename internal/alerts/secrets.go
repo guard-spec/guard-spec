@@ -8,8 +8,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/giaplee/guard-spec/internal/alerts/channels"
 	"github.com/google/uuid"
+	"github.com/guard-spec/guard-spec/internal/alerts/channels"
 )
 
 // kindPrefixes binds secret_env prefixes to channel kinds, so a channel
