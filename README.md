@@ -31,7 +31,6 @@ before you rely on it.
 - [Benchmarks](#benchmarks)
 - [Security model and limitations](#security-model-and-limitations)
 - [Operations](#operations)
-- [Upgrade notes](#upgrade-notes)
 - [Development](#development)
 - [License](#license)
 
@@ -540,7 +539,7 @@ in a second table.
 | `UPSTREAM_KEY_ORGS` | empty (compose: `UPSTREAM_KEY_MAIN=*`) | As on the gateway. Saving an upstream (or a config file) that names a key variable not allowed for the org is refused |
 | `UPSTREAM_KEY_*`, `UPSTREAM_ALLOW_PRIVATE` | empty, `false` (compose: `false`; dev override: `true`) | Used only by `POST .../upstreams/:id/test` (owner only), which applies the gateway's key allowlist and address rules. A key is sent with a test only to orgs `UPSTREAM_KEY_ORGS` lists by id, not through `*` (except with `GUARD_ENV=dev`); the answer says `key_sent`. Give the control plane `UPSTREAM_KEY_*` variables only if tests should use them |
 | `TRUSTED_PROXIES` | empty | Comma-separated CIDRs or addresses of reverse proxies. Their `X-Forwarded-For` is read from the right, and the first address that is not a trusted proxy is the client, for rate limits, sessions and the activity log. Empty: the header is ignored and the TCP peer is the client |
-| `MFA_ENC_KEY` | empty (dev: a fixed key) | 32 random bytes in base64 (`openssl rand -base64 32`). Encrypts TOTP secrets with AES-256-GCM. Without it 2FA cannot be turned on; when users already have 2FA the control plane refuses to start without it. The development key is refused outside `GUARD_ENV=dev` |
+| `MFA_ENC_KEY` | empty (dev: a fixed key) | 32 random bytes in base64 (`openssl rand -base64 32`). Encrypts TOTP secrets with AES-256-GCM. Without it 2FA cannot be turned on; when users already have 2FA the control plane refuses to start without it. The development key is refused outside `GUARD_ENV=dev`. Back it up with the database: a lost key disables everyone's 2FA |
 | `PUBLIC_BASE_URL` | empty (dev: `http://localhost:18081`) | External origin of the control plane, such as `https://guard.example.com`. SSO callbacks go to `<PUBLIC_BASE_URL>/v1/auth/oidc/<provider id>/callback`; SSO is unavailable without it |
 | `OIDC_SECRET_*` | empty | Client secrets of SSO providers; each provider names its variable in `client_secret_env` |
 | `METRICS_ADDR` | `:9091` | Metrics listener; `off` disables it |
@@ -1424,29 +1423,6 @@ helm install gs deploy/helm/guard-spec \
   capabilities and the RuntimeDefault seccomp profile.
 - **Rate limits** are per replica, so `gateway.replicaCount` multiplies the
   effective limit.
-
-## Upgrade notes
-
-### Identity (migrations 013-015)
-
-- Everyone logs in again: tokens from before 013 carry no session id.
-- Set `MFA_ENC_KEY` (`openssl rand -base64 32`) and back it up with the
-  database. Once users have 2FA the control plane refuses to start without
-  it, and a lost key disables everyone's 2FA.
-- Session revocations take effect at once on the replica that made them and
-  within 15 seconds on other control plane replicas (cache).
-- Migration 013 makes one instance administrator: the earliest owner of the
-  default organization (the `ADMIN_EMAIL` bootstrap admin on a standard
-  install). Promote others at `PUT /v1/admin/users/:id`.
-- Migration 015 lower-cases stored emails. If two accounts differ only in
-  case it stops and names them; merge or rename them first.
-- Behind a reverse proxy, set `TRUSTED_PROXIES`, or every client shares the
-  proxy's address for rate limits.
-- Compose no longer gives the control plane `UPSTREAM_KEY_ORGS` by default or
-  `UPSTREAM_ALLOW_PRIVATE=true`: set `UPSTREAM_KEY_ORGS` in `.env` (as for the
-  gateway) to save upstreams that use keys.
-
-See [CHANGELOG.md](CHANGELOG.md) for the full list.
 
 ## Development
 

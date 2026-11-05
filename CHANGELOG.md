@@ -9,342 +9,98 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ## [Unreleased]
 
-### Added
-
-- `gateway`, `control-plane` and `models` print their release with
-  `version` (or `-version`, `--version`), and log it at start. The release
-  archives now include the `models` tool.
-- **Versioned models** (docs/models.md): every `models/manifest.yaml` entry
-  has a `version`; `models pull name@version` installs it in
-  `<dir>/<name>/<version>/`, atomically (temporary directory, then rename),
-  SHA-256 verified, falling back from Hugging Face to the manifest's
-  `mirrors` (GitHub Release assets). `models list` shows what is installed,
-  `models list --available` what the manifest offers; `-mirror` /
-  `MODELS_MIRROR` adds a mirror tried first. The manifest is built into the
-  binaries.
-- **`guardspec-classifier@v3b`** in the manifest, with `calibration.json`
-  (the built-in v3b values), served from the GitHub Release
-  `model-guardspec-classifier-v3b` until it is on Hugging Face.
-- **Gateway model selection**: `L2_MODEL` / `L3_MODEL` = `name@version`
-  load `$MODEL_DIR/cache/<name>/<version>`; rollback is setting the older
-  version and restarting. `L2_MODEL_DIR` / `L3_MODEL_DIR` still win; with
-  nothing set the manifest's recommended models load, then the older
-  directories.
-- **`scripts/quickstart.sh`**: a `.env` with random secrets, the released
-  images, and a wait for `/readyz`.
-
-- **Sessions** (migration 013): a `sessions` table; tokens carry `sid` and
-  are checked against it. `GET /v1/auth/me`, `GET`/`DELETE /v1/auth/sessions`,
-  `POST /v1/auth/logout`, `POST /v1/auth/password` (12 characters minimum;
-  ends the other sessions).
-- **Two-factor authentication** (TOTP, RFC 6238) with 10 bcrypt-hashed
-  recovery codes, encrypted with `MFA_ENC_KEY` (AES-256-GCM). Logins answer
-  `mfa_required` or `mfa_enroll_required` with a 5-minute single-use
-  `mfa_token` (5 attempts); `POST /v1/auth/mfa/verify`; replayed codes are
-  refused. The control plane refuses to start without `MFA_ENC_KEY` once
-  users have 2FA.
-- **SSO with OpenID Connect, Google as a preset**: instance-wide providers
-  (`/v1/admin/identity-providers`, secrets in `OIDC_SECRET_*` variables),
-  PKCE, state and nonce, one-time code exchange (`POST /v1/auth/oidc/exchange`),
-  account-takeover protection (`account_exists`), `allowed_domains` and
-  Google's `hd`, auto-provisioning, profile linking. Needs `PUBLIC_BASE_URL`.
-- **Org security policy** (`/v1/organizations/:orgId/security`): require 2FA,
-  SSO satisfies 2FA, allowed login methods, domain join, session lifetime.
-- **User management**: org members (`/members`, role changes with last-owner
-  protection, removal, 2FA reset, session revocation), project members,
-  instance users (`/v1/admin/users`, soft delete) and `GET /v1/permissions`.
-  Instance administrators: `users.is_instance_admin`.
-- **Activity log** of admin actions and logins (`/v1/organizations/:orgId/activity`,
-  `/v1/admin/activity`).
-- **Model providers** (migration 014): upstreams get `provider`,
-  `display_name`, `models` (allowlist; other models are refused with 400
-  `model_not_allowed` and audited), `default_model` (`model` stays as an
-  alias), non-secret `headers`, `api_version` (Azure OpenAI, whose key goes
-  in `api-key`), `max_tokens_cap`, `retries` and `tags`.
-  `GET /v1/providers/catalog` and `POST .../upstreams/:id/test` (same SSRF and
-  `UPSTREAM_KEY_ORGS` rules as the gateway, 5 s, model ids only).
-- **Pagination**: `?limit=&cursor=` on every list endpoint, answering
-  `{"items","next_cursor","total"}` with keyset cursors.
-- `TRUSTED_PROXIES` (control plane): the client address behind reverse
-  proxies, read from the right of `X-Forwarded-For`.
-- Filters: `q` on requests (metadata only, never content) and API keys,
-  `revoked` on API keys, action families (`?action=invite`) on the activity
-  log; `total` (capped at 10,000, `total_capped`) on requests and activity.
-  An unrestricted org's `allowed_login_methods` reads and saves as `null`.
-
-### Security
-
-Fixes from the review of the identity work (migration 015):
-
-- SSO login CSRF: the state is bound to the starting browser by a cookie.
-- SSO link CSRF: a profile link is completed by the linking user's own token
-  (`POST /v1/auth/identities/link/complete`) and never runs `domain_join`.
-- 2FA reset and session revocation need an instance administrator or an
-  owner of every org of the user.
-- Email auto-linking needs the provider's `trust_email_for_linking` and an
-  account without password or identity; emails are stored lower-cased.
-- Per-user 2FA lockout (10 wrong codes: 15 minutes, doubling).
-- The upstream connection test is owner only, does not send a key shared
-  through `*` (outside dev), and compose no longer opens it to private
-  addresses by default.
-- The bootstrap admin is created once; deleted users lose their memberships;
-  disabled owners do not count as owners; migration 013 promotes one admin.
-- `max_tokens_cap` applies to every number form; failed logins store a masked
-  email and login events stay in the instance log; disabled accounts cannot
-  accept invites.
-
-- **Routing to named upstreams** (migration 011). An organization defines
-  upstreams (`/v1/organizations/:orgId/upstreams`) and a default for the org
-  and for each project. The gateway sends an allowed request to the matching
-  `route` rule's `route_target`, else the project default, else the org
-  default, else `UPSTREAM_LLM_URL`, else the stub. A missing or disabled
-  target, or an unset key variable, fails closed with 502
-  (`route_unavailable`). Keys stay in the gateway's environment
-  (`UPSTREAM_KEY_*`, named by `api_key_env`); no secret is stored. Deleting
-  an upstream in use returns 409 with its references.
-- The **`route` rule action**; `redact` is still refused.
-- **Text rule conditions**: `GET /v1/policy/schema`, `POST /v1/policy/parse`
-  and `POST /v1/policy/format`. Text is parsed with the cel-go parser only and
-  mapped to the condition tree; the stored form and the generated CEL are
-  unchanged. Two new string operators, `beginsWith` and `endsWith`.
-- **Config as code**: `GET`/`PUT /v1/organizations/:orgId/config` (YAML,
-  `?dry_run=true`), applied in one transaction; the file is the whole truth.
-- **Policy simulator**: `POST /v1/organizations/:orgId/policies/simulate`.
-- Audit rows record `route_target`; `GET .../requests` returns it, and the
-  action `route` when a route rule decided.
-- The control plane serves the admin UI at `/ui/` (embedded from `web/dist`,
-  strict CSP, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`) and
-  redirects `/` there. Builds without Node show a placeholder.
-- `GET /v1/organizations`: the organizations of the signed-in user, with the
-  role in each (migration 012 adds `user_organizations`, a narrow
-  `SECURITY DEFINER` lookup, since memberships are row-level secured per org).
-- `POST /v1/organizations/:orgId/policies` accepts `enabled` (default true), so
-  a policy can be created disabled without being live in between.
-- **Admin UI** (`web/`, React and TypeScript): a flow diagram of the request
-  path with the policy rules as editable nodes (visual and text conditions,
-  drag to reorder, connect a rule to an upstream to route it), a policy
-  simulator, upstreams and defaults, config as code (YAML with validation,
-  diff and apply), guard settings, API keys, projects, exemplars and the audit
-  log. English and Vietnamese, light and dark themes. Released control-plane
-  binaries and images embed it (GoReleaser builds it before the Go builds).
-- **Admin UI v2**: a grouped, collapsible sidebar (a drawer on phones) with
-  breadcrumbs and a profile menu (my account, language, light/dark/system
-  theme, log out); a dashboard; model providers with a provider catalog,
-  allowed models, extra headers, limits and a connection test; members and
-  invites, a roles and permissions matrix, the org security policy, the
-  activity log, instance users and identity providers (Google and OIDC; the
-  client secret stays an env var name); my account with password change, TOTP
-  2FA (QR code drawn in the browser, recovery codes), linked identities and
-  sessions. Sign-in adds SSO buttons, the 2FA and forced-enrollment steps and
-  the `#/auth/callback` code exchange. Every list pages by cursor (25/50/100)
-  and pages older `{data}` responses in the browser; pages whose endpoint a
-  control plane lacks say so instead of failing. `/ui/upstreams` and
-  `/ui/audit` redirect to `/ui/providers` and `/ui/requests`.
-- Metric `guardspec_gateway_route_selections_total{source,outcome}`.
-- `UPSTREAM_KEY_ORGS` (gateway and control plane): which organizations may
-  name which `UPSTREAM_KEY_*` variable. Empty by default, so no org can use
-  a key until the operator lists it (`UPSTREAM_KEY_MAIN=*` for every org).
-  Refused on save and, for older rows, at request time (502).
-- `UPSTREAM_ALLOW_PRIVATE` (gateway, default `false`): org-defined upstreams
-  may not reach loopback, RFC 1918, unique local or CGNAT addresses unless it
-  is `true`. Compose sets `true` and `UPSTREAM_KEY_ORGS=UPSTREAM_KEY_MAIN=*`.
-- L2 classifier `guardspec-classifier-v2` (`train/`): more benign Vietnamese
-  text in teencode and without diacritics (`data/gen_vi_v2.py`), randomized
-  teencode spellings, the same benign:attack ratio in every variant, and
-  training-time no-diacritics / teencode augmentation. New validation split
-  `train/data/val_vi_variants.jsonl`. The gateway loads
-  `models/local/guardspec-classifier-v2` first, then `-v1`, then `-v0`.
-- L2 classifier `guardspec-classifier-v3b` (`train/`), the new default: the
-  v3 recipe (English hard negatives from `data/gen_v3.py`, English prompts
-  from `nvidia/HelpSteer2` (CC-BY-4.0), realistic EN/VI rows in
-  `data/realistic/` with formal Vietnamese seen twice per epoch, a
-  per-language benign:attack ratio of EN 2.0 / VI 1.75) plus owner-supplied
-  rows and OTP/eKYC rows read at build time and not redistributed
-  (`GUARD_OWNER_*`, `GUARD_OTPKYC_*`, `GUARD_BUILD_OUT`). On the eval set
-  (fused, 0.85): FPR 1.4% (v2 2.0%), TPR 0.932 (v2 0.933), Vietnamese
-  no-diacritics FPR 0.4% (v2 3.0%), but teencode FPR 3.5% (v2 1.4%).
-  New validation split `train/data/val_v3.jsonl` (also used by
-  `cmd/calibrate fit`) and hold-outs `val_v3_holdout`,
-  `val_realistic_holdout`. Built-in fusion calibration for v3b. The gateway
-  loads `models/local/guardspec-classifier-v3b` first, then `-v2`, `-v1`,
-  `-v0`. Classifier v3 (the same recipe without the owner rows) failed the
-  eval set (FPR 2.2%, TPR 0.915) and is not shipped or searched by default.
-- `train/soup.py` (weight averaging of seed runs; tried for v3, not used),
-  and `train.py` / `export.py` flags to override seed, learning rate, epochs,
-  label smoothing, run, output and data directories, and the training file.
-- `eval/baseline-onnx.json` now holds the v3b run.
-- Sanitizer: content that HTML hides from the reader (`display:none`,
-  `visibility:hidden`, `font-size:0`, `opacity:0`, white on white,
-  `aria-hidden`, `hidden`, `sr-only`-style classes, HTML comments) is kept
-  between `[hidden]` and `[/hidden]` markers instead of being dropped (comments)
-  or losing the fact that it was hidden; `Report.HadHiddenHTML` signals it.
-- L1 rules `ii.hidden.override`, `ii.hidden.send`, `ii.hidden.address_ai`
-  and `ii.hidden.boost`: override, exfiltration or model-addressed language
-  inside hidden content is an indirect injection, without the meta and quote
-  suppressors.
-
-### Changed
-
-- **The project moved to the `guard-spec` GitHub organization.** Go module
-  `github.com/guard-spec/guard-spec`; images
-  `ghcr.io/guard-spec/guard-spec-gateway`, `-gateway-full` and
-  `-control-plane`; the L2 model `guard-spec/guardspec-classifier` on Hugging
-  Face. The `cosign verify` identity in SECURITY.md changed with it.
-- `docker-compose.yml` uses the released images
-  `ghcr.io/guard-spec/guard-spec-gateway` and `-control-plane` at
-  `GUARDSPEC_VERSION` (default `0.1.0`); the build sections moved to
-  `docker-compose.override.yml`, so `docker compose up --build` still builds
-  from source (as `guard-spec-*:latest`). A `models-init` service, not behind
-  a profile, pulls the recommended models before the gateway starts; it
-  warns and lets the gateway run on L1 when a pull fails, unless
-  `DETECTOR_REQUIRE_ML=true`. `models-pull` (profile `models`) takes model
-  references as arguments.
-- `models pull` installs in `<dir>/<name>/<version>/` instead of
-  `<dir>/<name>/`. Files already in the old layout are reused, and the
-  gateway still loads the old directories when no versioned one exists.
-- Control plane tokens now carry a session id; tokens issued before this
-  release are refused, so users log in again after upgrading.
-- `POST /v1/invites/accept` answers like a login (a session, or the 2FA
-  step) in addition to `user_id`, `org_id` and `role`.
-- List endpoints keep their old `{"data": [...]}` shape only when called
-  without `limit` and `cursor`; this fallback will be removed in the next
-  release. `GET .../requests?limit=` now answers with the envelope (at most
-  200 rows per page).
-
-- The gateway's dialer refuses link-local, multicast and unspecified
-  addresses and the cloud metadata addresses `fd00:ec2::254`,
-  `100.100.100.200` and `192.0.0.192` for every upstream, including
-  `UPSTREAM_LLM_URL`.
-- Policy names are unique per organization: create or rename onto a used
-  name returns 409. `GET .../config` returns 409, with the problems and how
-  to fix them, when the stored config would not apply again.
-- The audit `model` column holds the model sent upstream after a named
-  upstream's `model` rewrite.
-- `GET /organizations/:orgId` and the project list include
-  `default_upstream_id`.
-- L1 treats a ```` ``` ```` fence as a code block, not as a quotation, so an
-  instruction wrapped in a fence is no longer discounted as a string literal;
-  spacing modifier letters (`ˆ`, `ʼ`, ...) separate words, so datamark-style
-  text is matched.
-- `DefaultL1Calibration` refitted for the new rules (A 0.998, B 0.356);
-  `eval/baseline.json` refreshed (FPR unchanged in every group; two attack
-  rows near 0.85 moved below it).
-- `cmd/calibrate fit` uses `val_vi_variants.jsonl` too by default.
-
-### Fixed
-
-- `GET /v1/organizations/:orgId/requests` no longer fails (500) on audit rows
-  whose scores or flags are NULL; they read as 0 and false.
-
-### Security
-
-- Dependency and image pass (2026-11-04):
-  - `migrate/migrate` v4.17.1 → v4.20.1 (pinned by digest), matching the
-    migrate CLI version CI already runs.
-  - Postgres is pinned as `postgres:17.11-alpine` (same digest as before;
-    17.11 is the current 17.x patch) in Compose, CI and the Helm `dbRoles`
-    job. Postgres 18 is a major upgrade that needs `pg_upgrade` of existing
-    volumes and is deferred to a planned upgrade with a migration path;
-    Dependabot no longer proposes Postgres major versions.
-  - The `eval` workflow pins `actions/checkout` v7.0.1, `actions/setup-go`
-    v7.0.0 and `actions/upload-artifact` v7.0.2 by commit SHA, like the other
-    workflows.
-  - Checked and already current: Go 1.26.10 (latest 1.26 patch, includes the
-    `crypto/x509` fixes also in 1.27.3), the golang, node, debian and
-    distroless base images, ONNX Runtime 1.31.1, tokenizers 1.27.0, Go
-    modules (`govulncheck`: no reachable vulnerabilities) and the admin UI
-    runtime dependencies (`npm audit --omit=dev`: none).
-
-## [0.1.0] - unreleased (release candidate)
+## [0.1.0] - 2026-11-06
 
 First release.
 
 ### Added
 
-- OpenAI-compatible gateway: `/v1/chat/completions` and `/v1/completions`
-  proxied to any OpenAI-compatible upstream (`UPSTREAM_LLM_URL`), streaming
-  included; stub responses without an upstream.
-- L0 sanitizer: UTF-8 validation, repeated NFKC and removal of invisible,
+**Gateway and detection**
+
+- OpenAI-compatible gateway: `/v1/chat/completions` and `/v1/completions`,
+  streaming included, in front of any OpenAI-compatible upstream.
+- L0 sanitizer: UTF-8 validation, repeated NFKC, removal of invisible,
   tag-block, bidi, variation-selector and control characters, ANSI and HTML,
-  entity unwrapping, homoglyph signal and an anomaly score that blocks at 0.6.
-- L1 detector v2: skeleton normalisation (Vietnamese diacritics and teencode,
-  leetspeak, homoglyphs, fullwidth, spelled-out letters) and weighted
-  per-category rules with suppressors for meta discussion, quotes and code.
-- L2 classifier `guardspec-classifier-v1`: multilingual-e5-small fine-tuned
-  on English and Vietnamese with an 8-label head, INT8 ONNX, with the
-  reproducible training pipeline in `train/` and a model card.
-- L3 embedding similarity to 520 built-in exemplars and per-organization
-  exemplars (`/v1/organizations/:orgId/exemplars`, migration 009).
-- Calibrated fusion: Platt scaling per layer and a logistic regression over
-  the layers, fitted outside `eval/`; optional cascade; `DETECTOR_*`
-  settings; L1-only fallback when models are absent.
-- In-process ONNX Runtime (`-tags onnx`) with pinned, SHA-256-checked native
-  libraries and model downloads (`cmd/models`, `models/manifest.yaml`).
+  entity unwrapping, a homoglyph signal and an anomaly score that blocks at
+  0.6. Content that HTML hides from the reader is kept between `[hidden]`
+  markers so that the detectors see it.
+- L1 rules on a skeleton of the text (Vietnamese diacritics and teencode,
+  leetspeak, homoglyphs, fullwidth and spelled-out letters), weighted per
+  attack category, with suppressors for meta discussion, quotes and code.
+- L2 classifier `guardspec-classifier-v3b`: multilingual-e5-small fine-tuned
+  on English and Vietnamese, INT8 ONNX, run in process with ONNX Runtime
+  (`-tags onnx`). The training pipeline is in `train/`, with a model card.
+- L3 similarity to 520 built-in exemplars and to each organization's own.
+- Calibrated fusion of the layers into one injection score, fitted outside
+  `eval/`; optional cascade; L1-only fallback when models are absent.
 - Indirect injection and MCP tool poisoning: tool results, documents and tool
-  descriptions scored on their own, MCP poisoning signals, `SCAN_ROLES`,
-  `SPOTLIGHT`, `INDIRECT_BLOCK_THRESHOLD`, per-org guard settings (migration
-  008), `POST /guardrail/scan` with `documents`, `POST /guardrail/scan/tools`.
-- Output guard: link and image allowlist, PII redaction (e-mail, Vietnamese
-  phone, CCCD, card, optional IPv4), canary, reasoning fields, refusals and
-  tool-call arguments, in whole responses and streams.
-- CEL policies per organization and per project, compiled server-side from a
-  JSON condition tree, with cost limits and fail-closed evaluation; layer
-  scores (`scores.l1/l2/l3`) and indirect fields in policies.
-- Control plane: login, organizations, roles, API keys with per-key rate
-  limits, projects, policies, invites, audit log listing, audit retention.
-- Per-key rate limits, Prometheus metrics, OpenTelemetry tracing.
-- Audit privacy: hashes and lengths by default, content only on opt-in.
+  descriptions are scored one by one (`INDIRECT_BLOCK_THRESHOLD`), with MCP
+  poisoning signals and optional spotlighting; `POST /guardrail/scan`,
+  `/guardrail/scan/tools` and `/guardrail/sanitize`.
+- Output guard: link and image allowlist, redaction of e-mail, Vietnamese
+  phone, CCCD and card numbers (and optionally IPv4), a canary, reasoning
+  fields and tool-call arguments, in whole responses and streams.
+- `GET /readyz` lists the active detection layers.
+
+**Policies and routing**
+
+- CEL policies per organization and project, written as a condition tree or
+  as text (`scores.l2 > 0.8 && injection.category == "jailbreak"`), compiled
+  on the server, fail-closed: `allow`, `block`, `log` and `route`. A policy
+  simulator and config as code (`GET`/`PUT .../config`, YAML, dry run).
+- Named upstreams per organization (OpenAI, Azure OpenAI, Anthropic, Gemini,
+  vLLM, Ollama) with defaults per org and project, allowed models, headers,
+  limits, retries and a connection test. Keys stay in the gateway's
+  environment (`UPSTREAM_KEY_*`, `UPSTREAM_KEY_ORGS`); private and metadata
+  addresses are refused.
+
+**Control plane and administration**
+
+- Organizations, projects, roles (viewer, member, admin, owner), invites,
+  API keys with per-key rate limits; Postgres row-level security per
+  organization.
+- Sessions, TOTP two-factor authentication with recovery codes, OpenID
+  Connect single sign-on (Google preset, Entra ID, Okta, Keycloak), an
+  organization security policy (require 2FA, login methods, domain join,
+  session lifetime), user management and an activity log.
+- Real-time alerts: events for blocked and flagged requests, upstream
+  failures and security changes; rules with conditions, thresholds,
+  throttling, grouping and quiet hours; Telegram, Slack, Microsoft Teams,
+  email, signed webhooks, A2A agents and an in-app bell; delivery with
+  retries and a delivery log.
+- Audit: one row per request with scores and the decision (content only on
+  opt-in), retention in days.
+- Admin UI at `/ui/`, English and Vietnamese, light and dark: dashboard,
+  request flow with editable policy rules, simulator, providers, request log,
+  alerts, members, security and my account.
+
+**Models, operations and supply chain**
+
+- Versioned models: `models pull name@version`, SHA-256 verified, from
+  Hugging Face with GitHub Release mirrors; `L2_MODEL` / `L3_MODEL` pick a
+  version.
+- `scripts/quickstart.sh`, Docker Compose with the released images, a Helm
+  chart, and the `gateway-full` image with the models built in.
+- Images for linux/amd64 and arm64 signed with cosign, SBOMs and provenance;
+  archives with signed checksums; `version` subcommand in every binary.
+- Prometheus metrics and OpenTelemetry tracing.
 - EN/VI eval set (2,176 rows) with a deterministic builder, `cmd/eval` and
   CI regression baselines.
-- Release gateway images built with `-tags onnx` (ONNX Runtime included) for
-  linux/amd64 and linux/arm64 on native runners: they run L1 + L2 + L3 when
-  the models are mounted at `/models`, and L1 only, with a warning, when it is
-  empty. Linux `_onnx` tarballs with the same binary and `libonnxruntime.so`.
-  The plain release archives stay static and run L1 only.
-- `GET /readyz` on the gateway: lists the active detection layers, why a
-  requested layer is missing, and whether the binary has `-tags onnx`. The
-  gateway image `HEALTHCHECK` and the Helm readiness probe use it.
-- Helm chart, GoReleaser pipeline with SBOMs and keyless cosign signing,
-  CodeQL, govulncheck, golangci-lint and license checks in CI.
-- Community files: CONTRIBUTING (DCO, the `eval/` rule), CODE_OF_CONDUCT,
-  MAINTAINERS, ROADMAP, issue and pull request templates, Vietnamese README.
-
-### Changed
-
-- Tool messages are classified separately from the user's text.
-- Upstream failures are audited as `error`, not `allow`.
-- README, README.vi.md, DESIGN.md and `docs/arch-flow.html` (moved from the
-  repository root) rewritten to describe what is built; unmeasured latency
-  claims removed; benchmarks are now measured numbers with their limits.
-
-### Removed
-
-- `ui`, `clickhouse` and `model-init` compose services, `build/model-init.Dockerfile`
-  and `cmd/model-init/download.py`: placeholders for components that were
-  never built (admin UI, ClickHouse analytics, Qwen3Guard/DeBERTa download).
-- Unused `CLICKHOUSE_URL`, `CONTROL_PLANE_URL` and `LOG_LEVEL` compose
-  variables; stale Makefile targets (`-tags ORT`, `models-download`,
-  `generate`).
-- Policy fields `toxicity.score`, `pii.entities`, `topic.categories`.
-
-### Fixed
-
-- Migration 002's down step failed once the `requests` table had rows for
-  the default organization; it now deletes those audit rows first. CI
-  inserts rows before rolling all migrations back.
-- Many sanitizer, scanner and output-guard bypasses found in review; the
-  gateway fails closed when policies or settings cannot be read.
-- Control-plane authentication and tenant isolation (row-level security,
-  non-owner application role without a default password).
+- Community files: CONTRIBUTING (DCO), CODE_OF_CONDUCT, SECURITY, MAINTAINERS,
+  ROADMAP, issue and pull request templates, Vietnamese README.
 
 ### Known issues
 
-- With L2/L3 enabled, about 2.7% of benign eval prompts are blocked, mostly
-  Vietnamese teencode and text without diacritics (L1 alone: 0.1%).
-- The classifier weights are not published; build them with `train/`.
+- With L2 and L3, 1.4% of benign eval prompts are blocked; benign Vietnamese
+  teencode is blocked 3.5% of the time. The Vietnamese eval and training data
+  is synthetic.
 - The plain release archives (`guard-spec_<version>_<os>_<arch>.tar.gz`) are
   built without `-tags onnx` and run L1 only; use the gateway image or the
   linux `_onnx` tarball for the model layers. There is no darwin ONNX build.
+- The Helm chart has no autoscaling, PodDisruptionBudget, Ingress or
+  migration job yet, and the models volume is ReadWriteOnce.
+- List endpoints still answer the older `{"data": [...]}` shape when called
+  without `limit` and `cursor`; use the paginated form.
 
 [Unreleased]: https://github.com/guard-spec/guard-spec/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/guard-spec/guard-spec/releases/tag/v0.1.0
