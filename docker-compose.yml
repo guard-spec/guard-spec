@@ -9,15 +9,24 @@
 # by default) and POSTGRES_DB=promptshield in .env; migration 010 renames the
 # role ps_app to guardspec_app. See README, "Upgrading from PromptShield".
 
+#
+# Images: the released ones from ghcr.io (GUARDSPEC_VERSION picks the tag).
+# Contributors build from source instead: `docker compose up --build` also
+# loads docker-compose.override.yml, which adds the build sections (and
+# GUARD_ENV=dev). On a clean machine, scripts/quickstart.sh writes a .env
+# with strong secrets and starts this file alone.
+#
+# Models: the models-init service pulls the recommended models of
+# models/manifest.yaml into ./models/cache/<name>/<version>/ before the
+# gateway starts, verifying every SHA-256 (docs/models.md). It does nothing
+# when they are already there.
+
 # Default project name; -p or COMPOSE_PROJECT_NAME override it.
 name: guard-spec
 
 services:
   gateway:
-    image: guard-spec-gateway:latest
-    build:
-      context: .
-      dockerfile: build/gateway.Dockerfile
+    image: ghcr.io/giaplee/guard-spec-gateway:${GUARDSPEC_VERSION:-0.1.0}
     ports:
       - "${GATEWAY_PORT:-8080}:8080"   # proxy API (OpenAI-compatible)
       - "${METRICS_PORT:-9090}:9090"   # Prometheus metrics
@@ -30,14 +39,15 @@ services:
       AUDIT_STORE_CONTENT: ${AUDIT_STORE_CONTENT:-false}
       # Detection layers (internal/inference/ml). L1 rules always load; L2 (our
       # classifier) and L3 (e5 embeddings) load from ./models, mounted read-only
-      # below. Missing models: the gateway warns and runs L1 only, unless
-      # DETECTOR_REQUIRE_ML=true outside GUARD_ENV=dev, which refuses to start.
-      # Fetch them with:
-      #   docker compose --profile models run --rm models-pull   # e5 -> ./models/cache/
-      #   cp -R <training output>/guardspec-classifier-v1 ./models/local/   # see train/
+      # below and filled by models-init. Missing models: the gateway warns and
+      # runs L1 only, unless DETECTOR_REQUIRE_ML=true outside GUARD_ENV=dev,
+      # which refuses to start. Pick a version with L2_MODEL=name@version (pull
+      # it first: docs/models.md); a directory in L2_MODEL_DIR wins over it.
       MODEL_DIR: /models
-      L2_MODEL_DIR: ${L2_MODEL_DIR:-}            # default /models/local/guardspec-classifier-v1, then -v0
-      L3_MODEL_DIR: ${L3_MODEL_DIR:-}            # default /models/cache/multilingual-e5-small
+      L2_MODEL: ${L2_MODEL:-}                    # default: the manifest's recommended classifier
+      L2_MODEL_DIR: ${L2_MODEL_DIR:-}
+      L3_MODEL: ${L3_MODEL:-}                    # default: the manifest's recommended embedder
+      L3_MODEL_DIR: ${L3_MODEL_DIR:-}
       DETECTOR_LAYERS: ${DETECTOR_LAYERS:-l1,l2,l3}
       DETECTOR_FUSION: ${DETECTOR_FUSION:-logreg} # or max
       DETECTOR_CASCADE: ${DETECTOR_CASCADE:-false} # true: skip L2/L3 when L1 is decisive
@@ -82,6 +92,8 @@ services:
         condition: service_healthy
       db-roles:
         condition: service_completed_successfully
+      models-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 10s
@@ -89,10 +101,7 @@ services:
       retries: 3
 
   control-plane:
-    image: guard-spec-control-plane:latest
-    build:
-      context: .
-      dockerfile: build/control-plane.Dockerfile
+    image: ghcr.io/giaplee/guard-spec-control-plane:${GUARDSPEC_VERSION:-0.1.0}
     ports:
       - "${CONTROL_PLANE_PORT:-18081}:8081"
       - "${CONTROL_PLANE_METRICS_PORT:-9091}:9091"   # Prometheus metrics
@@ -197,20 +206,43 @@ services:
       timeout: 3s
       retries: 5
 
-  # Pulls the ONNX models in models/manifest.yaml into ./models/cache,
-  # verifying SHA-256: docker compose --profile models run --rm models-pull
-  # Our classifier is not on Hugging Face: copy guardspec-classifier-v0 (or v1)
-  # into ./models/local/ yourself.
-  models-pull:
-    profiles: [models]
-    image: guard-spec-gateway:latest
-    build:
-      context: .
-      dockerfile: build/gateway.Dockerfile
-    entrypoint: ["./models", "pull", "-manifest", "manifest.yaml", "-dir", "/models/cache"]
+  # Runs before the gateway on every `up`: pulls the recommended version of
+  # every non-optional model in the image's manifest into
+  # ./models/cache/<name>/<version>/ (Hugging Face, then the GitHub Release
+  # mirror; MODELS_MIRROR is tried first when set), verifying SHA-256, and
+  # does nothing when the files are present and verified. When a pull fails
+  # (offline, say) it warns and the gateway starts on the layers it can load,
+  # unless DETECTOR_REQUIRE_ML=true, which makes the failure stop the stack.
+  # Air-gapped: use the gateway-full image or a mirror (docs/models.md).
+  models-init:
+    image: ghcr.io/giaplee/guard-spec-gateway:${GUARDSPEC_VERSION:-0.1.0}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        ./models pull -manifest manifest.yaml -dir /models/cache && exit 0
+        if [ "$${DETECTOR_REQUIRE_ML:-false}" = true ]; then exit 1; fi
+        echo "models-init: some models could not be pulled; the gateway runs without them (see /readyz and docs/models.md)" >&2
     user: "${MODELS_UID:-0}:${MODELS_GID:-0}"   # set to your uid/gid on Linux to own the files
     environment:
+      MODELS_MIRROR: ${MODELS_MIRROR:-}
+      DETECTOR_REQUIRE_ML: ${DETECTOR_REQUIRE_ML:-false}
+    volumes:
+      - ./models:/models
+    restart: "no"
+
+  # Pulls other models or versions on demand, such as an older version to roll
+  # back to or an optional baseline:
+  #   docker compose --profile models run --rm models-pull guardspec-classifier@v3b
+  # Without arguments it does what models-init does.
+  models-pull:
+    profiles: [models]
+    image: ghcr.io/giaplee/guard-spec-gateway:${GUARDSPEC_VERSION:-0.1.0}
+    entrypoint: ["./models", "pull", "-manifest", "manifest.yaml", "-dir", "/models/cache"]
+    user: "${MODELS_UID:-0}:${MODELS_GID:-0}"
+    environment:
       HF_TOKEN: ${HF_TOKEN:-}   # only for gated optional baselines (protectai small v2)
+      MODELS_MIRROR: ${MODELS_MIRROR:-}
     volumes:
       - ./models:/models
     restart: "no"
