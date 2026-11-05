@@ -8,6 +8,7 @@
 import { UserPlus } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { authErrorText } from '../auth/errors';
+import { BrandMark } from '../components/BrandMark';
 import { ErrorBanner, Field } from '../components/ui';
 import { useApp } from '../context';
 import type { MessageKey } from '../i18n';
@@ -71,10 +72,7 @@ export function InvitePage({ onLogin }: { onLogin: (token: string) => void }) {
     <main className="login" id="main">
       <div className="login-card card">
         <div className="brand">
-          <svg viewBox="0 0 32 32" width="32" height="32" aria-hidden="true">
-            <path d="M16 2 4 7v8c0 7.5 5.1 13.4 12 15 6.9-1.6 12-7.5 12-15V7z" className="brand-shield" />
-            <path d="m10 16 4 4 8-9" className="brand-check" />
-          </svg>
+          <BrandMark size={32} />
           <span className="brand-text">
             <strong>{t('app.title')}</strong>
             <span className="muted">{t('app.subtitle')}</span>

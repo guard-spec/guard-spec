@@ -8,6 +8,7 @@ import { ArrowLeftRight, ChevronDown, ChevronRight, ChevronsUpDown, LogOut, Menu
 import { useCallback, useEffect, useId, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { NotificationBell } from '../alerts/notifications';
+import { BrandMark } from '../components/BrandMark';
 import { nonEmpty, useApp } from '../context';
 import type { MessageKey } from '../i18n';
 import { NAV, navEntry, type NavGroup } from '../nav';
@@ -109,10 +110,7 @@ export function Shell({
             onClick={linkClick('dashboard', () => setDrawer(false))}
             aria-label={`${t('app.title')} ${t('app.subtitle')}`}
           >
-            <svg viewBox="0 0 32 32" width="26" height="26" aria-hidden="true">
-              <path d="M16 2 4 7v8c0 7.5 5.1 13.4 12 15 6.9-1.6 12-7.5 12-15V7z" className="brand-shield" />
-              <path d="m10 16 4 4 8-9" className="brand-check" />
-            </svg>
+            <BrandMark />
             <span className="brand-text">
               <strong>{t('app.title')}</strong>
               <span className="muted">{t('app.subtitle')}</span>
