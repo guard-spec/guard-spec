@@ -6,7 +6,7 @@ package alerts
 import (
 	"time"
 
-	"github.com/giaplee/guard-spec/internal/events"
+	"github.com/guard-spec/guard-spec/internal/events"
 )
 
 // Delivery decisions for quiet hours.

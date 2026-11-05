@@ -1,4 +1,4 @@
-module github.com/giaplee/guard-spec
+module github.com/guard-spec/guard-spec
 
 go 1.26.0
 

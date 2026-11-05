@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/giaplee/guard-spec/internal/events"
-	"github.com/giaplee/guard-spec/internal/inference"
+	"github.com/guard-spec/guard-spec/internal/events"
+	"github.com/guard-spec/guard-spec/internal/inference"
 )
 
 func TestEventsForRequests(t *testing.T) {

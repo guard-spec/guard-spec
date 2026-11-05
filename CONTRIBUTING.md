@@ -44,7 +44,7 @@ model layers a C toolchain (cgo). Python with [uv](https://docs.astral.sh/uv/)
 is needed only to rebuild `eval/` or train the classifier.
 
 ```bash
-git clone https://github.com/giaplee/guard-spec.git
+git clone https://github.com/guard-spec/guard-spec.git
 cd guard-spec
 go build ./...
 docker compose up -d --build     # full stack with dev credentials, see README "Quick start"

@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/giaplee/guard-spec/internal/indirect"
-	"github.com/giaplee/guard-spec/internal/inference"
-	"github.com/giaplee/guard-spec/internal/sanitizer"
 	"github.com/gofiber/fiber/v2"
+	"github.com/guard-spec/guard-spec/internal/indirect"
+	"github.com/guard-spec/guard-spec/internal/inference"
+	"github.com/guard-spec/guard-spec/internal/sanitizer"
 )
 
 // maxScanDocuments bounds the documents of one /guardrail/scan request.

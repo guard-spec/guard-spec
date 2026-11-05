@@ -180,7 +180,7 @@ For maintainers. The example releases `guardspec-classifier` `v4`.
    software release).
 6. **Bump the manifest**: add an entry with `version: v4`, the Hugging Face
    `revision`, the mirror
-   `https://github.com/giaplee/guard-spec/releases/download/model-guardspec-classifier-v4/{file}`
+   `https://github.com/guard-spec/guard-spec/releases/download/model-guardspec-classifier-v4/{file}`
    and every file's `size` and `sha256`. Move `recommended: true` from the
    old entry to the new one, and keep the old entry so that rollback works.
 7. **Check**: `go test ./internal/onnx ./internal/inference/ml`, then pull

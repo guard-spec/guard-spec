@@ -16,7 +16,7 @@
 # them; CI fills it with `go run ./cmd/models pull`, see release.yml):
 #
 #   docker buildx build -f build/gateway-full.Dockerfile \
-#     --build-arg GATEWAY_IMAGE=ghcr.io/giaplee/guard-spec-gateway:<version> \
+#     --build-arg GATEWAY_IMAGE=ghcr.io/guard-spec/guard-spec-gateway:<version> \
 #     --build-context l2=<dir with the five L2 files> \
 #     -t guard-spec-gateway-full:<version> .
 #

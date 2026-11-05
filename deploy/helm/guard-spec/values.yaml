@@ -64,7 +64,7 @@ securityContext:
 gateway:
   replicaCount: 2
   image:
-    repository: ghcr.io/giaplee/guard-spec-gateway
+    repository: ghcr.io/guard-spec/guard-spec-gateway
     tag: ""  # defaults to the chart appVersion
     pullPolicy: IfNotPresent
   service:
@@ -107,7 +107,7 @@ gateway:
 controlPlane:
   replicaCount: 1
   image:
-    repository: ghcr.io/giaplee/guard-spec-control-plane
+    repository: ghcr.io/guard-spec/guard-spec-control-plane
     tag: ""
     pullPolicy: IfNotPresent
   service:

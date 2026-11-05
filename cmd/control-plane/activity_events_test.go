@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/giaplee/guard-spec/internal/events"
 	"github.com/google/uuid"
+	"github.com/guard-spec/guard-spec/internal/events"
 )
 
 func TestActivityEvents(t *testing.T) {

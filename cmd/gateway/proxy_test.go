@@ -17,10 +17,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/giaplee/guard-spec/internal/inference"
-	"github.com/giaplee/guard-spec/internal/policy"
-	"github.com/giaplee/guard-spec/internal/proxy"
 	"github.com/google/uuid"
+	"github.com/guard-spec/guard-spec/internal/inference"
+	"github.com/guard-spec/guard-spec/internal/policy"
+	"github.com/guard-spec/guard-spec/internal/proxy"
 )
 
 const clean = `{"model":"m","messages":[{"role":"user","content":"hello"}]}`

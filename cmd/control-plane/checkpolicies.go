@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/giaplee/guard-spec/internal/policy"
 	"github.com/google/uuid"
+	"github.com/guard-spec/guard-spec/internal/policy"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 

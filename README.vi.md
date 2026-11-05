@@ -96,7 +96,7 @@ Cần Docker (Compose v2), `curl` và `jq`. Mặc định chạy **chỉ L1** (k
 file model).
 
 ```bash
-git clone https://github.com/giaplee/guard-spec.git
+git clone https://github.com/guard-spec/guard-spec.git
 cd guard-spec
 
 # Tuỳ chọn: upstream tương thích OpenAI. Không đặt thì gateway trả lời giả (stub).
@@ -184,10 +184,10 @@ dấu. Nếu chặn nhầm tốn kém hơn bỏ sót, giữ `DETECTOR_LAYERS=l1`
 
 | Thành phần | Lớp phát hiện | Ghi chú |
 |---|---|---|
-| Image `ghcr.io/giaplee/guard-spec-gateway:<version>` (và `latest`), linux/amd64 + linux/arm64 | **L1 + L2 + L3** khi mount model | Build với `-tags onnx`, có sẵn `libonnxruntime`. Không có model thì chỉ chạy L1. |
+| Image `ghcr.io/guard-spec/guard-spec-gateway:<version>` (và `latest`), linux/amd64 + linux/arm64 | **L1 + L2 + L3** khi mount model | Build với `-tags onnx`, có sẵn `libonnxruntime`. Không có model thì chỉ chạy L1. |
 | `guard-spec_<version>_linux_<arch>_onnx.tar.gz` | L1 + L2 + L3 khi có model | Cùng binary gateway, kèm `lib/libonnxruntime.so`. Cần glibc 2.36 trở lên; đặt `ONNXRUNTIME_LIB` và `MODEL_DIR`. |
 | `guard-spec_<version>_<os>_<arch>.tar.gz` (linux, darwin) | **chỉ L1** | Binary tĩnh (`CGO_ENABLED=0`), không có ONNX Runtime. |
-| Image `ghcr.io/giaplee/guard-spec-control-plane:<version>` | không áp dụng | Tĩnh, không cgo. |
+| Image `ghcr.io/guard-spec/guard-spec-control-plane:<version>` | không áp dụng | Tĩnh, không cgo. |
 
 Model không được đóng gói vào image. Mount chỉ-đọc vào `/models`:
 
@@ -195,7 +195,7 @@ Model không được đóng gói vào image. Mount chỉ-đọc vào `/models`:
 docker run -d -p 8080:8080 \
   -e DATABASE_URL=postgres://guardspec_app@db:5432/guardspec -e PGPASSWORD=... \
   -v "$PWD/models:/models:ro" \
-  ghcr.io/giaplee/guard-spec-gateway:<version>
+  ghcr.io/guard-spec/guard-spec-gateway:<version>
 curl -s localhost:8080/readyz   # "layers":["l1","l2","l3"]
 ```
 
@@ -306,3 +306,5 @@ chặn nhầm/bỏ sót bằng mẫu issue "False positive / false negative".
 ## Giấy phép
 
 Apache-2.0, xem [LICENSE](LICENSE). Copyright 2026 The Guard Spec Authors.
+Guard Spec do Lê Văn Giáp ([@giaplee](https://github.com/giaplee)) tạo ra;
+danh sách maintainer ở [MAINTAINERS.md](MAINTAINERS.md).

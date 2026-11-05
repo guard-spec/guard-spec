@@ -9,7 +9,7 @@ import (
 	"sort"
 	"unicode/utf8"
 
-	"github.com/giaplee/guard-spec/internal/inference/ml"
+	"github.com/guard-spec/guard-spec/internal/inference/ml"
 )
 
 // trainRow is one line of train/data/*.jsonl.

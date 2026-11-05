@@ -178,7 +178,7 @@ released images with the full detector (L1 rules + L2 classifier + L3
 embeddings), nothing to build and no model files to copy:
 
 ```bash
-git clone https://github.com/giaplee/guard-spec.git
+git clone https://github.com/guard-spec/guard-spec.git
 cd guard-spec
 
 # Optional: an OpenAI-compatible upstream. Without it the gateway answers with stub responses.
@@ -195,7 +195,7 @@ scripts/quickstart.sh
    `MFA_ENC_KEY`, `ADMIN_PASSWORD`), using `openssl` or `/dev/urandom`. An
    existing `.env` is never overwritten;
 2. runs `docker compose -f docker-compose.yml up -d` with
-   `ghcr.io/giaplee/guard-spec-gateway` and `-control-plane` at
+   `ghcr.io/guard-spec/guard-spec-gateway` and `-control-plane` at
    `GUARDSPEC_VERSION` (default `0.1.0`). Before the gateway starts, the
    `models-init` service pulls the recommended models (about 270 MB, SHA-256
    verified) into `./models/cache`; on later starts it finds them and does
@@ -307,11 +307,11 @@ Each `v*` tag publishes, through `.github/workflows/release.yml`:
 
 | Artifact | Detection layers | Notes |
 |---|---|---|
-| `ghcr.io/giaplee/guard-spec-gateway:<version>` (and `latest`), linux/amd64 + linux/arm64 | **L1 + L2 + L3** when models are mounted | Built from `build/gateway.Dockerfile` with `-tags onnx`; ships `libonnxruntime`. Without models it runs L1 only. |
-| `ghcr.io/giaplee/guard-spec-gateway-full:<version>` (and `latest`), linux/amd64 + linux/arm64 | **L1 + L2 + L3**, models included | For air-gapped installs: the gateway image plus `guardspec-classifier-v3b` and `multilingual-e5-small` (read-only, about 270 MB more), built from `build/gateway-full.Dockerfile`. Published once the L2 model is on Hugging Face. |
+| `ghcr.io/guard-spec/guard-spec-gateway:<version>` (and `latest`), linux/amd64 + linux/arm64 | **L1 + L2 + L3** when models are mounted | Built from `build/gateway.Dockerfile` with `-tags onnx`; ships `libonnxruntime`. Without models it runs L1 only. |
+| `ghcr.io/guard-spec/guard-spec-gateway-full:<version>` (and `latest`), linux/amd64 + linux/arm64 | **L1 + L2 + L3**, models included | For air-gapped installs: the gateway image plus `guardspec-classifier-v3b` and `multilingual-e5-small` (read-only, about 270 MB more), built from `build/gateway-full.Dockerfile`. Published once the L2 model is on Hugging Face. |
 | `guard-spec_<version>_linux_<arch>_onnx.tar.gz` | L1 + L2 + L3 when models are present | The same gateway binary plus `lib/libonnxruntime.so` and `models`. Needs glibc 2.36 or newer (Debian 12, Ubuntu 22.10+); set `ONNXRUNTIME_LIB` and `MODEL_DIR`. |
 | `guard-spec_<version>_<os>_<arch>.tar.gz` (linux, darwin) | **L1 only** | Static binaries (`CGO_ENABLED=0`), no ONNX Runtime. |
-| `ghcr.io/giaplee/guard-spec-control-plane:<version>` | n/a | Static, no cgo. |
+| `ghcr.io/guard-spec/guard-spec-control-plane:<version>` | n/a | Static, no cgo. |
 
 Except in `guard-spec-gateway-full`, models are never baked into images or
 archives; that image needs no `/models` mount and no network for the models,
@@ -324,7 +324,7 @@ and mount them read-only at `/models` (`/models/cache/<name>/<version>`, see
 docker run -d -p 8080:8080 \
   -e DATABASE_URL=postgres://guardspec_app@db:5432/guardspec -e PGPASSWORD=... \
   -v "$PWD/models:/models:ro" \
-  ghcr.io/giaplee/guard-spec-gateway:<version>
+  ghcr.io/guard-spec/guard-spec-gateway:<version>
 curl -s localhost:8080/readyz
 # {"detector":{"layers":["l1","l2","l3"],"degraded":false,"onnx":true,...},"status":"ready",...}
 ```
@@ -484,7 +484,7 @@ URL tried before Hugging Face: `<mirror>/<name>/<version>/<file>`).
 | `GATEWAY_PORT`, `METRICS_PORT` | `8080`, `9090` | Host ports of the gateway |
 | `CONTROL_PLANE_PORT`, `CONTROL_PLANE_METRICS_PORT` | `18081`, `9091` | Host ports of the control plane |
 | `POSTGRES_PORT` | `5432` | Host port of Postgres (dev override only) |
-| `GUARDSPEC_VERSION` | `0.1.0` | Tag of the `ghcr.io/giaplee/guard-spec-*` images in `docker-compose.yml` (the dev override builds from source instead) |
+| `GUARDSPEC_VERSION` | `0.1.0` | Tag of the `ghcr.io/guard-spec/guard-spec-*` images in `docker-compose.yml` (the dev override builds from source instead) |
 | `MODELS_UID`, `MODELS_GID` | `0` | Owner of files written by `models-init` and `models-pull` |
 | `QUICKSTART_TIMEOUT` | `600` | `scripts/quickstart.sh`: seconds to wait for `/readyz` |
 
@@ -1343,8 +1343,8 @@ response bodies did not change. What did change:
 
 | What | Before | Now | What to do |
 |---|---|---|---|
-| Go module | `github.com/promptshield/promptshield` | `github.com/giaplee/guard-spec` | Update imports, if you import packages |
-| Images | `ghcr.io/giaplee/promptshield-gateway`, `-control-plane` | `ghcr.io/giaplee/guard-spec-gateway`, `-control-plane` | Update image references; local builds are tagged `guard-spec-gateway:latest` and so on |
+| Go module | `github.com/promptshield/promptshield` | `github.com/guard-spec/guard-spec` | Update imports, if you import packages |
+| Images | `ghcr.io/giaplee/promptshield-gateway`, `-control-plane` | `ghcr.io/guard-spec/guard-spec-gateway`, `-control-plane` | Update image references; local builds are tagged `guard-spec-gateway:latest` and so on |
 | Application role | `ps_app` | `guardspec_app` | Migration 010 renames it; see below |
 | Role password variable | `PS_APP_PASSWORD` | `GUARDSPEC_APP_PASSWORD` | Rename it in `.env` or your Secret. The old name is still read for one release, with a warning (Helm: `appPasswordKey: PS_APP_PASSWORD`) |
 | Default database | `promptshield` | `guardspec` | Fresh installs only; an existing database keeps its name (see below) |
@@ -1451,6 +1451,8 @@ Planned work is in [ROADMAP.md](ROADMAP.md).
 ## License
 
 Apache-2.0, see [LICENSE](LICENSE). Copyright 2026 The Guard Spec Authors.
+Guard Spec was created by Lê Văn Giáp ([@giaplee](https://github.com/giaplee));
+[MAINTAINERS.md](MAINTAINERS.md) lists the maintainers.
 [NOTICE](NOTICE) lists the bundled native libraries, datasets and models and
 their licenses; [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) lists the Go
 modules (`make licenses` regenerates it; `make licenses-check` fails on GPL,

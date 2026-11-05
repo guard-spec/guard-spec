@@ -33,8 +33,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/giaplee/guard-spec/internal/inference/rules"
-	"github.com/giaplee/guard-spec/internal/metrics"
+	"github.com/guard-spec/guard-spec/internal/inference/rules"
+	"github.com/guard-spec/guard-spec/internal/metrics"
 )
 
 // Layer slots.

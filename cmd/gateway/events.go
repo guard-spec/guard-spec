@@ -9,11 +9,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/giaplee/guard-spec/internal/events"
-	"github.com/giaplee/guard-spec/internal/inference"
-	"github.com/giaplee/guard-spec/internal/proxy"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"github.com/guard-spec/guard-spec/internal/events"
+	"github.com/guard-spec/guard-spec/internal/inference"
+	"github.com/guard-spec/guard-spec/internal/proxy"
 )
 
 // Alert events of the gateway (docs/alerts.md): detection.blocked,

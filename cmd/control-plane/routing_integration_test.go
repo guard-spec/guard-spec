@@ -10,11 +10,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/giaplee/guard-spec/internal/auth"
-	"github.com/giaplee/guard-spec/internal/config"
-	"github.com/giaplee/guard-spec/internal/policy"
-	"github.com/giaplee/guard-spec/internal/tenant"
 	"github.com/google/uuid"
+	"github.com/guard-spec/guard-spec/internal/auth"
+	"github.com/guard-spec/guard-spec/internal/config"
+	"github.com/guard-spec/guard-spec/internal/policy"
+	"github.com/guard-spec/guard-spec/internal/tenant"
 	"github.com/jackc/pgx/v5"
 )
 

@@ -5,7 +5,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/giaplee/guard-spec/internal/inference"
+	"github.com/guard-spec/guard-spec/internal/inference"
 )
 
 // TestPolicyVarsCarryLayerScores checks the single call site that hands the

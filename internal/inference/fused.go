@@ -3,7 +3,7 @@ package inference
 import (
 	"context"
 
-	"github.com/giaplee/guard-spec/internal/inference/fusion"
+	"github.com/guard-spec/guard-spec/internal/inference/fusion"
 )
 
 // Detail explains a fused injection score. Layer scores are calibrated

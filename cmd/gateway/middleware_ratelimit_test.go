@@ -9,8 +9,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/giaplee/guard-spec/internal/ratelimit"
 	"github.com/google/uuid"
+	"github.com/guard-spec/guard-spec/internal/ratelimit"
 )
 
 func TestRateLimitDefault(t *testing.T) {
