@@ -5,7 +5,7 @@ go 1.26.0
 toolchain go1.26.10
 
 require (
-	github.com/antlr4-go/antlr/v4 v4.13.0
+	github.com/antlr4-go/antlr/v4 v4.13.1
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/daulet/tokenizers v1.27.0
 	github.com/gofiber/fiber/v2 v2.52.16
@@ -62,7 +62,7 @@ require (
 	go.opentelemetry.io/otel/log v1.47.0 // indirect
 	go.opentelemetry.io/otel/metric v1.47.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.11.0 // indirect
-	golang.org/x/exp v0.0.0-20230515195305-f3d0a9c9a5cc // indirect
+	golang.org/x/exp v0.0.0-20240506185415-9bf2ced13842 // indirect
 	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260928230214-8a89bd6388cc // indirect
