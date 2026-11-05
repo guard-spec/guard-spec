@@ -308,12 +308,15 @@ Each `v*` tag publishes, through `.github/workflows/release.yml`:
 | Artifact | Detection layers | Notes |
 |---|---|---|
 | `ghcr.io/giaplee/guard-spec-gateway:<version>` (and `latest`), linux/amd64 + linux/arm64 | **L1 + L2 + L3** when models are mounted | Built from `build/gateway.Dockerfile` with `-tags onnx`; ships `libonnxruntime`. Without models it runs L1 only. |
+| `ghcr.io/giaplee/guard-spec-gateway-full:<version>` (and `latest`), linux/amd64 + linux/arm64 | **L1 + L2 + L3**, models included | For air-gapped installs: the gateway image plus `guardspec-classifier-v3b` and `multilingual-e5-small` (read-only, about 270 MB more), built from `build/gateway-full.Dockerfile`. Published once the L2 model is on Hugging Face. |
 | `guard-spec_<version>_linux_<arch>_onnx.tar.gz` | L1 + L2 + L3 when models are present | The same gateway binary plus `lib/libonnxruntime.so` and `models`. Needs glibc 2.36 or newer (Debian 12, Ubuntu 22.10+); set `ONNXRUNTIME_LIB` and `MODEL_DIR`. |
 | `guard-spec_<version>_<os>_<arch>.tar.gz` (linux, darwin) | **L1 only** | Static binaries (`CGO_ENABLED=0`), no ONNX Runtime. |
 | `ghcr.io/giaplee/guard-spec-control-plane:<version>` | n/a | Static, no cgo. |
 
-Models are never baked into these images or archives. Pull them with
-`models pull` (in the image: `docker run --rm -v "$PWD/models:/models" --entrypoint ./models <gateway image> pull -manifest manifest.yaml -dir /models/cache`)
+Except in `guard-spec-gateway-full`, models are never baked into images or
+archives; that image needs no `/models` mount and no network for the models,
+and sets `DETECTOR_REQUIRE_ML=true`. Otherwise pull them with `models pull`
+(in the image: `docker run --rm -v "$PWD/models:/models" --entrypoint ./models <gateway image> pull -manifest manifest.yaml -dir /models/cache`)
 and mount them read-only at `/models` (`/models/cache/<name>/<version>`, see
 [Models](#models) and [docs/models.md](docs/models.md)):
 
