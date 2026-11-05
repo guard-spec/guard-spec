@@ -13,6 +13,11 @@ name: Release
 #                  cosign (keyless, GitHub OIDC).
 #   onnx-tarballs  checksums, SBOMs and a cosign bundle for the onnx tarballs,
 #                  uploaded to the draft release made by the release job.
+#   gateway-full-* the gateway image with the L2 and L3 models baked in
+#                  (build/gateway-full.Dockerfile), for air-gapped installs: per
+#                  arch on native runners FROM the signed gateway image, then one
+#                  signed multi-arch manifest. Skipped, with a notice, while the
+#                  repository variable GATEWAY_FULL_L2_SOURCE is unset.
 
 on:
   push:
@@ -23,6 +28,7 @@ permissions:
 
 env:
   GATEWAY_IMAGE: ghcr.io/${{ github.repository_owner }}/guard-spec-gateway
+  GATEWAY_FULL_IMAGE: ghcr.io/${{ github.repository_owner }}/guard-spec-gateway-full
 
 jobs:
   release:
@@ -165,6 +171,8 @@ jobs:
   gateway-merge:
     needs: gateway-image
     runs-on: ubuntu-latest
+    outputs:
+      digest: ${{ steps.sign.outputs.digest }}   # the signed index, base of gateway-full
     permissions:
       contents: read
       packages: write   # push the manifest list
@@ -201,6 +209,7 @@ jobs:
           for d in *; do args+=("$GATEWAY_IMAGE@sha256:$d"); done
           docker buildx imagetools create "${args[@]}"
       - name: Sign
+        id: sign
         env:
           VERSION: ${{ steps.meta.outputs.version }}
         run: |
@@ -208,6 +217,7 @@ jobs:
           # The index and each platform image, keylessly. Verify: SECURITY.md.
           cosign sign --yes --recursive "$GATEWAY_IMAGE@$digest"
           docker buildx imagetools inspect "$GATEWAY_IMAGE@$digest"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
   onnx-tarballs:
     needs: [release, gateway-image]
@@ -237,3 +247,181 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
         run: gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber -- *
+
+  # ---------------------------------------------------------------------------
+  # gateway-full: ghcr.io/<owner>/guard-spec-gateway-full:<version>
+  #
+  # TODO(L2 publication): set the repository variable GATEWAY_FULL_L2_SOURCE
+  # (Settings > Secrets and variables > Actions > Variables) once
+  # guardspec-classifier-v3b is on Hugging Face, as <hf-repo>@<commit-sha>, e.g.
+  #   giaplee/guardspec-classifier@0123456789abcdef0123456789abcdef01234567
+  # The commit must hold the five files of build/gateway-full.l2.sha256 at the
+  # repository root (train/hf/stage.sh stages exactly those). Until it is set,
+  # these jobs are skipped with a notice and the rest of the release is unchanged.
+  # ---------------------------------------------------------------------------
+  gateway-full-gate:
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+    steps:
+      - id: check
+        env:
+          L2_SOURCE: ${{ vars.GATEWAY_FULL_L2_SOURCE }}
+        run: |
+          if [ -z "$L2_SOURCE" ]; then
+            msg="gateway-full skipped: the repository variable GATEWAY_FULL_L2_SOURCE is not set (the L2 model guardspec-classifier-v3b is not published yet). Set it to <hf-repo>@<commit-sha> to build ghcr.io/${GITHUB_REPOSITORY_OWNER}/guard-spec-gateway-full."
+            echo "::notice title=gateway-full skipped::$msg"
+            echo "$msg" >> "$GITHUB_STEP_SUMMARY"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! printf '%s' "$L2_SOURCE" | grep -Eq '^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+@[0-9a-f]{40}$'; then
+            echo "::error title=gateway-full::GATEWAY_FULL_L2_SOURCE must be <hf-repo>@<40-char commit sha>, got: $L2_SOURCE"
+            exit 1
+          fi
+          echo "gateway-full: L2 from $L2_SOURCE" >> "$GITHUB_STEP_SUMMARY"
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+
+  gateway-full-image:
+    needs: [gateway-merge, gateway-full-gate]
+    if: needs.gateway-full-gate.outputs.enabled == 'true'
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - platform: linux/amd64
+            arch: amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write   # push the per-arch image by digest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Reproducible timestamps
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)" >> "$GITHUB_ENV"
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      # The L2 build context: the repo's own models tool pulls the five files
+      # from the pinned Hugging Face commit and checks each SHA-256 against
+      # build/gateway-full.l2.sha256 (the Dockerfile checks them again).
+      - name: Fetch L2 model
+        id: l2
+        env:
+          L2_SOURCE: ${{ vars.GATEWAY_FULL_L2_SOURCE }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}   # only if the model repo is private or gated
+        run: |
+          repo=${L2_SOURCE%@*}
+          rev=${L2_SOURCE##*@}
+          manifest="$RUNNER_TEMP/l2-manifest.yaml"
+          {
+            echo "models:"
+            echo "  - name: guardspec-classifier-v3b"
+            echo "    kind: classifier"
+            echo "    repo: $repo"
+            echo "    revision: $rev"
+            echo "    license: Apache-2.0"
+            echo "    files:"
+            while read -r sum file; do
+              echo "      - {src: $file, dest: $file, sha256: $sum}"
+            done < build/gateway-full.l2.sha256
+          } > "$manifest"
+          cat "$manifest"
+          go run ./cmd/models pull -manifest "$manifest" -dir "$RUNNER_TEMP/l2"
+          dir=$(dirname "$(find "$RUNNER_TEMP/l2" -name model_int8.onnx | head -n 1)")
+          (cd "$dir" && sha256sum --strict -c "$GITHUB_WORKSPACE/build/gateway-full.l2.sha256")
+          echo "dir=$dir" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.GATEWAY_FULL_IMAGE }}
+          labels: |
+            org.opencontainers.image.title=guard-spec-gateway-full
+            org.opencontainers.image.description=Guard Spec gateway with the L2 and L3 models baked in (air-gapped installs)
+            org.opencontainers.image.licenses=Apache-2.0 AND MIT
+      # FROM the signed gateway index by digest; L3 is pulled inside the build
+      # by the image's own models tool (SHA-256 verified).
+      - id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: build/gateway-full.Dockerfile
+          platforms: ${{ matrix.platform }}
+          build-args: |
+            GATEWAY_IMAGE=${{ env.GATEWAY_IMAGE }}@${{ needs.gateway-merge.outputs.digest }}
+          build-contexts: |
+            l2=${{ steps.l2.outputs.dir }}
+          labels: ${{ steps.meta.outputs.labels }}
+          sbom: true
+          provenance: mode=max
+          outputs: type=image,name=${{ env.GATEWAY_FULL_IMAGE }},push-by-digest=true,name-canonical=true,push=true
+      - name: Export digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/digests"
+          touch "$RUNNER_TEMP/digests/${DIGEST#sha256:}"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: full-digest-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  gateway-full-merge:
+    needs: [gateway-merge, gateway-full-image]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write   # push the manifest list
+      id-token: write   # cosign keyless signing through GitHub OIDC
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: full-digest-*
+          merge-multiple: true
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # Same tags as the gateway image: {version}, and latest for a non-prerelease tag.
+      - id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.GATEWAY_FULL_IMAGE }}
+          flavor: latest=false
+          tags: |
+            type=semver,pattern={{version}}
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+      - name: Create manifest list
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          args=()
+          for t in $(jq -r '.tags[]' <<< "$DOCKER_METADATA_OUTPUT_JSON"); do args+=(-t "$t"); done
+          for d in *; do args+=("$GATEWAY_FULL_IMAGE@sha256:$d"); done
+          docker buildx imagetools create "${args[@]}"
+      - name: Sign
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          digest=$(docker buildx imagetools inspect "$GATEWAY_FULL_IMAGE:$VERSION" --format '{{json .Manifest}}' | jq -r .digest)
+          # The index and each platform image, keylessly. Verify: SECURITY.md.
+          cosign sign --yes --recursive "$GATEWAY_FULL_IMAGE@$digest"
+          docker buildx imagetools inspect "$GATEWAY_FULL_IMAGE@$digest"

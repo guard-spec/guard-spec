@@ -1,0 +1,18 @@
+{
+  "model": "guardspec-classifier-v3b",
+  "fitted_on": "train/data/val.jsonl + val_hard.jsonl + val_vi_variants.jsonl + val_v3.jsonl, with the owner-supplied and OTP/KYC validation rows (7572 rows), 5-fold CV for the method choice",
+  "platt": {
+    "A": 0.9731,
+    "B": 0.1567
+  },
+  "logreg": {
+    "l1,l2": {
+      "W": [0.4887, 0.9473, 0],
+      "B": 0.3963
+    },
+    "l1,l2,l3": {
+      "W": [0.4582, 0.9094, 0.2769],
+      "B": 0.4955
+    }
+  }
+}
