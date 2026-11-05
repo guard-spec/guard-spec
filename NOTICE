@@ -61,3 +61,12 @@ guardspec-classifier models, which carry its MIT notice.
 protectai/deberta-v3-small-prompt-injection-v2 and
 protectai/deberta-v3-base-prompt-injection-v2 (Apache License 2.0), optional
 comparison baselines.
+
+------------------------------------------------------------------------------
+Documentation images (docs/images/diagram-*.png)
+------------------------------------------------------------------------------
+
+Lucide icons, drawn into the diagrams rendered from docs/diagrams/
+  Copyright (c) Lucide Contributors. ISC License (icons derived from Feather,
+  Copyright (c) Cole Bemis, MIT License).
+  https://lucide.dev/license

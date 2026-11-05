@@ -1,0 +1,122 @@
+<!doctype html>
+<!-- Copyright 2026 The Guard Spec Authors -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<html lang="vi"><head><meta charset="utf-8"><link rel="stylesheet" href="kit.css">
+<style>
+#canvas { width: 1800px; height: 1080px; background: #fbfcfe; }
+.zone { border-radius: 18px; border: 1.5px solid var(--line); z-index: 0; }
+.zone > .zl { position: absolute; top: 10px; left: 16px; font-size: 12.5px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted); }
+.box { display: flex; gap: 14px; align-items: flex-start; background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px;
+  box-shadow: 0 1px 2px rgba(15,23,42,.05), 0 6px 18px rgba(15,47,87,.06); }
+.box .icon { width: 44px; height: 44px; border-radius: 12px; }
+.box h4 { margin: 1px 0 3px; font-size: 15.5px; font-weight: 700; }
+.box p { margin: 0; font-size: 12.5px; color: var(--muted); line-height: 1.45; }
+.box .port { font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; color: var(--blue); font-weight: 600; }
+.gs { border: 2px solid var(--blue); background: linear-gradient(180deg, #f2f6fd, #f8fafe); }
+.gs > .zl { color: var(--blue); display: flex; align-items: center; gap: 8px; font-size: 14px; letter-spacing: .4px; text-transform: none; font-weight: 800; }
+.hero { border: 1.5px solid #b9cdef; }
+.steps { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.steps span { font-size: 11.5px; font-weight: 600; padding: 3px 8px; border-radius: 7px; background: var(--blue-soft); color: var(--blue); }
+.steps span.out { background: var(--teal-soft); color: var(--teal); }
+.title { left: 40px; top: 26px; }
+.title .kicker { font-size: 13px; font-weight: 700; letter-spacing: 1.6px; color: var(--blue); text-transform: uppercase; }
+.title h1 { margin: 4px 0 0; font-size: 26px; font-weight: 800; color: var(--navy); }
+.legend { position: absolute; right: 40px; top: 36px; display: flex; gap: 18px; font-size: 13px; color: var(--slate); font-weight: 500; z-index: 2; }
+.legend span::before { content: ""; display: inline-block; width: 22px; height: 0; border-top: 3px solid var(--c); vertical-align: middle; margin-right: 7px; }
+.legend span.d::before { border-top-style: dashed; }
+</style></head>
+<body><div id="canvas"><svg id="wires"></svg>
+<div class="title"><div class="kicker">Thành phần</div><h1>Một bản triển khai production điển hình</h1></div>
+<div class="legend">
+  <span style="--c:#1d5fbf">đường request</span>
+  <span style="--c:#0f766e">tới LLM</span>
+  <span class="d" style="--c:#64748b">dữ liệu, cấu hình</span>
+  <span style="--c:#b45309">cảnh báo</span>
+  <span style="--c:#5b4bb7">quản trị</span>
+</div>
+
+<div class="zone" style="left:24px; top:110px; width:262px; height:950px; background:#f6f7f9"><div class="zl">Internet</div></div>
+<div class="zone" style="left:304px; top:110px; width:1040px; height:950px; background:#fff; border-style:dashed; border-color:#b8c4d4"><div class="zl">Tài khoản cloud của bạn · VPC</div></div>
+<div class="zone" style="left:324px; top:150px; width:220px; height:300px; background:#f6f8fb"><div class="zl">Subnet công khai</div></div>
+<div class="zone" style="left:562px; top:150px; width:256px; height:450px; background:#f6f8fb"><div class="zl">Subnet riêng · ứng dụng</div></div>
+<div class="zone gs" style="left:880px; top:150px; width:448px; height:890px"><div class="zl">
+  <svg viewBox="0 0 32 32" width="20" height="20"><path d="M16 1.5 3.5 6.5v8.3c0 7.7 5.3 13.8 12.5 15.7 7.2-1.9 12.5-8 12.5-15.7V6.5z" fill="#0f2f57"/><path d="M16 1.5v29c7.2-1.9 12.5-8 12.5-15.7V6.5z" fill="#1d5fbf"/><path d="M10 11h12M11.5 16h9M13.5 21h5" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/></svg>
+  Guard Spec · subnet riêng</div></div>
+<div class="zone" style="left:324px; top:900px; width:494px; height:140px; background:#f6f8fb"><div class="zl">Giám sát</div></div>
+<div class="zone" style="left:1362px; top:110px; width:414px; height:950px; background:#f6f7f9"><div class="zl">Dịch vụ bên ngoài</div></div>
+
+<div class="node box" id="users" style="left:40px; top:240px; width:230px">
+  <div class="icon" style="background:var(--blue-soft);color:var(--blue)"><i data-lucide="users" width="24" height="24"></i></div>
+  <div><h4>Người dùng cuối</h4><p>ứng dụng web và mobile</p></div></div>
+<div class="node box" id="ops" style="left:40px; top:780px; width:230px">
+  <div class="icon" style="background:var(--violet-soft);color:var(--violet)"><i data-lucide="user-cog" width="24" height="24"></i></div>
+  <div><h4>Đội bảo mật &amp; vận hành</h4><p>trình duyệt, qua VPN hoặc mạng nội bộ</p></div></div>
+
+<div class="node box" id="edge" style="left:338px; top:240px; width:192px">
+  <div class="icon" style="background:var(--blue-soft);color:var(--blue)"><i data-lucide="network" width="24" height="24"></i></div>
+  <div><h4>WAF + ALB</h4><p>hoặc API gateway, TLS</p></div></div>
+
+<div class="node box" id="app" style="left:578px; top:210px; width:222px">
+  <div class="icon" style="background:var(--blue-soft);color:var(--blue)"><i data-lucide="app-window" width="24" height="24"></i></div>
+  <div><h4>Ứng dụng của bạn</h4><p>chatbot, RAG, agent; dùng OpenAI SDK với <b>base_url</b> trỏ tới Guard Spec</p></div></div>
+<div class="node box" id="tools" style="left:578px; top:440px; width:222px">
+  <div class="icon" style="background:var(--slate-soft);color:var(--slate)"><i data-lucide="database" width="24" height="24"></i></div>
+  <div><h4>Tool &amp; dữ liệu</h4><p>vector DB, MCP server, API nội bộ, trang web tải về</p></div></div>
+
+<div class="node box" id="ialb" style="left:900px; top:200px; width:408px">
+  <div class="icon" style="background:var(--blue-soft);color:var(--blue)"><i data-lucide="route" width="24" height="24"></i></div>
+  <div><h4>ALB nội bộ / Kubernetes Service</h4><p>TLS, chỉ ứng dụng của bạn gọi được</p></div></div>
+<div class="node box hero" id="gw" style="left:900px; top:310px; width:408px">
+  <div class="icon" style="background:var(--navy);color:#fff"><i data-lucide="shield-check" width="24" height="24"></i></div>
+  <div><h4>Gateway <span class="port">:8080 · N replicas</span></h4><p>proxy tương thích OpenAI và API <b>/guardrail/scan</b>, không trạng thái</p>
+  <div class="steps"><span>L0 sanitizer</span><span>L1 rules</span><span>L2 classifier</span><span>L3 similarity</span><span>CEL policies</span><span class="out">output guard</span></div></div></div>
+<div class="node box" id="models" style="left:900px; top:545px; width:408px">
+  <div class="icon" style="background:var(--slate-soft);color:var(--slate)"><i data-lucide="hard-drive" width="24" height="24"></i></div>
+  <div><h4>File model</h4><p>volume chỉ đọc, hoặc có sẵn trong image gateway-full (air-gapped)</p></div></div>
+<div class="node box" id="pg" style="left:900px; top:670px; width:408px">
+  <div class="icon" style="background:var(--slate-soft);color:var(--slate)"><i data-lucide="database" width="24" height="24"></i></div>
+  <div><h4>Postgres <span class="port">RDS / Aurora</span></h4><p>khóa API, policy, nhật ký audit, event; row-level security theo tổ chức</p></div></div>
+<div class="node box" id="cp" style="left:900px; top:800px; width:408px">
+  <div class="icon" style="background:var(--violet-soft);color:var(--violet)"><i data-lucide="layout-dashboard" width="24" height="24"></i></div>
+  <div><h4>Control plane <span class="port">:8081</span></h4><p>admin UI, API quản trị, worker cảnh báo, dọn audit cũ</p></div></div>
+
+<div class="node box" id="obs" style="left:344px; top:950px; width:454px">
+  <div class="icon" style="background:var(--slate-soft);color:var(--slate)"><i data-lucide="activity" width="24" height="24"></i></div>
+  <div><h4>Prometheus, Grafana, OpenTelemetry</h4><p>metrics ở :9090 / :9091, trace OTLP tùy chọn</p></div></div>
+
+<div class="node box" id="llm" style="left:1384px; top:320px; width:370px">
+  <div class="icon" style="background:var(--teal-soft);color:var(--teal)"><i data-lucide="sparkles" width="24" height="24"></i></div>
+  <div><h4>Nhà cung cấp LLM</h4><p>OpenAI, Azure OpenAI, Anthropic, Gemini, hoặc vLLM / Ollama tự host; một hoặc nhiều cho mỗi tổ chức</p></div></div>
+<div class="node box" id="reg" style="left:1384px; top:530px; width:370px">
+  <div class="icon" style="background:var(--slate-soft);color:var(--slate)"><i data-lucide="boxes" width="24" height="24"></i></div>
+  <div><h4>Kho model</h4><p>Hugging Face, GitHub Releases, hoặc mirror riêng của bạn</p></div></div>
+<div class="node box" id="idp" style="left:1384px; top:720px; width:370px">
+  <div class="icon" style="background:var(--slate-soft);color:var(--slate)"><i data-lucide="fingerprint" width="24" height="24"></i></div>
+  <div><h4>Nhà cung cấp danh tính</h4><p>đăng nhập một lần OIDC: Entra ID, Okta, Google, Keycloak</p></div></div>
+<div class="node box" id="alerts" style="left:1384px; top:880px; width:370px">
+  <div class="icon" style="background:var(--amber-soft);color:var(--amber)"><i data-lucide="bell-ring" width="24" height="24"></i></div>
+  <div><h4>Kênh cảnh báo</h4><p>Slack, Teams, Telegram, email, webhook có ký tới SIEM, A2A tới agent SOC</p></div></div>
+</div>
+<script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+<script src="kit.js"></script>
+<script>
+lucide.createIcons();
+document.fonts.ready.then(() => {
+  const blue = '#1d5fbf', teal = '#0f766e', amber = '#b45309', violet = '#5b4bb7', slate = '#64748b';
+  link('users', 'edge', {from: 'r', to: 'l', color: blue, label: 'HTTPS'});
+  link('edge', 'app', {from: 'r', to: 'l', color: blue, bend: .25});
+  link('app', 'tools', {from: 'b', to: 't', color: slate, both: true, dash: '6 5', label: 'lấy tài liệu, gọi tool'});
+  link('app', 'ialb', {from: 'r', to: 'l', color: blue, width: 3.2, label: 'lời gọi LLM', fromOff: -30, bend: .3});
+  link('ialb', 'gw', {from: 'b', to: 't', color: blue, width: 3.2});
+  link('gw', 'llm', {from: 'r', to: 'l', color: teal, width: 3.2, both: true, label: 'chỉ request sạch', dy: -50});
+  link('models', 'gw', {from: 't', to: 'b', color: slate, dash: '6 5', label: 'chỉ đọc', t: .5});
+  link('reg', 'models', {from: 'l', to: 'r', color: slate, dash: '6 5', label: 'tải khi deploy,<br>kiểm tra SHA-256', dy: -58});
+  link('gw', 'pg', {from: 'l', to: 'l', color: slate, dash: '6 5', both: true, fromOff: 40, bend: .1});
+  link('cp', 'pg', {from: 't', to: 'b', color: slate, dash: '6 5', both: true});
+  link('cp', 'idp', {from: 'r', to: 'l', color: slate, both: true, label: 'OIDC', fromOff: -18});
+  link('cp', 'alerts', {from: 'r', to: 'l', color: amber, label: 'cảnh báo', fromOff: 18, t: .55});
+  link('ops', 'cp', {from: 'r', to: 'l', color: violet, label: 'admin UI', t: .5, bend: .2});
+  link('cp', 'obs', {from: 'b', to: 'r', color: slate, dash: '6 5', label: 'metrics, trace', t: .5});
+  document.title = 'ready';
+});
+</script></body></html>
