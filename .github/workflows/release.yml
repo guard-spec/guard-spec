@@ -323,6 +323,7 @@ jobs:
           {
             echo "models:"
             echo "  - name: guardspec-classifier-v3b"
+            echo "    version: v3b"
             echo "    kind: classifier"
             echo "    repo: $repo"
             echo "    revision: $rev"
