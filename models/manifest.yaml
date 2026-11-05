@@ -1,29 +1,77 @@
 # Models that internal/onnx can load. Fetch them with:
 #
-#   go run ./cmd/models pull [-dir models/cache] [-models name,name]
+#   go run ./cmd/models pull                           # every recommended, non-optional model
+#   go run ./cmd/models pull guardspec-classifier@v3b  # one version
+#   go run ./cmd/models list --available               # what this manifest offers
 #
-# Every file is pinned to a Hugging Face commit and checked against its SHA-256
-# before it is moved into place; a mismatch is refused. Files land in
-# <dir>/<name>/<dest>, the layout internal/onnx expects (model.onnx,
-# tokenizer.json, config.json). models/cache/ is gitignored.
+# docs/models.md covers versions, pinning, rollback and air-gapped installs.
+#
+# Each entry is one version of a model (name + version). `pull` installs it in
+# <dir>/<name>/<version>/ (default dir models/cache, gitignored), the layout
+# internal/onnx expects (model.onnx or model_int8.onnx, tokenizer.json,
+# config.json). It builds the version in a temporary directory and renames it
+# into place only when every file matches its SHA-256; a mismatch is refused.
+# A name without a version means its `recommended: true` version (else the
+# first listed). The gateway loads the recommended classifier and embedder
+# unless L2_MODEL / L3_MODEL (name@version) or L2_MODEL_DIR / L3_MODEL_DIR say
+# otherwise.
+#
+# Sources, tried in order: MODELS_MIRROR (<mirror>/<name>/<version>/<file>,
+# when set), Hugging Face at the pinned `revision`, then each `mirrors` URL
+# ({file} is the file's dest name). Every source is checked against the same
+# SHA-256. HF_TOKEN is only ever sent to Hugging Face.
 #
 # git_sha1 is the git blob id from the Hugging Face tree API. It is only used for
 # small files of gated repos, whose content (and so SHA-256) cannot be read
 # without a token. `pull` verifies it and prints the SHA-256 so it can be pinned.
 #
-# optional: true models are only pulled when named with -models. gated: true
-# models need HF_TOKEN (after accepting the terms on the model page) and are
-# skipped without it.
-#
-# The L2 injection classifier is our own guardspec-classifier-v3b (train/). It is
-# not published anywhere yet: train it with train/ (see train/MODEL_CARD.md), which
-# writes models/local/guardspec-classifier-v3b/ (model_int8.onnx, tokenizer.json,
-# config.json, thresholds.json), or copy those files there. internal/onnx loads
-# the directory directly. The ProtectAI models below are optional
-# comparison baselines.
+# optional: true models are only pulled when named. gated: true models need
+# HF_TOKEN (after accepting the terms on the model page) and are skipped
+# without it. The ProtectAI models below are optional comparison baselines.
 models:
+  # Our L2 injection classifier (train/, train/MODEL_CARD.md): a fine-tune of
+  # multilingual-e5-small with an attack-category head, int8. calibration.json
+  # holds its Platt scaling and fusion weights (the built-in v3b values of
+  # internal/inference/ml/calibration.go).
+  - name: guardspec-classifier
+    version: v3b
+    recommended: true
+    kind: classifier
+    # TODO(RF-ac559919): not on Hugging Face yet. After publishing, set repo to
+    # the real org/name and revision to the 40-char commit sha of the upload,
+    # and check each src path. Until then the all-zero revision makes `pull`
+    # skip Hugging Face and use the GitHub Release mirror below.
+    repo: guard-spec/guardspec-classifier
+    revision: "0000000000000000000000000000000000000000" # TODO(RF-ac559919): pin the HF commit
+    mirrors:
+      - https://github.com/giaplee/guard-spec/releases/download/model-guardspec-classifier-v3b/{file}
+    license: Apache-2.0
+    license_url: https://github.com/giaplee/guard-spec/blob/main/train/MODEL_CARD.md
+    files:
+      - src: model_int8.onnx
+        dest: model_int8.onnx
+        size: 118521330
+        sha256: 87368d45526ae4f3a1830231d9187814577568e894246a284c8689a9a6cc6ae3
+      - src: tokenizer.json
+        dest: tokenizer.json
+        size: 17083053
+        sha256: 2b95ee17661f8dfbbceaba374f6d277a6b5d8e1898c070a16331622024f58c67
+      - src: config.json
+        dest: config.json
+        size: 1197
+        sha256: c89d10db99567d790a4a33d551eef09dcd0b0786877d22a67033c09c34cf9f72
+      - src: thresholds.json
+        dest: thresholds.json
+        size: 4365
+        sha256: 9589f8de7912f805990eacd0eb1ad0f33eba7e51e20927150b84a75874fb99b6
+      - src: calibration.json
+        dest: calibration.json
+        size: 520
+        sha256: 7b11797528ea0d474e0e7ddcdecca6b4df6689e8dea0ebc5b670223a47209153
+
   # ProtectAI small v2: gated, requires HF_TOKEN. Optional baseline.
   - name: protectai-deberta-v3-small-pi-v2
+    version: d7c8842
     kind: classifier
     repo: protectai/deberta-v3-small-prompt-injection-v2
     revision: d7c8842daf06de3179cc3aca76b7b3a057acc5e7
@@ -49,6 +97,7 @@ models:
   # ProtectAI base v2: same labels (SAFE/INJECTION) and tokenizer, not gated,
   # about 3x the compute of small. Optional baseline.
   - name: protectai-deberta-v3-base-pi-v2
+    version: 90c9989
     kind: classifier
     optional: true
     repo: protectai/deberta-v3-base-prompt-injection-v2
@@ -74,7 +123,11 @@ models:
   # It uses standard ONNX integer ops, so it runs on arm64 as well, the
   # "avx512_vnni" in the name is only the quantization preset.
   # Inputs need the "query: " / "passage: " prefix, as the model card says.
+  # Version names of upstream models are the first 7 characters of the pinned
+  # Hugging Face revision.
   - name: multilingual-e5-small
+    version: 614241f
+    recommended: true
     kind: embedder
     repo: intfloat/multilingual-e5-small
     revision: 614241f622f53c4eeff9890bdc4f31cfecc418b3

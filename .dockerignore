@@ -1,9 +1,11 @@
 .git
 .claude
 bin
-# model weights stay out of the build context; only the manifest goes in
+# model weights stay out of the build context; only the manifest (and the Go
+# package that embeds it) goes in
 models
 !models/manifest.yaml
+!models/models.go
 .onnx
 *.log
 # The UI is installed and built inside the image (build/control-plane.Dockerfile)
