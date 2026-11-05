@@ -1199,7 +1199,7 @@ func upstreamError(c *fiber.Ctx, err error) error {
 
 type config struct {
 	ListenAddr string
-	// Detector is DETECTOR_*, MODEL_DIR (or MODELS_PATH), L2_MODEL_DIR and L3_MODEL_DIR.
+	// Detector is DETECTOR_*, MODEL_DIR (or MODELS_PATH), L2_MODEL / L2_MODEL_DIR and L3_MODEL / L3_MODEL_DIR.
 	Detector        ml.Config
 	DatabaseURL     string
 	UpstreamURL     string
