@@ -38,6 +38,73 @@ trước khi dùng.
 Việt còn non (dữ liệu tổng hợp, tỉ lệ chặn nhầm tiếng Việt còn cao khi bật
 model); chưa có giao diện quản trị, mọi thao tác qua REST API.
 
+## Guard Spec nằm ở đâu trong hệ thống
+
+Guard Spec chạy cạnh ứng dụng của bạn, trong mạng của bạn. Ứng dụng vẫn dùng
+OpenAI SDK, chỉ trỏ `base_url` sang gateway; mọi lời gọi LLM, kèm tài liệu và
+kết quả tool đi theo, được kiểm tra trước khi tới model, và câu trả lời được
+kiểm tra trước khi tới người dùng. Request bị chặn hoặc đáng ngờ trở thành
+cảnh báo cho đội bảo mật.
+
+![Bối cảnh: Guard Spec nằm giữa ứng dụng AI và nhà cung cấp LLM](docs/images/diagram-context.vi.png)
+
+Một bản triển khai production điển hình: gateway nằm sau load balancer nội bộ
+(không mở ra internet), mở rộng theo chiều ngang, đọc model từ volume chỉ đọc;
+control plane phục vụ admin UI cho đội bảo mật qua mạng nội bộ và gửi cảnh báo.
+
+![Các thành phần của một bản triển khai production](docs/images/diagram-component.vi.png)
+
+Điều gì xảy ra với một request, ví dụ chatbot ngân hàng có một tài liệu trong
+kho tri thức bị cài lệnh ẩn:
+
+```mermaid
+%%{init: {"theme": "base", "fontFamily": "Inter, system-ui, sans-serif", "themeVariables": {"fontFamily": "Inter, system-ui, sans-serif", "fontSize": "15px", "primaryColor": "#e8f0fc", "primaryBorderColor": "#1d5fbf", "primaryTextColor": "#0f172a", "actorBkg": "#ffffff", "actorBorder": "#1d5fbf", "actorTextColor": "#0f2f57", "actorLineColor": "#b9cdef", "signalColor": "#334155", "signalTextColor": "#0f172a", "labelBoxBkgColor": "#0f2f57", "labelBoxBorderColor": "#0f2f57", "labelTextColor": "#ffffff", "loopTextColor": "#0f2f57", "noteBkgColor": "#fdf3e3", "noteBorderColor": "#b45309", "noteTextColor": "#7c2d12", "sequenceNumberColor": "#ffffff"}, "sequence": {"actorMargin": 40, "width": 200, "height": 56, "actorFontWeight": 600, "messageFontFamily": "Inter, system-ui, sans-serif", "actorFontFamily": "Inter, system-ui, sans-serif", "noteFontFamily": "Inter, system-ui, sans-serif", "messageMargin": 38, "boxMargin": 12, "mirrorActors": false, "showSequenceNumbers": true, "useMaxWidth": false}}}%%
+sequenceDiagram
+    autonumber
+    actor C as Khách hàng
+    box rgb(246,248,251) Ứng dụng của bạn
+        participant E as Public ALB / API gateway
+        participant A as Backend chatbot ngân hàng
+        participant K as Kho tri thức, tool
+    end
+    box rgb(232,240,252) Guard Spec
+        participant G as Gateway
+        participant P as Control plane
+    end
+    box rgb(246,247,249) Dịch vụ bên ngoài
+        participant L as Nhà cung cấp LLM
+        participant S as Slack, SIEM, SOC agent
+    end
+
+    C->>E: "Phí chuyển khoản quốc tế là bao nhiêu?"
+    E->>A: chuyển tiếp
+    A->>K: lấy tài liệu
+    K-->>A: 3 tài liệu, một tài liệu chứa lệnh ẩn
+    A->>G: POST /v1/chat/completions (câu hỏi + tài liệu)
+    G->>G: làm sạch, L1 rule, L2 classifier,<br/>L3 similarity, policy CEL
+
+    alt Request sạch
+        rect rgb(230,244,242)
+            G->>L: chuyển request đi
+            L-->>G: câu trả lời
+            G->>G: output guard: link, dữ liệu cá nhân, canary
+            G-->>A: câu trả lời
+            A-->>C: câu trả lời
+        end
+    else Có injection trong tài liệu
+        rect rgb(253,238,232)
+            G-->>A: 400 content_filter + request id
+            Note over G,L: LLM không hề được gọi
+            A-->>C: câu trả lời dự phòng an toàn
+            G--)P: detection.blocked event (bất đồng bộ, qua Postgres)
+            P--)S: cảnh báo theo rule của tổ chức
+        end
+    end
+```
+
+Nguồn của các sơ đồ ở [docs/diagrams/](docs/diagrams/)
+(`docs/diagrams/render.sh` xuất lại ảnh).
+
 ## Kiến trúc
 
 ```mermaid
@@ -250,6 +317,33 @@ dụng), Thiết lập bảo vệ, Khóa API, Dự án, Mẫu tham chiếu và N
 Chi tiết ở mục [Admin UI](README.md#admin-ui).
 
 ![Luồng xử lý, giao diện tối](docs/images/admin-flow-dark-vi.png)
+
+## Cảnh báo và thông báo
+
+Gateway và control plane biến những gì chúng thấy thành event: request bị chặn
+hoặc bị gắn cờ (`detection.blocked`, `detection.flagged`), lỗi upstream, đăng
+nhập thất bại, khóa 2FA, thay đổi role, SSO, policy và upstream. Rule cảnh báo,
+đặt theo từng tổ chức, lọc event và báo cho đúng người:
+
+- **Kênh:** Telegram, Slack, Microsoft Teams, email (SMTP), webhook có ký
+  (HMAC, cho SIEM hoặc dịch vụ của bạn), agent A2A (ví dụ agent SOC), và
+  chuông trong admin UI.
+- **Rule:** loại event cùng điều kiện tùy chọn viết bằng cú pháp policy, ví dụ
+  `attrs.score >= 0.95 && "jailbreak" in attrs.categories`; ngưỡng trong một
+  khoảng thời gian (5 lần chặn trong 5 phút), giãn tần suất, gom theo project
+  hoặc loại tấn công, giờ yên lặng, tự đóng cảnh báo.
+- **Người nhận:** user, nhóm hoặc role. Mỗi người tự liên kết Telegram, Slack
+  hoặc email và chọn mức nghiêm trọng tối thiểu.
+- **Gửi:** qua outbox có gửi lại (2 giây đến 30 phút, 6 lần), tôn trọng
+  `Retry-After`, có nhật ký gửi trong UI. Secret của kênh nằm trong biến môi
+  trường, không lưu trong cơ sở dữ liệu và không lộ trong thông báo lỗi.
+- **Không làm chậm request:** event được ghi sau khi đã trả response. Khi bộ
+  đệm đầy, event bị bỏ (`guardspec_events_dropped_total`) thay vì làm chậm request.
+
+Cách bật: đặt các biến `SMTP_*`, `TELEGRAM_*`, `SLACK_*` và `ALERTS_*`, rồi dùng
+nhóm trang **Alerts** trong admin UI (biểu tượng chuông ở thanh bên): rule,
+kênh, nhóm, lịch sử cảnh báo và nhật ký gửi. Chi tiết ở
+[docs/alerts.md](docs/alerts.md) (tiếng Anh).
 
 ## Benchmark
 
