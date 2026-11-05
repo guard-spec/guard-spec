@@ -68,7 +68,7 @@ That threshold is not the gateway's block threshold.
 | `tokenizer.json` | `2b95ee17661f8dfbbceaba374f6d277a6b5d8e1898c070a16331622024f58c67` | Hugging Face `tokenizers` file of the base model |
 | `config.json` | `c89d10db99567d790a4a33d551eef09dcd0b0786877d22a67033c09c34cf9f72` | model config with `id2label` |
 | `thresholds.json` | `9589f8de7912f805990eacd0eb1ad0f33eba7e51e20927150b84a75874fb99b6` | risk definition, thresholds, validation metrics |
-| `calibration.json` | `742965fe6a48ce6bae32675b327d8494818566d82129ee7d9fd44550efafb06a` | Guard Spec fusion calibration (Platt + logistic regression) |
+| `calibration.json` | `7b11797528ea0d474e0e7ddcdecca6b4df6689e8dea0ebc5b670223a47209153` | Guard Spec fusion calibration (Platt + logistic regression) |
 
 ONNX inputs: `input_ids` and `attention_mask` (int64, shape `[batch, seq]`). Output: `logits`
 (float32, `[batch, 8]`), in the label order of `config.json`.
