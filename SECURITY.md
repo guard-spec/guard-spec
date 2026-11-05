@@ -17,8 +17,8 @@ Report it privately through GitHub Security Advisories:
 3. Describe the issue, the affected version or commit, and how to reproduce it.
    A minimal request body or proof of concept helps most.
 
-If you cannot use GitHub, say so in a public issue *without any details* and a
-maintainer will arrange another private channel.
+If you cannot use GitHub, email **security@guardspec.io** with the same
+details. Please do not put details in a public issue.
 
 ### What we consider in scope
 
