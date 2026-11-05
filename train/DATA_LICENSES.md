@@ -1,8 +1,10 @@
 # Training data sources and licenses
 
-Every source below allows redistribution and commercial use, so the
+Every public source below allows redistribution and commercial use, so the
 generated `train/data/*.jsonl` files and a model trained on them can be
-published under Apache-2.0. The agent checked each license on the Hugging
+published under Apache-2.0. The two v3b rows at the end of the table are the
+exception: they are not redistributed, and only weights trained on them are
+published, with the owner's consent (see Notes). The agent checked each license on the Hugging
 Face card (front-matter `license:` field) at the pinned revision.
 
 | Source | License | Pinned revision | Split / file used | Use | Rows after filtering (v1: train + val + val_hard) |
@@ -15,8 +17,10 @@ Face card (front-matter `license:` field) at the pinned revision.
 | **v3**: [`nvidia/HelpSteer2`](https://huggingface.co/datasets/nvidia/HelpSteer2) | CC-BY-4.0 | `990b2711a361` | `train.jsonl.gz` (first user turn of each prompt) | EN benign: real role-play, technical and business requests | 2,500 sampled; 1,404 train + 303 val after balancing |
 | **v3**: Guard Spec project-written rows (`data/gen_v3.py`, `data/gen_holdout_v3.py`) | Apache-2.0 | this repository | - | EN hard negatives (tasks with override verbs, sysadmin/security writing, meta and quoted attacks, role-play, logs), minimal pairs, VI admin/meta text; hold-out set C | see `data/stats.json` |
 | **v3**: Guard Spec realistic rows (`data/realistic/`, source `guard-spec:realistic-fable`) | Apache-2.0 | this repository | `realistic_train.jsonl`, `realistic_holdout.jsonl` | EN + VI realistic attacks (authority impersonation, fake IT/compliance notices, indirect injection in emails, contracts, tickets, documents) and same-domain hard negatives | 2,412 train/val + 613 hold-out |
+| **v3b**: owner-supplied synthetic EN/VI rows, batch 1 (`guard-spec:owner-supplied`) | supplied by the project owner; used with the owner's consent; **not redistributed** | none (outside this repository) | owner `user_train`, `user_holdout` | EN + VI prompt-injection attacks and benign rows, including banking OTP/KYC; translation pairs | 800: 580 training pool (517 train + 63 val) + 220 hold-out |
+| **v3b**: OTP/eKYC rows (`guard-spec:otpkyc-fable`) | AI-written for this project; **not redistributed** | none (outside this repository) | `otpkyc_train`, `otpkyc_probe` | EN OTP/eKYC verification-bypass attacks, EN + VI benign banking text | 181 training pool (166 train + 15 val) + 120 benign probe |
 
-Row counts come from `data/stats.json`.
+Row counts come from `data/stats.json`, except the v3b rows, which `MODEL_CARD.md` (v3b) counts.
 
 ## Notes
 
@@ -49,6 +53,19 @@ Row counts come from `data/stats.json`.
 - **Considered for v3 and not used**: `HuggingFaceH4/ultrachat_200k` (MIT) is synthetic dialogue and
   would add generic text, not the hard negatives v3 needed; prompt-injection datasets with unclear or
   missing licenses.
+- **Owner-supplied rows** (v3b): 800 synthetic EN/VI rows (batch 1), written and supplied by the
+  project owner: prompt-injection attacks and benign text, including banking OTP/KYC scenarios.
+  On 2026-11-05 the owner consented to publishing model weights trained on them
+  (`guardspec-classifier-v3b`, Apache-2.0). The rows themselves are **not redistributed**: they are
+  not in this repository, in the eval set, in the published model repository or in any release
+  artifact; `data/build_data.py` reads them from a path at build time into a gitignored directory
+  (`DATA_CARD.md`, "v3b"). Do not quote them in documentation, issues or reports; describe them
+  only in aggregate (counts and metrics).
+- **OTP/eKYC rows** (v3b, `guard-spec:otpkyc-fable`): written by an AI model for this project;
+  several slices were stopped by safety systems and not retried. Kept outside the repository like
+  the owner rows; only the trained weights are published.
+- **Published v3b weights** (`train/hf/README.md`): Apache-2.0. Every public source above allows
+  this; HelpSteer2 (CC-BY-4.0) is attributed in the model card.
 - **Project-written rows** are licensed Apache-2.0 as project data. The
   Vietnamese rows are machine-written and agent-labelled, not reviewed by a
   native speaker.
