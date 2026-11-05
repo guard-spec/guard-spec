@@ -10,6 +10,7 @@ import { ArrowLeft, KeyRound, LogIn, ShieldCheck } from 'lucide-react';
 import { useEffect, useReducer, useState, type FormEvent } from 'react';
 import { authErrorText } from '../auth/errors';
 import { initialLogin, loginReducer, normalizeCode, parseCallbackHash, stepFor, type LoginStep } from '../auth/loginMachine';
+import { BrandMark } from '../components/BrandMark';
 import { RecoveryCodes } from '../components/RecoveryCodes';
 import { TotpEnroll } from '../components/TotpEnroll';
 import { ErrorBanner, Field, Loading } from '../components/ui';
@@ -284,10 +285,7 @@ export function LoginPage({
     <main className="login" id="main">
       <div className="login-card card">
         <div className="brand">
-          <svg viewBox="0 0 32 32" width="32" height="32" aria-hidden="true">
-            <path d="M16 2 4 7v8c0 7.5 5.1 13.4 12 15 6.9-1.6 12-7.5 12-15V7z" className="brand-shield" />
-            <path d="m10 16 4 4 8-9" className="brand-check" />
-          </svg>
+          <BrandMark size={32} />
           <span className="brand-text">
             <strong>{t('app.title')}</strong>
             <span className="muted">{t('app.subtitle')}</span>
