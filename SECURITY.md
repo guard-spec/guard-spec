@@ -71,8 +71,9 @@ fix needs longer.
 Release container images are signed with cosign (keyless, through GitHub
 Actions OIDC) and come with an SPDX SBOM and SLSA provenance (BuildKit
 attestations; `docker buildx imagetools inspect <image> --format '{{json .SBOM}}'`).
-The gateway image is built by `.github/workflows/release.yml`, the
-control-plane image by GoReleaser; both are verified the same way:
+The gateway and gateway-full images are built by `.github/workflows/release.yml`,
+the control-plane image by GoReleaser; all are verified the same way (replace
+`guard-spec-gateway` with `guard-spec-gateway-full` or `guard-spec-control-plane`):
 
 ```bash
 cosign verify ghcr.io/giaplee/guard-spec-gateway:<version> \
