@@ -182,8 +182,13 @@ Fixes from the review of the identity work (migration 015):
 
 ### Changed
 
+- **The project moved to the `guard-spec` GitHub organization.** Go module
+  `github.com/guard-spec/guard-spec`; images
+  `ghcr.io/guard-spec/guard-spec-gateway`, `-gateway-full` and
+  `-control-plane`; the L2 model `guard-spec/guardspec-classifier` on Hugging
+  Face. The `cosign verify` identity in SECURITY.md changed with it.
 - `docker-compose.yml` uses the released images
-  `ghcr.io/giaplee/guard-spec-gateway` and `-control-plane` at
+  `ghcr.io/guard-spec/guard-spec-gateway` and `-control-plane` at
   `GUARDSPEC_VERSION` (default `0.1.0`); the build sections moved to
   `docker-compose.override.yml`, so `docker compose up --build` still builds
   from source (as `guard-spec-*:latest`). A `models-init` service, not behind
@@ -254,8 +259,8 @@ was imported into this repository.
 
 ### Upgrade notes (from the PromptShield prototype)
 
-- **Renamed to Guard Spec.** Go module `github.com/giaplee/guard-spec`;
-  images `ghcr.io/giaplee/guard-spec-gateway` and `-control-plane`; `Server`
+- **Renamed to Guard Spec.** Go module `github.com/guard-spec/guard-spec`;
+  images `ghcr.io/guard-spec/guard-spec-gateway` and `-control-plane`; `Server`
   headers `guard-spec` and `guard-spec-cp`; new API keys `gs_...` and invite
   tokens `gsinv_...` (old `ps_` keys and `psinv_` invites keep working).
 - **Database role** `ps_app` is renamed to `guardspec_app` by migration 010.
@@ -366,5 +371,5 @@ See "Upgrade notes" in the README for the full procedure.
   built without `-tags onnx` and run L1 only; use the gateway image or the
   linux `_onnx` tarball for the model layers. There is no darwin ONNX build.
 
-[Unreleased]: https://github.com/giaplee/guard-spec/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/giaplee/guard-spec/releases/tag/v0.1.0
+[Unreleased]: https://github.com/guard-spec/guard-spec/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/guard-spec/guard-spec/releases/tag/v0.1.0

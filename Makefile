@@ -25,7 +25,7 @@ LICENSES_DENIED := forbidden,restricted,unknown
 
 .PHONY: licenses licenses-check
 licenses:           ## write THIRD_PARTY_LICENSES.md
-	$(LICENSES_ENV) $(GO) run $(GO_LICENSES) report ./... --ignore github.com/giaplee/guard-spec --template build/licenses.md.tpl > THIRD_PARTY_LICENSES.md
+	$(LICENSES_ENV) $(GO) run $(GO_LICENSES) report ./... --ignore github.com/guard-spec/guard-spec --template build/licenses.md.tpl > THIRD_PARTY_LICENSES.md
 
 licenses-check:     ## fail on GPL/AGPL/LGPL or unknown licenses
 	$(LICENSES_ENV) $(GO) run $(GO_LICENSES) check ./... --disallowed_types=$(LICENSES_DENIED)

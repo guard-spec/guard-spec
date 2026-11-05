@@ -14,8 +14,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/giaplee/guard-spec/internal/inference/fusion"
-	"github.com/giaplee/guard-spec/internal/onnx"
+	"github.com/guard-spec/guard-spec/internal/inference/fusion"
+	"github.com/guard-spec/guard-spec/internal/onnx"
 )
 
 type fakeClassifier struct {

@@ -7,11 +7,11 @@ import (
 	"log/slog"
 	"strings"
 
-	appconfig "github.com/giaplee/guard-spec/internal/config"
-	"github.com/giaplee/guard-spec/internal/inference/ml"
-	"github.com/giaplee/guard-spec/internal/onnx"
-	"github.com/giaplee/guard-spec/internal/tenant"
 	"github.com/google/uuid"
+	appconfig "github.com/guard-spec/guard-spec/internal/config"
+	"github.com/guard-spec/guard-spec/internal/inference/ml"
+	"github.com/guard-spec/guard-spec/internal/onnx"
+	"github.com/guard-spec/guard-spec/internal/tenant"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )

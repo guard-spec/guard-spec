@@ -26,7 +26,7 @@ SPDX-License-Identifier: Apache-2.0
 # guardspec-classifier (v3b)
 
 A small English + Vietnamese **prompt-injection risk classifier**, shipped as an INT8 ONNX model
-(118.5 MB). It is the L2 layer of [Guard Spec](https://github.com/giaplee/guard-spec), a
+(118.5 MB). It is the L2 layer of [Guard Spec](https://github.com/guard-spec/guard-spec), a
 self-hosted prompt-injection guardrail gateway. It is not an LLM and does not generate text.
 
 - Architecture: `intfloat/multilingual-e5-small` (BERT, 12 layers, hidden size 384, about 118M
@@ -85,7 +85,7 @@ import onnxruntime as ort
 from huggingface_hub import snapshot_download
 from tokenizers import Tokenizer
 
-path = snapshot_download("giaplee/guardspec-classifier")  # pin revision= in production
+path = snapshot_download("guard-spec/guardspec-classifier")  # pin revision= in production
 tok = Tokenizer.from_file(f"{path}/tokenizer.json")
 tok.enable_truncation(max_length=256)
 tok.enable_padding()
@@ -212,8 +212,8 @@ Model weights: Apache-2.0, copyright The Guard Spec Authors. Base model
   title        = {guardspec-classifier: an English and Vietnamese prompt-injection classifier (v3b)},
   author       = {{The Guard Spec Authors}},
   year         = {2026},
-  howpublished = {\url{https://huggingface.co/giaplee/guardspec-classifier}},
-  note         = {L2 layer of the Guard Spec gateway, https://github.com/giaplee/guard-spec}
+  howpublished = {\url{https://huggingface.co/guard-spec/guardspec-classifier}},
+  note         = {L2 layer of the Guard Spec gateway, https://github.com/guard-spec/guard-spec}
 }
 ```
 

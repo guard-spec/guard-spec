@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/giaplee/guard-spec/internal/events"
-	"github.com/giaplee/guard-spec/internal/policy"
 	"github.com/google/uuid"
+	"github.com/guard-spec/guard-spec/internal/events"
+	"github.com/guard-spec/guard-spec/internal/policy"
 )
 
 func TestValidateRule(t *testing.T) {

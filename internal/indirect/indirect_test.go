@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/giaplee/guard-spec/internal/inference"
-	"github.com/giaplee/guard-spec/internal/inference/rules"
-	"github.com/giaplee/guard-spec/internal/sanitizer"
+	"github.com/guard-spec/guard-spec/internal/inference"
+	"github.com/guard-spec/guard-spec/internal/inference/rules"
+	"github.com/guard-spec/guard-spec/internal/sanitizer"
 )
 
 func TestParseRoles(t *testing.T) {

@@ -12,8 +12,8 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/giaplee/guard-spec/internal/events"
 	"github.com/google/uuid"
+	"github.com/guard-spec/guard-spec/internal/events"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )

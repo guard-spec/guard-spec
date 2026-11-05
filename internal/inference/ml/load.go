@@ -14,9 +14,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/giaplee/guard-spec/internal/inference/fusion"
-	"github.com/giaplee/guard-spec/internal/onnx"
-	"github.com/giaplee/guard-spec/models"
+	"github.com/guard-spec/guard-spec/internal/inference/fusion"
+	"github.com/guard-spec/guard-spec/internal/onnx"
+	"github.com/guard-spec/guard-spec/models"
 )
 
 // Environment variables read by ConfigFromEnv.

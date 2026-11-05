@@ -5,5 +5,5 @@ type: application
 version: 0.1.0
 appVersion: "0.1.0"
 keywords: [llm, guardrail, prompt-injection, gateway]
-home: https://github.com/giaplee/guard-spec
-sources: [https://github.com/giaplee/guard-spec]
+home: https://github.com/guard-spec/guard-spec
+sources: [https://github.com/guard-spec/guard-spec]

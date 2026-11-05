@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/giaplee/guard-spec/internal/indirect"
-	"github.com/giaplee/guard-spec/internal/inference/rules"
+	"github.com/guard-spec/guard-spec/internal/indirect"
+	"github.com/guard-spec/guard-spec/internal/inference/rules"
 )
 
 func decodeJSON(t *testing.T, s string) map[string]any {

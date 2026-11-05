@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/giaplee/guard-spec/internal/policy"
 	"github.com/google/uuid"
+	"github.com/guard-spec/guard-spec/internal/policy"
 )
 
 func TestCheckPoliciesListsFailures(t *testing.T) {

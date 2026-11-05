@@ -24,7 +24,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/giaplee/guard-spec/internal/proxy"
+	"github.com/guard-spec/guard-spec/internal/proxy"
 )
 
 // Kinds of channels.

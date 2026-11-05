@@ -22,7 +22,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/giaplee/guard-spec/internal/evalset"
+	"github.com/guard-spec/guard-spec/internal/evalset"
 )
 
 func main() {

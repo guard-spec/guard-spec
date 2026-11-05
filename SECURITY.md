@@ -13,7 +13,7 @@ Report it privately through GitHub Security Advisories:
 
 1. Go to the repository's **Security** tab.
 2. Click **Report a vulnerability**
-   (direct link: `https://github.com/giaplee/guard-spec/security/advisories/new`).
+   (direct link: `https://github.com/guard-spec/guard-spec/security/advisories/new`).
 3. Describe the issue, the affected version or commit, and how to reproduce it.
    A minimal request body or proof of concept helps most.
 
@@ -76,8 +76,8 @@ the control-plane image by GoReleaser; all are verified the same way (replace
 `guard-spec-gateway` with `guard-spec-gateway-full` or `guard-spec-control-plane`):
 
 ```bash
-cosign verify ghcr.io/giaplee/guard-spec-gateway:<version> \
-  --certificate-identity-regexp '^https://github.com/giaplee/guard-spec/' \
+cosign verify ghcr.io/guard-spec/guard-spec-gateway:<version> \
+  --certificate-identity-regexp '^https://github.com/guard-spec/guard-spec/' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
@@ -87,7 +87,7 @@ bundle next to it:
 
 ```bash
 cosign verify-blob checksums-onnx.txt --bundle checksums-onnx.txt.sigstore.json \
-  --certificate-identity-regexp '^https://github.com/giaplee/guard-spec/' \
+  --certificate-identity-regexp '^https://github.com/guard-spec/guard-spec/' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 sha256sum --ignore-missing -c checksums-onnx.txt
 ```
