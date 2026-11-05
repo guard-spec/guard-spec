@@ -16,17 +16,13 @@ guardEnv: ""
 #   --from-literal=POSTGRES_PASSWORD=... --from-literal=GUARDSPEC_APP_PASSWORD=... \
 #   --from-literal=JWT_SECRET=... --from-literal=ADMIN_PASSWORD=...
 existingSecret: guard-spec-secrets
-# Key of the application role password in existingSecret. Secrets made for
-# PromptShield (the former name) use PS_APP_PASSWORD: set that here to keep
-# them for one release (deprecated; the dbRoles job logs a warning).
+# Key of the application role password in existingSecret.
 appPasswordKey: GUARDSPEC_APP_PASSWORD
 
 # External Postgres. URLs carry no password: GUARDSPEC_APP_PASSWORD reaches
 # the services as PGPASSWORD. Use sslmode=require or stronger outside a test cluster.
 externalDatabase:
   # Application role (guardspec_app), used by the gateway and the control plane.
-  # The default database name was promptshield before the rename; an existing
-  # database keeps its name, so set it here and in database below.
   url: postgres://guardspec_app@postgres:5432/guardspec?sslmode=require
   # libpq settings for the optional dbRoles job, which connects as the owner.
   host: postgres

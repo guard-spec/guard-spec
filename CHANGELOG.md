@@ -257,34 +257,7 @@ Fixes from the review of the identity work (migration 015):
 
 ## [0.1.0] - unreleased (release candidate)
 
-First release. Summarises everything since the PromptShield prototype that
-was imported into this repository.
-
-### Upgrade notes (from the PromptShield prototype)
-
-- **Renamed to Guard Spec.** Go module `github.com/guard-spec/guard-spec`;
-  images `ghcr.io/guard-spec/guard-spec-gateway` and `-control-plane`; `Server`
-  headers `guard-spec` and `guard-spec-cp`; new API keys `gs_...` and invite
-  tokens `gsinv_...` (old `ps_` keys and `psinv_` invites keep working).
-- **Database role** `ps_app` is renamed to `guardspec_app` by migration 010.
-  Run the migrations as the owner, set `GUARDSPEC_APP_PASSWORD` (the old
-  `PS_APP_PASSWORD` is still read for one release, with a warning), then
-  change the user in `DATABASE_URL`, in one maintenance window.
-- **Default database and compose project** are now `guardspec` and
-  `guard-spec`. To keep an existing stack's data, set
-  `POSTGRES_DB=promptshield` and `COMPOSE_PROJECT_NAME=<old directory name>`.
-- **Secrets are required** outside `GUARD_ENV=dev`: `POSTGRES_PASSWORD`,
-  `GUARDSPEC_APP_PASSWORD`, `JWT_SECRET`, `ADMIN_PASSWORD`. Default, weak or
-  missing values stop the services. Production must not load
-  `docker-compose.override.yml`.
-- **Audit retention** starts with migration 007: rows older than 90 days are
-  deleted. Set `AUDIT_RETENTION_DAYS=0` before upgrading to keep them.
-- **Policy fields** `toxicity.score`, `pii.entities` and `topic.categories`
-  were removed; run `control-plane -check-policies` to find rules that use
-  them. `log` rules no longer stop evaluation.
-- **`[DATA]` markers** are no longer added to prompts; use `SPOTLIGHT`.
-
-See "Upgrade notes" in the README for the full procedure.
+First release.
 
 ### Added
 
@@ -338,7 +311,6 @@ See "Upgrade notes" in the README for the full procedure.
 
 ### Changed
 
-- Project renamed from PromptShield to Guard Spec (see upgrade notes).
 - Tool messages are classified separately from the user's text.
 - Upstream failures are audited as `error`, not `allow`.
 - README, README.vi.md, DESIGN.md and `docs/arch-flow.html` (moved from the

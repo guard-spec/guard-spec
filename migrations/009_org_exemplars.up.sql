@@ -20,7 +20,7 @@ CREATE INDEX org_exemplars_org ON org_exemplars (org_id, created_at, id);
 ALTER TABLE org_exemplars ENABLE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation_exemplars ON org_exemplars
     USING (org_id = current_setting('app.org_id')::uuid);
-GRANT SELECT, INSERT, UPDATE, DELETE ON org_exemplars TO ps_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON org_exemplars TO guardspec_app;
 
 -- Runs as the caller, so RLS on organizations still applies: the change and
 -- the bump happen in the same org scope (app.org_id).

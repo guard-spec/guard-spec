@@ -1,3 +1,2 @@
--- Intentionally empty: restoring the published default password would reopen
--- the hole that the up migration closes.
+-- No change: the role keeps the password the deployment set.
 SELECT 1;

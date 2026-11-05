@@ -41,7 +41,7 @@ spec:
 {{- end }}
 {{- if .Values.dbRoles.enabled }}
 # Sets the guardspec_app password from GUARDSPEC_APP_PASSWORD, like the compose
-# db-roles service. Run the migrations (010 renames ps_app) before installing.
+# db-roles service. Run the migrations before installing.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -73,9 +73,6 @@ spec:
             - -ec
             # The password goes in as a psql variable, quoted by psql.
             - |
-              {{- if eq .Values.appPasswordKey "PS_APP_PASSWORD" }}
-              echo "warning: appPasswordKey PS_APP_PASSWORD is deprecated and will be removed in the next release; rename the Secret key to GUARDSPEC_APP_PASSWORD" >&2
-              {{- end }}
               echo "ALTER ROLE guardspec_app WITH PASSWORD :'app_password';" |
                 psql -v ON_ERROR_STOP=1 -q -v app_password="$GUARDSPEC_APP_PASSWORD"
               echo "guardspec_app password set"

@@ -1,6 +1,6 @@
 # Guard Spec
 
-> Tên cũ: PromptShield. English: [README.md](README.md) (bản đầy đủ, là tài liệu chính).
+> English: [README.md](README.md) (bản đầy đủ, là tài liệu chính).
 
 Guard Spec là một gateway tự host, đặt giữa ứng dụng của bạn và một API LLM
 tương thích OpenAI, để chặn tấn công prompt injection. Nó kiểm tra tin nhắn

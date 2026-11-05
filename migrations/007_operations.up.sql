@@ -28,7 +28,7 @@ CREATE INDEX idx_invites_org ON invites (org_id, created_at DESC);
 ALTER TABLE invites ENABLE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation_invites ON invites
     USING (org_id = current_setting('app.org_id')::uuid);
-GRANT SELECT, INSERT, UPDATE, DELETE ON invites TO ps_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON invites TO guardspec_app;
 
 -- The org is unknown until the token is resolved, so claiming runs with the
 -- owner's rights, like lookup_api_key. It marks one pending, unexpired invite
@@ -46,9 +46,9 @@ AS $$
     RETURNING i.id, i.org_id, i.email, i.role
 $$;
 REVOKE ALL ON FUNCTION claim_invite(TEXT) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION claim_invite(TEXT) TO ps_app;
+GRANT EXECUTE ON FUNCTION claim_invite(TEXT) TO guardspec_app;
 
--- Audit retention. Rows of every org are deleted, which RLS does not let ps_app
+-- Audit retention. Rows of every org are deleted, which RLS does not let guardspec_app
 -- do, so the batch delete runs with the owner's rights. It removes at most
 -- batch rows older than cutoff and returns how many it removed.
 CREATE INDEX idx_requests_created ON requests (created_at);
@@ -73,4 +73,4 @@ BEGIN
 END
 $$;
 REVOKE ALL ON FUNCTION purge_audit_rows(TIMESTAMPTZ, INT) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION purge_audit_rows(TIMESTAMPTZ, INT) TO ps_app;
+GRANT EXECUTE ON FUNCTION purge_audit_rows(TIMESTAMPTZ, INT) TO guardspec_app;

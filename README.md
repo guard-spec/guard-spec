@@ -1,6 +1,5 @@
 # Guard Spec
 
-> Formerly PromptShield. See [Upgrading from PromptShield](#upgrading-from-promptshield).
 > Tiếng Việt: [README.vi.md](README.vi.md).
 
 Guard Spec is a self-hosted gateway that sits between your application and an
@@ -590,7 +589,7 @@ URL tried before Hugging Face: `<mirror>/<name>/<version>/<file>`).
 | Variable | Default | Purpose |
 |---|---|---|
 | `POSTGRES_PASSWORD` | dev: `ps` | Superuser `ps`, used by migrations and `db-roles` |
-| `GUARDSPEC_APP_PASSWORD` | dev: `guardspec_app` | Password of the `guardspec_app` role. `PS_APP_PASSWORD` is the deprecated name, still read with a warning |
+| `GUARDSPEC_APP_PASSWORD` | dev: `guardspec_app` | Password of the `guardspec_app` role. |
 | `POSTGRES_DB` | `guardspec` | Database created on a fresh volume |
 | `COMPOSE_PROJECT_NAME` | `guard-spec` | Compose project (and volume) name |
 | `GATEWAY_PORT`, `METRICS_PORT` | `8080`, `9090` | Host ports of the gateway |
@@ -1477,85 +1476,6 @@ helm install gs deploy/helm/guard-spec \
 - Compose no longer gives the control plane `UPSTREAM_KEY_ORGS` by default or
   `UPSTREAM_ALLOW_PRIVATE=true`: set `UPSTREAM_KEY_ORGS` in `.env` (as for the
   gateway) to save upstreams that use keys.
-
-### Upgrading from PromptShield
-
-The project was renamed from PromptShield to Guard Spec (the old name was too
-close to Microsoft's Prompt Shields). The API paths and the request and
-response bodies did not change. What did change:
-
-| What | Before | Now | What to do |
-|---|---|---|---|
-| Go module | `github.com/promptshield/promptshield` | `github.com/guard-spec/guard-spec` | Update imports, if you import packages |
-| Images | `ghcr.io/giaplee/promptshield-gateway`, `-control-plane` | `ghcr.io/guard-spec/guard-spec-gateway`, `-control-plane` | Update image references; local builds are tagged `guard-spec-gateway:latest` and so on |
-| Application role | `ps_app` | `guardspec_app` | Migration 010 renames it; see below |
-| Role password variable | `PS_APP_PASSWORD` | `GUARDSPEC_APP_PASSWORD` | Rename it in `.env` or your Secret. The old name is still read for one release, with a warning (Helm: `appPasswordKey: PS_APP_PASSWORD`) |
-| Default database | `promptshield` | `guardspec` | Fresh installs only; an existing database keeps its name (see below) |
-| Compose project | the checkout's directory name | `guard-spec` | Set `COMPOSE_PROJECT_NAME` to keep an existing stack's volumes (see below) |
-| `Server` header | `promptshield`, `promptshield-cp` | `guard-spec`, `guard-spec-cp` | Update anything that matches on it |
-| New API keys | `ps_...` | `gs_...` | Nothing: existing `ps_` keys keep working |
-| New invite tokens | `psinv_...` | `gsinv_...` | Nothing: pending `psinv_` invites stay valid |
-
-Metrics were already named `guardspec_*`, and no environment variable other
-than `PS_APP_PASSWORD` changed.
-
-**Role rename (migration 010).** `ALTER ROLE ps_app RENAME TO guardspec_app`,
-guarded: it runs only when `ps_app` exists, creates `guardspec_app` with the
-same grants when neither role exists, and stops with an error when both exist.
-A SCRAM password (the default since PostgreSQL 14) survives the rename; an MD5
-one is cleared by PostgreSQL, and `db-roles` (or the Helm `dbRoles` job, or
-`set-app-password.sh`) sets it again. Outside compose:
-
-1. Run the migrations as the owner role (`migrate ... up`).
-2. Set the password: `GUARDSPEC_APP_PASSWORD=... sh deploy/postgres/set-app-password.sh`.
-3. Change the user in `DATABASE_URL` from `ps_app` to `guardspec_app` and restart the services.
-
-Services still connecting as `ps_app` fail to log in after step 1, so do
-steps 1 to 3 in one maintenance window. The down migration renames the role
-back.
-
-**Database name.** Only a new database gets the name `guardspec`. To keep a
-`promptshield` database, set `POSTGRES_DB=promptshield` in `.env` (compose),
-or keep `promptshield` in `externalDatabase.url` and
-`externalDatabase.database` (Helm). To rename it instead, stop the services
-and run `ALTER DATABASE promptshield RENAME TO guardspec;` from another
-database as the owner.
-
-**Compose project name.** `docker-compose.yml` sets `name: guard-spec`.
-Before, the project and its volumes (`<dir>_pgdata`) were named after the
-checkout directory. To keep using them, set `COMPOSE_PROJECT_NAME=<dir>` in
-`.env` (or pass `-p <dir>`), together with `POSTGRES_DB=promptshield`.
-
-### Other changes since the prototype
-
-- **Migration 007** adds the `invites` table, audit retention and an index on
-  `requests (created_at)`. After upgrading, the control plane deletes audit
-  rows older than 90 days; set `AUDIT_RETENTION_DAYS=0` before upgrading to
-  keep them all.
-- **No more `[DATA]` markers.** The sanitizer no longer wraps text in
-  `[DATA]...[/DATA]`. Set `SPOTLIGHT=delimit` or `datamark` to mark tool
-  results instead.
-- **Tool content is scored on its own**, and tool descriptions in `tools[]`
-  are scanned; a malformed `tools` field is refused with 400.
-- **Removed policy fields.** `toxicity.score`, `pii.entities` and
-  `topic.categories` are no longer rule fields, because no detector produced
-  them. New rules naming them are refused; stored ones still evaluate them as
-  0 or empty. List the policies that need editing:
-
-  ```bash
-  DATABASE_URL=postgres://ps:ps@localhost:5432/guardspec?sslmode=disable \
-    go run ./cmd/control-plane -check-policies
-  ```
-
-  It prints one `FAIL` line per problem and exits 0 when all pass, 1 when
-  any fails, 2 when it cannot read the policies. Run it as a role that
-  bypasses row-level security, such as the table owner (`ps` in compose).
-- **Log rules** no longer stop evaluation: a `block` after a matching `log`
-  rule now blocks.
-- **Audit actions.** Upstream failures are recorded as `error`, not `allow`.
-- **Removed compose services.** `ui`, `clickhouse` and `model-init` were
-  placeholders for components that do not exist and are gone from
-  `docker-compose.yml`.
 
 See [CHANGELOG.md](CHANGELOG.md) for the full list.
 

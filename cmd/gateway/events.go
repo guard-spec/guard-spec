@@ -56,7 +56,7 @@ func apiKeyPrefix(c *fiber.Ctx) string {
 	if a := c.Get("Authorization"); strings.HasPrefix(a, "Bearer ") {
 		raw = strings.TrimPrefix(a, "Bearer ")
 	}
-	if len(raw) < 11 || (!strings.HasPrefix(raw, "gs_") && !strings.HasPrefix(raw, "ps_")) {
+	if len(raw) < 11 || !strings.HasPrefix(raw, "gs_") {
 		return ""
 	}
 	return raw[:11]

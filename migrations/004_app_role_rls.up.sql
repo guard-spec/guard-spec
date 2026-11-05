@@ -1,9 +1,9 @@
 -- Services connect as this role. It is not a superuser and does not own the
 -- tables, so RLS applies. It has no password here: the deployment sets one from
 -- its own configuration (see deploy/postgres/set-app-password.sh).
-CREATE ROLE ps_app LOGIN;
-GRANT USAGE ON SCHEMA public TO ps_app;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ps_app;
+CREATE ROLE guardspec_app LOGIN;
+GRANT USAGE ON SCHEMA public TO guardspec_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO guardspec_app;
 
 -- These tables had RLS enabled with no policy, which denied every row.
 CREATE POLICY tenant_isolation_orgs ON organizations
@@ -28,4 +28,4 @@ AS $$
       AND (k.expires_at IS NULL OR k.expires_at > NOW())
 $$;
 REVOKE ALL ON FUNCTION lookup_api_key(TEXT) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION lookup_api_key(TEXT) TO ps_app;
+GRANT EXECUTE ON FUNCTION lookup_api_key(TEXT) TO guardspec_app;

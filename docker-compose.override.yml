@@ -28,7 +28,7 @@ services:
       - ./models:/models:ro
     environment:
       GUARD_ENV: ${GUARD_ENV:-dev}
-      PGPASSWORD: ${GUARDSPEC_APP_PASSWORD:-${PS_APP_PASSWORD:-guardspec_app}}
+      PGPASSWORD: ${GUARDSPEC_APP_PASSWORD:-guardspec_app}
 
   # The model helpers run the same locally built gateway image (its `models`
   # binary and manifest).
@@ -51,7 +51,7 @@ services:
       dockerfile: build/control-plane.Dockerfile
     environment:
       GUARD_ENV: ${GUARD_ENV:-dev}
-      PGPASSWORD: ${GUARDSPEC_APP_PASSWORD:-${PS_APP_PASSWORD:-guardspec_app}}
+      PGPASSWORD: ${GUARDSPEC_APP_PASSWORD:-guardspec_app}
       JWT_SECRET: ${JWT_SECRET:-dev-only-insecure-jwt-secret-do-not-deploy}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-change-on-first-login}
       # base64 of "dev-only-insecure-mfa-key-000000"; refused outside GUARD_ENV=dev.
@@ -71,7 +71,7 @@ services:
     environment:
       GUARD_ENV: ${GUARD_ENV:-dev}
       PGPASSWORD: ${POSTGRES_PASSWORD:-ps}
-      GUARDSPEC_APP_PASSWORD: ${GUARDSPEC_APP_PASSWORD:-${PS_APP_PASSWORD:-guardspec_app}}
+      GUARDSPEC_APP_PASSWORD: ${GUARDSPEC_APP_PASSWORD:-guardspec_app}
 
   postgres:
     environment:
