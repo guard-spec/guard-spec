@@ -33,6 +33,7 @@ import (
 	"time"
 
 	"github.com/guard-spec/guard-spec/internal/onnx"
+	"github.com/guard-spec/guard-spec/internal/version"
 	"github.com/guard-spec/guard-spec/models"
 )
 
@@ -51,6 +52,10 @@ func main() {
 		os.Exit(2)
 	}
 	cmd := os.Args[1]
+	if version.IsFlag(cmd) {
+		fmt.Println("models", version.String())
+		return
+	}
 	if cmd == "-h" || cmd == "--help" || cmd == "help" {
 		usage(os.Stdout)
 		return

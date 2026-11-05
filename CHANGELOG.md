@@ -11,6 +11,9 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ### Added
 
+- `gateway`, `control-plane` and `models` print their release with
+  `version` (or `-version`, `--version`), and log it at start. The release
+  archives now include the `models` tool.
 - **Versioned models** (docs/models.md): every `models/manifest.yaml` entry
   has a `version`; `models pull name@version` installs it in
   `<dir>/<name>/<version>/`, atomically (temporary directory, then rename),

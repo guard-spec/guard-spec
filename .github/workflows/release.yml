@@ -115,6 +115,8 @@ jobs:
           context: .
           file: build/gateway.Dockerfile
           platforms: ${{ matrix.platform }}
+          build-args: |
+            VERSION=${{ github.ref_name }}
           labels: ${{ steps.meta.outputs.labels }}
           sbom: true
           provenance: mode=max
@@ -138,6 +140,8 @@ jobs:
           context: .
           file: build/gateway.Dockerfile
           platforms: ${{ matrix.platform }}
+          build-args: |
+            VERSION=${{ github.ref_name }}
           target: dist
           outputs: type=local,dest=${{ runner.temp }}/dist
       - name: Package onnx tarball

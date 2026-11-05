@@ -32,6 +32,7 @@ import (
 	"github.com/guard-spec/guard-spec/internal/policy"
 	"github.com/guard-spec/guard-spec/internal/retention"
 	"github.com/guard-spec/guard-spec/internal/tenant"
+	"github.com/guard-spec/guard-spec/internal/version"
 	"github.com/guard-spec/guard-spec/web"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -42,6 +43,11 @@ var defaultOrgID = uuid.MustParse("00000000-0000-0000-0000-000000000001")
 
 func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+
+	if len(os.Args) > 1 && version.IsFlag(os.Args[1]) {
+		fmt.Println("control-plane", version.String())
+		return
+	}
 
 	// Handle "health" subcommand used by the Dockerfile HEALTHCHECK
 	if len(os.Args) > 1 && os.Args[1] == "health" {
@@ -142,7 +148,7 @@ func main() {
 	}()
 
 	go func() {
-		slog.Info("control-plane listening", "addr", cfg.ListenAddr)
+		slog.Info("control-plane listening", "addr", cfg.ListenAddr, "version", version.String())
 		if err := app.Listen(cfg.ListenAddr); err != nil {
 			slog.Error("listen", "err", err)
 		}
