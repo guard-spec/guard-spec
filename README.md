@@ -173,8 +173,9 @@ Qwen3Guard or Granite Guardian. See [ROADMAP.md](ROADMAP.md) and [DESIGN.md](DES
 
 ## Quick start
 
-You need Docker with Compose v2, `curl` and `jq`. The stack runs with **L1
-only** (no model files needed); add the models later, see [Models](#models).
+You need Docker with Compose v2, `curl` and `jq`. One script starts the
+released images with the full detector (L1 rules + L2 classifier + L3
+embeddings), nothing to build and no model files to copy:
 
 ```bash
 git clone https://github.com/giaplee/guard-spec.git
@@ -184,14 +185,43 @@ cd guard-spec
 # This example uses Ollama on the host (on Linux, Ollama must listen on 0.0.0.0).
 export UPSTREAM_LLM_URL=http://host.docker.internal:11434/v1
 
+scripts/quickstart.sh
+```
+
+[`scripts/quickstart.sh`](scripts/quickstart.sh):
+
+1. writes `.env` from `.env.example` with strong random secrets
+   (`POSTGRES_PASSWORD`, `GUARDSPEC_APP_PASSWORD`, `JWT_SECRET`,
+   `MFA_ENC_KEY`, `ADMIN_PASSWORD`), using `openssl` or `/dev/urandom`. An
+   existing `.env` is never overwritten;
+2. runs `docker compose -f docker-compose.yml up -d` with
+   `ghcr.io/giaplee/guard-spec-gateway` and `-control-plane` at
+   `GUARDSPEC_VERSION` (default `0.1.0`). Before the gateway starts, the
+   `models-init` service pulls the recommended models (about 270 MB, SHA-256
+   verified) into `./models/cache`; on later starts it finds them and does
+   nothing;
+3. waits for `GET /readyz`, prints the active layers
+   (`"layers":["l1","l2","l3"]`) and the admin login. The admin password is
+   printed once; it is also in `.env`.
+
+It runs in production mode (no `GUARD_ENV=dev`). Below, log in with the
+printed email and password instead of the development ones. Models and
+versions: [docs/models.md](docs/models.md).
+
+**Contributors** build from source instead:
+
+```bash
 docker compose up -d --build
 docker compose ps        # wait until gateway is "healthy" (about 30 s after the build)
 ```
 
-`docker compose up` also loads `docker-compose.override.yml`, which sets
-`GUARD_ENV=dev` and well-known throwaway credentials (admin login
-`admin@localhost` / `change-on-first-login`). **Never deploy with it**; see
-[Production](#production).
+`docker compose up` also loads `docker-compose.override.yml`, which builds
+the images from source (as `guard-spec-gateway:latest` and
+`guard-spec-control-plane:latest`), sets `GUARD_ENV=dev` and well-known
+throwaway credentials (admin login `admin@localhost` /
+`change-on-first-login`). **Never deploy with it**; see
+[Production](#production). The examples below use those development
+credentials.
 
 The ports are 8080 (gateway), 9090 (gateway metrics), 18081 (control plane),
 9091 (control-plane metrics) and 5432 (Postgres, dev override only). If one is
@@ -240,15 +270,16 @@ Stop and remove everything, including the database volume and the images
 built here:
 
 ```bash
-docker compose down -v
+docker compose down -v           # after scripts/quickstart.sh: docker compose -f docker-compose.yml down -v
 docker image rm guard-spec-gateway:latest guard-spec-control-plane:latest
 ```
 
 ### Production
 
 ```bash
-cp .env.example .env      # fill in every secret, e.g. with: openssl rand -hex 32
-docker compose -f docker-compose.yml up -d
+scripts/quickstart.sh     # or: cp .env.example .env, fill in every secret
+                          # (openssl rand -hex 32), then
+                          # docker compose -f docker-compose.yml up -d
 ```
 
 Outside `GUARD_ENV=dev` the services refuse to start while a secret is
@@ -281,9 +312,10 @@ Each `v*` tag publishes, through `.github/workflows/release.yml`:
 | `guard-spec_<version>_<os>_<arch>.tar.gz` (linux, darwin) | **L1 only** | Static binaries (`CGO_ENABLED=0`), no ONNX Runtime. |
 | `ghcr.io/giaplee/guard-spec-control-plane:<version>` | n/a | Static, no cgo. |
 
-Models are never baked into images or archives. Mount them read-only at
-`/models` (`/models/local/guardspec-classifier-v1`,
-`/models/cache/multilingual-e5-small`, see [Models](#models)):
+Models are never baked into these images or archives. Pull them with
+`models pull` (in the image: `docker run --rm -v "$PWD/models:/models" --entrypoint ./models <gateway image> pull -manifest manifest.yaml -dir /models/cache`)
+and mount them read-only at `/models` (`/models/cache/<name>/<version>`, see
+[Models](#models) and [docs/models.md](docs/models.md)):
 
 ```bash
 docker run -d -p 8080:8080 \
@@ -305,8 +337,11 @@ see [SECURITY.md](SECURITY.md#verifying-releases).
 | Layer | Files | Where it comes from |
 |---|---|---|
 | L1 | none | built into the binary |
-| L2 | `models/local/guardspec-classifier-v3b/` (falls back to `-v2`, `-v1`, then `-v0`) (`model_int8.onnx`, `tokenizer.json`, `config.json`, `thresholds.json`) | **not published yet**: build it with `train/`, or copy the files in |
-| L3 | `models/cache/multilingual-e5-small/` (`model.onnx`, `tokenizer.json`, `config.json`) | pulled from Hugging Face, pinned by commit and SHA-256 in `models/manifest.yaml` |
+| L2 | `models/cache/guardspec-classifier/v3b/` (`model_int8.onnx`, `tokenizer.json`, `config.json`, `thresholds.json`, `calibration.json`) | `models pull`: Hugging Face once published, else the GitHub Release `model-guardspec-classifier-v3b`; SHA-256 pinned in `models/manifest.yaml`. Older installs in `models/local/guardspec-classifier-v3b/` (then `-v2`, `-v1`, `-v0`) still load |
+| L3 | `models/cache/multilingual-e5-small/614241f/` (`model.onnx`, `tokenizer.json`, `config.json`) | `models pull`: Hugging Face, pinned by commit and SHA-256. The older `models/cache/multilingual-e5-small/` still loads |
+
+Compose pulls both before the gateway starts (the `models-init` service).
+Versions, pinning, rollback and air-gapped installs: [docs/models.md](docs/models.md).
 
 The model layers need a gateway built with `-tags onnx` (cgo, ONNX Runtime).
 The image that `docker compose` builds from `build/gateway.Dockerfile` is, and
@@ -321,15 +356,15 @@ warning per missing layer and keeps running. `DETECTOR_LAYERS=l1` silences
 the warnings. `DETECTOR_REQUIRE_ML=true` makes it refuse to start instead
 (not enforced with `GUARD_ENV=dev`).
 
-**L3 embeddings.**
+**Pulling by hand.**
 
 ```bash
-docker compose --profile models run --rm models-pull   # -> models/cache/multilingual-e5-small
-# or, without Docker: go run ./cmd/models pull -dir models/cache
+docker compose --profile models run --rm models-pull   # recommended versions -> models/cache/<name>/<version>
+# or, without Docker: go run ./cmd/models pull
+go run ./cmd/models list --available                   # versions in the manifest
 ```
 
-**L2 classifier.** Our classifier is not hosted anywhere yet (publishing it to
-Hugging Face is on the [roadmap](ROADMAP.md)). Two ways to get it:
+**L2 classifier from source.** Instead of pulling it:
 
 1. Build it from `train/` (deterministic data build; training takes about 40
    minutes on an Apple M3 Max with MPS; see [train/MODEL_CARD.md](train/MODEL_CARD.md)).
@@ -390,8 +425,10 @@ in a second table.
 | `OUTPUT_CANARY` | `off` | `block` or `redact` injects a canary and acts when it leaks |
 | `OUTPUT_REASONING` | `guard` | `drop` removes `reasoning` / `reasoning_content` instead of guarding them |
 | `MODEL_DIR` | `./models` (`/models` in the image) | Root of the model files. `MODELS_PATH` is the older name |
-| `L2_MODEL_DIR` | `$MODEL_DIR/local/guardspec-classifier-v3b`, else `-v2`, `-v1`, `-v0` | Classifier directory |
-| `L3_MODEL_DIR` | `$MODEL_DIR/cache/multilingual-e5-small` | Embedding model directory |
+| `L2_MODEL` | the manifest's recommended classifier (`guardspec-classifier@v3b`) | Classifier as `name@version` (a bare name: its recommended version), loaded from `$MODEL_DIR/cache/<name>/<version>`. Pin or roll back with it; see [docs/models.md](docs/models.md) |
+| `L2_MODEL_DIR` | empty | Classifier directory; wins over `L2_MODEL`. With neither set: the recommended version when installed, else `$MODEL_DIR/local/guardspec-classifier-v3b`, `-v2`, `-v1`, `-v0` |
+| `L3_MODEL` | the manifest's recommended embedder (`multilingual-e5-small@614241f`) | Embedding model as `name@version` |
+| `L3_MODEL_DIR` | empty | Embedding model directory; wins over `L3_MODEL`. With neither set: the recommended version when installed, else `$MODEL_DIR/cache/multilingual-e5-small` |
 | `DETECTOR_LAYERS` | `l1,l2,l3` | Layers to run |
 | `DETECTOR_FUSION` | `logreg` | `logreg` or `max` of the calibrated layers |
 | `DETECTOR_CASCADE` | `false` | `true` skips L2/L3 when L1's calibrated score is below `DETECTOR_CASCADE_LOW` or above `DETECTOR_CASCADE_HIGH` |
@@ -429,7 +466,8 @@ in a second table.
 | `AUDIT_RETENTION_BATCH` | `5000` | Rows per delete, 1 to 100000 |
 
 **Tools**: `HF_TOKEN` (`cmd/models`, only for gated optional models in the
-manifest).
+manifest; sent to Hugging Face only), `MODELS_MIRROR` (`cmd/models`, a base
+URL tried before Hugging Face: `<mirror>/<name>/<version>/<file>`).
 
 **Compose and scripts** (`docker-compose.yml`, `.env.example`,
 `deploy/postgres/set-app-password.sh`)
@@ -443,7 +481,9 @@ manifest).
 | `GATEWAY_PORT`, `METRICS_PORT` | `8080`, `9090` | Host ports of the gateway |
 | `CONTROL_PLANE_PORT`, `CONTROL_PLANE_METRICS_PORT` | `18081`, `9091` | Host ports of the control plane |
 | `POSTGRES_PORT` | `5432` | Host port of Postgres (dev override only) |
-| `MODELS_UID`, `MODELS_GID` | `0` | Owner of files written by `models-pull` |
+| `GUARDSPEC_VERSION` | `0.1.0` | Tag of the `ghcr.io/giaplee/guard-spec-*` images in `docker-compose.yml` (the dev override builds from source instead) |
+| `MODELS_UID`, `MODELS_GID` | `0` | Owner of files written by `models-init` and `models-pull` |
+| `QUICKSTART_TIMEOUT` | `600` | `scripts/quickstart.sh`: seconds to wait for `/readyz` |
 
 ## APIs
 

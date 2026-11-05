@@ -11,6 +11,25 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ### Added
 
+- **Versioned models** (docs/models.md): every `models/manifest.yaml` entry
+  has a `version`; `models pull name@version` installs it in
+  `<dir>/<name>/<version>/`, atomically (temporary directory, then rename),
+  SHA-256 verified, falling back from Hugging Face to the manifest's
+  `mirrors` (GitHub Release assets). `models list` shows what is installed,
+  `models list --available` what the manifest offers; `-mirror` /
+  `MODELS_MIRROR` adds a mirror tried first. The manifest is built into the
+  binaries.
+- **`guardspec-classifier@v3b`** in the manifest, with `calibration.json`
+  (the built-in v3b values), served from the GitHub Release
+  `model-guardspec-classifier-v3b` until it is on Hugging Face.
+- **Gateway model selection**: `L2_MODEL` / `L3_MODEL` = `name@version`
+  load `$MODEL_DIR/cache/<name>/<version>`; rollback is setting the older
+  version and restarting. `L2_MODEL_DIR` / `L3_MODEL_DIR` still win; with
+  nothing set the manifest's recommended models load, then the older
+  directories.
+- **`scripts/quickstart.sh`**: a `.env` with random secrets, the released
+  images, and a wait for `/readyz`.
+
 - **Sessions** (migration 013): a `sessions` table; tokens carry `sid` and
   are checked against it. `GET /v1/auth/me`, `GET`/`DELETE /v1/auth/sessions`,
   `POST /v1/auth/logout`, `POST /v1/auth/password` (12 characters minimum;
@@ -163,6 +182,18 @@ Fixes from the review of the identity work (migration 015):
 
 ### Changed
 
+- `docker-compose.yml` uses the released images
+  `ghcr.io/giaplee/guard-spec-gateway` and `-control-plane` at
+  `GUARDSPEC_VERSION` (default `0.1.0`); the build sections moved to
+  `docker-compose.override.yml`, so `docker compose up --build` still builds
+  from source (as `guard-spec-*:latest`). A `models-init` service, not behind
+  a profile, pulls the recommended models before the gateway starts; it
+  warns and lets the gateway run on L1 when a pull fails, unless
+  `DETECTOR_REQUIRE_ML=true`. `models-pull` (profile `models`) takes model
+  references as arguments.
+- `models pull` installs in `<dir>/<name>/<version>/` instead of
+  `<dir>/<name>/`. Files already in the old layout are reused, and the
+  gateway still loads the old directories when no versioned one exists.
 - Control plane tokens now carry a session id; tokens issued before this
   release are refused, so users log in again after upgrading.
 - `POST /v1/invites/accept` answers like a login (a session, or the 2FA
