@@ -34,7 +34,7 @@ builds:
     goos: [linux, darwin]
     goarch: [amd64, arm64]
     flags: [-trimpath]
-    ldflags: ["-s -w"]
+    ldflags: ["-s -w -X github.com/guard-spec/guard-spec/internal/version.Version={{.Version}}"]
     mod_timestamp: "{{ .CommitTimestamp }}"
   - id: control-plane
     main: ./cmd/control-plane
@@ -43,12 +43,21 @@ builds:
     goos: [linux, darwin]
     goarch: [amd64, arm64]
     flags: [-trimpath]
-    ldflags: ["-s -w"]
+    ldflags: ["-s -w -X github.com/guard-spec/guard-spec/internal/version.Version={{.Version}}"]
+    mod_timestamp: "{{ .CommitTimestamp }}"
+  - id: models
+    main: ./cmd/models
+    binary: models
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags: ["-s -w -X github.com/guard-spec/guard-spec/internal/version.Version={{.Version}}"]
     mod_timestamp: "{{ .CommitTimestamp }}"
 
 archives:
   - id: default
-    ids: [gateway, control-plane]
+    ids: [gateway, control-plane, models]
     formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:

@@ -33,6 +33,7 @@ import (
 	"github.com/guard-spec/guard-spec/internal/sanitizer"
 	"github.com/guard-spec/guard-spec/internal/tenant"
 	"github.com/guard-spec/guard-spec/internal/tracing"
+	"github.com/guard-spec/guard-spec/internal/version"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -61,6 +62,10 @@ var (
 )
 
 func main() {
+	if len(os.Args) > 1 && version.IsFlag(os.Args[1]) {
+		fmt.Println("gateway", version.String())
+		return
+	}
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
 
@@ -166,7 +171,7 @@ func main() {
 	defer stop()
 
 	go func() {
-		slog.Info("gateway listening", "addr", cfg.ListenAddr)
+		slog.Info("gateway listening", "addr", cfg.ListenAddr, "version", version.String())
 		if err := app.Listen(cfg.ListenAddr); err != nil {
 			slog.Error("listen", "err", err)
 		}
