@@ -92,6 +92,10 @@ gateway:
     # Tracing is on only when set (OTLP/HTTP, e.g. http://otel-collector:4318).
     OTEL_EXPORTER_OTLP_ENDPOINT: ""
     OTEL_PROPAGATE_UPSTREAM: "false"
+    # Alert events (docs/alerts.md): an allowed request scoring at least this
+    # emits detection.flagged; ALERTS_EVENTS "off" emits no events at all.
+    ALERTS_FLAG_THRESHOLD: "0.5"
+    ALERTS_EVENTS: ""
   extraEnvFrom: []
   resources:
     requests: {cpu: 250m, memory: 256Mi}
@@ -120,6 +124,25 @@ controlPlane:
     # Audit rows older than this are deleted; 0 keeps them forever. Safe with
     # several replicas (advisory lock).
     AUDIT_RETENTION_DAYS: "90"
+    # Origin of the admin UI (https://guard.example.com): SSO callbacks, and
+    # links in notifications and confirmation emails.
+    PUBLIC_BASE_URL: ""
+    # Alerts (docs/alerts.md §9). Which orgs may name which channel secret, as
+    # "WEBHOOK_SECRET_SIEM=webhook:*;A2A_SOC=a2a:<org-id>". Empty: none.
+    ALERTS_SECRET_ORGS: ""
+    # Org ids whose allow_private channels may reach private addresses.
+    ALERTS_PRIVATE_ORGS: ""
+    ALERTS_EMAIL_DAILY_CAP: "500"
+    ALERTS_LANG: "en"
+    TELEGRAM_BOT_USERNAME: ""
+    # "1" long-polls Telegram instead of the webhook (no public URL needed).
+    TELEGRAM_POLLING: ""
+    SMTP_FROM: ""
+  # Secrets go in extraEnvFrom, for example a Secret "guard-spec-alerts" with
+  # MFA_ENC_KEY, SMTP_URL, TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET,
+  # SLACK_BOT_TOKEN and the channel secrets listed in ALERTS_SECRET_ORGS:
+  #   extraEnvFrom:
+  #     - secretRef: {name: guard-spec-alerts}
   extraEnvFrom: []
   resources:
     requests: {cpu: 100m, memory: 64Mi}

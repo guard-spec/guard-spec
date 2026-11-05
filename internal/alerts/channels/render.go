@@ -21,12 +21,12 @@ type Summary struct {
 var words = map[string]map[string]string{
 	"en": {
 		"firing": "Firing", "resolved": "Resolved", "test": "Test",
-		"events": "%d events in %s", "project": "Project", "group": "Group", "first": "First seen", "last": "Last seen",
+		"events": "%d events in %s", "event": "%d event in %s", "project": "Project", "group": "Group", "first": "First seen", "last": "Last seen",
 		"open": "Open alert", "subject": "[Guard Spec] %s",
 	},
 	"vi": {
 		"firing": "Đang cảnh báo", "resolved": "Đã hết", "test": "Thử",
-		"events": "%d sự kiện trong %s", "project": "Dự án", "group": "Nhóm", "first": "Lần đầu", "last": "Lần cuối",
+		"events": "%d sự kiện trong %s", "event": "%d sự kiện trong %s", "project": "Dự án", "group": "Nhóm", "first": "Lần đầu", "last": "Lần cuối",
 		"open": "Mở cảnh báo", "subject": "[Guard Spec] %s",
 	},
 }
@@ -51,7 +51,11 @@ func Render(p *Payload, lang string) Summary {
 		Title: fmt.Sprintf("[%s] %s: %s", strings.ToUpper(p.Severity), state, p.Rule.Name),
 		Link:  p.Links.Alert,
 	}
-	s.Lines = append(s.Lines, fmt.Sprintf(word(lang, "events"), p.Count, window(p.WindowSeconds)))
+	events := "events"
+	if p.Count == 1 {
+		events = "event"
+	}
+	s.Lines = append(s.Lines, fmt.Sprintf(word(lang, events), p.Count, window(p.WindowSeconds)))
 	if p.ProjectID != nil && *p.ProjectID != "" {
 		s.Lines = append(s.Lines, word(lang, "project")+": "+*p.ProjectID)
 	}
