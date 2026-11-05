@@ -538,3 +538,15 @@ func TestRenderHasNoUnknownText(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderCountsOneEvent(t *testing.T) {
+	p := testPayload()
+	p.Count = 1
+	if got := Render(&p, "en").Lines[0]; got != "1 event in 5m" {
+		t.Fatalf("%q", got)
+	}
+	p.Count = 7
+	if got := Render(&p, "en").Lines[0]; got != "7 events in 5m" {
+		t.Fatalf("%q", got)
+	}
+}
