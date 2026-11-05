@@ -17,8 +17,8 @@ __pycache__/
 # Local scratch files
 test_body.json
 
-# Claude Code local settings
-.claude/settings.local.json
+# Claude Code: local skills, settings and worktrees
+.claude/
 
 # OS
 .DS_Store
