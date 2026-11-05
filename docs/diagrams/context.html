@@ -1,0 +1,111 @@
+<!doctype html>
+<!-- Copyright 2026 The Guard Spec Authors -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="kit.css">
+<style>
+#canvas { width: 1600px; height: 990px;
+  background: radial-gradient(900px 520px at 50% 52%, #eaf1fd 0%, #f7f9fc 55%, #ffffff 100%); }
+.card { width: 250px; padding: 22px 18px 18px; background: #fff; border-radius: 20px; text-align: center;
+  box-shadow: 0 1px 2px rgba(15,23,42,.06), 0 10px 30px rgba(15,47,87,.08); border: 1px solid var(--line); }
+.card .icon { width: 64px; height: 64px; margin: 0 auto 12px; }
+.card h3 { margin: 0 0 6px; font-size: 18px; font-weight: 700; }
+.card p { margin: 0; font-size: 13.5px; color: var(--muted); line-height: 1.45; }
+.icons { display: flex; gap: 8px; justify-content: center; margin-bottom: 12px; }
+.icons .icon { width: 46px; height: 46px; }
+.hub { width: 460px; text-align: center; }
+.halo { width: 230px; height: 230px; margin: 0 auto; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(circle, #ffffff 0 52%, rgba(29,95,191,.14) 53% 66%, rgba(29,95,191,.06) 67% 100%); }
+.hub h2 { margin: 6px 0 2px; font-size: 30px; font-weight: 800; color: var(--navy); letter-spacing: -.5px; }
+.hub .tag { font-size: 15px; color: var(--slate); font-weight: 500; }
+.hub .chips { margin-top: 10px; }
+.title { left: 48px; top: 36px; }
+.title .kicker { font-size: 13px; font-weight: 700; letter-spacing: 1.6px; color: var(--blue); text-transform: uppercase; }
+.title h1 { margin: 6px 0 0; font-size: 28px; font-weight: 800; color: var(--navy); letter-spacing: -.4px; }
+.threat { border-color: #f4cdbd; }
+.badge { position: absolute; top: -12px; right: -10px; background: var(--red); color: #fff; font-size: 12px; font-weight: 700;
+  padding: 4px 10px; border-radius: 999px; box-shadow: 0 4px 10px rgba(194,65,12,.3); }
+.legend { position: absolute; right: 44px; top: 40px; display: flex; gap: 18px; font-size: 13px; color: var(--slate); font-weight: 500; z-index: 2; }
+.legend span::before { content: ""; display: inline-block; width: 22px; height: 0; border-top: 3px solid var(--c); vertical-align: middle; margin-right: 7px; }
+.legend span.d::before { border-top-style: dashed; }
+</style></head>
+<body><div id="canvas"><svg id="wires"></svg>
+
+<div class="title"><div class="kicker">Context</div><h1>Where Guard Spec sits</h1></div>
+<div class="legend">
+  <span style="--c:#1d5fbf">AI traffic</span>
+  <span style="--c:#0f766e">checked traffic</span>
+  <span class="d" style="--c:#c2410c">attack path</span>
+  <span style="--c:#b45309">alerts</span>
+  <span style="--c:#5b4bb7">administration</span>
+</div>
+
+<div class="node card threat" id="attacker" style="left:50px; top:150px; width:230px">
+  <div class="icon" style="background:var(--red-soft);color:var(--red)"><i data-lucide="skull" width="32" height="32"></i></div>
+  <h3>Attacker</h3><p>jailbreak prompts, hidden instructions planted in content</p></div>
+
+<div class="node card threat" id="content" style="left:730px; top:105px; width:320px">
+  <span class="badge">hidden instructions</span>
+  <div class="icons">
+    <div class="icon" style="background:var(--red-soft);color:var(--red)"><i data-lucide="globe" width="24" height="24"></i></div>
+    <div class="icon" style="background:var(--red-soft);color:var(--red)"><i data-lucide="file-text" width="24" height="24"></i></div>
+    <div class="icon" style="background:var(--red-soft);color:var(--red)"><i data-lucide="mail" width="24" height="24"></i></div>
+    <div class="icon" style="background:var(--red-soft);color:var(--red)"><i data-lucide="plug" width="24" height="24"></i></div>
+  </div>
+  <h3>Untrusted content</h3><p>web pages, documents, emails, tool and MCP results</p></div>
+
+<div class="node card" id="users" style="left:50px; top:520px; width:230px">
+  <div class="icon" style="background:var(--blue-soft);color:var(--blue)"><i data-lucide="users" width="32" height="32"></i></div>
+  <h3>Customers &amp; staff</h3><p>chat, ask, hand tasks to agents</p></div>
+
+<div class="node card" id="apps" style="left:330px; top:350px; width:250px">
+  <div class="icon" style="background:var(--blue-soft);color:var(--blue)"><i data-lucide="bot" width="32" height="32"></i></div>
+  <h3>Your AI apps &amp; agents</h3><p>chatbots, RAG assistants, copilots, coding agents</p></div>
+
+<div class="node hub" id="hub" style="left:660px; top:350px">
+  <div class="halo" id="shield">
+    <svg viewBox="0 0 32 32" width="132" height="132"><path d="M16 1.5 3.5 6.5v8.3c0 7.7 5.3 13.8 12.5 15.7 7.2-1.9 12.5-8 12.5-15.7V6.5z" fill="#0f2f57"/><path d="M16 1.5v29c7.2-1.9 12.5-8 12.5-15.7V6.5z" fill="#1d5fbf"/><path d="M10 11h12M11.5 16h9M13.5 21h5" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/></svg>
+  </div>
+  <h2>Guard Spec</h2>
+  <div class="tag">Self-hosted firewall for LLM traffic</div>
+  <div class="chips">
+    <span class="chip" style="background:var(--blue-soft);color:var(--blue)">3 detection layers</span>
+    <span class="chip" style="background:var(--blue-soft);color:var(--blue)">English · Vietnamese</span>
+    <span class="chip" style="background:var(--blue-soft);color:var(--blue)">OpenAI-compatible</span>
+  </div>
+</div>
+
+<div class="node card" id="llm" style="left:1300px; top:360px; width:250px">
+  <div class="icon" style="background:var(--teal-soft);color:var(--teal)"><i data-lucide="sparkles" width="32" height="32"></i></div>
+  <h3>LLM providers</h3><p>OpenAI, Azure OpenAI, Anthropic, Gemini, self-hosted vLLM / Ollama</p></div>
+
+<div class="node card" id="team" style="left:560px; top:760px; width:260px">
+  <div class="icon" style="background:var(--violet-soft);color:var(--violet)"><i data-lucide="user-cog" width="32" height="32"></i></div>
+  <h3>Security &amp; ops team</h3><p>policies, audit log, reports, in the admin UI with SSO</p></div>
+
+<div class="node card" id="alerts" style="left:1000px; top:760px; width:300px">
+  <div class="icon" style="background:var(--amber-soft);color:var(--amber)"><i data-lucide="bell-ring" width="32" height="32"></i></div>
+  <h3>Alert channels</h3><p>Slack, Teams, Telegram, email, signed webhooks to your SIEM, A2A to a SOC agent</p></div>
+
+<div class="node card" id="idp" style="left:50px; top:790px; width:230px">
+  <div class="icon" style="background:var(--slate-soft);color:var(--slate)"><i data-lucide="fingerprint" width="32" height="32"></i></div>
+  <h3>Identity provider</h3><p>OIDC single sign-on</p></div>
+
+</div>
+<script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+<script src="kit.js"></script>
+<script>
+lucide.createIcons();
+document.fonts.ready.then(() => {
+  const red = '#c2410c', blue = '#1d5fbf', teal = '#0f766e', amber = '#b45309', violet = '#5b4bb7', slate = '#64748b';
+  link('attacker', 'content', {from: 'r', to: 'l', color: red, dash: '7 6', label: 'plants instructions', toOff: -50, t: .4});
+  link('attacker', 'users', {from: 'b', to: 't', color: red, dash: '7 6', label: 'poses as a user', bend: .3});
+  link('users', 'apps', {from: 'r', to: 'b', color: blue, label: 'questions, tasks', toOff: -40, t: .5, bend: .5});
+  link('content', 'apps', {from: 'l', to: 't', color: red, dash: '7 6', label: 'retrieved as context', fromOff: 40, t: .62});
+  link('apps', 'shield', {from: 'r', to: 'l', color: blue, width: 3.5, both: true, label: 'every LLM call<br>safe answer or block', bend: .3});
+  link('shield', 'llm', {from: 'r', to: 'l', color: teal, width: 3.5, both: true, label: 'clean requests only<br>answers checked for leaks', bend: .3});
+  link('hub', 'alerts', {from: 'b', to: 't', color: amber, label: 'real-time alerts', fromOff: 110, t: .5});
+  link('team', 'hub', {from: 't', to: 'b', color: violet, both: true, label: 'policies, audit', toOff: -110, t: .5});
+  link('idp', 'team', {from: 'r', to: 'l', color: slate, label: 'SSO', t: .5});
+  document.title = 'ready';
+});
+</script></body></html>

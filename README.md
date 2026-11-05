@@ -19,6 +19,7 @@ before you rely on it.
 
 - [Who it is for](#who-it-is-for)
 - [How it differs from other tools](#how-it-differs-from-other-tools)
+- [How it fits in your stack](#how-it-fits-in-your-stack)
 - [Architecture](#architecture)
 - [Quick start](#quick-start)
 - [Models](#models)
@@ -26,6 +27,7 @@ before you rely on it.
 - [APIs](#apis)
 - [Routing](#routing)
 - [Admin UI](#admin-ui)
+- [Alerts and notifications](#alerts-and-notifications)
 - [Benchmarks](#benchmarks)
 - [Security model and limitations](#security-model-and-limitations)
 - [Operations](#operations)
@@ -67,6 +69,74 @@ Trade-offs to know about:
   exemplars and the audit log, but not users and invites yet; those stay in
   the REST API. A control plane built without Node shows a placeholder page
   at `/ui/`.
+
+## How it fits in your stack
+
+Guard Spec runs next to your application, inside your network. Your app keeps
+its OpenAI SDK and points `base_url` at the gateway; every LLM call, with the
+documents and tool results it carries, is checked before it reaches the model,
+and the answer is checked before it reaches your users. Blocked and suspicious
+requests become alerts for your security team.
+
+![Context: Guard Spec between your AI apps and the LLM providers](docs/images/diagram-context.png)
+
+A typical production deployment: the gateway sits behind an internal load
+balancer (never internet-facing), scales horizontally and keeps its models on
+a read-only volume; the control plane serves the admin UI to the security team
+over a private network and sends the alerts.
+
+![Components of a production deployment](docs/images/diagram-component.png)
+
+What happens to one request, here a bank chatbot whose knowledge base holds a
+document with a hidden instruction:
+
+```mermaid
+%%{init: {"theme": "base", "fontFamily": "Inter, system-ui, sans-serif", "themeVariables": {"fontFamily": "Inter, system-ui, sans-serif", "fontSize": "15px", "primaryColor": "#e8f0fc", "primaryBorderColor": "#1d5fbf", "primaryTextColor": "#0f172a", "actorBkg": "#ffffff", "actorBorder": "#1d5fbf", "actorTextColor": "#0f2f57", "actorLineColor": "#b9cdef", "signalColor": "#334155", "signalTextColor": "#0f172a", "labelBoxBkgColor": "#0f2f57", "labelBoxBorderColor": "#0f2f57", "labelTextColor": "#ffffff", "loopTextColor": "#0f2f57", "noteBkgColor": "#fdf3e3", "noteBorderColor": "#b45309", "noteTextColor": "#7c2d12", "sequenceNumberColor": "#ffffff"}, "sequence": {"actorMargin": 40, "width": 200, "height": 56, "actorFontWeight": 600, "messageFontFamily": "Inter, system-ui, sans-serif", "actorFontFamily": "Inter, system-ui, sans-serif", "noteFontFamily": "Inter, system-ui, sans-serif", "messageMargin": 38, "boxMargin": 12, "mirrorActors": false, "showSequenceNumbers": true, "useMaxWidth": false}}}%%
+sequenceDiagram
+    autonumber
+    actor C as Customer
+    box rgb(246,248,251) Your application
+        participant E as Public ALB / API gateway
+        participant A as Bank chatbot backend
+        participant K as Knowledge base, tools
+    end
+    box rgb(232,240,252) Guard Spec
+        participant G as Gateway
+        participant P as Control plane
+    end
+    box rgb(246,247,249) External services
+        participant L as LLM provider
+        participant S as Slack, SIEM, SOC agent
+    end
+
+    C->>E: "What is the fee for an international transfer?"
+    E->>A: forward
+    A->>K: retrieve documents
+    K-->>A: 3 documents, one hides an instruction
+    A->>G: POST /v1/chat/completions (question + documents)
+    G->>G: sanitize, L1 rules, L2 classifier,<br/>L3 similarity, CEL policies
+
+    alt Clean request
+        rect rgb(230,244,242)
+            G->>L: forward the request
+            L-->>G: answer
+            G->>G: output guard: links, personal data, canary
+            G-->>A: answer
+            A-->>C: answer
+        end
+    else Injection in a document
+        rect rgb(253,238,232)
+            G-->>A: 400 content_filter + request id
+            Note over G,L: the LLM is never called
+            A-->>C: safe fallback answer
+            G--)P: detection.blocked event (async, via Postgres)
+            P--)S: alert, per the organization's rules
+        end
+    end
+```
+
+The diagram sources are in [docs/diagrams/](docs/diagrams/)
+(`docs/diagrams/render.sh` regenerates the images).
 
 ## Architecture
 
@@ -858,6 +928,37 @@ The UI loads nothing from other origins and runs under the control plane's
 the e2e tests run the production build under that policy and fail on any
 violation. Screenshots are taken against the mocked API of the e2e tests
 (`npm run screenshots` in `web/`).
+
+## Alerts and notifications
+
+The gateway and the control plane turn what they see into events: blocked and
+flagged requests (`detection.blocked`, `detection.flagged`), upstream
+failures, failed logins and 2FA lockouts, and changes to roles, SSO, policies
+and upstreams. Alert rules, kept per organization, match events and notify
+people:
+
+- **Channels:** Telegram, Slack, Microsoft Teams, email (SMTP), signed
+  webhooks (HMAC, for a SIEM or your own service), A2A agents (for example a
+  SOC agent), and the bell in the admin UI.
+- **Rules:** event types plus an optional condition in the policy text syntax,
+  for example `attrs.score >= 0.95 && "jailbreak" in attrs.categories`; a
+  threshold in a time window (5 blocks in 5 minutes), throttling, grouping by
+  project or category, quiet hours and auto-resolve.
+- **Recipients:** users, groups or roles. Each person links their own
+  Telegram, Slack or email and picks a minimum severity.
+- **Delivery:** an outbox with retries (2 s up to 30 min, 6 attempts),
+  `Retry-After` honoured, and a delivery log in the UI. Channel secrets stay
+  in environment variables named by the channel, never in the database, and
+  never appear in error text.
+- **Off the request path:** events are written after the response is sent. A
+  full buffer drops events (`guardspec_events_dropped_total`) instead of
+  slowing requests down.
+
+To set it up, configure the `SMTP_*`, `TELEGRAM_*`, `SLACK_*` and `ALERTS_*`
+variables, then use the **Alerts** pages of the admin UI (the bell icon in the
+sidebar): rules, channels, groups, alert history and the delivery log.
+[docs/alerts.md](docs/alerts.md) has the event types, the rule fields, the
+setup of each channel, webhook signature verification and the metrics.
 
 ## Benchmarks
 
