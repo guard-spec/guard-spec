@@ -17,6 +17,7 @@ before you rely on it.
 
 ## Contents
 
+- [Features](#features)
 - [Who it is for](#who-it-is-for)
 - [How it differs from other tools](#how-it-differs-from-other-tools)
 - [How it fits in your stack](#how-it-fits-in-your-stack)
@@ -34,6 +35,49 @@ before you rely on it.
 - [Upgrade notes](#upgrade-notes)
 - [Development](#development)
 - [License](#license)
+
+## Features
+
+**Detection (gateway)**
+- Three detection layers fused into one score: L1 rules (Vietnamese
+  diacritics, teencode, leetspeak, homoglyphs), L2 our own ONNX classifier,
+  L3 similarity to attack exemplars. A sanitizer runs before them.
+- Indirect injection: tool results, retrieved documents and MCP tool
+  descriptions are scored one by one, with MCP tool-poisoning signals.
+- Output guard: exfiltration links and images, personal data (including
+  Vietnamese phone, ID and card numbers), a leaked canary, also when
+  streaming.
+- OpenAI-compatible: change the `base_url`, keep your SDK. Routing to several
+  upstreams (OpenAI, Azure OpenAI, Anthropic, Gemini, vLLM, Ollama).
+- Per-organization and per-project policies, written as text or in a visual
+  editor and compiled to CEL: allow, block, log or route.
+
+**Control plane and administration**
+- **Real-time alerts** on blocked and flagged requests, upstream failures and
+  security changes, sent over **Telegram, Slack, Microsoft Teams, email,
+  signed webhooks (SIEM) and A2A agents**, plus an in-app bell; rules with
+  thresholds, throttling, quiet hours and per-person preferences
+  ([Alerts and notifications](#alerts-and-notifications)).
+- **Enterprise sign-in:** single sign-on with OpenID Connect (Google preset,
+  any OIDC provider such as Entra ID, Okta or Keycloak), domain join and
+  just-in-time provisioning.
+- **Two-factor authentication:** TOTP with recovery codes; an organization
+  can require 2FA, restrict login methods and shorten sessions; lockout after
+  repeated wrong codes; sessions can be listed and revoked.
+- **Multi-tenant:** organizations, projects, roles (viewer, member, admin,
+  owner), invites, API keys with rate limits; Postgres row-level security
+  as a backstop.
+- **Audit:** one row per request (content off by default), an activity log of
+  every configuration and security change, retention in days.
+- **Admin UI** in English and Vietnamese, light and dark: dashboard, request
+  flow, simulator, policies, providers, request log, alerts, members and
+  security ([Admin UI](#admin-ui)).
+
+**Operations**
+- Docker Compose for a single host, a Helm chart for Kubernetes, an image with
+  the models built in for air-gapped installs.
+- Signed images (cosign) with SBOMs, versioned models with SHA-256 pins,
+  Prometheus metrics and OpenTelemetry traces.
 
 ## Who it is for
 
@@ -65,10 +109,8 @@ Trade-offs to know about:
 - The classifier and the Vietnamese data are young. The Vietnamese data is
   synthetic, and the classifier blocks more benign Vietnamese chat than we
   want (see [Benchmarks](#benchmarks)).
-- The admin UI covers routing, policies, guard settings, keys, projects,
-  exemplars and the audit log, but not users and invites yet; those stay in
-  the REST API. A control plane built without Node shows a placeholder page
-  at `/ui/`.
+- A control plane built without Node has no admin UI: it shows a placeholder
+  page at `/ui/`, and everything stays available in the REST API.
 
 ## How it fits in your stack
 

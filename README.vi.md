@@ -14,6 +14,48 @@ Trạng thái: **v0.1.0, trước 1.0.** API và schema cơ sở dữ liệu cò
 thay đổi. Hãy đọc phần [Mô hình bảo mật và giới hạn](#mô-hình-bảo-mật-và-giới-hạn)
 trước khi dùng.
 
+## Tính năng
+
+**Phát hiện tấn công (gateway)**
+- Ba lớp phát hiện gộp thành một điểm: L1 luật (tiếng Việt có/không dấu,
+  teencode, leetspeak, ký tự giả mạo), L2 classifier ONNX của riêng dự án,
+  L3 so khớp với mẫu tấn công. Trước đó là bước làm sạch input.
+- Prompt injection gián tiếp: kết quả tool, tài liệu truy xuất và mô tả tool
+  MCP được chấm từng cái, có dấu hiệu "tool poisoning" của MCP.
+- Output guard: link và ảnh rò rỉ dữ liệu, dữ liệu cá nhân (kể cả số điện
+  thoại, CCCD, số thẻ Việt Nam), canary bị lộ, kể cả khi stream.
+- Tương thích OpenAI: chỉ đổi `base_url`, giữ nguyên SDK. Định tuyến tới nhiều
+  upstream (OpenAI, Azure OpenAI, Anthropic, Gemini, vLLM, Ollama).
+- Policy theo tổ chức và theo project, viết bằng chữ hoặc trình soạn trực
+  quan, biên dịch sang CEL: cho qua, chặn, ghi log hoặc định tuyến.
+
+**Control plane và quản trị**
+- **Cảnh báo thời gian thực** khi request bị chặn hoặc gắn cờ, upstream lỗi,
+  cấu hình bảo mật thay đổi; gửi qua **Telegram, Slack, Microsoft Teams,
+  email, webhook có ký (SIEM) và agent A2A**, cùng chuông trong giao diện;
+  rule có ngưỡng, giãn tần suất, giờ yên lặng và tùy chọn riêng từng người
+  ([Cảnh báo và thông báo](#cảnh-báo-và-thông-báo)).
+- **Đăng nhập cho doanh nghiệp:** SSO bằng OpenID Connect (có sẵn Google, dùng
+  được mọi nhà cung cấp OIDC như Entra ID, Okta, Keycloak), tự gia nhập theo
+  tên miền, tự tạo tài khoản khi đăng nhập lần đầu.
+- **Xác thực hai lớp (2FA):** TOTP kèm mã khôi phục; tổ chức có thể bắt buộc
+  2FA, giới hạn cách đăng nhập, rút ngắn phiên; khóa tạm khi nhập sai nhiều
+  lần; xem và thu hồi phiên đăng nhập.
+- **Nhiều tổ chức:** tổ chức, project, role (viewer, member, admin, owner),
+  lời mời, API key có giới hạn tốc độ; row-level security của Postgres làm
+  lớp chặn cuối.
+- **Audit:** mỗi request một dòng (mặc định không lưu nội dung), nhật ký mọi
+  thay đổi cấu hình và bảo mật, tự xóa sau số ngày cấu hình.
+- **Giao diện quản trị** tiếng Anh và tiếng Việt, sáng và tối: dashboard, luồng
+  request, giả lập, policy, nhà cung cấp, log request, cảnh báo, thành viên và
+  bảo mật ([Giao diện quản trị](#giao-diện-quản-trị)).
+
+**Vận hành**
+- Docker Compose cho một máy, Helm chart cho Kubernetes, image có sẵn model
+  cho môi trường không có internet.
+- Image ký số (cosign) kèm SBOM, model có phiên bản và ghim SHA-256, metrics
+  Prometheus và trace OpenTelemetry.
+
 ## Dành cho ai
 
 - Đội ngũ tự vận hành ứng dụng LLM (chatbot, RAG, agent gọi tool) muốn chặn
@@ -36,7 +78,7 @@ trước khi dùng.
 
 Đánh đổi: chỉ hỗ trợ tiếng Anh và tiếng Việt; classifier và dữ liệu tiếng
 Việt còn non (dữ liệu tổng hợp, tỉ lệ chặn nhầm tiếng Việt còn cao khi bật
-model); chưa có giao diện quản trị, mọi thao tác qua REST API.
+model).
 
 ## Guard Spec nằm ở đâu trong hệ thống
 
@@ -153,9 +195,9 @@ flowchart TD
 - **Audit**: mỗi request một dòng trong bảng `requests`; mặc định chỉ lưu hash
   và độ dài, không lưu nội dung.
 
-**Chưa xây dựng** (tài liệu cũ có nhắc): giao diện quản trị, định tuyến
-model, phát hiện toxicity/PII/chủ đề phía đầu vào, ClickHouse, Triton/GPU,
-Qwen3Guard/Granite Guardian. Xem [ROADMAP.md](ROADMAP.md).
+**Chưa xây dựng** (tài liệu cũ có nhắc): chuỗi dự phòng và giới hạn chi phí
+khi định tuyến, phát hiện toxicity/PII/chủ đề phía đầu vào, ClickHouse,
+Triton/GPU, Qwen3Guard/Granite Guardian. Xem [ROADMAP.md](ROADMAP.md).
 
 ## Bắt đầu nhanh
 
