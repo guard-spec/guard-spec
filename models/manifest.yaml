@@ -37,12 +37,10 @@ models:
     version: v3b
     recommended: true
     kind: classifier
-    # TODO(RF-ac559919): not on Hugging Face yet. After publishing, set repo to
-    # the real org/name and revision to the 40-char commit sha of the upload,
-    # and check each src path. Until then the all-zero revision makes `pull`
-    # skip Hugging Face and use the GitHub Release mirror below.
+    # Hugging Face commit of the upload (Publish model workflow); the GitHub
+    # Release mirror below holds the same files.
     repo: guard-spec/guardspec-classifier
-    revision: "0000000000000000000000000000000000000000" # TODO(RF-ac559919): pin the HF commit
+    revision: ca429e8f202659605367aff2fa7cfce8c5e25728
     mirrors:
       - https://github.com/guard-spec/guard-spec/releases/download/model-guardspec-classifier-v3b/{file}
     license: Apache-2.0
