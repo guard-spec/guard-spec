@@ -1,0 +1,27 @@
+# Copy to terraform.tfvars and fill in. Reference, not yet verified: README.md.
+
+region = "eu-west-1"
+name   = "guard-spec"
+
+vpc_id             = "vpc-0123456789abcdef0"
+private_subnet_ids = ["subnet-0aaaaaaaaaaaaaaaa", "subnet-0bbbbbbbbbbbbbbbb"]
+public_subnet_ids  = ["subnet-0cccccccccccccccc", "subnet-0dddddddddddddddd"]
+
+gateway_certificate_arn = "arn:aws:acm:eu-west-1:123456789012:certificate/00000000-0000-0000-0000-000000000000"
+admin_certificate_arn   = "arn:aws:acm:eu-west-1:123456789012:certificate/11111111-1111-1111-1111-111111111111"
+admin_host              = "guard-admin.example.com"
+admin_ingress_cidrs     = ["10.0.0.0/16"]
+admin_email             = "admin@example.com"
+
+# Images and models
+image_tag       = "0.1.0"
+gateway_image   = "ghcr.io/guard-spec/guard-spec-gateway-full"
+detector_layers = "l1,l2,l3"
+# l2_model      = "guardspec-classifier@v3b"
+# gateway_image_digest = "sha256:..."   # from cosign verify, see docs/security
+
+upstream_llm_url = "https://api.openai.com/v1"
+
+# First apply: no tasks until the secrets are set and the migrations ran.
+gateway_desired_count       = 0
+control_plane_desired_count = 0

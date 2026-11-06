@@ -42,6 +42,10 @@ volume alone, and issues in upstream LLMs.
 For the risks that remain when you run Guard Spec and how to reduce them, see
 [docs/security-risks.md](docs/security-risks.md).
 
+For a security review of a deployment (architecture, data flow, what is
+stored where and for how long, secrets and encryption), see
+[docs/security/](docs/security/README.md).
+
 ## Supported versions
 
 The project is pre-1.0. Security fixes land on `main` and in the next release.
@@ -72,6 +76,10 @@ the time above before disclosing publicly; we will agree a date with you if a
 fix needs longer.
 
 ## Verifying releases
+
+[docs/security/verifying-releases.md](docs/security/verifying-releases.md)
+has the full procedure (signatures pinned to the release tag, SBOMs, SLSA
+provenance) with its output for v0.1.0. In short:
 
 Release container images are signed with cosign (keyless, through GitHub
 Actions OIDC) and come with an SPDX SBOM and SLSA provenance (BuildKit

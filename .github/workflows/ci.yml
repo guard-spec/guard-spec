@@ -261,3 +261,31 @@ jobs:
             echo "a volume is mounted over /models without a models claim" >&2; exit 1
           fi
           helm template gs "$CHART" | grep -q 'mountPath: /models'
+
+  terraform:
+    name: Terraform AWS reference (fmt, validate, test)
+    runs-on: ubuntu-latest
+    env:
+      TERRAFORM_VERSION: 1.17.1
+      TERRAFORM_SHA256: 4638628058e71a55212b1c563712eac03b902128f40740f3dc8174df12135061
+    defaults:
+      run:
+        working-directory: deploy/terraform/aws
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install terraform (checksum pinned)
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl -fsSLo "$RUNNER_TEMP/terraform.zip" "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip"
+          echo "${TERRAFORM_SHA256}  $RUNNER_TEMP/terraform.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/terraform.zip" terraform -d "$RUNNER_TEMP/bin"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - run: terraform fmt -check -diff -recursive
+      # Providers come from the committed .terraform.lock.hcl (hashes checked).
+      # No backend, no credentials: nothing touches an AWS account.
+      - run: terraform init -backend=false -input=false -lockfile=readonly
+      - run: terraform validate
+      # A plan against a mocked AWS provider (tests/plan.tftest.hcl).
+      - run: terraform test
