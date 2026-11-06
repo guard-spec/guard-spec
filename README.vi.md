@@ -29,7 +29,7 @@ dữ liệu, dữ liệu cá nhân, canary bị lộ) trước khi đến ngư�
 Go, chạy thành hai service cạnh Postgres, được xây dựng và đánh giá cho
 **tiếng Anh và tiếng Việt**.
 
-Trạng thái: **v0.1.0, trước 1.0.** API và schema cơ sở dữ liệu còn có thể
+Trạng thái: **v0.1.1, trước 1.0.** API và schema cơ sở dữ liệu còn có thể
 thay đổi. Hãy đọc phần [Mô hình bảo mật và giới hạn](#mô-hình-bảo-mật-và-giới-hạn)
 trước khi dùng.
 

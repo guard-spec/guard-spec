@@ -9,6 +9,8 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-06
+
 ### Added
 
 - Bench workflow (`.github/workflows/bench.yml`, manual only): detection
@@ -32,6 +34,10 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   bench-onnx` adds L1+L2+L3 and L1+L2 (skipped without models).
 
 ### Changed
+
+- The gateway's `GET /health` and `GET /readyz` report the version the binary
+  was built from instead of a fixed `0.1.0`.
+- Default image tag (`GUARDSPEC_VERSION`, chart `appVersion`) is `0.1.1`.
 
 - `GET /readyz` answers 503, with `"status":"degraded"` and the same detailed
   body, when a detection layer the configuration requires
@@ -176,5 +182,6 @@ First release.
 - List endpoints still answer the older `{"data": [...]}` shape when called
   without `limit` and `cursor`; use the paginated form.
 
-[Unreleased]: https://github.com/guard-spec/guard-spec/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/guard-spec/guard-spec/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/guard-spec/guard-spec/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/guard-spec/guard-spec/releases/tag/v0.1.0

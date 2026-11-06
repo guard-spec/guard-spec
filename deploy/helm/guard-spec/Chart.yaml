@@ -2,8 +2,8 @@ apiVersion: v2
 name: guard-spec
 description: Guard Spec prompt-injection guardrail gateway and control plane. Postgres is external and not bundled.
 type: application
-version: 0.1.0
-appVersion: "0.1.0"
+version: 0.1.1
+appVersion: "0.1.1"
 keywords: [llm, guardrail, prompt-injection, gateway]
 home: https://github.com/guard-spec/guard-spec
 sources: [https://github.com/guard-spec/guard-spec]

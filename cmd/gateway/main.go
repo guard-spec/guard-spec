@@ -233,7 +233,7 @@ func newApp(gw gateway, lookup tenant.LookupFn) *fiber.App {
 
 	// Health check — no auth required
 	app.Get("/health", func(c *fiber.Ctx) error {
-		return c.JSON(fiber.Map{"status": "ok", "version": "0.1.0"})
+		return c.JSON(fiber.Map{"status": "ok", "version": version.String()})
 	})
 	// Readiness — no auth required. Reports which detection layers run, so a
 	// release image started without /models shows it runs L1 only. 503 (same
@@ -244,7 +244,7 @@ func newApp(gw gateway, lookup tenant.LookupFn) *fiber.App {
 		if !gw.detector.ready() {
 			status, code = "degraded", fiber.StatusServiceUnavailable
 		}
-		return c.Status(code).JSON(fiber.Map{"status": status, "version": "0.1.0", "detector": gw.detector})
+		return c.Status(code).JSON(fiber.Map{"status": status, "version": version.String(), "detector": gw.detector})
 	})
 
 	// All proxy routes require a valid API key.
