@@ -1,0 +1,35 @@
+# Copyright 2026 The Guard Spec Authors
+# SPDX-License-Identifier: Apache-2.0
+#
+# Caddy in front of the playground proxy (profile tls of docker-compose.yml).
+#   PLAYGROUND_HOST  public host name of the API, such as play-api.guardspec.io
+#   CADDY_TLS        your email for automatic HTTPS (Let's Encrypt / ZeroSSL),
+#                    or internal for Caddy's own CA (testing)
+#
+# No access log: Caddy would record client addresses and URLs. The proxy
+# logs counters only.
+
+{
+	admin 127.0.0.1:2019
+}
+
+{$PLAYGROUND_HOST} {
+	tls {$CADDY_TLS}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+	# The proxy accepts 4 KB of text; refuse large bodies here already.
+	request_body {
+		max_size 64KB
+	}
+	@api path /v1/scan /healthz
+	handle @api {
+		reverse_proxy playground:8090
+	}
+	handle {
+		respond 404
+	}
+}

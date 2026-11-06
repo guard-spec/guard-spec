@@ -9,6 +9,26 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ## [Unreleased]
 
+### Added
+
+- Gateway: `"explain": true` on `POST /guardrail/scan` and
+  `POST /guardrail/scan/tools` adds an `explain` object to the text, each
+  document and each tool: the calibrated score of each layer (`l1`, `l2`,
+  `l3`; `null` when a layer did not run), what decided (`decided_by`: a
+  layer, `sanitizer` or MCP `signals`), how (`reason`: `fusion`, `cascade`,
+  `l1_floor`, `anomaly`, `mcp_signals`), the category and the rules.
+  Responses without the field are unchanged. `SCAN_EXPLAIN=false` makes the
+  gateway ignore it.
+- Public playground backend (`cmd/playground`, `build/playground.Dockerfile`,
+  `deploy/playground/`): a small proxy that holds a gateway key and serves
+  one route, `POST /v1/scan`, to the website's playground page. Per-IP token
+  buckets (10 a minute, 200 a day by default), a global budget, a bound on
+  concurrent scans, 4 KB inputs, timeouts, CORS restricted to the site,
+  optional Cloudflare Turnstile; it logs counters only. The compose template
+  runs it with gateway-full and an in-memory Postgres that drops every audit
+  row, so no prompt, hash or client address is kept. The README has the
+  security notes and cost estimates for a few hosts. Nothing is hosted yet.
+
 ## [0.2.1] - 2026-11-07
 
 ### Upgrade notes

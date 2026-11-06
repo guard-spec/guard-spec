@@ -1,0 +1,222 @@
+# Copyright 2026 The Guard Spec Authors
+# SPDX-License-Identifier: Apache-2.0
+#
+# The public playground's backend on one host: the playground proxy in front
+# of a gateway-full (L1 + L2 + L3, models in the image) and a throwaway
+# Postgres in memory. See README.md in this directory.
+#
+#   cd deploy/playground
+#   cp .env.example .env          # fill in the three secrets
+#   docker compose up -d --build  # proxy on 127.0.0.1:8090
+#   docker compose --profile tls up -d --build   # + Caddy with HTTPS on 80/443
+#
+# What is reachable: only the proxy (or Caddy in front of it). The gateway
+# and Postgres sit on an internal network without a route out; the gateway
+# has no upstream LLM and the proxy calls nothing but the gateway's scan
+# endpoints. Nothing is written to disk: Postgres runs on tmpfs and drops
+# every audit row (bootstrap.sh), and neither the proxy nor Caddy logs
+# request content or client addresses.
+
+name: ${COMPOSE_PROJECT_NAME:-guard-spec-playground}
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: ${LOG_MAX_SIZE:-10m}
+    max-file: "${LOG_MAX_FILE:-3}"
+
+services:
+  playground:
+    image: ${PLAYGROUND_IMAGE:-guard-spec-playground:local}
+    build:
+      context: ../..
+      dockerfile: build/playground.Dockerfile
+    restart: unless-stopped
+    ports:
+      # Loopback by default: put Caddy (profile tls), a tunnel or your host's
+      # proxy in front. PLAYGROUND_BIND=0.0.0.0 exposes plain HTTP.
+      - "${PLAYGROUND_BIND:-127.0.0.1}:${PLAYGROUND_PORT:-8090}:8090"
+    environment:
+      GATEWAY_URL: http://gateway:8080
+      GATEWAY_API_KEY: ${PLAYGROUND_GATEWAY_KEY:?set PLAYGROUND_GATEWAY_KEY in .env}
+      # Exact origins of the page, comma-separated.
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://guardspec.io}
+      ALLOW_NO_ORIGIN: ${ALLOW_NO_ORIGIN:-false}
+      # Where the client address comes from: X-Forwarded-For behind the
+      # bundled Caddy; CF-Connecting-IP behind Cloudflare; Fly-Client-IP on
+      # Fly.io; empty when clients connect directly.
+      CLIENT_IP_HEADER: ${CLIENT_IP_HEADER:-X-Forwarded-For}
+      RATE_PER_MINUTE: ${RATE_PER_MINUTE:-10}
+      RATE_PER_DAY: ${RATE_PER_DAY:-200}
+      GLOBAL_RATE_PER_MINUTE: ${GLOBAL_RATE_PER_MINUTE:-300}
+      MAX_INPUT_BYTES: ${MAX_INPUT_BYTES:-4096}
+      MAX_IN_FLIGHT: ${MAX_IN_FLIGHT:-8}
+      GATEWAY_TIMEOUT: ${GATEWAY_TIMEOUT:-5s}
+      # Cloudflare Turnstile: off while empty (README, Turnstile).
+      TURNSTILE_SECRET: ${TURNSTILE_SECRET:-}
+    networks: [edge, backend]
+    depends_on:
+      gateway:
+        condition: service_healthy
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    deploy:
+      resources:
+        limits:
+          cpus: "${PLAYGROUND_CPUS:-0.5}"
+          memory: ${PLAYGROUND_MEMORY:-64m}
+    logging: *logging
+
+  gateway:
+    # gateway-full: L2 and L3 models are in the image, no download at start.
+    # Per-layer scores (the "explain" field) need a gateway newer than 0.2.1;
+    # older ones still answer, and the page shows the fused score only.
+    image: ${GATEWAY_IMAGE:-ghcr.io/guard-spec/guard-spec-gateway-full:0.2.1}
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://guardspec_app@postgres:5432/guardspec?sslmode=disable
+      PGPASSWORD: ${GUARDSPEC_APP_PASSWORD:?set GUARDSPEC_APP_PASSWORD in .env}
+      # Nothing about a request is kept: no content in audit rows (and
+      # bootstrap.sh drops the rows themselves), no scan cache, no alert
+      # events, no retried-refusal bookkeeping.
+      AUDIT_STORE_CONTENT: "false"
+      AUDIT_DEDUPE_WINDOW: "0"
+      SCAN_CACHE_SIZE: "0"
+      ALERTS_EVENTS: "off"
+      SCAN_EXPLAIN: "true"
+      # No upstream LLM: the chat routes answer with stubs, and the proxy
+      # never calls them anyway.
+      UPSTREAM_LLM_URL: ""
+      DETECTOR_LAYERS: ${DETECTOR_LAYERS:-l1,l2,l3}
+      DETECTOR_REQUIRE_ML: "true"
+      INFERENCE_MAX_CONCURRENCY: ${INFERENCE_MAX_CONCURRENCY:-2}
+      INFERENCE_INTRA_OP_THREADS: ${INFERENCE_INTRA_OP_THREADS:-1}
+      # A backstop behind the proxy's own limits (per key; the proxy has one).
+      RATE_LIMIT_RPM: ${GATEWAY_RATE_LIMIT_RPM:-1200}
+      METRICS_ADDR: "127.0.0.1:9090"
+    networks: [backend]
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8080/readyz"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: "${GATEWAY_CPUS:-2}"
+          memory: ${GATEWAY_MEMORY:-1536m}
+    logging: *logging
+
+  # Postgres holds the playground org and its key (the gateway needs a
+  # database for keys, policies and settings). It lives in memory: a restart
+  # starts from scratch, and migrate + bootstrap set it up again.
+  postgres:
+    image: postgres:17.11-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b
+    restart: unless-stopped
+    command: ["postgres", "-c", "shared_buffers=32MB", "-c", "max_connections=30", "-c", "fsync=off",
+              "-c", "full_page_writes=off", "-c", "log_min_messages=warning", "-c", "log_statement=none"]
+    environment:
+      POSTGRES_DB: guardspec
+      POSTGRES_USER: ps
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    tmpfs:
+      - /var/lib/postgresql/data:size=256m
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ps -d guardspec"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          cpus: "${POSTGRES_CPUS:-0.5}"
+          memory: ${POSTGRES_MEMORY:-384m}
+    logging: *logging
+
+  migrate:
+    image: migrate/migrate:v4.20.1@sha256:76cc2074cb6642631f34a898ced71e6aeaa6b1a4d78c4daa743275a22e0c5be7
+    command:
+      - -path=/migrations
+      - -database=postgres://ps@postgres:5432/guardspec?sslmode=disable
+      - up
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - ../../migrations:/migrations:ro
+    networks: [backend]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    logging: *logging
+
+  # Sets the app role's password, creates the playground org and its key
+  # (from PLAYGROUND_GATEWAY_KEY; only its SHA-256 is stored) and makes the
+  # requests table drop every row.
+  bootstrap:
+    image: postgres:17.11-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b
+    entrypoint: ["/bin/sh", "/bootstrap.sh"]
+    environment:
+      PGHOST: postgres
+      PGUSER: ps
+      PGDATABASE: guardspec
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      GUARDSPEC_APP_PASSWORD: ${GUARDSPEC_APP_PASSWORD:?set GUARDSPEC_APP_PASSWORD in .env}
+      PLAYGROUND_GATEWAY_KEY: ${PLAYGROUND_GATEWAY_KEY:?set PLAYGROUND_GATEWAY_KEY in .env}
+      GATEWAY_RATE_LIMIT_RPM: ${GATEWAY_RATE_LIMIT_RPM:-1200}
+    volumes:
+      - ./bootstrap.sh:/bootstrap.sh:ro
+      - ../postgres/set-app-password.sh:/set-app-password.sh:ro
+    networks: [backend]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
+    logging: *logging
+
+  # HTTPS in front of the proxy: `docker compose --profile tls up -d`.
+  caddy:
+    profiles: [tls]
+    image: caddy:2.11.9-alpine@sha256:71d41fe4b1ae92a058abc87afe614178b996d8a6b96d0f4c71ae30606e5927e3
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    environment:
+      PLAYGROUND_HOST: ${PLAYGROUND_HOST:-play-api.guardspec.io}
+      CADDY_TLS: ${CADDY_TLS:-internal}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [edge]
+    depends_on:
+      playground:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128m
+    logging: *logging
+
+networks:
+  edge: {}
+  # No route out: the gateway and Postgres only talk to each other and to
+  # the proxy.
+  backend:
+    internal: true
+
+volumes:
+  caddy_data:
+  caddy_config:
