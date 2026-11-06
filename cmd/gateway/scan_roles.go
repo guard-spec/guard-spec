@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/guard-spec/guard-spec/internal/indirect"
@@ -22,14 +23,43 @@ type scanConfig struct {
 	Roles             indirect.Roles
 	Spotlight         indirect.Mode
 	IndirectThreshold float64
+	// ToolPrefixes is SCAN_TOOL_PREFIXES, comma-separated: when set, only
+	// tool definitions whose name starts with one of them are checked for
+	// poisoning, and the others are trusted as the client's own (Claude
+	// Code: mcp__, its MCP servers' tools). "": every tool is checked.
+	ToolPrefixes string
+	// IndirectAction is INDIRECT_ACTION: block refuses a request whose tool
+	// result or document scores over the threshold; redact replaces that
+	// block with a placeholder and lets the request go on.
+	IndirectAction indirect.Action
+	// History is SCAN_HISTORY, for /v1/messages: latest classifies only the
+	// trailing turn (the messages after the last assistant message) and
+	// takes earlier tool results from the scan cache; full classifies every
+	// turn. Chat completions always classify every turn.
+	History string
+}
+
+// Values of SCAN_HISTORY.
+const (
+	historyLatest = "latest"
+	historyFull   = "full"
+)
+
+// toolPrefixes returns the prefixes of ToolPrefixes.
+func (c scanConfig) toolPrefixes() []string {
+	if c.ToolPrefixes == "" {
+		return nil
+	}
+	return strings.Split(c.ToolPrefixes, ",")
 }
 
 func defaultScanConfig() scanConfig {
 	return scanConfig{Roles: indirect.DefaultRoles, Spotlight: indirect.ModeOff,
-		IndirectThreshold: indirect.BlockThreshold}
+		IndirectThreshold: indirect.BlockThreshold, IndirectAction: indirect.ActionBlock, History: historyLatest}
 }
 
-// loadScanConfig reads SCAN_ROLES, SPOTLIGHT and INDIRECT_BLOCK_THRESHOLD.
+// loadScanConfig reads SCAN_ROLES, SPOTLIGHT, INDIRECT_BLOCK_THRESHOLD,
+// INDIRECT_ACTION, SCAN_TOOL_PREFIXES and SCAN_HISTORY.
 func loadScanConfig(env func(string) string) (scanConfig, error) {
 	cfg := defaultScanConfig()
 	var err error
@@ -50,7 +80,39 @@ func loadScanConfig(env func(string) string) (scanConfig, error) {
 		}
 		cfg.IndirectThreshold = t
 	}
+	var prefixes []string
+	for _, p := range strings.Split(env("SCAN_TOOL_PREFIXES"), ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			prefixes = append(prefixes, p)
+		}
+	}
+	cfg.ToolPrefixes = strings.Join(prefixes, ",")
+	if cfg.IndirectAction, err = indirect.ParseAction(env("INDIRECT_ACTION")); err != nil {
+		return scanConfig{}, fmt.Errorf("INDIRECT_ACTION: %w", err)
+	}
+	switch h := strings.ToLower(strings.TrimSpace(env("SCAN_HISTORY"))); h {
+	case "":
+	case historyLatest, historyFull:
+		cfg.History = h
+	default:
+		return scanConfig{}, errors.New("SCAN_HISTORY must be latest or full")
+	}
 	return cfg, nil
+}
+
+// trustedTool reports a tool definition that is not checked for poisoning:
+// tool prefixes are set and its name, which must not be empty, starts with
+// none of them.
+func (g *textGuard) trustedTool(name string) bool {
+	if len(g.toolPrefixes) == 0 || name == "" {
+		return false
+	}
+	for _, p := range g.toolPrefixes {
+		if strings.HasPrefix(name, p) {
+			return false
+		}
+	}
+	return true
 }
 
 // settingsLoader returns an organization's scan overrides.
@@ -90,6 +152,7 @@ func (gw gateway) scanConfigFor(orgID uuid.UUID) (scanConfig, error) {
 		return scanConfig{}, err
 	}
 	cfg.Roles, cfg.Spotlight = s.Apply(cfg.Roles, cfg.Spotlight)
+	cfg.IndirectAction = s.Action(cfg.IndirectAction)
 	return cfg, nil
 }
 
@@ -97,6 +160,16 @@ func (gw gateway) scanConfigFor(orgID uuid.UUID) (scanConfig, error) {
 type scanPart struct {
 	source indirect.Source
 	text   string
+	// alone: scored on its own through the scan cache, not joined with the
+	// other direct text (the system prompt of a /v1/messages request).
+	alone bool
+	// history: from an earlier turn (SCAN_HISTORY=latest).
+	history bool
+	// redact replaces the block the text came from with a placeholder
+	// (INDIRECT_ACTION=redact); nil for text that cannot be redacted.
+	redact func()
+	// verdict is the part's score once scoreRequest ran (untrusted parts).
+	verdict indirect.Verdict
 }
 
 func (g *textGuard) scanRoles() indirect.Roles {
@@ -124,7 +197,13 @@ func (g *textGuard) collect(text string) {
 			return
 		}
 	}
-	g.parts = append(g.parts, scanPart{source: src, text: text})
+	if g.history && !src.Untrusted() {
+		// An earlier turn's own text was classified when it was the trailing
+		// turn (SCAN_HISTORY=latest).
+		return
+	}
+	g.parts = append(g.parts, scanPart{source: src, text: text, redact: g.redactFn,
+		alone: g.latest && src == indirect.SourceSystem, history: g.history})
 }
 
 // guardMessage sanitizes and collects one chat message according to its role.
@@ -155,10 +234,11 @@ func (g *textGuard) guardMessage(m map[string]any) error {
 		return g.scoreOnly(indirect.SourceAssistant, texts)
 	case "tool", "function":
 		g.source = indirect.SourceTool
+		g.redactFn = func() { m["content"] = redactedToolOutput }
 	default:
 		g.source = indirect.SourceUser
 	}
-	defer func() { g.source = "" }()
+	defer func() { g.source, g.redactFn = "", nil }()
 	return g.guardContent(m)
 }
 
@@ -303,7 +383,9 @@ func (g *textGuard) guardTools(body map[string]any) error {
 			if err != nil {
 				return err
 			}
-			g.tools = append(g.tools, tool)
+			if !g.trustedTool(tool.Name) {
+				g.tools = append(g.tools, tool)
+			}
 		}
 	}
 	return nil
@@ -335,35 +417,96 @@ func toolFromMap(def map[string]any, schemaKey string) (indirect.Tool, error) {
 // this caps the total work.
 const maxUntrustedBytes = 128 << 10
 
+// maxHistoryBytes bounds the earlier turns' tool results and documents that
+// one request has to classify because the scan cache does not have them (a
+// restarted gateway, another replica, an expired entry), with
+// SCAN_HISTORY=latest. Each turn was within maxUntrustedBytes when it was the
+// trailing one; this lets a long session go on after a cold cache.
+const maxHistoryBytes = 1 << 20
+
 // requestVerdict is the detector's view of a whole request.
 type requestVerdict struct {
 	Scores     inference.Scores // the strongest finding, for the audit row and injection.*
 	Direct     float64          // user, system and tool-call text, classified together
 	Indirect   indirect.Verdict // strongest untrusted part; Source "" when there was none
 	SourceRole string           // source of the strongest finding
+	// Tools is the strongest tool definition's score: redact mode never
+	// removes a tool, so it still blocks.
+	Tools float64
+}
+
+// Kinds of scan cache entries.
+const (
+	cacheDirect = "direct" // inference.Scores of a text scored alone
+	cacheSource = "source" // indirect.Verdict of an untrusted text
+	cacheTool   = "tool"   // indirect.ToolVerdict of a tool definition
+)
+
+// toolCacheKey hashes a tool's name, description and schema.
+func toolCacheKey(g *textGuard, t indirect.Tool) string {
+	schema, _ := json.Marshal(t.Schema)
+	return cacheKey(g.org, cacheTool, g.toolSchemaKey(), t.Name, t.Description, string(schema))
 }
 
 // scoreRequest classifies the collected parts. User, system and tool-call
 // text is joined and classified as before; each tool result and each tool
-// definition is classified on its own, with its category hint.
+// definition is classified on its own, with its category hint. With the scan
+// cache (g.useCache), parts scored alone, tool results and tool definitions
+// seen before are not classified again; the size limit counts only what is.
 func (gw gateway) scoreRequest(g *textGuard) (requestVerdict, error) {
 	var v requestVerdict
 	scanner := indirect.Scanner{Runner: gw.runner}
+	cache, gen := gw.cache, int64(0)
+	if !g.useCache {
+		cache = nil
+	}
+	if cache != nil {
+		gen = gw.generation()
+	}
 
-	var direct []scanPart
-	untrustedBytes := 0
-	for _, p := range g.parts {
-		if p.source.Untrusted() {
-			untrustedBytes += len(p.text)
-		} else {
+	var direct, alone []scanPart
+	untrustedBytes, historyBytes := 0, 0
+	for i, p := range g.parts {
+		switch {
+		case p.source.Untrusted():
+			if _, hit := cache.get(gen, cacheKey(g.org, cacheSource, string(p.source), p.text)); hit {
+				break
+			}
+			if p.history {
+				historyBytes += len(p.text)
+			} else {
+				untrustedBytes += len(p.text)
+			}
+		case p.alone:
+			alone = append(alone, g.parts[i])
+		default:
 			direct = append(direct, p)
 		}
 	}
 	for _, t := range g.tools {
-		untrustedBytes += len(t.Description)
+		if _, hit := cache.get(gen, toolCacheKey(g, t)); !hit {
+			untrustedBytes += len(t.Description)
+		}
 	}
-	if untrustedBytes > maxUntrustedBytes {
+	if untrustedBytes > maxUntrustedBytes || historyBytes > maxHistoryBytes {
 		return v, inference.ErrInputTooLong
+	}
+
+	for _, p := range alone {
+		key := cacheKey(g.org, cacheDirect, string(p.source), p.text)
+		var scores inference.Scores
+		if hit, ok := cache.get(gen, key); ok {
+			scores = hit.(inference.Scores)
+		} else {
+			var err error
+			if scores, err = gw.runner.Scan(gw.base, p.text); err != nil {
+				return v, err
+			}
+			cache.put(gen, key, scores)
+		}
+		if c := float64(scores.Injection.Confidence); v.SourceRole == "" || c > v.Direct {
+			v.Scores, v.Direct, v.SourceRole = scores, c, string(p.source)
+		}
 	}
 
 	if len(direct) > 0 {
@@ -375,42 +518,126 @@ func (gw gateway) scoreRequest(g *textGuard) (requestVerdict, error) {
 		if err != nil {
 			return v, err
 		}
-		v.Scores, v.Direct = scores, float64(scores.Injection.Confidence)
-		if v.SourceRole, err = gw.attribute(direct, v.Direct); err != nil {
-			return v, err
+		if c := float64(scores.Injection.Confidence); v.SourceRole == "" || c > v.Direct {
+			v.Scores, v.Direct = scores, c
+			if v.SourceRole, err = gw.attribute(direct, v.Direct); err != nil {
+				return v, err
+			}
 		}
 	}
 
-	for _, p := range g.parts {
+	for i := range g.parts {
+		p := &g.parts[i]
 		if !p.source.Untrusted() {
 			continue
 		}
-		pv, err := scanner.Score(gw.base, p.text, p.source)
-		if err != nil {
-			return v, err
+		key := cacheKey(g.org, cacheSource, string(p.source), p.text)
+		if hit, ok := cache.get(gen, key); ok {
+			p.verdict = hit.(indirect.Verdict)
+		} else {
+			pv, err := scoreSegments(gw.base, scanner, p.text, p.source)
+			if err != nil {
+				return v, err
+			}
+			p.verdict = pv
+			cache.put(gen, key, pv)
 		}
-		if v.Indirect.Source == "" || pv.Score > v.Indirect.Score {
-			v.Indirect = pv
+		if v.Indirect.Source == "" || p.verdict.Score > v.Indirect.Score {
+			v.Indirect = p.verdict
 		}
 	}
 	for _, t := range g.tools {
-		tv, err := scanner.ScoreTool(gw.base, t, "parameters", false)
-		if err != nil {
-			if errors.Is(err, indirect.ErrSchemaTooDeep) {
-				return v, errUnsupportedContent
+		key := toolCacheKey(g, t)
+		var tv indirect.ToolVerdict
+		if hit, ok := cache.get(gen, key); ok {
+			tv = hit.(indirect.ToolVerdict)
+		} else {
+			var err error
+			if tv, err = scanner.ScoreTool(gw.base, t, g.toolSchemaKey(), false); err != nil {
+				if errors.Is(err, indirect.ErrSchemaTooDeep) {
+					return v, errUnsupportedContent
+				}
+				return v, err
 			}
-			return v, err
+			cache.put(gen, key, tv)
 		}
+		v.Tools = max(v.Tools, tv.Score)
 		if v.Indirect.Source == "" || tv.Score > v.Indirect.Score {
 			v.Indirect = tv.Verdict
 		}
 	}
 
-	if v.Indirect.Source != "" && (len(direct) == 0 || v.Indirect.Score > v.Direct) {
+	if v.Indirect.Source != "" && (v.SourceRole == "" || v.Indirect.Score > v.Direct) {
 		v.Scores = verdictScores(v.Indirect)
 		v.SourceRole = string(v.Indirect.Source)
 	}
 	return v, nil
+}
+
+// Segments of a long untrusted text. A segment stays under the runner's
+// window limit (16 windows of about 2 KB); the overlap keeps a payload that
+// straddles a cut whole in one of the two segments. maxUntrustedBytes bounds
+// the total, so a request costs at most a few segments.
+const (
+	segmentBytes   = 24 << 10
+	segmentOverlap = 1 << 10
+)
+
+// scoreSegments scores an untrusted text, cut into segments when it is too
+// long for one runner call, and returns the strongest segment's verdict.
+// Every byte is scored: nothing is skipped.
+func scoreSegments(ctx context.Context, scanner indirect.Scanner, text string, src indirect.Source) (indirect.Verdict, error) {
+	if len(text) <= segmentBytes {
+		return scanner.Score(ctx, text, src)
+	}
+	var best indirect.Verdict
+	for start := 0; start < len(text); {
+		end := min(start+segmentBytes, len(text))
+		for end < len(text) && !utf8.RuneStart(text[end]) {
+			end--
+		}
+		v, err := scanner.Score(ctx, text[start:end], src)
+		if err != nil {
+			return indirect.Verdict{}, err
+		}
+		if best.Source == "" || v.Score > best.Score {
+			best = v
+		}
+		if end == len(text) {
+			break
+		}
+		next := end - segmentOverlap
+		for next > start && !utf8.RuneStart(text[next]) {
+			next--
+		}
+		start = next
+	}
+	return best, nil
+}
+
+// Placeholders of redacted untrusted content (INDIRECT_ACTION=redact).
+const (
+	redactedToolOutput = "[removed by Guard Spec: prompt injection detected in tool output]"
+	redactedDocument   = "[removed by Guard Spec: prompt injection detected in a document]"
+)
+
+// redactUntrusted replaces every tool result or document that scored at or
+// above threshold with its placeholder (after scoreRequest). It returns how
+// many parts it removed and the strongest score of the untrusted parts left;
+// a part with no redactor counts as left.
+func (g *textGuard) redactUntrusted(threshold float64) (redacted int, rest float64) {
+	for _, p := range g.parts {
+		if !p.source.Untrusted() {
+			continue
+		}
+		if p.verdict.Score >= threshold && p.redact != nil {
+			p.redact()
+			redacted++
+			continue
+		}
+		rest = max(rest, p.verdict.Score)
+	}
+	return redacted, rest
 }
 
 // attribute names the role of the direct text that scored highest. With one

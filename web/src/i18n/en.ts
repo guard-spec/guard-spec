@@ -263,6 +263,11 @@ export const en = {
   'guard.spotlight.off': 'Off',
   'guard.spotlight.delimit': 'Delimit',
   'guard.spotlight.datamark': 'Datamark',
+  'guard.indirectAction': 'Injection in a tool result or document',
+  'guard.indirectAction.block': 'Block the request',
+  'guard.indirectAction.redact': 'Remove that content and continue',
+  'guard.indirectAction.help':
+    'Remove replaces the tool result or document with a placeholder, so an agent session (Claude Code) can go on. Tool descriptions always block.',
 
   'keys.title': 'API keys',
   'keys.new': 'New API key',

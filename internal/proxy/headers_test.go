@@ -124,3 +124,52 @@ func TestRetries(t *testing.T) {
 		t.Errorf("4xx: %v calls %d", err, calls.Load())
 	}
 }
+
+func TestCallHeaders(t *testing.T) {
+	var got http.Header
+	var method string
+	var bodyLen int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got, method, bodyLen = r.Header.Clone(), r.Method, r.ContentLength
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+	p, err := New(Config{BaseURL: srv.URL, Key: "sk-ant-gw", Headers: map[string]string{"anthropic-version": "2024-01-01"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := Call{KeyHeader: "x-api-key", Header: http.Header{
+		"Anthropic-Version": {"2023-06-01"}, // the configured header wins
+		"Anthropic-Beta":    {"prompt-caching-2024-07-31"},
+		"X-Api-Key":         {"client-key"}, // credential names are dropped
+		"Authorization":     {"Bearer client"},
+		"X-Forwarded-For":   {"1.2.3.4"},
+		"Host":              {"evil"},
+		"X-Bad":             {"a\r\nInjected: 1"},
+	}}
+	resp, err := p.Do(context.Background(), "/messages", []byte(`{}`), call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Close()
+	want := map[string]string{"X-Api-Key": "sk-ant-gw", "Anthropic-Version": "2024-01-01",
+		"Anthropic-Beta": "prompt-caching-2024-07-31", "Authorization": "", "X-Forwarded-For": "", "X-Bad": "",
+		"Content-Type": "application/json"}
+	for k, v := range want {
+		if got.Get(k) != v {
+			t.Errorf("%s = %q, want %q", k, got.Get(k), v)
+		}
+	}
+	if method != http.MethodPost {
+		t.Errorf("method %s", method)
+	}
+	resp, err = p.Do(context.Background(), "/models", nil, Call{Method: http.MethodGet})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Close()
+	if method != http.MethodGet || bodyLen != 0 || got.Get("Content-Type") != "" || got.Get("Authorization") != "Bearer sk-ant-gw" {
+		t.Errorf("GET: %s %d %v", method, bodyLen, got)
+	}
+}

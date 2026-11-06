@@ -149,18 +149,19 @@ func main() {
 		emitEvents(emitter, e, flagAt)
 	})
 	slog.Info("scan config", "roles", cfg.Scan.Roles.String(), "spotlight", cfg.Scan.Spotlight,
-		"indirect_threshold", cfg.Scan.IndirectThreshold)
+		"indirect_threshold", cfg.Scan.IndirectThreshold, "tool_prefixes", cfg.Scan.ToolPrefixes)
 	app := newApp(gateway{
-		detector:     newLiveStatus(detector, live, cfg.Detector.RequireML),
-		live:         live,
-		adminToken:   cfg.AdminToken,
-		runner:       runner,
-		engine:       engine,
-		policies:     dbPolicyLoader(db),
-		audit:        audit,
-		upstream:     upstream,
-		policyRoutes: dbPolicyRouteLoader(db),
-		upstreams:    dbUpstreamLoader(db),
+		detector:         newLiveStatus(detector, live, cfg.Detector.RequireML),
+		live:             live,
+		adminToken:       cfg.AdminToken,
+		runner:           runner,
+		engine:           engine,
+		policies:         dbPolicyLoader(db),
+		audit:            audit,
+		upstream:         upstream,
+		upstreamProvider: cfg.UpstreamProvider,
+		policyRoutes:     dbPolicyRouteLoader(db),
+		upstreams:        dbUpstreamLoader(db),
 		pool: newUpstreamPool(poolConfig{propagate: ops.Propagate, allowPrivate: cfg.UpstreamAllowPrivate,
 			keyOrgs: cfg.UpstreamKeyOrgs, getenv: os.Getenv}),
 		output:   output,
@@ -168,6 +169,7 @@ func main() {
 		scan:     &cfg.Scan,
 		settings: dbSettingsLoader(db),
 		limits:   newRateLimiter(ops.RateLimit, dbKeyLimits(db)),
+		cache:    newScanCache(cfg.ScanCacheSize, scanCacheTTL),
 
 		waitOnHalfClose: cfg.WaitOnHalfClose,
 	}, dbKeyLookup(db))
@@ -204,6 +206,9 @@ type gateway struct {
 	policies policyLoader
 	audit    *auditLog
 	upstream *proxy.Proxy // UPSTREAM_LLM_URL
+	// upstreamProvider is UPSTREAM_LLM_PROVIDER: "anthropic" lets
+	// /v1/messages go to UPSTREAM_LLM_URL.
+	upstreamProvider string
 	// policyRoutes, when set, replaces policies: it also reads the upstreams
 	// the request may need, in the same transaction (routing.go).
 	policyRoutes policyRouteLoader
@@ -213,6 +218,8 @@ type gateway struct {
 	pool      *upstreamPool
 	output    *outputguard.Guard // nil: responses are passed on unchanged
 	limits    *rateLimiter       // nil: no rate limit
+	// cache keeps detector results of unchanged texts (scan_cache.go); nil: off.
+	cache *scanCache
 	// base is the parent of upstream calls and scans: a fiber ctx dies with the
 	// handler, and fasthttp's RequestCtx.Done races with server shutdown.
 	base context.Context
@@ -261,6 +268,10 @@ func newApp(gw gateway, lookup tenant.LookupFn) *fiber.App {
 	// Model reload and status, with GATEWAY_ADMIN_TOKEN (reload.go).
 	registerAdmin(app, gw)
 
+	// Errors of the Anthropic routes, the key check and rate limit included,
+	// in the Anthropic error shape (messages.go).
+	app.Use(anthropicErrors())
+
 	// All proxy routes require a valid API key.
 	app.Use(tenant.Middleware(lookup))
 	if gw.limits != nil {
@@ -270,6 +281,11 @@ func newApp(gw gateway, lookup tenant.LookupFn) *fiber.App {
 	// OpenAI-compatible proxy
 	app.Post("/v1/chat/completions", chatHandler(gw, "/chat/completions"))
 	app.Post("/v1/completions", chatHandler(gw, "/completions"))
+	app.Get("/v1/models", modelsHandler(gw))
+
+	// Anthropic Messages API, to an upstream with provider anthropic
+	app.Post("/v1/messages", proxyHandler(gw, messagesFormat))
+	app.Post("/v1/messages/count_tokens", countTokensHandler(gw))
 
 	// Direct guardrail endpoints
 	app.Post("/guardrail/scan", scanHandler(gw))
@@ -311,7 +327,10 @@ type requestEntry struct {
 	Scores    inference.Scores
 	Report    sanitizer.Report
 	Output    outputguard.Counts // what the output guard acted on, never the content
-	Indirect  indirect.Verdict   // strongest untrusted part (tool result, tool description)
+	// Redacted counts the untrusted texts replaced with a placeholder
+	// (INDIRECT_ACTION=redact); their scores are in Indirect.
+	Redacted int
+	Indirect indirect.Verdict // strongest untrusted part (tool result, tool description)
 	// SourceRole is where the strongest injection finding came from: user,
 	// system, assistant, tool or tool_description.
 	SourceRole string
@@ -411,7 +430,7 @@ func (a *auditLog) close() {
 func (a *auditLog) wait() { a.wg.Wait() }
 
 // outputTags renders output guard counts for the pii_entities column, as
-// "output:<kind>=<count>", sorted. The column has no other writer.
+// "output:<kind>=<count>", sorted. auditTags adds the input redactions.
 func outputTags(counts outputguard.Counts) []string {
 	var tags []string
 	for kind, n := range counts {
@@ -420,6 +439,16 @@ func outputTags(counts outputguard.Counts) []string {
 		}
 	}
 	sort.Strings(tags)
+	return tags
+}
+
+// auditTags is the pii_entities column: the output guard's counts, then
+// "input:redacted=<n>" when untrusted content was redacted.
+func auditTags(e requestEntry) []string {
+	tags := outputTags(e.Output)
+	if e.Redacted > 0 {
+		tags = append(tags, fmt.Sprintf("input:redacted=%d", e.Redacted))
+	}
 	return tags
 }
 
@@ -458,7 +487,7 @@ func logRequest(db *pgxpool.Pool, storeContent bool, e requestEntry) {
 			e.Report.HadTagChars,
 			e.Report.HadBidi,
 			e.LatencyMs,
-			outputTags(e.Output),
+			auditTags(e),
 			storeContent,
 			req.SHA256, req.Bytes, req.Content,
 			resp.SHA256, resp.Bytes, resp.Content,
@@ -500,6 +529,28 @@ type textGuard struct {
 	source indirect.Source // source of the text being cleaned; "" is user
 	parts  []scanPart      // sanitized text to classify, by source (scan_roles.go)
 	tools  []indirect.Tool // tool definitions to classify
+	// toolPrefixes, when set, limits the tools classified (SCAN_TOOL_PREFIXES).
+	toolPrefixes []string
+	// org keys the scan cache.
+	org uuid.UUID
+	// latest is SCAN_HISTORY=latest on /v1/messages: history holds while an
+	// earlier turn is cleaned, whose own text is then not classified.
+	latest, history bool
+	// useCache scores parts through gateway.cache (/v1/messages).
+	useCache bool
+	// redactFn replaces the block being cleaned with a placeholder; nil when
+	// it is not untrusted content.
+	redactFn func()
+	// schemaKey names the tools' schema field: parameters (OpenAI, the
+	// default) or input_schema (the Messages API).
+	schemaKey string
+}
+
+func (g *textGuard) toolSchemaKey() string {
+	if g.schemaKey == "" {
+		return "parameters"
+	}
+	return g.schemaKey
 }
 
 func (g *textGuard) merge(rep sanitizer.Report) {
@@ -703,10 +754,15 @@ func decodeBody(raw []byte) (map[string]any, error) {
 }
 
 // chatHandler is the OpenAI-compatible proxy entry point.
-// It sanitizes the untrusted text, applies the fixed thresholds and the org's
-// policies, then proxies the sanitized body to upstreamPath. Every request gets
-// one audit row: refused unless it reaches the point where entry.Action is set.
 func chatHandler(gw gateway, upstreamPath string) fiber.Handler {
+	return proxyHandler(gw, openAIFormat(upstreamPath))
+}
+
+// proxyHandler sanitizes the untrusted text of a request in format f, applies
+// the fixed thresholds and the org's policies, then proxies the sanitized body
+// to f.path. Every request gets one audit row: refused unless it reaches the
+// point where entry.Action is set.
+func proxyHandler(gw gateway, f apiFormat) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		start := time.Now()
 		release := gw.audit.hold()
@@ -729,6 +785,14 @@ func chatHandler(gw gateway, upstreamPath string) fiber.Handler {
 			return c.Status(400).JSON(fiber.Map{"error": "invalid body"})
 		}
 		entry.Model, _ = body["model"].(string)
+		// The headers the format takes from the client, copied: fiber reuses
+		// its buffers once the handler returns.
+		var call proxy.Call
+		if f.call != nil {
+			if call, err = f.call(c); err != nil {
+				return c.Status(fiber.StatusBadRequest).JSON(errorBody(err.Error(), "invalid_request_error", "invalid_header"))
+			}
+		}
 
 		scanCfg, err := gw.scanConfigFor(entry.OrgID)
 		if err != nil {
@@ -737,9 +801,10 @@ func chatHandler(gw gateway, upstreamPath string) fiber.Handler {
 		}
 
 		// Extract + sanitize untrusted text
-		guard := textGuard{roles: &scanCfg.Roles}
+		guard := textGuard{roles: &scanCfg.Roles, toolPrefixes: scanCfg.toolPrefixes(), org: entry.OrgID,
+			latest: f.history && scanCfg.History == historyLatest, useCache: f.history}
 		_, endSpan := tracing.Start(tctx, "sanitize")
-		err = guard.guardBody(body)
+		err = f.guardBody(&guard, body)
 		endSpan(err)
 		entry.Report = guard.report
 		if err != nil {
@@ -766,7 +831,19 @@ func chatHandler(gw gateway, upstreamPath string) fiber.Handler {
 			entry.Detected = modelLayer(verdict.Scores)
 			return blockResponse(c, "Request blocked: prompt injection detected.")
 		}
-		if verdict.Indirect.Score >= scanCfg.IndirectThreshold {
+		blocking := verdict.Indirect.Score
+		if scanCfg.IndirectAction == indirect.ActionRedact {
+			// Tool results and documents over the threshold are replaced with a
+			// placeholder; what is left, and tool definitions, still block.
+			redacted, rest := guard.redactUntrusted(scanCfg.IndirectThreshold)
+			if redacted > 0 {
+				entry.Redacted = redacted
+				blocking = max(rest, verdict.Tools)
+				slog.Info("redacted indirect injection", "parts", redacted, "score", verdict.Indirect.Score,
+					"source", verdict.Indirect.Source, "category", verdict.Indirect.Category)
+			}
+		}
+		if blocking >= scanCfg.IndirectThreshold {
 			slog.Info("blocked indirect injection", "score", verdict.Indirect.Score,
 				"source", verdict.Indirect.Source, "category", verdict.Indirect.Category)
 			entry.Detected = layerIndirect
@@ -774,7 +851,7 @@ func chatHandler(gw gateway, upstreamPath string) fiber.Handler {
 		}
 
 		// Mark tool results for the model (SPOTLIGHT). Off by default.
-		if _, err := spotlight(body, scanCfg.Spotlight); err != nil {
+		if _, err := f.spotlight(body, scanCfg.Spotlight); err != nil {
 			slog.Error("spotlight", "err", err)
 			return c.Status(fiber.StatusServiceUnavailable).
 				JSON(errorBody("guardrail unavailable", "server_error", "guardrail_unavailable"))
@@ -827,6 +904,14 @@ func chatHandler(gw gateway, upstreamPath string) fiber.Handler {
 			metrics.PolicyErrors.WithLabelValues("route").Inc()
 			return policyUnavailable(c)
 		}
+		if f.checkRoute != nil {
+			if err := f.checkRoute(target); err != nil {
+				slog.Info("upstream does not serve the request format", "org", entry.OrgID, "upstream", target.name,
+					"provider", target.provider)
+				entry.Action, entry.UpstreamID = actionError, target.id
+				return c.Status(fiber.StatusBadRequest).JSON(errorBody(err.Error(), "invalid_request_error", "unsupported_upstream"))
+			}
+		}
 		entry.Action = actionAllow
 		if decision.Action == policy.ActionRoute {
 			entry.Action = actionRoute
@@ -858,19 +943,7 @@ func chatHandler(gw gateway, upstreamPath string) fiber.Handler {
 
 		// No upstream configured — return stub response for development
 		if target.proxy == nil {
-			return c.Status(200).JSON(fiber.Map{
-				"id":     "chatcmpl-stub",
-				"object": "chat.completion",
-				"model":  body["model"],
-				"choices": []fiber.Map{{
-					"message": fiber.Map{
-						"role":    "assistant",
-						"content": "[guardrail passed — configure UPSTREAM_LLM_URL to proxy to a real model]",
-					},
-					"finish_reason": "stop",
-					"index":         0,
-				}},
-			})
+			return c.Status(200).JSON(f.stub(body["model"]))
 		}
 
 		// The output guard needs the canary in the prompt before it goes upstream.
@@ -883,7 +956,7 @@ func chatHandler(gw gateway, upstreamPath string) fiber.Handler {
 					return c.Status(fiber.StatusServiceUnavailable).
 						JSON(errorBody("guardrail unavailable", "server_error", "guardrail_unavailable"))
 				}
-				if injectCanary(body, canary) {
+				if f.injectCanary(body, canary) {
 					if sanitized, err = json.Marshal(body); err != nil {
 						return c.Status(400).JSON(fiber.Map{"error": "invalid body"})
 					}
@@ -908,7 +981,7 @@ func chatHandler(gw gateway, upstreamPath string) fiber.Handler {
 		}()
 
 		entry.UpstreamID = target.id
-		resp, err := target.proxy.Forward(ctx, upstreamPath, sanitized)
+		resp, err := target.proxy.Do(ctx, f.path, sanitized, call)
 		if err != nil {
 			entry.Action = actionError
 			entry.ErrorKind, entry.UpstreamStatus = upstreamErrorKind(err)
@@ -928,7 +1001,7 @@ func chatHandler(gw gateway, upstreamPath string) fiber.Handler {
 			if scan != nil {
 				counts := outputguard.Counts{}
 				_, endSpan := tracing.Start(tctx, "output_guard")
-				data, err = scan.Response(data, counts)
+				data, err = f.guardResponse(scan, data, counts)
 				endSpan(err)
 				entry.Output = counts
 				if errors.Is(err, outputguard.ErrToolCanary) {
@@ -960,9 +1033,9 @@ func chatHandler(gw gateway, upstreamPath string) fiber.Handler {
 		// between the two, so the writer watches it again for the client leaving.
 		streaming, handedOff = true, true
 		stopWatch()
-		var events *outputguard.EventStream
+		var events streamGuard // a nil interface, not a nil pointer in one, when off
 		if scan != nil {
-			events = scan.NewEventStream()
+			events = f.newStream(scan)
 		}
 		c.Set(fiber.HeaderContentType, resp.ContentType)
 		c.Set(fiber.HeaderCacheControl, "no-cache")
@@ -972,7 +1045,7 @@ func chatHandler(gw gateway, upstreamPath string) fiber.Handler {
 			defer resp.Close()
 			stop := watchClose(conn, cancel, !gw.waitOnHalfClose)
 			_, endSpan := tracing.Start(tctx, "output_guard.stream") // the relay, guarded when events is set
-			outcome := relay(w, resp, events)
+			outcome := relay(w, resp, events, f.streamError)
 			endSpan(nil)
 			stop()
 			entry.Status = resp.Status
@@ -984,8 +1057,8 @@ func chatHandler(gw gateway, upstreamPath string) fiber.Handler {
 				entry.Action = actionOutputLeak
 			}
 			if events != nil {
-				entry.Output = events.Counts
-				if events.Counts[outputguard.KindCanary] > 0 {
+				entry.Output = events.Acted()
+				if entry.Output[outputguard.KindCanary] > 0 {
 					entry.Action = actionOutputLeak
 				}
 			}
@@ -1035,10 +1108,21 @@ const (
 	relayBlocked
 )
 
+// streamGuard is the output guard of one event stream, in the format of its
+// API: *outputguard.EventStream or *outputguard.MessageStream.
+type streamGuard interface {
+	Write(p []byte) []byte
+	Close() []byte
+	Blocked() bool
+	Failed() bool
+	Acted() outputguard.Counts
+}
+
 // relay copies an event stream as it arrives, through the output guard when
 // events is set. It returns when the upstream ends, fails, the client is gone,
 // or the guard blocks the stream; closing resp then cancels the upstream.
-func relay(w *bufio.Writer, resp *proxy.Response, events *outputguard.EventStream) relayOutcome {
+// errorEvent renders the event that tells the client why a stream stopped.
+func relay(w *bufio.Writer, resp *proxy.Response, events streamGuard, errorEvent func(message, errType, code string) []byte) relayOutcome {
 	send := func(p []byte) bool {
 		if len(p) == 0 {
 			return true
@@ -1063,16 +1147,16 @@ func relay(w *bufio.Writer, resp *proxy.Response, events *outputguard.EventStrea
 			return 0, false
 		case events.Blocked():
 			slog.Warn("canary leaked in output; stream stopped")
-			event, _ = json.Marshal(errorBody(outputLeakMessage, "invalid_request_error", "content_filter"))
+			event = errorEvent(outputLeakMessage, "invalid_request_error", "content_filter")
 			outcome = relayBlocked
 		case events.Failed():
 			slog.Warn("upstream stream chunk could not be checked; stream stopped")
-			event, _ = json.Marshal(errorBody("upstream response could not be checked", "server_error", "upstream_error"))
+			event = errorEvent("upstream response could not be checked", "server_error", "upstream_error")
 			outcome = relayUpstreamFailed
 		default:
 			return 0, false
 		}
-		_, _ = fmt.Fprintf(w, "\n\ndata: %s\n\n", event)
+		_, _ = w.Write(event)
 		_ = w.Flush()
 		return outcome, true
 	}
@@ -1115,8 +1199,7 @@ func relay(w *bufio.Writer, resp *proxy.Response, events *outputguard.EventStrea
 			}
 			// The blank line ends any event the upstream left half-written, so the
 			// error is parsed as an event of its own rather than glued onto it.
-			event, _ := json.Marshal(errorBody(streamFailure(err), "server_error", "upstream_error"))
-			_, _ = fmt.Fprintf(w, "\n\ndata: %s\n\n", event)
+			_, _ = w.Write(errorEvent(streamFailure(err), "server_error", "upstream_error"))
 			_ = w.Flush()
 			return relayUpstreamFailed
 		}
@@ -1183,11 +1266,23 @@ func policyVars(entry requestEntry, body map[string]any, bodyBytes int) *policy.
 	return vars
 }
 
+// hasToolMessage reports a tool result: a message with role tool, or a
+// tool_result block (the Messages API).
 func hasToolMessage(raw any) bool {
 	messages, _ := raw.([]any)
 	for _, msg := range messages {
-		if m, ok := msg.(map[string]any); ok && m["role"] == "tool" {
+		m, ok := msg.(map[string]any)
+		if !ok {
+			continue
+		}
+		if m["role"] == "tool" {
 			return true
+		}
+		blocks, _ := m["content"].([]any)
+		for _, b := range blocks {
+			if block, ok := b.(map[string]any); ok && block["type"] == "tool_result" {
+				return true
+			}
 		}
 	}
 	return false
@@ -1241,6 +1336,9 @@ type config struct {
 	UpstreamURL     string
 	UpstreamKey     string
 	UpstreamTimeout time.Duration
+	// UpstreamProvider is UPSTREAM_LLM_PROVIDER: openai_compatible (the
+	// default) or anthropic, which also serves /v1/messages.
+	UpstreamProvider string
 	// UpstreamKeyOrgs is UPSTREAM_KEY_ORGS: which orgs may use which
 	// UPSTREAM_KEY_* variable for their named upstreams. Empty: none.
 	UpstreamKeyOrgs appconfig.KeyOrgs
@@ -1258,6 +1356,8 @@ type config struct {
 	// Scan is SCAN_ROLES, SPOTLIGHT and INDIRECT_BLOCK_THRESHOLD; an org can
 	// override roles and spotlight in organizations.guard_settings.
 	Scan scanConfig
+	// ScanCacheSize is SCAN_CACHE_SIZE: entries of the scan cache; 0 is off.
+	ScanCacheSize int
 	// AdminToken is GATEWAY_ADMIN_TOKEN: the bearer token of /admin/models
 	// (reload.go). Empty: those routes are off.
 	AdminToken string
@@ -1303,7 +1403,17 @@ func loadConfig() (config, error) {
 	if err != nil {
 		return config{}, fmt.Errorf("UPSTREAM_ALLOW_PRIVATE must be true or false: %w", err)
 	}
+	cacheSize, err := strconv.Atoi(getenv("SCAN_CACHE_SIZE", strconv.Itoa(defaultScanCacheSize)))
+	if err != nil || cacheSize < 0 || cacheSize > 1_000_000 {
+		return config{}, errors.New("SCAN_CACHE_SIZE must be a number from 0 to 1000000")
+	}
+	provider := strings.ToLower(strings.TrimSpace(getenv("UPSTREAM_LLM_PROVIDER", providerOpenAICompatible)))
+	if provider != providerOpenAICompatible && provider != providerAnthropic {
+		return config{}, errors.New("UPSTREAM_LLM_PROVIDER must be openai_compatible or anthropic")
+	}
 	cfg := config{
+		UpstreamProvider:     provider,
+		ScanCacheSize:        cacheSize,
 		ListenAddr:           getenv("LISTEN_ADDR", ":8080"),
 		Detector:             detector,
 		DatabaseURL:          getenv("DATABASE_URL", ""),

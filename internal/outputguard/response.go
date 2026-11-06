@@ -242,6 +242,9 @@ func (e *EventStream) Blocked() bool { return e.blocked }
 // is not text. The caller must stop the stream; that chunk was not returned.
 func (e *EventStream) Failed() bool { return e.failed }
 
+// Acted returns what was acted on so far (Counts).
+func (e *EventStream) Acted() Counts { return e.Counts }
+
 func (e *EventStream) stopped() bool { return e.blocked || e.failed }
 
 // Write takes upstream bytes and returns the bytes to send, whole events only.

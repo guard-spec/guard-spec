@@ -21,9 +21,14 @@ func TestLoadScanConfig(t *testing.T) {
 		want    scanConfig
 		wantErr bool
 	}{
-		{"defaults", nil, scanConfig{Roles: indirect.DefaultRoles, Spotlight: indirect.ModeOff, IndirectThreshold: 0.85}, false},
-		{"all set", map[string]string{"SCAN_ROLES": "user,system", "SPOTLIGHT": "delimit", "INDIRECT_BLOCK_THRESHOLD": "0.7"},
-			scanConfig{Roles: indirect.Roles{User: true, System: true}, Spotlight: indirect.ModeDelimit, IndirectThreshold: 0.7}, false},
+		{"defaults", nil, scanConfig{Roles: indirect.DefaultRoles, Spotlight: indirect.ModeOff, IndirectThreshold: 0.85,
+			IndirectAction: indirect.ActionBlock, History: historyLatest}, false},
+		{"all set", map[string]string{"SCAN_ROLES": "user,system", "SPOTLIGHT": "delimit", "INDIRECT_BLOCK_THRESHOLD": "0.7",
+			"INDIRECT_ACTION": "Redact", "SCAN_HISTORY": "full"},
+			scanConfig{Roles: indirect.Roles{User: true, System: true}, Spotlight: indirect.ModeDelimit, IndirectThreshold: 0.7,
+				IndirectAction: indirect.ActionRedact, History: historyFull}, false},
+		{"bad action", map[string]string{"INDIRECT_ACTION": "drop"}, scanConfig{}, true},
+		{"bad history", map[string]string{"SCAN_HISTORY": "all"}, scanConfig{}, true},
 		{"bad role", map[string]string{"SCAN_ROLES": "everyone"}, scanConfig{}, true},
 		{"bad mode", map[string]string{"SPOTLIGHT": "on"}, scanConfig{}, true},
 		{"threshold looser than direct", map[string]string{"INDIRECT_BLOCK_THRESHOLD": "0.9"}, scanConfig{}, true},

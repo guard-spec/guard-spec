@@ -5,7 +5,7 @@ import { useCallback, useState } from 'react';
 import { ErrorBanner, Loading, PageHeader, useLoad } from '../components/ui';
 import { errorText, useApp, useOrg } from '../context';
 import type { MessageKey } from '../i18n';
-import { DEFAULT_SCAN_ROLES, SCAN_ROLES, type GuardSettings, type ScanRole, type SpotlightMode } from '../types';
+import { DEFAULT_SCAN_ROLES, SCAN_ROLES, type GuardSettings, type IndirectAction, type ScanRole, type SpotlightMode } from '../types';
 
 type Tri = 'default' | 'on' | 'off';
 
@@ -39,6 +39,7 @@ export function GuardPage() {
       const body: GuardSettings = {};
       if (draft.scan_roles && Object.keys(draft.scan_roles).length > 0) body.scan_roles = draft.scan_roles;
       if (draft.spotlight) body.spotlight = draft.spotlight;
+      if (draft.indirect_action) body.indirect_action = draft.indirect_action;
       setDraft(await api.putGuardSettings(org.id, body));
       notify(t('common.saved'));
     } catch (e) {
@@ -99,6 +100,26 @@ export function GuardPage() {
               </option>
             ))}
           </select>
+        </div>
+        <div className="field">
+          <label htmlFor="indirect-action">{t('guard.indirectAction')}</label>
+          <select
+            id="indirect-action"
+            value={draft.indirect_action ?? ''}
+            onChange={(e) => {
+              const v = e.target.value as IndirectAction | '';
+              const { indirect_action: _old, ...rest } = draft;
+              setDraft(v ? { ...rest, indirect_action: v } : rest);
+            }}
+          >
+            <option value="">{t('guard.default', { value: t('flow.gatewayDefault') })}</option>
+            {(['block', 'redact'] as const).map((m) => (
+              <option key={m} value={m}>
+                {t(`guard.indirectAction.${m}` as MessageKey)}
+              </option>
+            ))}
+          </select>
+          <div className="small muted">{t('guard.indirectAction.help')}</div>
         </div>
         <button type="submit" className="btn btn-primary" disabled={busy || !writable} title={writable ? undefined : t('forbidden.readOnly')}>
           {busy ? t('common.saving') : t('common.save')}

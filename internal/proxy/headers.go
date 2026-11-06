@@ -180,13 +180,14 @@ func (p *Proxy) Probe(ctx context.Context) ProbeResult {
 		return res
 	}
 	res.OK = true
-	res.Models = modelIDs(data)
+	res.Models = ModelIDs(data)
 	return res
 }
 
-// modelIDs reads the ids of the OpenAI list shape {"data":[{"id":...}]} and
-// Ollama's {"models":[{"name":...}]}; anything else gives none.
-func modelIDs(data []byte) []string {
+// ModelIDs reads the ids of the OpenAI list shape {"data":[{"id":...}]}, which
+// Anthropic's list has too, and Ollama's {"models":[{"name":...}]}; anything
+// else gives none.
+func ModelIDs(data []byte) []string {
 	var body struct {
 		Data []struct {
 			ID string `json:"id"`

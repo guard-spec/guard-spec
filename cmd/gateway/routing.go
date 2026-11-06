@@ -340,6 +340,9 @@ type route struct {
 	name   string    // the named upstream; "" for env and stub
 	model  string    // the upstream's default model
 	source string
+	// provider is the upstream's provider (UPSTREAM_LLM_PROVIDER for env):
+	// only anthropic serves /v1/messages.
+	provider string
 	// models are the upstream's allowed models; empty allows any.
 	models       []string
 	maxTokensCap *int
@@ -456,7 +459,8 @@ func (gw gateway) resolveRoute(entry requestEntry, decision policy.Decision, sna
 		return route{}, err
 	}
 	if up != nil {
-		r := route{id: up.ID, name: up.Name, model: up.Model, source: source, models: up.Models, maxTokensCap: up.MaxTokensCap}
+		r := route{id: up.ID, name: up.Name, model: up.Model, source: source, models: up.Models, maxTokensCap: up.MaxTokensCap,
+			provider: up.Provider}
 		if !up.Enabled {
 			return fail(r, errors.New("upstream is disabled"))
 		}
@@ -471,7 +475,7 @@ func (gw gateway) resolveRoute(entry requestEntry, decision policy.Decision, sna
 	}
 	if gw.upstream != nil {
 		metrics.RouteSelections.WithLabelValues(sourceEnv, "ok").Inc()
-		return route{proxy: gw.upstream, source: sourceEnv}, nil
+		return route{proxy: gw.upstream, source: sourceEnv, provider: gw.upstreamProvider}, nil
 	}
 	metrics.RouteSelections.WithLabelValues(sourceStub, "ok").Inc()
 	return route{source: sourceStub}, nil

@@ -32,6 +32,7 @@ dụng LLM trở nên an toàn.
 | D2 | Chặn nhầm request vô hại | Người dùng bị từ chối | Đo trên lưu lượng thật, allow exemplar, `DETECTOR_LAYERS` |
 | D3 | Lớp model thiếu mà không ai biết | Chỉ chạy L1, tỷ lệ bắt giảm | `DETECTOR_REQUIRE_ML=true`, cảnh báo khi `/readyz` báo `degraded` |
 | D4 | Injection gián tiếp trong phần không quét | Kết quả tool hoặc system prompt không được kiểm | `SCAN_ROLES`, `scan_roles` theo org, `SPOTLIGHT` |
+| D5 | Lịch sử hội thoại bị giả mạo trên `/v1/messages` | Văn bản chưa quét đặt vào các lượt trước tới được model | Chỉ cấp key cho client tin cậy, hoặc `SCAN_HISTORY=full` |
 | A1 | Agent dùng tool sai mục đích | Mất dữ liệu, hành động ngoài ý muốn | Phân quyền trong ứng dụng, kiểm soát egress, xác nhận |
 | A2 | Rò dữ liệu qua link được giữ lại | Dữ liệu ra ngoài qua câu trả lời | Allowlist host ngắn, tắt tự tạo link trong UI |
 | P1 | Dịch vụ chạy không có TLS | Lộ thông tin đăng nhập và prompt trên mạng | TLS ở reverse proxy hoặc load balancer |
@@ -108,6 +109,23 @@ Nên làm:
 - Gửi tài liệu truy xuất qua `/guardrail/scan` với `documents[]` trước khi đưa
   vào prompt.
 - Bật `SPOTLIGHT` (`delimit` hoặc `datamark`) để model phân biệt dữ liệu với chỉ dẫn.
+
+### D5. Lịch sử hội thoại bị giả mạo trên `/v1/messages`
+
+Claude Code và các client Messages API gửi lại toàn bộ hội thoại ở mỗi lượt.
+Với `SCAN_HISTORY=latest` (mặc định cho `/v1/messages`), gateway chỉ phân
+loại lượt cuối (các tin nhắn sau tin nhắn assistant cuối cùng), cùng system
+prompt và tool. Kết quả tool và tài liệu ở các lượt trước vẫn được kiểm (từ
+cache quét hoặc quét lại), nên nội dung đã bị chặn hay bị thay thế vẫn bị
+chặn hay bị thay thế. Văn bản người dùng ở các lượt trước không được phân
+loại lại: gateway tin rằng client giữ API key không giả mạo lịch sử.
+
+Nên làm:
+
+- Chỉ cấp key gateway cho client bạn tin ở mức này (Claude Code của chính
+  lập trình viên là một ví dụ).
+- Đặt `SCAN_HISTORY=full` khi client không đáng tin; phiên dài sẽ chạm giới
+  hạn 128 KiB sớm hơn.
 
 ## Rủi ro ở ứng dụng và agent
 

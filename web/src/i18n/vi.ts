@@ -264,6 +264,11 @@ export const vi: Messages = {
   'guard.spotlight.off': 'Tắt',
   'guard.spotlight.delimit': 'Đánh dấu ranh giới',
   'guard.spotlight.datamark': 'Đánh dấu dữ liệu',
+  'guard.indirectAction': 'Injection trong kết quả tool hoặc tài liệu',
+  'guard.indirectAction.block': 'Chặn request',
+  'guard.indirectAction.redact': 'Bỏ nội dung đó và tiếp tục',
+  'guard.indirectAction.help':
+    'Bỏ nội dung thay kết quả tool hoặc tài liệu bằng một dòng thông báo, để phiên agent (Claude Code) tiếp tục được. Mô tả tool luôn bị chặn.',
 
   'keys.title': 'Khóa API',
   'keys.new': 'Khóa API mới',
