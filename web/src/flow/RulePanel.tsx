@@ -6,7 +6,7 @@
 // stay in sync through POST /policy/format and /policy/parse.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { QueryBuilder, type Field, type RuleGroupType } from 'react-querybuilder';
+import { QueryBuilder, type Field, type RuleGroupType, type ValidationMap } from 'react-querybuilder';
 import 'react-querybuilder/dist/query-builder.css';
 import { ApiError } from '../api';
 import { CodeEditor, type EditorDiagnostic } from '../components/CodeEditor';
@@ -14,8 +14,12 @@ import { errorText, useApp } from '../context';
 import type { MessageKey } from '../i18n';
 import { ACTIONS, type Action, type ConditionNode, type PolicySchema } from '../types';
 import { conditionText } from './conditionText';
+import { FieldPicker, OperatorSelect } from './FieldPicker';
+import { descKey, variableHelp } from './help';
+import { ActionTip } from './HelpText';
 import { asGroup, type EditableRule } from './model';
 import { cleanCondition, fieldTypesOf, operatorsFor } from './schema';
+import { validateCondition, type Problem } from './validate';
 
 /** Equal trees, ignoring the builder's ids and a single leaf wrapped in a group. */
 export function sameCondition(a: ConditionNode, b: ConditionNode): boolean {
@@ -40,7 +44,7 @@ const OPERATOR_LABELS: Record<string, string> = {
 export function builderFields(schema: PolicySchema): Field[] {
   return schema.fields.map((f) => {
     const operators = operatorsFor(schema, f.type).map((name) => ({ name, value: name, label: OPERATOR_LABELS[name] ?? name }));
-    const base = { name: f.name, value: f.name, label: f.name, operators, ...(f.description ? { title: f.description } : {}) };
+    const base = { name: f.name, value: f.name, label: f.name, type: f.type, operators, ...(f.description ? { title: f.description } : {}) };
     switch (f.type) {
       case 'double':
       case 'int':
@@ -91,7 +95,20 @@ export interface RulePanelProps {
    * parsed, so saving then would store something else than the text shows.
    */
   onTextState?: (state: TextState) => void;
+  /** Without policies.write: the rule is shown, not edited. */
+  readOnly?: boolean;
+  /** The org's injection block threshold, for the validation's warnings. */
+  injectionThreshold?: number;
 }
+
+/** The builder's validation map: the leaves and groups with an error are invalid. */
+export function validationMap(problems: readonly Problem[]): ValidationMap {
+  const out: ValidationMap = {};
+  for (const p of problems) if (p.id && p.severity === 'error') out[p.id] = false;
+  return out;
+}
+
+const CONTROL_ELEMENTS = { fieldSelector: FieldPicker, operatorSelector: OperatorSelect };
 
 export function RulePanel(props: RulePanelProps) {
   const { api, t } = useApp();
@@ -103,6 +120,14 @@ export function RulePanel(props: RulePanelProps) {
   const [syncing, setSyncing] = useState(false);
   const fields = useMemo(() => builderFields(schema), [schema]);
   const fieldNames = useMemo(() => schema.fields.map((f) => f.name), [schema]);
+  const fieldInfo = useMemo(
+    () => Object.fromEntries(schema.fields.map((f) => [f.name, variableHelp(f.name) ? t(descKey(f.name)) : (f.description ?? '')])),
+    [schema, t],
+  );
+  const problems = useMemo(
+    () => validateCondition(rule.condition, schema, { injectionThreshold: props.injectionThreshold }),
+    [rule.condition, schema, props.injectionThreshold],
+  );
   const query = useMemo(() => asGroup(rule.condition) as RuleGroupType, [rule.condition]);
   // Separate timers: a format must never cancel a pending parse, or the
   // reverse. seq makes only the newest request's answer count.
@@ -223,13 +248,22 @@ export function RulePanel(props: RulePanelProps) {
       <p className="muted small">
         {t('rule.policy')}: {props.policyName} · #{props.index + 1}
       </p>
+      {props.readOnly ? (
+        <div className="banner banner-info" role="note">
+          {t('flow.readOnly')}
+        </div>
+      ) : null}
+      <fieldset className="plain" disabled={props.readOnly}>
       <div className="field">
         <label htmlFor="rule-name">{t('rule.name')}</label>
         <input id="rule-name" value={rule.name} onChange={(e) => props.onChange({ name: e.target.value })} />
       </div>
       <div className="form-grid">
         <div className="field">
-          <label htmlFor="rule-action">{t('rule.action')}</label>
+          <span className="label-row">
+            <label htmlFor="rule-action">{t('rule.action')}</label>
+            <ActionTip action={rule.action} label={t('rule.action')} />
+          </span>
           <select
             id="rule-action"
             value={rule.action}
@@ -309,9 +343,13 @@ export function RulePanel(props: RulePanelProps) {
             }}
             showNotToggle
             resetOnFieldChange
+            controlElements={CONTROL_ELEMENTS}
+            validator={(q) => validationMap(validateCondition(q as ConditionNode, schema, { injectionThreshold: props.injectionThreshold }))}
+            disabled={props.readOnly}
             controlClassnames={{ queryBuilder: 'qb' }}
           />
         </div>
+        <ConditionProblems problems={problems} />
         <div id="tabpanel-text" role="tabpanel" aria-labelledby="tab-text" hidden={tab !== 'text'}>
           <CodeEditor
             mode="expression"
@@ -319,6 +357,7 @@ export function RulePanel(props: RulePanelProps) {
             onChange={onText}
             diagnostics={diag}
             fields={fieldNames}
+            fieldInfo={fieldInfo}
             ariaLabel={t('rule.condition')}
             testId="condition-text"
           />
@@ -343,6 +382,39 @@ export function RulePanel(props: RulePanelProps) {
           {t('rule.delete')}
         </button>
       </div>
+      </fieldset>
     </section>
+  );
+}
+
+/** The condition's errors and warnings, under the builder. */
+export function ConditionProblems({ problems }: { problems: readonly Problem[] }) {
+  const { t } = useApp();
+  if (problems.length === 0) return null;
+  const errors = problems.filter((p) => p.severity === 'error');
+  const warnings = problems.filter((p) => p.severity === 'warning');
+  return (
+    <div className="cond-problems" data-testid="condition-problems">
+      {errors.length > 0 ? (
+        <div className="banner banner-error" role="alert">
+          <strong>{t('cond.title')}</strong>
+          <ul>
+            {errors.map((p, i) => (
+              <li key={`e${i}`}>{t(p.key, p.params)}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {warnings.length > 0 ? (
+        <div className="banner banner-warn" role="status">
+          <strong>{t('cond.warnings')}</strong>
+          <ul>
+            {warnings.map((p, i) => (
+              <li key={`w${i}`}>{t(p.key, p.params)}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </div>
   );
 }

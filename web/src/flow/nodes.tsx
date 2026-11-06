@@ -36,11 +36,11 @@ export function StepNode({ data }: NodeProps<Node<StepData>>) {
   const inRow = data.role === 'request' || data.role === 'key' || data.role === 'sanitizer';
   const { inPos, nextPos } = useHandles(inRow ? 'pipeline' : undefined);
   const { t } = useApp();
-  const clickable = data.role === 'detector' || data.role === 'sanitizer';
   return (
     <div
       className={cls('fnode fnode-step', data.hl, `fnode-${data.role} ${data.status === 'off' ? 'fnode-off' : ''}`)}
-      title={clickable ? t('flow.detectorHint') : undefined}
+      title={t('flow.nodeHint')}
+      data-testid={`step-node-${data.role}`}
     >
       {data.role !== 'request' ? <Handle type="target" position={inPos} isConnectable={false} /> : null}
       <div className="fnode-title">
@@ -91,8 +91,9 @@ function DropHandle() {
 
 export function TerminalNode({ data }: NodeProps<Node<TerminalData>>) {
   const { inPos, nextPos } = useHandles();
+  const { t } = useApp();
   return (
-    <div className={cls('fnode fnode-terminal', data.hl, `fnode-${data.variant}`)} data-testid={`terminal-${data.variant}`}>
+    <div className={cls('fnode fnode-terminal', data.hl, `fnode-${data.variant}`)} data-testid={`terminal-${data.variant}`} title={t('flow.nodeHint')}>
       <Handle type="target" position={inPos} isConnectable={false} />
       <DropHandle />
       <div className="fnode-title">
@@ -111,6 +112,7 @@ export function UpstreamNode({ data }: NodeProps<Node<UpstreamData>>) {
     <div
       className={cls('fnode fnode-upstream', data.hl, `${data.missing ? 'fnode-error' : ''} ${data.enabled ? '' : 'fnode-off'}`)}
       data-testid={`upstream-node-${data.name || 'gateway'}`}
+      title={t('flow.nodeHint')}
     >
       <Handle type="target" position={inPos} isConnectable={false} />
       {data.name && !data.missing ? <DropHandle /> : null}
@@ -132,7 +134,7 @@ export function DetectorsNode({ data }: NodeProps<Node<StepData>>) {
   const { inPos, nextPos } = useHandles('pipeline-end');
   const { t } = useApp();
   return (
-    <div className={cls('fnode fnode-step fnode-detector', data.hl, data.status === 'off' ? 'fnode-off' : '')} title={t('flow.detectorHint')} data-testid="detectors-node">
+    <div className={cls('fnode fnode-step fnode-detector', data.hl, data.status === 'off' ? 'fnode-off' : '')} title={t('flow.nodeHint')} data-testid="detectors-node">
       <Handle type="target" position={inPos} isConnectable={false} />
       <div className="fnode-title">
         <span className="fnode-icon" aria-hidden="true">

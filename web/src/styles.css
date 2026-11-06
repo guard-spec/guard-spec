@@ -1148,7 +1148,8 @@ tbody tr:last-child td {
 
 .flow-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 400px;
+  /* Wide enough for the field picker and the node panels at 1280px. */
+  grid-template-columns: minmax(0, 1fr) clamp(400px, 32vw, 480px);
   gap: 16px;
   align-items: start;
 }
@@ -1534,6 +1535,29 @@ tbody tr:last-child td {
 }
 
 /* Query builder */
+/* One condition: the field on its own row (never truncated), then the
+   operator, the value and the remove button. */
+.qb-wrap .rule.rule {
+  display: grid;
+  gap: 6px;
+  align-items: center;
+  grid-template-columns: 92px minmax(0, 1fr) auto;
+  padding: 6px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+}
+.qb-wrap .rule > .field-picker {
+  grid-column: 1 / -1;
+}
+.qb-wrap .rule.queryBuilder-invalid {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+.qb-wrap .rule + .rule,
+.qb-wrap .rule + .ruleGroup,
+.qb-wrap .ruleGroup + .rule {
+  margin-top: 6px;
+}
 .qb-wrap .ruleGroup {
   background: var(--surface-2);
   border: 1px solid var(--border);
@@ -2702,4 +2726,309 @@ tr.has-detail td {
 /* 2FA: the secret wraps between groups of four, never inside one. */
 .secret-group {
   white-space: nowrap;
+}
+
+/* ── Help tips ────────────────────────────────────────────────────────── */
+
+.help-tip {
+  display: inline-flex;
+  vertical-align: middle;
+  position: relative;
+}
+.help-tip-btn {
+  width: 18px;
+  height: 18px;
+  min-height: 0;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--muted);
+  font: 600 11px/1 var(--font);
+  cursor: help;
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+}
+.help-tip-btn:hover,
+.help-tip-btn[aria-expanded='true'] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.help-tip-btn:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+.help-tip-pop {
+  display: none;
+  position: fixed;
+  z-index: 1000;
+  max-width: min(340px, calc(100vw - 16px));
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.18);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.45;
+  text-align: left;
+  white-space: normal;
+}
+.help-tip-pop.is-open {
+  display: block;
+}
+.help-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.help-title {
+  font-weight: 600;
+}
+.help-body code {
+  font-size: 11px;
+  word-break: break-word;
+}
+.label-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.label-row label {
+  font-weight: 600;
+  font-size: 13px;
+}
+.field-compact .label-row label {
+  font-weight: 500;
+  font-size: 12px;
+}
+
+/* ── Field picker (condition builder) ─────────────────────────────────── */
+
+.field-picker {
+  position: relative;
+  min-width: 0;
+}
+.field-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.qb-wrap .field-picker-btn,
+.field-picker-btn {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+  text-align: left;
+  font: 13px var(--mono);
+  min-height: 30px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  background: var(--input-bg);
+  color: var(--text);
+  cursor: pointer;
+}
+.field-picker-value {
+  overflow-wrap: anywhere;
+}
+.field-picker-caret {
+  color: var(--muted);
+}
+.field-picker-pop {
+  position: absolute;
+  z-index: 50;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  min-width: 280px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
+  padding: 6px;
+}
+.field-picker-pop input[type='search'] {
+  width: 100%;
+  margin-bottom: 6px;
+}
+.field-picker-list {
+  max-height: 320px;
+  overflow-y: auto;
+}
+.field-picker-group {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  padding: 6px 6px 2px;
+}
+.field-picker-option {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 5px 6px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.field-picker-option .mono {
+  font-size: 13px;
+}
+.field-picker-option.is-active {
+  background: var(--accent-soft);
+}
+.field-picker-option.is-current .mono {
+  color: var(--accent);
+  font-weight: 600;
+}
+.operator-select {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.operator-select select {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.cond-problems {
+  margin-top: 8px;
+}
+.cond-problems .banner {
+  display: block;
+  font-size: 12px;
+}
+.cond-problems ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+
+/* ── Node panels, templates and legend (Flow page) ────────────────────── */
+
+fieldset.plain {
+  border: none;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.panel-legend,
+.panel-subtitle {
+  font-size: 13px;
+  font-weight: 700;
+  margin: 12px 0 6px;
+  padding: 0;
+}
+.node-panel p {
+  margin: 0 0 8px;
+}
+.node-panel .kv {
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+.node-panel .banner {
+  margin: 8px 0;
+}
+.panel-links {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  margin-top: 12px;
+}
+.panel-link {
+  text-decoration: none;
+}
+.settings-table.compact th,
+.settings-table.compact td {
+  padding: 4px 4px 4px 0;
+  vertical-align: middle;
+}
+.settings-table.compact select {
+  width: auto;
+  max-width: 100%;
+}
+.warn-text {
+  color: var(--warn);
+}
+.break {
+  overflow-wrap: anywhere;
+}
+.layer-list dd {
+  min-width: 0;
+}
+.templates h2 {
+  margin-top: 0;
+}
+.template-list {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0;
+  display: grid;
+  gap: 8px;
+}
+.template-list li {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-2);
+}
+.template-list .btn {
+  flex: none;
+}
+.flow-legend {
+  margin-top: 6px;
+  display: grid;
+  gap: 4px;
+}
+.flow-legend p {
+  margin: 0;
+}
+.legend-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  font-size: 12px;
+}
+.legend-head {
+  font-weight: 700;
+  color: var(--muted);
+}
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.sim-group {
+  margin-top: 6px;
+}
+.sim-group-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  padding: 0;
+  margin-bottom: 4px;
+}
+.sim-grid .label-row {
+  min-width: 0;
+  flex-wrap: nowrap;
+}
+.sim-grid .label-row label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.react-flow__node {
+  cursor: pointer;
 }

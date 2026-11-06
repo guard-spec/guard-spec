@@ -133,7 +133,14 @@ export interface GuardSettings {
   scan_roles?: Partial<Record<ScanRole, boolean>>;
   spotlight?: SpotlightMode;
   indirect_action?: IndirectAction;
+  /** Blocks at this fused injection score; only lower (stricter) than the gateway's 0.85 counts. */
+  injection_threshold?: number;
+  /** Blocks or redacts untrusted content at this score; the smaller of this and INDIRECT_BLOCK_THRESHOLD wins. */
+  indirect_threshold?: number;
 }
+
+/** The highest org block threshold the control plane accepts (indirect.BlockThreshold). */
+export const MAX_ORG_THRESHOLD = 0.85;
 
 export type IndirectAction = 'block' | 'redact';
 
@@ -229,6 +236,12 @@ export interface GatewayModels {
   update_available: boolean;
   shadow: { enabled: boolean; model: string | null; error?: string };
   reload: { generation: number; at: string | null; error: string | null };
+  /** The detection layers that run (l1, l2, l3); null or absent when the gateway did not say. */
+  layers?: string[] | null;
+  /** The fusion combiner: logreg or max. */
+  fusion?: string;
+  /** FUSION_L1_FLOOR as applied (0: off); null or absent when the gateway does not report it. */
+  l1_floor?: number | null;
 }
 
 /** A window of the shadow comparison (as the dashboard). */

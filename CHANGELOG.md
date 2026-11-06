@@ -64,6 +64,42 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   prompt are now one row with `repeat_count` 6. Allowed requests are never
   folded. The count is per gateway process. The control plane's request list
   returns `repeat_count`, and the admin UI's request log shows it.
+- Admin UI, Policy flow: every step of the diagram opens a panel on the same
+  page instead of another page, so unsaved rule edits are no longer in the
+  way. Detectors shows the layers, the running classifier, the L1 floor
+  (read-only) and the organization's block thresholds; L0 sanitizer edits the scanned parts,
+  spotlight and the action on injected tool content. Those edits are staged
+  with the rule edits and saved by the same Save changes (guard settings
+  first, then each changed policy; failures are reported per part and their
+  edits kept). API key, upstreams (model allowlist, rules routing there),
+  output guard, Block, Allow, Log and Client explain what happens at that
+  step, with a link to the page that owns its settings. A notice says when
+  the user lacks `policies.write` or `org.settings.write`.
+- Admin UI, Policy flow: a help tip (hover and keyboard focus, read with the
+  control by screen readers) on every condition variable (meaning, values,
+  example, when to use), operator, action, step and edge, and on the
+  Simulator's fields, in English and Vietnamese, from one metadata module
+  (`web/src/flow/help.ts`) that a unit test checks against the backend's
+  variable list. The condition builder's field picker is searchable, grouped
+  and no longer truncated; the side panel is wider.
+- Admin UI, Policy flow: a scope without rules offers one-click templates
+  (block high-risk injection, log possible injection in tool responses, route
+  suspicious requests to another upstream when one exists, block hidden
+  Unicode).
+- Admin UI, Policy flow: conditions are checked as they are edited. What the
+  server would refuse (empty group or value, a number that is not one, an
+  operator the field does not take) is shown at the condition and blocks
+  saving; conditions that cannot match as written (a score out of range, a
+  value the field never has, such as `benign` for `BENIGN`, or a score the
+  detectors already block) are flagged.
+- Guard settings: `injection_threshold` and `indirect_threshold` lower the
+  gateway's block thresholds for one organization (a number in (0, 0.85]; the
+  gateway uses the smaller of the org's value and its own, so they can only
+  make it stricter). They apply to proxied requests; the Guard settings page
+  and the Flow page's Detectors panel edit them.
+- Control plane: `GET /v1/gateway/models` also returns the gateway's
+  detection `layers`, `fusion` and `l1_floor` (from its `/readyz`; null when
+  an older gateway does not report them).
 
 ### Changed
 

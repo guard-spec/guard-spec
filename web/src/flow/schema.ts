@@ -4,9 +4,12 @@
 import { isGroup, type ConditionNode, type FieldType, type PolicySchema } from '../types';
 import type { FieldTypes } from './conditionText';
 
+const CATEGORIES = ['direct_injection', 'indirect_injection', 'jailbreak', 'prompt_extraction', 'data_exfiltration', 'tool_poisoning', 'obfuscation'];
+
 /**
  * The schema used when the control plane has no GET /policy/schema yet: the
- * fields of policy.fieldTypes and the operators leafToCEL supports today.
+ * fields of policy.fieldTypes, their known values (policy fieldValues) and the
+ * operators leafToCEL supports (policy operatorsByType).
  */
 export const FALLBACK_SCHEMA: PolicySchema = {
   fields: [
@@ -14,8 +17,8 @@ export const FALLBACK_SCHEMA: PolicySchema = {
     { name: 'request.tenant_id', type: 'string' },
     { name: 'request.tokens', type: 'int' },
     { name: 'injection.score', type: 'double' },
-    { name: 'injection.label', type: 'string' },
-    { name: 'injection.category', type: 'string' },
+    { name: 'injection.label', type: 'string', values: ['BENIGN', ...CATEGORIES] },
+    { name: 'injection.category', type: 'string', values: CATEGORIES },
     { name: 'scores.l1', type: 'double' },
     { name: 'scores.l2', type: 'double' },
     { name: 'scores.l3', type: 'double' },
@@ -30,9 +33,9 @@ export const FALLBACK_SCHEMA: PolicySchema = {
   operators: {
     double: ['=', '!=', '>', '>=', '<', '<='],
     int: ['=', '!=', '>', '>=', '<', '<='],
-    string: ['=', '!=', 'contains', 'in'],
+    string: ['=', '!=', 'contains', 'beginsWith', 'endsWith', 'in'],
     bool: ['=', '!='],
-    list: ['contains'],
+    list: ['contains', 'in'],
   },
   actions: ['allow', 'block', 'log', 'route'],
 };

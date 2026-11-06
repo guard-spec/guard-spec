@@ -89,6 +89,8 @@ export interface GraphInput {
   upstreams: Upstream[];
   defaultUpstream: DefaultUpstream;
   guard: GuardSettings | null;
+  /** The detection layers the gateway runs (l1, l2, l3); null or undefined when it did not say. */
+  layers?: readonly string[] | null;
   /** Label of the key/project step, e.g. "Project: billing" or "Any API key". */
   scopeLabel: string;
   fieldTypes?: FieldTypes;
@@ -133,10 +135,12 @@ export function buildGraph(input: GraphInput): { nodes: FlowNode[]; edges: FlowE
   step(NODE.key, 'key', t('flow.apiKey'), input.scopeLabel);
   step(NODE.l0, 'sanitizer', t('flow.l0'), t('flow.l0Sub', { spotlight }));
   const on = detectorStatus === 'on';
-  step(NODE.detectors, 'detector', t('flow.detectors'), t('flow.scans', { roles: scans }), detectorStatus, [
-    { name: t('flow.l1'), on },
-    { name: t('flow.l2'), on },
-    { name: t('flow.l3'), on },
+  const threshold = input.guard?.injection_threshold;
+  const detectorSub = t('flow.scans', { roles: scans }) + (threshold !== undefined ? ` · ${t('flow.blocksAt', { value: threshold })}` : '');
+  step(NODE.detectors, 'detector', t('flow.detectors'), detectorSub, detectorStatus, [
+    { name: t('flow.l1'), on: on && (input.layers?.includes('l1') ?? true) },
+    { name: t('flow.l2'), on: on && (input.layers?.includes('l2') ?? true) },
+    { name: t('flow.l3'), on: on && (input.layers?.includes('l3') ?? true) },
   ]);
   edge(NODE.request, NODE.key, 'flow');
   edge(NODE.key, NODE.l0, 'flow');

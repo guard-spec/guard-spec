@@ -393,7 +393,14 @@ Trang **Luồng xử lý** vẽ đường đi của một request qua gateway: k
 L0, các lớp phát hiện L1, L2, L3, các luật theo đúng thứ tự của gateway, các
 kết quả Chặn, Ghi log, Cho phép và các upstream. Sửa điều kiện của luật bằng
 bộ dựng trực quan hoặc dạng văn bản, kéo để đổi thứ tự, kéo từ điểm "khớp" của
-luật đến một upstream để định tuyến, và thử request bằng bộ mô phỏng. Ngoài ra
+luật đến một upstream để định tuyến, và thử request bằng bộ mô phỏng. Bấm vào
+bất kỳ bước nào để mở bảng chi tiết ngay trên trang: bảng Bộ phát hiện đặt
+ngưỡng chặn của tổ chức (chỉ chặt hơn mức của gateway), bảng Bộ làm sạch L0 đặt
+phần được quét, spotlight và cách xử lý nội dung công cụ bị chèn lệnh; các thay
+đổi này được lưu cùng các luật bằng một nút Lưu thay đổi. Mỗi trường, toán tử,
+hành động, bước và cạnh đều có dấu **?** giải thích ý nghĩa, giá trị, ví dụ và
+khi nào dùng. Phạm vi chưa có luật nào sẽ gợi ý các luật mẫu thêm bằng một cú
+bấm. Ngoài ra
 có các trang Upstream, Cấu hình dạng mã (YAML: kiểm tra, xem khác biệt, áp
 dụng), Thiết lập bảo vệ, Khóa API, Dự án, Mẫu tham chiếu và Nhật ký kiểm tra.
 Chi tiết ở mục [Admin UI](README.md#admin-ui).

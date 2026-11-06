@@ -23,10 +23,14 @@ import '@xyflow/react/dist/style.css';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ConfirmDialog, Dialog, ErrorBanner, Field, Loading, PageHeader } from '../components/ui';
 import { errorText, useApp, useOrg } from '../context';
-import { navigate, setNavigationGuard, takeParam } from '../router';
-import type { GuardSettings, PolicySchema, SimulateRequest, SimulateResponse, SimValue } from '../types';
+import type { MessageKey } from '../i18n';
+import { setNavigationGuard, takeParam } from '../router';
+import type { GatewayModels, GuardSettings, PolicySchema, SimulateRequest, SimulateResponse, SimValue } from '../types';
 import { addRule, connectRule, danglingRoutes, deleteRule, findRule, moveRule, moveRuleByPosition, updateRule } from './edit';
 import { applyHighlight, buildGraph, simulationPath, type DefaultUpstream, type FlowEdge, type FlowNode } from './graph';
+import { guardChanged, saveAll } from './guardDraft';
+import { EDGE_KINDS, type EdgeKindHelp, type NodeKind } from './help';
+import { EdgeTip, NodeTip } from './HelpText';
 import { NODE } from './ids';
 import { bounds, fitViewport, layoutGraph, mainAxis, type Direction } from './layout';
 import {
@@ -40,11 +44,14 @@ import {
   type EditablePolicy,
   type EditableRule,
 } from './model';
+import { NodePanel } from './NodePanel';
 import { DirectionContext, nodeTypes } from './nodes';
 import { RulePanel, type TextState } from './RulePanel';
 import { FALLBACK_SCHEMA, fieldTypesOf } from './schema';
-import { mergeAfterSave, savePolicies } from './save';
+import { mergeAfterSave } from './save';
 import { Simulator } from './Simulator';
+import { ruleFromTemplate, ruleTemplates, type RuleTemplate } from './templates';
+import { hasErrors, INJECTION_BLOCK, validateCondition } from './validate';
 
 const EDGE_CLASS: Record<string, string> = {
   flow: 'edge-flow',
@@ -79,11 +86,19 @@ function FlowPageInner() {
   const { api, t, theme, notify } = useApp();
   const { org, projects, upstreams, upstreamError, can } = useOrg();
   const writable = can('policies.write');
+  const guardWritable = can('org.settings.write');
   const [original, setOriginal] = useState<EditablePolicy[] | null>(null);
   const [policies, setPolicies] = useState<EditablePolicy[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [schema, setSchema] = useState<PolicySchema>(FALLBACK_SCHEMA);
+  // The guard settings as saved, and with the edits staged on this page.
   const [guard, setGuard] = useState<GuardSettings | null>(null);
+  const [guardDraft, setGuardDraft] = useState<GuardSettings | null>(null);
+  const [guardError, setGuardError] = useState<string | null>(null);
+  const [invalidGuard, setInvalidGuard] = useState<ReadonlySet<string>>(new Set());
+  const [models, setModels] = useState<GatewayModels | null>(null);
+  // The open panel of a node other than a rule (a rule uses selected).
+  const [nodePanel, setNodePanel] = useState<string | null>(null);
   const [projectId, setProjectId] = useState<string | null>(null);
   const [dir, setDir] = useState<Direction>('TB');
   const [selected, setSelected] = useState<string | null>(null);
@@ -122,8 +137,30 @@ function FlowPageInner() {
       setLoadError(errorText(e));
     }
     api.getPolicySchema().then(setSchema, () => setSchema(FALLBACK_SCHEMA));
-    api.getGuardSettings(org.id).then(setGuard, () => setGuard(null));
+    api.getGuardSettings(org.id).then(
+      (g) => {
+        setGuard(g);
+        setGuardDraft(g);
+        setGuardError(null);
+      },
+      (e: unknown) => {
+        setGuard(null);
+        setGuardDraft(null);
+        setGuardError(errorText(e));
+      },
+    );
+    api.getGatewayModels().then(setModels, () => setModels(null));
   }, [api, org.id]);
+
+  const onGuardInvalid = useCallback((field: string, invalid: boolean) => {
+    setInvalidGuard((s) => {
+      if (s.has(field) === invalid) return s;
+      const next = new Set(s);
+      if (invalid) next.add(field);
+      else next.delete(field);
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     void load();
@@ -140,7 +177,18 @@ function FlowPageInner() {
     [policies, projectId],
   );
   const chain = useMemo(() => gatewayChain(policies ?? [], projectId), [policies, projectId]);
-  const dirtyCount = (policies ?? []).filter((p) => p.dirty).length;
+  const guardDirty = guardChanged(guard, guardDraft);
+  const dirtyCount = (policies ?? []).filter((p) => p.dirty).length + (guardDirty ? 1 : 0);
+  const injectionThreshold = guardDraft?.injection_threshold ?? INJECTION_BLOCK;
+  // Rules of changed policies whose condition the server would refuse.
+  const condErrors = useMemo(
+    () =>
+      (policies ?? [])
+        .filter((p) => p.dirty)
+        .flatMap((p) => p.rules)
+        .filter((r) => hasErrors(validateCondition(r.condition, schema, { injectionThreshold }))).length,
+    [policies, schema, injectionThreshold],
+  );
 
   const defaultUpstream: DefaultUpstream = useMemo(() => {
     const byId = (id: string | null | undefined) => (id ? (upstreams ?? []).find((u) => u.id === id)?.name : undefined);
@@ -160,13 +208,14 @@ function FlowPageInner() {
         chain,
         upstreams: upstreams ?? [],
         defaultUpstream,
-        guard,
+        guard: guardDraft,
+        layers: models && models.configured && models.reachable ? models.layers : undefined,
         scopeLabel,
         fieldTypes,
         ruleErrors,
         t: t as (k: string, p?: Record<string, string | number>) => string,
       }),
-    [chain, upstreams, defaultUpstream, guard, scopeLabel, fieldTypes, ruleErrors, t],
+    [chain, upstreams, defaultUpstream, guardDraft, models, scopeLabel, fieldTypes, ruleErrors, t],
   );
   const laid = useMemo(() => {
     const nodes = layoutGraph(graph.nodes, graph.edges, dir);
@@ -176,13 +225,13 @@ function FlowPageInner() {
       nodes: hl.nodes.map((n) => ({
         ...n,
         draggable: n.type === 'rule',
-        selectable: n.type === 'rule',
-        selected: selected !== null && n.id === NODE.rule(selected),
+        selectable: true,
+        selected: selected !== null ? n.id === NODE.rule(selected) : n.id === nodePanel,
         ariaLabel: n.data.kind === 'rule' ? `${n.data.name}: ${n.data.action}, ${n.data.text}` : n.data.title,
       })),
       edges: styleEdges(hl.edges),
     };
-  }, [graph, dir, sim, selected]);
+  }, [graph, dir, sim, selected, nodePanel]);
 
   // The laid-out nodes, with the position of a node being dragged.
   const [drag, setDrag] = useState<{ id: string; position: XYPosition } | null>(null);
@@ -210,12 +259,33 @@ function FlowPageInner() {
     setSim(null);
   };
 
-  // Only drags change node state; selection and layout come from the model.
-  const onNodesChange = useCallback((changes: NodeChange<FlowNode>[]) => {
-    for (const c of changes) {
-      if (c.type === 'position' && c.position) setDrag({ id: c.id, position: c.position });
+  // Opens the side panel of a node: the rule editor, or the node's panel.
+  const openNode = useCallback((id: string) => {
+    const key = NODE.ruleKey(id);
+    if (key) {
+      setSelected(key);
+      setNodePanel(null);
+    } else {
+      setSelected(null);
+      setNodePanel(id);
     }
   }, []);
+  const selectRule = (key: string) => {
+    setSelected(key);
+    setNodePanel(null);
+  };
+
+  // Drags move nodes; a selection (a click, or Enter on a focused node)
+  // opens its panel. Layout and highlight come from the model.
+  const onNodesChange = useCallback(
+    (changes: NodeChange<FlowNode>[]) => {
+      for (const c of changes) {
+        if (c.type === 'position' && c.position) setDrag({ id: c.id, position: c.position });
+        if (c.type === 'select' && c.selected) openNode(c.id);
+      }
+    },
+    [openNode],
+  );
 
   const onNodeDragStop: OnNodeDrag<FlowNode> = (_e, node) => {
     setDrag(null);
@@ -241,7 +311,7 @@ function FlowPageInner() {
     const key = NODE.ruleKey(c.source);
     if (!key) return;
     edit((ps) => connectRule(ps, key, c.target, upstreamNames));
-    setSelected(key);
+    selectRule(key);
   };
 
   const ensurePolicy = (ps: EditablePolicy[]): { ps: EditablePolicy[]; key: string } => {
@@ -268,11 +338,21 @@ function FlowPageInner() {
     const rule = makeRule(t('rule.newName'));
     edit(() => addRule(ps, key, rule));
     setActivePolicy(key);
-    setSelected(rule.key);
+    selectRule(rule.key);
+  };
+
+  const onTemplate = (tpl: RuleTemplate) => {
+    if (!policies) return;
+    const { ps, key } = ensurePolicy(policies);
+    const rule = ruleFromTemplate(tpl, t(tpl.name, { target: tpl.target ?? '' }));
+    edit(() => addRule(ps, key, rule));
+    setActivePolicy(key);
+    selectRule(rule.key);
+    notify(t('tpl.added'));
   };
 
   // Unsaved edits: ask before leaving the page, and before closing the tab.
-  const hasEdits = (policies ?? []).some((p) => p.dirty);
+  const hasEdits = (policies ?? []).some((p) => p.dirty) || guardDirty;
   useEffect(() => {
     if (!hasEdits) return;
     setNavigationGuard((proceed) => {
@@ -289,22 +369,35 @@ function FlowPageInner() {
     };
   }, [hasEdits]);
 
+  // One save for the staged guard settings and the policies: the guard
+  // settings first (one request), then each changed policy. A part that
+  // fails keeps its edits and gets its own message; the others are saved.
   const save = async () => {
     if (!policies) return;
     setSaving(true);
-    const result = await savePolicies(api, org.id, policies);
+    const dirtyPolicies = policies.filter((p) => p.dirty).length;
+    const result = await saveAll(api, org.id, { saved: guard, draft: guardDraft }, policies);
     const errors = result.errors.map((e) => t('flow.saveFailed', { name: e.policy, error: e.message }));
+    if (result.guardError) errors.unshift(t('flow.guardSaveFailed', { error: result.guardError }));
+    if (result.guard) {
+      setGuard(result.guard);
+      setGuardDraft(result.guard);
+    }
+    const savedSomething = result.guard !== undefined || result.errors.length < dirtyPolicies;
+    if (errors.length > 0 && savedSomething) errors.push(t('flow.partialSave'));
     setSaveErrors(errors);
     setRuleErrors(result.ruleErrors);
     try {
-      const fresh = (await api.listPolicies(org.id)).map(toEditable);
-      const merged = mergeAfterSave(fresh, result.keep);
-      setOriginal(fresh);
-      setPolicies(merged);
-      if (errors.length === 0) {
-        notify(t('flow.savedOk'));
+      if (dirtyPolicies > 0) {
+        const fresh = (await api.listPolicies(org.id)).map(toEditable);
+        const merged = mergeAfterSave(fresh, result.keep);
+        setOriginal(fresh);
+        setPolicies(merged);
         // Saved rules got server ids: keep the selection on the same rule if it still exists.
-        setSelected((s) => (s && findRule(merged, s) ? s : null));
+        if (errors.length === 0) setSelected((s) => (s && findRule(merged, s) ? s : null));
+      }
+      if (errors.length === 0) {
+        notify(dirtyPolicies > 0 && result.guard ? t('flow.savedAll') : result.guard ? t('flow.guardSaved') : t('flow.savedOk'));
       }
     } catch (e) {
       setSaveErrors([...errors, errorText(e)]);
@@ -325,6 +418,8 @@ function FlowPageInner() {
   const sel = selected ? findRule(policies, selected) : undefined;
   const chainRules = chain.flatMap((p) => p.rules.map((r, i) => ({ p, r, i })));
   const dangling = danglingRoutes(chain, upstreamNames);
+  const templates = chainRules.length === 0 ? ruleTemplates(upstreams ?? [], defaultUpstream.name) : [];
+  const blocked = textState !== 'ok' || condErrors > 0 || invalidGuard.size > 0;
 
   return (
     <div className="flow-page">
@@ -336,6 +431,7 @@ function FlowPageInner() {
             {dirtyCount > 0 ? <span className="badge badge-warn">{t('flow.unsaved', { count: dirtyCount })}</span> : null}
             <button type="button" className="btn" disabled={dirtyCount === 0 || saving} onClick={() => {
                 setPolicies(original);
+                setGuardDraft(guard);
                 setRuleErrors({});
                 setSaveErrors([]);
               }}>
@@ -345,11 +441,15 @@ function FlowPageInner() {
               <span className="badge badge-warn" role="status">
                 {textState === 'pending' ? t('flow.textPending') : t('flow.textError')}
               </span>
+            ) : condErrors > 0 || invalidGuard.size > 0 ? (
+              <span className="badge badge-warn" role="status">
+                {condErrors > 0 ? t('flow.fixConditions') : t('panel.detectors.thresholdError')}
+              </span>
             ) : null}
             <button
               type="button"
               className="btn btn-primary"
-              disabled={dirtyCount === 0 || saving || textState !== 'ok'}
+              disabled={dirtyCount === 0 || saving || blocked}
               onClick={() => void save()}
             >
               {saving ? t('common.saving') : t('flow.save')}
@@ -390,6 +490,11 @@ function FlowPageInner() {
           + {t('flow.addPolicy')}
         </button>
       </div>
+      {!writable ? (
+        <div className="banner banner-info" role="note" data-testid="policies-readonly">
+          {t('flow.readOnly')}
+        </div>
+      ) : null}
       {upstreamError ? <div className="banner banner-warn">{t('common.notAvailable', { error: upstreamError })}</div> : null}
       {saveErrors.map((e) => (
         <ErrorBanner key={e} error={e} onDismiss={() => setSaveErrors((s) => s.filter((x) => x !== e))} />
@@ -412,11 +517,7 @@ function FlowPageInner() {
                 onNodeDragStop={onNodeDragStop}
                 onConnect={onConnect}
                 isValidConnection={isValidConnection}
-                onNodeClick={(_e, n) => {
-                  const key = NODE.ruleKey(n.id);
-                  if (key) setSelected(key);
-                  else if (n.id === NODE.l0 || n.id === NODE.detectors) navigate('guard');
-                }}
+                onNodeClick={(_e, n) => openNode(n.id)}
                 colorMode={theme}
                 panOnScroll
                 zoomOnScroll={false}
@@ -433,7 +534,7 @@ function FlowPageInner() {
               </ReactFlow>
             </DirectionContext.Provider>
           </div>
-          <p className="muted small">{t('flow.legend')}</p>
+          <FlowLegend />
 
           <div className="below-grid">
             <section className="card" aria-labelledby="rule-list-title">
@@ -443,7 +544,7 @@ function FlowPageInner() {
                 {chainRules.map(({ p, r, i }, n) => (
                   <li key={r.key} className={selected === r.key ? 'is-selected' : ''}>
                     <span className="rule-pos">{n + 1}</span>
-                    <button type="button" className="btn btn-link rule-name" aria-label={t('flow.editRule', { name: r.name })} onClick={() => setSelected(r.key)}>
+                    <button type="button" className="btn btn-link rule-name" aria-label={t('flow.editRule', { name: r.name })} onClick={() => selectRule(r.key)}>
                       {r.name || t('flow.unnamedRule')}
                     </button>
                     <span className={`action action-${r.action}`}>
@@ -532,7 +633,57 @@ function FlowPageInner() {
               onMove={(d) => edit((ps) => moveRule(ps, sel.policy.key, sel.index, sel.index + d))}
               onClose={() => setSelected(null)}
               onTextState={setTextState}
+              readOnly={!writable}
+              injectionThreshold={injectionThreshold}
             />
+          ) : nodePanel ? (
+            <NodePanel
+              key={nodePanel}
+              nodeId={nodePanel}
+              guard={guardDraft}
+              savedGuard={guard}
+              guardError={guardError}
+              guardWritable={guardWritable}
+              onGuardChange={setGuardDraft}
+              onGuardInvalid={onGuardInvalid}
+              models={models}
+              upstreams={upstreams ?? []}
+              defaultUpstream={defaultUpstream}
+              scopeLabel={scopeLabel}
+              rules={chainRules.map(({ r }) => r)}
+              onSelectRule={selectRule}
+              onClose={() => setNodePanel(null)}
+            />
+          ) : null}
+          {chainRules.length === 0 ? (
+            <section className="rule-panel templates" aria-labelledby="tpl-title" data-testid="templates">
+              <h2 id="tpl-title">{t('tpl.title')}</h2>
+              {writable ? (
+                <>
+                  <p className="muted small">{t('tpl.intro')}</p>
+                  <ul className="template-list">
+                    {templates.map((tpl) => (
+                      <li key={tpl.id}>
+                        <div>
+                          <strong>{t(tpl.name, { target: tpl.target ?? '' })}</strong>
+                          <div className="small muted">{t(tpl.desc)}</div>
+                        </div>
+                        <button
+                          type="button"
+                          className="btn btn-small"
+                          aria-label={`${t('tpl.add')}: ${t(tpl.name, { target: tpl.target ?? '' })}`}
+                          onClick={() => onTemplate(tpl)}
+                        >
+                          + {t('tpl.add')}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : (
+                <p className="muted small">{t('tpl.readOnly')}</p>
+              )}
+            </section>
           ) : null}
           <Simulator orgId={org.id} schema={schema} makeRequest={makeSimRequest} result={sim} onResult={setSim} />
         </aside>
@@ -636,6 +787,56 @@ function FlowPageInner() {
           setDeleting(null);
         }}
       />
+    </div>
+  );
+}
+
+const LEGEND_NODES: { kind: NodeKind; label: MessageKey }[] = [
+  { kind: 'request', label: 'flow.request' },
+  { kind: 'key', label: 'flow.apiKey' },
+  { kind: 'sanitizer', label: 'flow.l0' },
+  { kind: 'detectors', label: 'flow.detectors' },
+  { kind: 'rule', label: 'flow.ruleNode' },
+  { kind: 'block', label: 'flow.block' },
+  { kind: 'log', label: 'flow.log' },
+  { kind: 'allow', label: 'flow.allow' },
+  { kind: 'upstream', label: 'nav.providers' },
+  { kind: 'envUpstream', label: 'flow.envUpstream' },
+  { kind: 'output', label: 'flow.output' },
+  { kind: 'client', label: 'flow.client' },
+];
+
+const EDGE_LABEL: Record<EdgeKindHelp, MessageKey> = {
+  match: 'flow.match',
+  noMatch: 'flow.noMatch',
+  matchContinue: 'flow.matchContinue',
+  default: 'flow.default',
+};
+
+/** What each kind of step and edge means, with a help tip each. */
+function FlowLegend() {
+  const { t } = useApp();
+  return (
+    <div className="flow-legend" data-testid="flow-legend">
+      <p className="muted small">{t('flow.legend')}</p>
+      <div className="legend-row">
+        <span className="legend-head">{t('flow.legendSteps')}</span>
+        {LEGEND_NODES.map((n) => (
+          <span key={n.kind} className="legend-item">
+            {t(n.label)}
+            <NodeTip kind={n.kind} name={t(n.label)} />
+          </span>
+        ))}
+      </div>
+      <div className="legend-row">
+        <span className="legend-head">{t('flow.legendEdges')}</span>
+        {EDGE_KINDS.map((k) => (
+          <span key={k} className={`legend-item legend-edge legend-edge-${k}`}>
+            {t(EDGE_LABEL[k])}
+            <EdgeTip kind={k} name={t(EDGE_LABEL[k])} />
+          </span>
+        ))}
+      </div>
     </div>
   );
 }

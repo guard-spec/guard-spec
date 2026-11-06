@@ -5,7 +5,10 @@ import { useCallback, useState } from 'react';
 import { ErrorBanner, Loading, PageHeader, useLoad } from '../components/ui';
 import { errorText, useApp, useOrg } from '../context';
 import type { MessageKey } from '../i18n';
+import { guardBody, parseThreshold } from '../flow/guardDraft';
 import { DEFAULT_SCAN_ROLES, SCAN_ROLES, type GuardSettings, type IndirectAction, type ScanRole, type SpotlightMode } from '../types';
+
+type ThresholdField = 'injection_threshold' | 'indirect_threshold';
 
 type Tri = 'default' | 'on' | 'off';
 
@@ -17,6 +20,8 @@ export function GuardPage() {
   const [edited, setDraft] = useState<GuardSettings | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Threshold fields as typed; a value that is not a valid threshold is not saved.
+  const [thresholdText, setThresholdText] = useState<Partial<Record<ThresholdField, string>>>({});
 
   if (loading && !data) return <Loading />;
   if (error) return <ErrorBanner error={error} />;
@@ -36,11 +41,9 @@ export function GuardPage() {
     setBusy(true);
     setSaveError(null);
     try {
-      const body: GuardSettings = {};
-      if (draft.scan_roles && Object.keys(draft.scan_roles).length > 0) body.scan_roles = draft.scan_roles;
-      if (draft.spotlight) body.spotlight = draft.spotlight;
-      if (draft.indirect_action) body.indirect_action = draft.indirect_action;
-      setDraft(await api.putGuardSettings(org.id, body));
+      // Every field, the thresholds the Flow page sets included.
+      setDraft(await api.putGuardSettings(org.id, guardBody(draft)));
+      setThresholdText({});
       notify(t('common.saved'));
     } catch (e) {
       setSaveError(errorText(e));
@@ -121,7 +124,40 @@ export function GuardPage() {
           </select>
           <div className="small muted">{t('guard.indirectAction.help')}</div>
         </div>
-        <button type="submit" className="btn btn-primary" disabled={busy || !writable} title={writable ? undefined : t('forbidden.readOnly')}>
+        <fieldset>
+          <legend>{t('panel.detectors.thresholds')}</legend>
+          {(
+            [
+              ['injection_threshold', 'panel.detectors.injection', 'panel.detectors.injectionHelp', '0.85'],
+              ['indirect_threshold', 'panel.detectors.indirect', 'panel.detectors.indirectHelp', 'INDIRECT_BLOCK_THRESHOLD'],
+            ] as const
+          ).map(([field, label, help, def]) => {
+            const text = thresholdText[field] ?? (draft[field] === undefined ? '' : String(draft[field]));
+            const invalid = parseThreshold(text) === 'invalid';
+            return (
+              <div className="field" key={field}>
+                <label htmlFor={`guard-${field}`}>{t(label)}</label>
+                <input
+                  id={`guard-${field}`}
+                  inputMode="decimal"
+                  placeholder={t('panel.detectors.default', { value: def })}
+                  value={text}
+                  aria-invalid={invalid}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setThresholdText({ ...thresholdText, [field]: v });
+                    const p = parseThreshold(v);
+                    if (p === 'invalid') return;
+                    const { [field]: _old, ...rest } = draft;
+                    setDraft(p === undefined ? rest : { ...rest, [field]: p });
+                  }}
+                />
+                {invalid ? <div className="field-error">{t('panel.detectors.thresholdError')}</div> : <div className="small muted">{t(help)}</div>}
+              </div>
+            );
+          })}
+        </fieldset>
+        <button type="submit" className="btn btn-primary" disabled={busy || !writable || Object.values(thresholdText).some((x) => parseThreshold(x) === 'invalid')} title={writable ? undefined : t('forbidden.readOnly')}>
           {busy ? t('common.saving') : t('common.save')}
         </button>
       </form>

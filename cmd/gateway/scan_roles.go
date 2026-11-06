@@ -23,6 +23,10 @@ type scanConfig struct {
 	Roles             indirect.Roles
 	Spotlight         indirect.Mode
 	IndirectThreshold float64
+	// InjectionThreshold blocks a request whose fused injection score (the
+	// user's own text) reaches it, when the org sets a lower one in
+	// guard_settings.injection_threshold. 0: injectionBlockThreshold.
+	InjectionThreshold float64
 	// ToolPrefixes is SCAN_TOOL_PREFIXES, comma-separated: when set, only
 	// tool definitions whose name starts with one of them are checked for
 	// poisoning, and the others are trusted as the client's own (Claude
@@ -153,7 +157,16 @@ func (gw gateway) scanConfigFor(orgID uuid.UUID) (scanConfig, error) {
 	}
 	cfg.Roles, cfg.Spotlight = s.Apply(cfg.Roles, cfg.Spotlight)
 	cfg.IndirectAction = s.Action(cfg.IndirectAction)
+	cfg.InjectionThreshold, cfg.IndirectThreshold = s.Thresholds(cfg.injectionThreshold(), cfg.IndirectThreshold)
 	return cfg, nil
+}
+
+// injectionThreshold is the fused injection score that blocks a request.
+func (c scanConfig) injectionThreshold() float64 {
+	if c.InjectionThreshold > 0 {
+		return c.InjectionThreshold
+	}
+	return injectionBlockThreshold
 }
 
 // scanPart is one sanitized text the detector will see.

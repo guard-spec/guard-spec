@@ -1,0 +1,109 @@
+// Copyright 2026 The Guard Spec Authors
+// SPDX-License-Identifier: Apache-2.0
+
+// Guard settings staged on the Flow page and saved with the rules.
+
+import { describe, expect, it, vi } from 'vitest';
+import { ApiError } from '../api';
+import type { GuardSettings } from '../types';
+import { guardBody, guardChanged, parseThreshold, saveAll, type SaveAllApi } from './guardDraft';
+import { toEditable } from './model';
+import { baseline } from './testdata';
+
+function fakeApi(opts: { guardFails?: boolean; policyFails?: boolean } = {}) {
+  const order: string[] = [];
+  const api: SaveAllApi = {
+    putGuardSettings: vi.fn((_org: string, s: GuardSettings) => {
+      order.push('guard');
+      return opts.guardFails ? Promise.reject(new ApiError(400, 'guard settings: injection_threshold must be a number in (0, 0.85]')) : Promise.resolve(s);
+    }),
+    updatePolicy: vi.fn(() => {
+      order.push('policy');
+      return opts.policyFails ? Promise.reject(new ApiError(400, 'rule "x": bad')) : Promise.resolve({ id: 'p', updated: true });
+    }),
+    createPolicy: vi.fn(() => {
+      order.push('create');
+      return Promise.resolve({ id: 'n' });
+    }),
+  };
+  return { api, order };
+}
+
+describe('staged guard settings', () => {
+  it('leaves unset values out of the body', () => {
+    expect(guardBody({ scan_roles: {}, spotlight: 'off' })).toEqual({ spotlight: 'off' });
+    expect(guardBody({ injection_threshold: 0.7, indirect_threshold: 0.6, indirect_action: 'redact' })).toEqual({
+      indirect_action: 'redact',
+      injection_threshold: 0.7,
+      indirect_threshold: 0.6,
+    });
+  });
+
+  it('notices changes, not key order or empty role maps', () => {
+    const saved: GuardSettings = { scan_roles: { system: true, tool: false }, spotlight: 'delimit' };
+    expect(guardChanged(saved, { spotlight: 'delimit', scan_roles: { tool: false, system: true } })).toBe(false);
+    expect(guardChanged({}, { scan_roles: {} })).toBe(false);
+    expect(guardChanged(saved, { ...saved, injection_threshold: 0.7 })).toBe(true);
+    expect(guardChanged(saved, { scan_roles: { system: true }, spotlight: 'delimit' })).toBe(true);
+    expect(guardChanged(saved, null)).toBe(false);
+    expect(guardChanged(null, {})).toBe(false);
+  });
+
+  it('reads thresholds: empty is the default, only (0, 0.85] is valid', () => {
+    expect(parseThreshold('')).toBeUndefined();
+    expect(parseThreshold(' 0.7 ')).toBe(0.7);
+    expect(parseThreshold('0,6')).toBe(0.6);
+    expect(parseThreshold('.5')).toBe(0.5);
+    expect(parseThreshold('0.85')).toBe(0.85);
+    for (const bad of ['0', '0.86', '1', '-0.5', 'abc', '0.7.1', '1e-1']) expect(parseThreshold(bad), bad).toBe('invalid');
+  });
+});
+
+describe('one save for guard settings and rules', () => {
+  const policies = () => {
+    const p = toEditable(baseline);
+    return [{ ...p, dirty: true }];
+  };
+
+  it('saves the guard settings first, then the changed policies', async () => {
+    const { api, order } = fakeApi();
+    const r = await saveAll(api, 'org', { saved: { spotlight: 'off' }, draft: { spotlight: 'off', injection_threshold: 0.7 } }, policies());
+    expect(order).toEqual(['guard', 'policy']);
+    expect(r.guard).toEqual({ spotlight: 'off', injection_threshold: 0.7 });
+    expect(r.guardError).toBeUndefined();
+    expect(r.errors).toEqual([]);
+    expect(api.putGuardSettings).toHaveBeenCalledWith('org', { spotlight: 'off', injection_threshold: 0.7 });
+  });
+
+  it('does not send unchanged guard settings', async () => {
+    const { api, order } = fakeApi();
+    const r = await saveAll(api, 'org', { saved: { spotlight: 'off' }, draft: { spotlight: 'off' } }, policies());
+    expect(order).toEqual(['policy']);
+    expect(r.guard).toBeUndefined();
+  });
+
+  it('saves only the guard settings when no policy changed', async () => {
+    const { api, order } = fakeApi();
+    const clean = policies().map((p) => ({ ...p, dirty: false }));
+    const r = await saveAll(api, 'org', { saved: {}, draft: { indirect_threshold: 0.5 } }, clean);
+    expect(order).toEqual(['guard']);
+    expect(r.guard).toEqual({ indirect_threshold: 0.5 });
+  });
+
+  it('reports a guard failure and still saves the policies', async () => {
+    const { api, order } = fakeApi({ guardFails: true });
+    const r = await saveAll(api, 'org', { saved: {}, draft: { injection_threshold: 0.7 } }, policies());
+    expect(order).toEqual(['guard', 'policy']);
+    expect(r.guard).toBeUndefined();
+    expect(r.guardError).toContain('injection_threshold');
+    expect(r.errors).toEqual([]);
+  });
+
+  it('reports a policy failure and keeps the saved guard settings', async () => {
+    const { api } = fakeApi({ policyFails: true });
+    const r = await saveAll(api, 'org', { saved: {}, draft: { spotlight: 'datamark' } }, policies());
+    expect(r.guard).toEqual({ spotlight: 'datamark' });
+    expect(r.errors).toHaveLength(1);
+    expect(r.keep).toHaveLength(1);
+  });
+});
