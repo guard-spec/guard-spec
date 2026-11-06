@@ -117,7 +117,7 @@ type detectorStatus struct {
 // only when the configuration requires it (DETECTOR_REQUIRE_ML=true). A
 // gateway that runs L1 only by design, such as the plain image without
 // models, is degraded but ready.
-func (d detectorStatus) ready() bool { return !(d.Degraded && d.Required) }
+func (d detectorStatus) ready() bool { return !d.Degraded || !d.Required }
 
 // newDetectorStatus describes the loaded stack; required is cfg.RequireML.
 func newDetectorStatus(s *ml.Stack, required bool) detectorStatus {
