@@ -1097,6 +1097,9 @@ What it does **not** protect against:
   their password: someone who already has that password can enroll their own
   authenticator first. Require 2FA early, and reset a member's 2FA if in doubt.
 
+For the risks that remain in a deployment and how to reduce each one, with a
+hardening checklist, see [Security risks and hardening](docs/security-risks.md).
+
 Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
 
 ## Operations
