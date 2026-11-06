@@ -37,6 +37,11 @@ Out of scope: findings that require `GUARD_ENV=dev` or the development compose
 override, model accuracy without a concrete bypass, denial of service by
 volume alone, and issues in upstream LLMs.
 
+## Hardening
+
+For the risks that remain when you run Guard Spec and how to reduce them, see
+[docs/security-risks.md](docs/security-risks.md).
+
 ## Supported versions
 
 The project is pre-1.0. Security fixes land on `main` and in the next release.

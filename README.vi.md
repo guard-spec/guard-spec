@@ -408,6 +408,9 @@ Guard Spec **không** bảo vệ trước:
 - Người vận hành có quyền admin hoặc truy cập cơ sở dữ liệu.
 - Tấn công khối lượng lớn: rate limit chỉ trong bộ nhớ, theo từng replica.
 
+Các rủi ro còn lại khi triển khai, cách giảm từng rủi ro và checklist gia cố: xem
+[Rủi ro bảo mật và gia cố](docs/security-risks.vi.md).
+
 Báo lỗ hổng bảo mật một cách riêng tư theo [SECURITY.md](SECURITY.md).
 
 ## Đóng góp
