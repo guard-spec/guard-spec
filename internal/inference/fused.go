@@ -13,6 +13,9 @@ type Detail struct {
 	Category   string             // top category, "" when nothing matched
 	Categories map[string]float64 // per-category scores
 	Rules      []string           // fired rule ids
+	// Cascaded is true when L1 was decisive and L2/L3 were skipped
+	// (DETECTOR_CASCADE).
+	Cascaded bool
 }
 
 // Scorer is what FusedBackend runs: a *fusion.Fuser, or a detector that can
@@ -38,6 +41,7 @@ func (b FusedBackend) Run(ctx context.Context, text string) ([]Score, error) {
 		Detail: &Detail{
 			L1: r.Layers[fusion.L1], L2: r.Layers[fusion.L2], L3: r.Layers[fusion.L3],
 			Category: r.Category, Categories: r.Categories, Rules: r.Rules,
+			Cascaded: r.Cascaded,
 		},
 	}}, nil
 }

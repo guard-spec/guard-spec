@@ -24,6 +24,8 @@ type toolResult struct {
 	indirect.ToolVerdict
 	Blocked bool   `json:"blocked"`
 	Verdict string `json:"verdict"` // allow or block
+	// Explain is set when the request asks for it (scan_explain.go).
+	Explain *scanExplain `json:"explain,omitempty"`
 }
 
 // scanToolsHandler checks MCP tool definitions for poisoning before an agent
@@ -37,6 +39,8 @@ func scanToolsHandler(gw gateway) fiber.Handler {
 		defer release()
 		var req struct {
 			Tools []mcpTool `json:"tools"`
+			// Explain adds per-layer scores and what decided (scan_explain.go).
+			Explain bool `json:"explain"`
 		}
 		if err := c.BodyParser(&req); err != nil {
 			return c.Status(400).JSON(fiber.Map{"error": "invalid body"})
@@ -49,6 +53,7 @@ func scanToolsHandler(gw gateway) fiber.Handler {
 		}
 
 		threshold := gw.baseScanConfig().IndirectThreshold
+		explain := req.Explain && !gw.baseScanConfig().NoExplain
 		scanner := indirect.Scanner{Runner: gw.runner}
 		entry := newEntry(c)
 		gw := gw.forRequest(&entry)
@@ -66,7 +71,11 @@ func scanToolsHandler(gw gateway) fiber.Handler {
 			}
 			toolBlocked := tv.Score >= threshold
 			blocked = blocked || toolBlocked
-			results = append(results, toolResult{ToolVerdict: tv, Blocked: toolBlocked, Verdict: verdictName(toolBlocked)})
+			res := toolResult{ToolVerdict: tv, Blocked: toolBlocked, Verdict: verdictName(toolBlocked)}
+			if explain {
+				res.Explain = explainScores(tv.Scores, tv.Score, threshold, false)
+			}
+			results = append(results, res)
 			if strongest.Source == "" || tv.Score > strongest.Score {
 				strongest = tv.Verdict
 			}

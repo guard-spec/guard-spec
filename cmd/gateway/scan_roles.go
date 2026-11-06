@@ -41,6 +41,9 @@ type scanConfig struct {
 	// takes earlier tool results from the scan cache; full classifies every
 	// turn. Chat completions always classify every turn.
 	History string
+	// NoExplain is SCAN_EXPLAIN=false: the scan endpoints ignore "explain"
+	// and never return per-layer scores (scan_explain.go).
+	NoExplain bool
 }
 
 // Values of SCAN_HISTORY.
@@ -63,7 +66,7 @@ func defaultScanConfig() scanConfig {
 }
 
 // loadScanConfig reads SCAN_ROLES, SPOTLIGHT, INDIRECT_BLOCK_THRESHOLD,
-// INDIRECT_ACTION, SCAN_TOOL_PREFIXES and SCAN_HISTORY.
+// INDIRECT_ACTION, SCAN_TOOL_PREFIXES, SCAN_HISTORY and SCAN_EXPLAIN.
 func loadScanConfig(env func(string) string) (scanConfig, error) {
 	cfg := defaultScanConfig()
 	var err error
@@ -100,6 +103,13 @@ func loadScanConfig(env func(string) string) (scanConfig, error) {
 		cfg.History = h
 	default:
 		return scanConfig{}, errors.New("SCAN_HISTORY must be latest or full")
+	}
+	if v := strings.TrimSpace(env("SCAN_EXPLAIN")); v != "" {
+		on, err := strconv.ParseBool(v)
+		if err != nil {
+			return scanConfig{}, errors.New("SCAN_EXPLAIN must be true or false")
+		}
+		cfg.NoExplain = !on
 	}
 	return cfg, nil
 }

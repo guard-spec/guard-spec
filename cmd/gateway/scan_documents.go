@@ -34,6 +34,8 @@ type documentResult struct {
 	AnomalyScore     float32  `json:"anomaly_score"`
 	Blocked          bool     `json:"blocked"`
 	Verdict          string   `json:"verdict"` // allow or block
+	// Explain is set when the request asks for it (scan_explain.go).
+	Explain *scanExplain `json:"explain,omitempty"`
 }
 
 func verdictName(blocked bool) string {
@@ -63,6 +65,8 @@ func scanHandler(gw gateway) fiber.Handler {
 		var req struct {
 			Text      string         `json:"text"`
 			Documents []scanDocument `json:"documents"`
+			// Explain adds per-layer scores and what decided (scan_explain.go).
+			Explain bool `json:"explain"`
 		}
 		if err := c.BodyParser(&req); err != nil {
 			return c.Status(400).JSON(fiber.Map{"error": "invalid body"})
@@ -91,6 +95,7 @@ func scanHandler(gw gateway) fiber.Handler {
 			return scanError(c, errDocumentsTooLong)
 		}
 
+		explain := req.Explain && !gw.baseScanConfig().NoExplain
 		entry := newEntry(c)
 		gw := gw.forRequest(&entry)
 		resp := fiber.Map{}
@@ -106,8 +111,8 @@ func scanHandler(gw gateway) fiber.Handler {
 			if err != nil {
 				return scanError(c, err)
 			}
-			blocked = scores.Injection.Confidence >= injectionBlockThreshold ||
-				report.AnomalyScore >= anomalyBlockThreshold
+			anomaly := report.AnomalyScore >= anomalyBlockThreshold
+			blocked = scores.Injection.Confidence >= injectionBlockThreshold || anomaly
 			entry.Scores, entry.Report, entry.SourceRole = scores, report, string(indirect.SourceUser)
 			direct = float64(scores.Injection.Confidence)
 			resp = fiber.Map{
@@ -119,6 +124,9 @@ func scanHandler(gw gateway) fiber.Handler {
 				"had_bidi":        report.HadBidi,
 				"bytes_removed":   report.BytesRemoved,
 				"sanitized_text":  cleaned,
+			}
+			if explain {
+				resp["explain"] = explainScores(scores, direct, injectionBlockThreshold, anomaly)
 			}
 		}
 
@@ -139,13 +147,18 @@ func scanHandler(gw gateway) fiber.Handler {
 				if err != nil {
 					return scanError(c, err)
 				}
-				docBlocked := v.Score >= threshold || report.AnomalyScore >= anomalyBlockThreshold
+				anomaly := report.AnomalyScore >= anomalyBlockThreshold
+				docBlocked := v.Score >= threshold || anomaly
 				blocked = blocked || docBlocked
-				results = append(results, documentResult{
+				res := documentResult{
 					ID: d.ID, Source: d.Source, InjectionScore: v.Score,
 					Category: v.Category, DetectorCategory: v.DetectorCategory, Rules: v.Rules,
 					AnomalyScore: report.AnomalyScore, Blocked: docBlocked, Verdict: verdictName(docBlocked),
-				})
+				}
+				if explain {
+					res.Explain = explainScores(v.Scores, v.Score, threshold, anomaly)
+				}
+				results = append(results, res)
 				entry.Report = worseReport(entry.Report, report)
 				if entry.Indirect.Source == "" || v.Score > entry.Indirect.Score {
 					entry.Indirect = v

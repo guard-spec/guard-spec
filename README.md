@@ -613,6 +613,7 @@ in a second table.
 | `INDIRECT_BLOCK_THRESHOLD` | `0.85` | Block threshold for tool results, documents and tool descriptions, in (0, 0.85] |
 | `INDIRECT_ACTION` | `block` | What happens to a tool result or document over the threshold: `block` refuses the request; `redact` replaces that block with `[removed by Guard Spec: prompt injection detected in tool output]` (`is_error: true` on a `tool_result`) and lets the request go on, with `input:redacted=<n>` in the audit row and a `detection.flagged` event (`decision: redact`). Tool descriptions always block. An org can override it (`indirect_action` in guard settings) |
 | `SCAN_HISTORY` | `latest` | `/v1/messages` only: `latest` classifies the trailing turn (after the last assistant message), takes earlier tool results from the scan cache, and does not classify earlier user text again; `full` classifies every turn. Chat completions always classify every turn |
+| `SCAN_EXPLAIN` | `true` | `/guardrail/scan` and `/guardrail/scan/tools` add an `explain` object (per-layer scores, what decided) when the request sets `"explain": true`; `false` ignores the field |
 | `SCAN_CACHE_SIZE` | `4096` | Entries of the per-process scan cache of `/v1/messages` (scores of the system prompt, tool definitions and tool results by SHA-256 of their content, per org; cleared on model reload, 6 h lifetime); `0` turns it off |
 | `OUTPUT_GUARD` | `on` | `off` passes responses through unchanged |
 | `OUTPUT_LINK_ALLOWLIST` | empty | Comma-separated hosts (and their subdomains) whose images and links are kept |
@@ -708,8 +709,8 @@ or `x-api-key: gs_...`.
 | `POST /v1/messages` | Anthropic Messages API (Claude Code with `ANTHROPIC_BASE_URL`), guarded in and out the same way, streaming supported. Anthropic's web search and web fetch tools work: their results (`web_search_tool_result`, `web_fetch_tool_result`) pass with their encrypted content untouched, their readable text (titles, URLs, a fetched page) is classified as tool output in requests and guarded in answers; other block types in answers follow `OUTPUT_UNKNOWN_BLOCKS`. Sent as is to an upstream with provider `anthropic` (`{base_url}/messages`, the key as `x-api-key`, the client's `anthropic-version` or `2023-06-01`, and its `anthropic-beta`); any other upstream: 400, no translation. Errors in the Anthropic shape `{"type":"error","error":{"type":"...","message":"..."}}` with the same statuses |
 | `POST /v1/messages/count_tokens` | Forwarded to the same Anthropic upstream (default route); key and rate limit apply, the body is not scanned (no model runs on it) |
 | `GET /v1/models` | Models of the key's default route: the upstream's allowed models, its forced model, or the upstream's own list. OpenAI list shape; Anthropic's when the request has `anthropic-version` |
-| `POST /guardrail/scan` | Score `text` and/or `documents[]` without calling a model |
-| `POST /guardrail/scan/tools` | Score MCP tool definitions (a `tools/list` result) |
+| `POST /guardrail/scan` | Score `text` and/or `documents[]` without calling a model. `"explain": true` adds `explain` for the text and each document: `layers` (`l1`, `l2`, `l3`: calibrated scores, `null` when the layer did not run), `decided_by` (`l1`, `l2`, `l3`, `sanitizer`), `reason` (`fusion`, `cascade`, `l1_floor`, `anomaly`), `category`, `rules` |
+| `POST /guardrail/scan/tools` | Score MCP tool definitions (a `tools/list` result); `"explain": true` adds `explain` per tool (`decided_by` can also be `signals`, `reason` `mcp_signals`) |
 | `POST /guardrail/sanitize` | Return the sanitized text and the sanitizer report |
 
 A refused request gets HTTP 400 with
