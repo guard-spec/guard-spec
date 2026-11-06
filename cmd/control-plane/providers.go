@@ -16,8 +16,10 @@ import (
 )
 
 // Model provider presets for the UI's catalog picker. The gateway speaks the
-// OpenAI chat-completions format to every one of them: Anthropic and Gemini
-// are reached through their OpenAI-compatible endpoints.
+// OpenAI chat-completions format to every one of them for /v1/chat/completions:
+// Anthropic and Gemini are reached through their OpenAI-compatible endpoints.
+// An Anthropic upstream also serves the gateway's /v1/messages natively, at
+// {base_url}/messages with the key as x-api-key.
 
 type providerPreset struct {
 	ID              string   `json:"id"`
@@ -27,6 +29,7 @@ type providerPreset struct {
 	KeyEnvHint      string   `json:"key_env_hint"`
 	NeedsAPIVersion bool     `json:"needs_api_version"`
 	OpenAICompat    bool     `json:"openai_compatible_endpoint"` // the preset uses the provider's OpenAI-compatible API
+	NativeMessages  bool     `json:"anthropic_messages"`         // the gateway's /v1/messages goes to it as is
 	KnownModels     []string `json:"known_models"`
 	DocsURL         string   `json:"docs_url"`
 	Notes           string   `json:"notes"`
@@ -37,10 +40,11 @@ var providerCatalog = []providerPreset{
 		KeyEnvHint: "UPSTREAM_KEY_OPENAI", KnownModels: []string{"gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini", "o3-mini"},
 		DocsURL: "https://platform.openai.com/docs/api-reference/chat"},
 	{ID: "anthropic", DisplayName: "Anthropic", DefaultBaseURL: "https://api.anthropic.com/v1", KeyRequired: true,
-		KeyEnvHint: "UPSTREAM_KEY_ANTHROPIC", OpenAICompat: true,
+		KeyEnvHint: "UPSTREAM_KEY_ANTHROPIC", OpenAICompat: true, NativeMessages: true,
 		KnownModels: []string{"claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1"},
 		DocsURL:     "https://docs.claude.com/en/api/openai-sdk",
-		Notes:       "Uses Anthropic's OpenAI SDK compatibility endpoint."},
+		Notes: "/v1/chat/completions uses Anthropic's OpenAI SDK compatibility endpoint; " +
+			"/v1/messages (Claude Code) is sent to the Messages API as is."},
 	{ID: "azure_openai", DisplayName: "Azure OpenAI", DefaultBaseURL: "https://<resource>.openai.azure.com/openai/v1",
 		KeyRequired: true, KeyEnvHint: "UPSTREAM_KEY_AZURE_OPENAI", NeedsAPIVersion: true,
 		DocsURL: "https://learn.microsoft.com/azure/ai-services/openai/reference",
@@ -105,11 +109,21 @@ func upstreamProxy(u upstream, org uuid.UUID, s *appSettings) (px *proxy.Proxy, 
 		}
 	}
 	keyHeader := ""
-	if u.Provider == "azure_openai" {
+	headers := u.Headers
+	switch u.Provider {
+	case "azure_openai":
 		keyHeader = "api-key"
+	case "anthropic":
+		// Anthropic's model list wants its own key header and a version, as
+		// the gateway sends them for /v1/models and /v1/messages.
+		keyHeader = "x-api-key"
+		headers = map[string]string{"anthropic-version": "2023-06-01"}
+		for k, v := range u.Headers {
+			headers[k] = v
+		}
 	}
 	px, err = proxy.New(proxy.Config{BaseURL: u.BaseURL, Key: key, KeyHeader: keyHeader, APIVersion: u.APIVersion,
-		Headers: u.Headers, Timeout: probeTimeout, DenyPrivate: !s.allowPrivate})
+		Headers: headers, Timeout: probeTimeout, DenyPrivate: !s.allowPrivate})
 	return px, key != "", err
 }
 

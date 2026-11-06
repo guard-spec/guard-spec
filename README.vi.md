@@ -361,7 +361,10 @@ dùng nhất:
 
 Gateway (cổng 8080, cần API key trừ `/health` và `/readyz`; `/readyz` liệt kê
 các lớp phát hiện đang chạy): `POST /v1/chat/completions`,
-`POST /v1/completions`, `POST /guardrail/scan` (chấm `text` và `documents`
+`POST /v1/completions`, `POST /v1/messages` (Anthropic Messages API cho
+Claude Code, chỉ tới upstream có provider `anthropic`),
+`POST /v1/messages/count_tokens`, `GET /v1/models`,
+`POST /guardrail/scan` (chấm `text` và `documents`
 không gọi model), `POST /guardrail/scan/tools` (chấm định nghĩa tool MCP),
 `POST /guardrail/sanitize`.
 

@@ -1,4 +1,5 @@
-// Package proxy forwards sanitized requests to an OpenAI-compatible upstream.
+// Package proxy forwards sanitized requests to an upstream: an OpenAI-compatible
+// API, or the Anthropic Messages API for /v1/messages.
 package proxy
 
 import (
@@ -245,7 +246,30 @@ func New(cfg Config) (*Proxy, error) {
 // The caller must Close the Response.
 //
 // path must come from the code, not the request: it is a metric label.
-func (p *Proxy) Forward(ctx context.Context, path string, body []byte) (resp *Response, err error) {
+func (p *Proxy) Forward(ctx context.Context, path string, body []byte) (*Response, error) {
+	return p.Do(ctx, path, body, Call{})
+}
+
+// Call holds the settings of one request that differ from the proxy's.
+type Call struct {
+	// Method is the HTTP method; "" is POST. A GET sends no body.
+	Method string
+	// KeyHeader sends the key in this header as is for this request, instead
+	// of the proxy's (the Anthropic Messages API: "x-api-key").
+	KeyHeader string
+	// Header holds headers the gateway takes from the client after checking
+	// them (anthropic-version, anthropic-beta). Reserved and credential names
+	// are dropped, and the upstream's configured headers and the credentials
+	// win over them.
+	Header http.Header
+}
+
+// Do sends a request to base+path with the settings of call. Like Forward, it
+// builds the request from scratch: only call.Header reaches the upstream from
+// the client, and the caller decides what goes in it.
+//
+// path must come from the code, not the request: it is a metric label.
+func (p *Proxy) Do(ctx context.Context, path string, body []byte, call Call) (resp *Response, err error) {
 	start := time.Now()
 	ctx, end := tracing.Start(ctx, "upstream", trace.WithSpanKind(trace.SpanKindClient),
 		trace.WithAttributes(attribute.String("upstream.path", path)))
@@ -263,7 +287,7 @@ func (p *Proxy) Forward(ctx context.Context, path string, body []byte) (resp *Re
 		metrics.UpstreamDuration.WithLabelValues(path, outcome).Observe(time.Since(start).Seconds())
 		end(err)
 	}()
-	return p.forward(ctx, path, body)
+	return p.forward(ctx, path, body, call)
 }
 
 // url is base+path with the api-version query when one is set.
@@ -277,17 +301,53 @@ func (p *Proxy) url(path string) string {
 // setHeaders sets the configured extra headers, then the credentials, so
 // that no extra header can replace them.
 func (p *Proxy) setHeaders(req *http.Request) {
+	p.setCallHeaders(req, Call{})
+}
+
+// setCallHeaders sets the call's headers, then the configured extra headers,
+// then the credentials: nothing set earlier can replace what comes after it.
+func (p *Proxy) setCallHeaders(req *http.Request, call Call) {
 	req.Header.Set("User-Agent", "") // keep Go's default out
+	for k, values := range call.Header {
+		if !callHeaderAllowed(k) {
+			continue
+		}
+		for _, v := range values {
+			if strings.IndexFunc(v, func(r rune) bool { return r < 0x20 || r == 0x7f }) < 0 {
+				req.Header.Add(k, v)
+			}
+		}
+	}
 	for k, v := range p.headers {
 		req.Header.Set(k, v)
 	}
 	if p.key != "" {
-		if p.keyHeader != "" {
-			req.Header.Set(p.keyHeader, p.key)
+		keyHeader := p.keyHeader
+		if call.KeyHeader != "" {
+			keyHeader = call.KeyHeader
+		}
+		if keyHeader != "" {
+			req.Header.Set(keyHeader, p.key)
 		} else {
 			req.Header.Set("Authorization", "Bearer "+p.key)
 		}
 	}
+}
+
+// callHeaderAllowed refuses names the gateway or the transport sets, and any
+// that could carry a credential.
+func callHeaderAllowed(name string) bool {
+	lower := strings.ToLower(name)
+	if !headerNameRe.MatchString(name) || reservedHeaders[lower] || strings.HasPrefix(lower, "x-forwarded-") ||
+		strings.HasPrefix(lower, "proxy-") {
+		return false
+	}
+	for _, w := range secretNameWords {
+		if strings.Contains(lower, w) {
+			return false
+		}
+	}
+	return true
 }
 
 // retryable reports a failure the upstream did not answer, or answered with
@@ -301,9 +361,9 @@ func retryable(err error) bool {
 		e.Message == "upstream error")
 }
 
-func (p *Proxy) forward(ctx context.Context, path string, body []byte) (*Response, error) {
+func (p *Proxy) forward(ctx context.Context, path string, body []byte, call Call) (*Response, error) {
 	for attempt := 0; ; attempt++ {
-		resp, err := p.forwardOnce(ctx, path, body)
+		resp, err := p.forwardOnce(ctx, path, body, call)
 		if err == nil || attempt >= p.retries || !retryable(err) || ctx.Err() != nil {
 			return resp, err
 		}
@@ -311,15 +371,25 @@ func (p *Proxy) forward(ctx context.Context, path string, body []byte) (*Respons
 	}
 }
 
-func (p *Proxy) forwardOnce(ctx context.Context, path string, body []byte) (*Response, error) {
+func (p *Proxy) forwardOnce(ctx context.Context, path string, body []byte, call Call) (*Response, error) {
 	ctx, cancel := context.WithCancel(ctx)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.url(path), bytes.NewReader(body))
+	method := http.MethodPost
+	if call.Method != "" {
+		method = call.Method
+	}
+	var reader io.Reader
+	if method != http.MethodGet {
+		reader = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, p.url(path), reader)
 	if err != nil {
 		cancel()
 		return nil, classify(err)
 	}
-	p.setHeaders(req)
-	req.Header.Set("Content-Type", "application/json")
+	p.setCallHeaders(req, call)
+	if reader != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	if p.propagate {
 		otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(req.Header))
 	}
@@ -485,7 +555,8 @@ func statusError(resp *http.Response, body io.Reader) *Error {
 	}
 }
 
-// upstreamMessage reads the OpenAI error shape, or the flat one some servers use.
+// upstreamMessage reads the OpenAI error shape (Anthropic's error object has
+// a message too), or the flat one some servers use.
 func upstreamMessage(body io.Reader, status int) string {
 	fallback := http.StatusText(status)
 	data, err := io.ReadAll(io.LimitReader(body, maxErrorBytes))

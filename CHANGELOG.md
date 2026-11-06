@@ -11,6 +11,35 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ### Added
 
+- Gateway: `POST /v1/messages`, the Anthropic Messages API, so that Claude
+  Code can use the gateway as `ANTHROPIC_BASE_URL` (API-key mode, with
+  `ANTHROPIC_AUTH_TOKEN` or `ANTHROPIC_API_KEY` set to a Guard Spec key).
+  Requests go through the same checks as chat completions: user text, system
+  text and `tool_use` input by the scan roles, `tool_result` blocks and text
+  documents as untrusted content, tool definitions for poisoning; policies,
+  routing, rate limits, shadow mode, metrics and audit rows as on
+  `/v1/chat/completions`. Answers, streamed or not, go through the output
+  guard (text, thinking, tool input). Requests are sent as they are to an
+  upstream with provider `anthropic` (`{base_url}/messages`, its key as
+  `x-api-key`, the client's `anthropic-version` or `2023-06-01`, and
+  `anthropic-beta` without OAuth values); any other upstream gets a 400, with
+  no translation. Errors use the Anthropic error shape with the same
+  statuses. `UPSTREAM_LLM_PROVIDER=anthropic` lets `UPSTREAM_LLM_URL` serve it.
+- Gateway: `POST /v1/messages/count_tokens`, forwarded to the Anthropic
+  upstream without scanning, and `GET /v1/models`, the models of the key's
+  default upstream, in the OpenAI list shape or Anthropic's (with an
+  `anthropic-version` header).
+- Gateway: `SCAN_TOOL_PREFIXES` limits the tool-poisoning check to tools whose
+  name starts with one of the given prefixes. Claude Code's own `Bash` and
+  `Agent` tool descriptions score as poisoning; `SCAN_TOOL_PREFIXES=mcp__`
+  checks only the tools of its MCP servers.
+- Control plane: the Anthropic provider preset says it also serves
+  `/v1/messages` (`anthropic_messages`), and the connection test of an
+  Anthropic upstream sends the key as `x-api-key` with `anthropic-version`.
+- `docs/integrations.md`: Claude Code through the gateway, checked with the
+  real CLI against a fake Anthropic upstream; Cursor and `/v1/models`, not
+  verified.
+
 - `docs/security/`: documentation for security teams: architecture and trust
   boundaries, the data flow of a request, what is stored where and for how
   long (audit content off by default, retention per table), secrets and

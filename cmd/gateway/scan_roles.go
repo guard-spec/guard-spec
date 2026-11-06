@@ -22,6 +22,19 @@ type scanConfig struct {
 	Roles             indirect.Roles
 	Spotlight         indirect.Mode
 	IndirectThreshold float64
+	// ToolPrefixes is SCAN_TOOL_PREFIXES, comma-separated: when set, only
+	// tool definitions whose name starts with one of them are checked for
+	// poisoning, and the others are trusted as the client's own (Claude
+	// Code: mcp__, its MCP servers' tools). "": every tool is checked.
+	ToolPrefixes string
+}
+
+// toolPrefixes returns the prefixes of ToolPrefixes.
+func (c scanConfig) toolPrefixes() []string {
+	if c.ToolPrefixes == "" {
+		return nil
+	}
+	return strings.Split(c.ToolPrefixes, ",")
 }
 
 func defaultScanConfig() scanConfig {
@@ -50,7 +63,29 @@ func loadScanConfig(env func(string) string) (scanConfig, error) {
 		}
 		cfg.IndirectThreshold = t
 	}
+	var prefixes []string
+	for _, p := range strings.Split(env("SCAN_TOOL_PREFIXES"), ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			prefixes = append(prefixes, p)
+		}
+	}
+	cfg.ToolPrefixes = strings.Join(prefixes, ",")
 	return cfg, nil
+}
+
+// trustedTool reports a tool definition that is not checked for poisoning:
+// tool prefixes are set and its name, which must not be empty, starts with
+// none of them.
+func (g *textGuard) trustedTool(name string) bool {
+	if len(g.toolPrefixes) == 0 || name == "" {
+		return false
+	}
+	for _, p := range g.toolPrefixes {
+		if strings.HasPrefix(name, p) {
+			return false
+		}
+	}
+	return true
 }
 
 // settingsLoader returns an organization's scan overrides.
@@ -303,7 +338,9 @@ func (g *textGuard) guardTools(body map[string]any) error {
 			if err != nil {
 				return err
 			}
-			g.tools = append(g.tools, tool)
+			if !g.trustedTool(tool.Name) {
+				g.tools = append(g.tools, tool)
+			}
 		}
 	}
 	return nil
@@ -394,7 +431,7 @@ func (gw gateway) scoreRequest(g *textGuard) (requestVerdict, error) {
 		}
 	}
 	for _, t := range g.tools {
-		tv, err := scanner.ScoreTool(gw.base, t, "parameters", false)
+		tv, err := scanner.ScoreTool(gw.base, t, g.toolSchemaKey(), false)
 		if err != nil {
 			if errors.Is(err, indirect.ErrSchemaTooDeep) {
 				return v, errUnsupportedContent
