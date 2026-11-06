@@ -162,7 +162,7 @@ manifests. Release name `gs` gives the Services `gs-guard-spec-gateway` and
   use a server where that role does not exist yet, or one database server
   per installation.
 - A checkout of the release tag: `git clone --branch v0.1.1 https://github.com/guard-spec/guard-spec.git`.
-  See [Known gaps](README.md#known-gaps-in-the-helm-chart).
+  See [The Helm chart on `main`](README.md#the-helm-chart-on-main).
 
 ### Step 1: namespace and secrets
 
