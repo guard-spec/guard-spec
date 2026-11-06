@@ -20,7 +20,7 @@ name: guard-spec
 
 services:
   gateway:
-    image: ghcr.io/guard-spec/guard-spec-gateway:${GUARDSPEC_VERSION:-0.2.0}
+    image: ghcr.io/guard-spec/guard-spec-gateway:${GUARDSPEC_VERSION:-0.2.1}
     ports:
       - "${GATEWAY_PORT:-8080}:8080"   # proxy API (OpenAI-compatible, Anthropic Messages)
       - "${METRICS_PORT:-9090}:9090"   # Prometheus metrics
@@ -107,7 +107,7 @@ services:
       retries: 3
 
   control-plane:
-    image: ghcr.io/guard-spec/guard-spec-control-plane:${GUARDSPEC_VERSION:-0.2.0}
+    image: ghcr.io/guard-spec/guard-spec-control-plane:${GUARDSPEC_VERSION:-0.2.1}
     ports:
       - "${CONTROL_PLANE_PORT:-18081}:8081"
       - "${CONTROL_PLANE_METRICS_PORT:-9091}:9091"   # Prometheus metrics
@@ -227,7 +227,7 @@ services:
   # unless DETECTOR_REQUIRE_ML=true, which makes the failure stop the stack.
   # Air-gapped: use the gateway-full image or a mirror (docs/models.md).
   models-init:
-    image: ghcr.io/guard-spec/guard-spec-gateway:${GUARDSPEC_VERSION:-0.2.0}
+    image: ghcr.io/guard-spec/guard-spec-gateway:${GUARDSPEC_VERSION:-0.2.1}
     entrypoint:
       - /bin/sh
       - -c
@@ -256,7 +256,7 @@ services:
   # Without arguments it does what models-init does.
   models-pull:
     profiles: [models]
-    image: ghcr.io/guard-spec/guard-spec-gateway:${GUARDSPEC_VERSION:-0.2.0}
+    image: ghcr.io/guard-spec/guard-spec-gateway:${GUARDSPEC_VERSION:-0.2.1}
     entrypoint: ["./models", "pull", "-manifest", "manifest.yaml", "-dir", "/models/cache"]
     user: "${MODELS_UID:-0}:${MODELS_GID:-0}"
     environment:

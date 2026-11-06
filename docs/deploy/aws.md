@@ -62,7 +62,7 @@ flowchart LR
   password): an EC2 instance reached with SSM Session Manager, or a CI runner
   in the VPC.
 - A checkout of the release tag on that host:
-  `git clone --branch v0.2.0 https://github.com/guard-spec/guard-spec.git`.
+  `git clone --branch v0.2.1 https://github.com/guard-spec/guard-spec.git`.
 
 ## Sizing
 
@@ -169,8 +169,8 @@ rule for `ghcr.io`, which needs a GitHub token in Secrets Manager):
 aws ecr create-repository --repository-name guard-spec/guard-spec-gateway-full
 aws ecr create-repository --repository-name guard-spec/guard-spec-control-plane
 aws ecr get-login-password | docker login --username AWS --password-stdin <account-id>.dkr.ecr.<region>.amazonaws.com
-crane copy ghcr.io/guard-spec/guard-spec-gateway-full:0.2.0 <account-id>.dkr.ecr.<region>.amazonaws.com/guard-spec/guard-spec-gateway-full:0.2.0
-crane copy ghcr.io/guard-spec/guard-spec-control-plane:0.2.0 <account-id>.dkr.ecr.<region>.amazonaws.com/guard-spec/guard-spec-control-plane:0.2.0
+crane copy ghcr.io/guard-spec/guard-spec-gateway-full:0.2.1 <account-id>.dkr.ecr.<region>.amazonaws.com/guard-spec/guard-spec-gateway-full:0.2.1
+crane copy ghcr.io/guard-spec/guard-spec-control-plane:0.2.1 <account-id>.dkr.ecr.<region>.amazonaws.com/guard-spec/guard-spec-control-plane:0.2.1
 ```
 
 Verify the signatures first ([SECURITY.md](../../SECURITY.md#verifying-releases)).
@@ -204,7 +204,7 @@ Gateway (template; `<...-arn>` are the full secret ARNs):
   "volumes": [{"name": "tmp"}],
   "containerDefinitions": [{
     "name": "gateway",
-    "image": "ghcr.io/guard-spec/guard-spec-gateway-full:0.2.0",
+    "image": "ghcr.io/guard-spec/guard-spec-gateway-full:0.2.1",
     "essential": true,
     "readonlyRootFilesystem": true,
     "mountPoints": [{"sourceVolume": "tmp", "containerPath": "/tmp"}],
@@ -253,7 +253,7 @@ binary's own `health` subcommand, not `curl`.
   "executionRoleArn": "arn:aws:iam::<account-id>:role/guard-spec-execution",
   "containerDefinitions": [{
     "name": "control-plane",
-    "image": "ghcr.io/guard-spec/guard-spec-control-plane:0.2.0",
+    "image": "ghcr.io/guard-spec/guard-spec-control-plane:0.2.1",
     "essential": true,
     "readonlyRootFilesystem": true,
     "portMappings": [

@@ -9,6 +9,8 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-07
+
 ### Upgrade notes
 
 - Migration 018 adds the function `purge_activity_rows` and two indexes
@@ -457,7 +459,8 @@ First release.
 - List endpoints still answer the older `{"data": [...]}` shape when called
   without `limit` and `cursor`; use the paginated form.
 
-[Unreleased]: https://github.com/guard-spec/guard-spec/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/guard-spec/guard-spec/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/guard-spec/guard-spec/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/guard-spec/guard-spec/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/guard-spec/guard-spec/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/guard-spec/guard-spec/releases/tag/v0.1.0
