@@ -41,11 +41,10 @@ Examples use version `0.1.0` and placeholders such as `<your-db-host>`.
 ### Prerequisites
 
 - Linux host with Docker Engine and Compose v2, `curl`, `jq`, `openssl`.
-- Starting point for the host: measure under your traffic. The chart's
-  defaults (gateway request 250m CPU / 256Mi, limit 1Gi) are low for the
-  model layers: in a local check the `gateway-full` container used about
-  900 MiB of memory right after start with L1 + L2 + L3 loaded. Plan for at
-  least 2 GiB for the gateway, plus Postgres. L1 only needs much less.
+- Starting point for the host: measure under your traffic. In a local check
+  the `gateway-full` container used about 900 MiB of memory right after
+  start with L1 + L2 + L3 loaded. Plan for at least 2 GiB for the gateway
+  (the chart's default limit), plus Postgres. L1 only needs much less.
 - About 300 MB of disk for the models and space for the audit table.
 
 ### Steps
@@ -156,13 +155,15 @@ manifests. Release name `gs` gives the Services `gs-guard-spec-gateway` and
 ### Prerequisites
 
 - Kubernetes 1.27 or newer (an assumption: the chart uses only stable APIs),
-  Helm 3, `kubectl`.
+  Helm 3 or 4, `kubectl`.
 - PostgreSQL 17 reachable from the cluster, with an owner role that can
   create roles and the `pgcrypto` and `pg_trgm` extensions. Migration 004
   runs `CREATE ROLE guardspec_app`, and roles are cluster-wide in Postgres:
   use a server where that role does not exist yet, or one database server
   per installation.
 - A checkout of the release tag: `git clone --branch v0.1.0 https://github.com/guard-spec/guard-spec.git`.
+  The chart behaviour below is the one on `main`, after 0.1.0
+  ([Known gaps](README.md#known-gaps-in-the-helm-chart)).
 
 ### Step 1: namespace and secrets
 
@@ -174,10 +175,7 @@ kubectl create secret generic guard-spec-secrets \
   --from-literal=POSTGRES_PASSWORD='<owner-password>' \
   --from-literal=GUARDSPEC_APP_PASSWORD="$(openssl rand -hex 32)" \
   --from-literal=JWT_SECRET="$(openssl rand -hex 32)" \
-  --from-literal=ADMIN_PASSWORD="$(openssl rand -hex 16)"
-
-# Control-plane-only secrets, passed with controlPlane.extraEnvFrom.
-kubectl create secret generic guard-spec-control-plane-extra \
+  --from-literal=ADMIN_PASSWORD="$(openssl rand -hex 16)" \
   --from-literal=MFA_ENC_KEY="$(openssl rand -base64 32)"
 
 # Gateway-only secrets (the upstream's key), passed with gateway.extraEnvFrom.
@@ -186,7 +184,7 @@ kubectl create secret generic guard-spec-gateway-extra \
 ```
 
 **Back up `MFA_ENC_KEY` now**, outside the cluster, next to your database
-backups: `kubectl get secret guard-spec-control-plane-extra -o jsonpath='{.data.MFA_ENC_KEY}' | base64 -d`.
+backups: `kubectl get secret guard-spec-secrets -o jsonpath='{.data.MFA_ENC_KEY}' | base64 -d`.
 Read `ADMIN_PASSWORD` the same way for the first login.
 
 ### Step 2: migrations (no chart job yet)
@@ -328,9 +326,8 @@ models:
   existingClaim: guard-spec-models
 gateway:
   replicaCount: 2
-  resources:
-    requests: {cpu: "1", memory: 1536Mi}   # starting point; measure
-    limits: {memory: 2Gi}
+  # The default resources (request 500m CPU / 1Gi, limit 2Gi) fit
+  # L1 + L2 + L3; measure under your traffic and adjust gateway.resources.
   env:
     UPSTREAM_LLM_URL: <your-upstream-url>   # e.g. https://api.openai.com/v1
     UPSTREAM_ALLOW_PRIVATE: "false"
@@ -341,8 +338,6 @@ controlPlane:
   env:
     PUBLIC_BASE_URL: https://<admin-host>
     TRUSTED_PROXIES: <ingress-controller-pod-cidr>
-  extraEnvFrom:
-    - secretRef: {name: guard-spec-control-plane-extra}
 EOF
 
 helm install gs deploy/helm/guard-spec -f values-prod.yaml
@@ -420,53 +415,18 @@ the effective limit.
 
 ### gateway-full with the Helm chart
 
-The chart always mounts a volume at `/models` in the gateway, which hides the
-models inside `guard-spec-gateway-full`, and that image then refuses to start
-(`DETECTOR_REQUIRE_ML=true`). Until the chart can turn the mount off, a
-kustomize patch can remove it. Template: the patch was checked against
-`helm template` output with Helm 4 and `kubectl kustomize`, not on a cluster.
+`guard-spec-gateway-full` has the models inside the image, so it needs no
+PVC and no models Job (skip step 3). Without a models claim the chart mounts
+nothing at `/models`, and the image's models stay visible:
 
 ```bash
-mkdir -p pr && cd pr
-cat > kustomization.yaml <<'EOF'
-resources: [all.yaml]
-patches:
-  - target: {kind: Deployment, name: gs-guard-spec-gateway}
-    patch: |-
-      - op: remove
-        path: /spec/template/spec/containers/0/volumeMounts/0   # models
-      - op: remove
-        path: /spec/template/spec/volumes/0                     # models
-EOF
-cat > render.sh <<'EOF'
-#!/bin/sh
-cd "$(dirname "$0")" && cat > all.yaml && kubectl kustomize .
-EOF
-chmod +x render.sh && cd ..
-
-# Helm 3: render.sh as a post-renderer executable.
 helm install gs deploy/helm/guard-spec -f values-prod.yaml \
   --set models.existingClaim= --set models.persistence.enabled=false \
-  --set gateway.image.repository=ghcr.io/guard-spec/guard-spec-gateway-full \
-  --post-renderer ./pr/render.sh
+  --set gateway.image.repository=ghcr.io/guard-spec/guard-spec-gateway-full
 ```
 
-Helm 4 accepts only post-renderer plugins for `--post-renderer`. There, wrap
-`render.sh` in a plugin, or render and apply without a Helm release:
-
-```bash
-helm template gs deploy/helm/guard-spec -f values-prod.yaml \
-  --set models.existingClaim= --set models.persistence.enabled=false \
-  --set gateway.image.repository=ghcr.io/guard-spec/guard-spec-gateway-full \
-  > pr/all.yaml
-kubectl kustomize pr | kubectl apply -f -
-```
-
-Applied this way, the `dbRoles` hook becomes an ordinary Job that runs next
-to the services instead of before them; add `--set dbRoles.enabled=false` and
-set the `guardspec_app` password yourself first. The patch indexes rely on the
-order in `templates/gateway.yaml` (models first, then `tmp`); check the
-rendered Deployment before applying.
+The image sets `DETECTOR_REQUIRE_ML=true`: if a volume is mounted over
+`/models` anyway, it refuses to start rather than run on L1 only.
 
 ### Upgrade and rollback
 
@@ -495,8 +455,7 @@ the UID:
 helm install gs deploy/helm/guard-spec -f values-prod.yaml \
   --set podSecurityContext.runAsUser=null \
   --set podSecurityContext.runAsGroup=null \
-  --set podSecurityContext.fsGroup=null \
-  --set dbRoles.enabled=false
+  --set podSecurityContext.fsGroup=null
 ```
 
 The images do not depend on a fixed UID: their files are world-readable,
@@ -506,11 +465,13 @@ nothing is written outside `/tmp` (an `emptyDir` in the chart), and the
 and loaded L1 + L2 + L3 as UID 1000770000, group 0, with a read-only root
 filesystem. Not yet run on an OpenShift cluster.
 
-**dbRoles.** The job's `runAsUser: 70` is fixed in the template, so keep
-`dbRoles.enabled=false` and set the password yourself after each migration
-run (`deploy/postgres/set-app-password.sh`, from a pod with `psql` or from
-your workstation). Remove `runAsUser`, `runAsGroup` and `fsGroup` from the
-migration and model Jobs above as well.
+**dbRoles.** The job's pod securityContext comes from
+`dbRoles.podSecurityContext` (`runAsNonRoot` and RuntimeDefault seccomp). The
+chart adds `runAsUser: 70` only when the cluster does not serve
+`security.openshift.io/v1`, so on OpenShift the SCC picks the UID and
+`dbRoles.enabled=true` works as in step 4. With `helm template` (GitOps),
+pass `--api-versions security.openshift.io/v1`. Remove `runAsUser`,
+`runAsGroup` and `fsGroup` from the migration and model Jobs above as well.
 
 **Routes instead of Ingress.**
 
@@ -703,7 +664,7 @@ None of these cost money.
 | `db connect` in the gateway log and exit | Wrong `DATABASE_URL`, `PGPASSWORD` not set, or `guardspec_app` has no password yet (run `set-app-password.sh` after migrating) |
 | `password authentication failed for user "guardspec_app"` | `GUARDSPEC_APP_PASSWORD` changed but was not applied: run `db-roles` / `set-app-password.sh` again |
 | `/readyz` shows `"layers":["l1"]`, `"degraded":true` | No models at `/models`. See `detector.problems`; fill the volume and restart |
-| `gateway-full` refuses to start | A volume is mounted over `/models` |
+| `gateway-full` refuses to start | A volume is mounted over `/models`; with the chart, set `models.persistence.enabled=false` and leave `models.existingClaim` empty |
 | Migration `004` fails with "role already exists" | `guardspec_app` exists on this Postgres server from another database |
 | Streams stop after 30 to 60 seconds | Proxy or load balancer read timeout; raise it and turn off buffering |
 | 2FA users cannot log in after a restore | `MFA_ENC_KEY` does not match the restored database |

@@ -103,14 +103,25 @@ type detectorStatus struct {
 	// Degraded is true when a requested layer did not load; Problems says why.
 	Degraded bool     `json:"degraded"`
 	Problems []string `json:"problems,omitempty"`
+	// Required is DETECTOR_REQUIRE_ML: the requested model layers must load.
+	// Outside GUARD_ENV=dev a gateway that is degraded and required does not
+	// start at all; in dev mode it starts and /readyz answers 503.
+	Required bool `json:"required"`
 	// ONNX reports whether the binary was built with -tags onnx.
 	ONNX    bool   `json:"onnx"`
 	Fusion  string `json:"fusion,omitempty"`
 	L2Model string `json:"l2_model,omitempty"`
 }
 
-func newDetectorStatus(s *ml.Stack) detectorStatus {
-	st := detectorStatus{Layers: []string{}, ONNX: onnx.Available()}
+// ready reports whether the gateway may take traffic: a missing layer counts
+// only when the configuration requires it (DETECTOR_REQUIRE_ML=true). A
+// gateway that runs L1 only by design, such as the plain image without
+// models, is degraded but ready.
+func (d detectorStatus) ready() bool { return !(d.Degraded && d.Required) }
+
+// newDetectorStatus describes the loaded stack; required is cfg.RequireML.
+func newDetectorStatus(s *ml.Stack, required bool) detectorStatus {
+	st := detectorStatus{Layers: []string{}, ONNX: onnx.Available(), Required: required}
 	if s == nil {
 		return st
 	}

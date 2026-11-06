@@ -69,7 +69,7 @@ points:
 
 | Service | Size | Basis |
 |---|---|---|
-| gateway (L1 + L2 + L3) | 1 vCPU, 2 GiB, 2 replicas or minimum instances | About 900 MiB of memory right after start in a local check of `gateway-full:0.1.0`; the chart's 1Gi limit is too tight for the model layers |
+| gateway (L1 + L2 + L3) | 1 vCPU, 2 GiB, 2 replicas or minimum instances | About 900 MiB of memory right after start in a local check of `gateway-full:0.1.0`; the chart's default is a 1Gi request and a 2Gi limit |
 | gateway (L1 only) | 0.5 vCPU, 1 GiB | Measure |
 | control plane | 0.25 to 1 vCPU, 512 MiB, 1 replica | Chart defaults: 100m CPU, 64Mi request, 256Mi limit; Cloud Run has its own minimums |
 | Cloud SQL | Enterprise edition, `db-custom-1-3840`, 20 GB SSD | Measure: the audit table grows with every request, bounded by `AUDIT_RETENTION_DAYS` |
@@ -159,16 +159,16 @@ Cloud specific parts:
   accepted by Autopilot as they are.
 - **Secrets.** Sync the Secret Manager values into the Kubernetes Secrets the
   chart expects (`guard-spec-secrets` with `POSTGRES_PASSWORD`,
-  `GUARDSPEC_APP_PASSWORD`, `JWT_SECRET`, `ADMIN_PASSWORD`; a second Secret
-  with `MFA_ENC_KEY` for `controlPlane.extraEnvFrom`) with the External
+  `GUARDSPEC_APP_PASSWORD`, `JWT_SECRET`, `ADMIN_PASSWORD`, `MFA_ENC_KEY`)
+  with the External
   Secrets Operator or the Secret Manager add-on, or create them with
   `kubectl create secret` from a trusted machine.
 - **Models.** The default storage class (`standard-rwo`) is ReadWriteOnce, so
   two gateway replicas on different nodes cannot share the chart's PVC. Use
   a ReadWriteMany claim backed by Filestore (`models.existingClaim`), filled
   by the [models Job](on-premise.md#step-3-models); or keep
-  `gateway.replicaCount=1`; or use `gateway-full` with the
-  [kustomize workaround](on-premise.md#gateway-full-with-the-helm-chart).
+  `gateway.replicaCount=1`; or use `gateway-full` with no models volume
+  ([gateway-full with the Helm chart](on-premise.md#gateway-full-with-the-helm-chart)).
 - **Migrations.** The [migration Job](on-premise.md#step-2-migrations-no-chart-job-yet)
   works as is, with the Cloud SQL private IP as host and `gsowner` as owner.
   `dbRoles.enabled=true` sets the app password.

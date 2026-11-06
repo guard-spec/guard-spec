@@ -148,7 +148,7 @@ func main() {
 	slog.Info("scan config", "roles", cfg.Scan.Roles.String(), "spotlight", cfg.Scan.Spotlight,
 		"indirect_threshold", cfg.Scan.IndirectThreshold)
 	app := newApp(gateway{
-		detector:     newDetectorStatus(detector),
+		detector:     newDetectorStatus(detector, cfg.Detector.RequireML),
 		runner:       runner,
 		engine:       engine,
 		policies:     dbPolicyLoader(db),
@@ -236,9 +236,15 @@ func newApp(gw gateway, lookup tenant.LookupFn) *fiber.App {
 		return c.JSON(fiber.Map{"status": "ok", "version": "0.1.0"})
 	})
 	// Readiness — no auth required. Reports which detection layers run, so a
-	// release image started without /models shows it runs L1 only.
+	// release image started without /models shows it runs L1 only. 503 (same
+	// body, status "degraded") when a layer the configuration requires is
+	// missing; a degraded gateway that does not require its models stays ready.
 	app.Get("/readyz", func(c *fiber.Ctx) error {
-		return c.JSON(fiber.Map{"status": "ready", "version": "0.1.0", "detector": gw.detector})
+		status, code := "ready", fiber.StatusOK
+		if !gw.detector.ready() {
+			status, code = "degraded", fiber.StatusServiceUnavailable
+		}
+		return c.Status(code).JSON(fiber.Map{"status": status, "version": "0.1.0", "detector": gw.detector})
 	})
 
 	// All proxy routes require a valid API key.

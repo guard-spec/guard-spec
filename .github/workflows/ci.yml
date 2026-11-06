@@ -241,12 +241,23 @@ jobs:
           echo "${KUBECONFORM_SHA256}  kubeconform.tgz" | sha256sum -c -
           tar -xzf kubeconform.tgz -C "$RUNNER_TEMP/bin" kubeconform
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-      # Default values, every optional part turned on (ci/), and no models volume.
+      # Default values, every optional part turned on (ci/), no models volume,
+      # gateway-full (ci/), and the dbRoles job rendered for OpenShift.
       - run: helm lint "$CHART" --strict
       - run: helm lint "$CHART" --strict -f "$CHART/ci/all-options-values.yaml"
+      - run: helm lint "$CHART" --strict -f "$CHART/ci/gateway-full-values.yaml"
       - name: Render and validate against the Kubernetes schema
         run: |
           kc() { kubeconform -strict -summary -kubernetes-version 1.33.0 -skip ServiceMonitor -; }
           helm template gs "$CHART" | kc
           helm template gs "$CHART" -f "$CHART/ci/all-options-values.yaml" | kc
           helm template gs "$CHART" --set models.persistence.enabled=false | kc
+          helm template gs "$CHART" -f "$CHART/ci/gateway-full-values.yaml" | kc
+          helm template gs "$CHART" -f "$CHART/ci/all-options-values.yaml" \
+            --api-versions security.openshift.io/v1 | kc
+      - name: No models volume without a claim (gateway-full keeps its models)
+        run: |
+          if helm template gs "$CHART" -f "$CHART/ci/gateway-full-values.yaml" | grep -q 'mountPath: /models'; then
+            echo "a volume is mounted over /models without a models claim" >&2; exit 1
+          fi
+          helm template gs "$CHART" | grep -q 'mountPath: /models'

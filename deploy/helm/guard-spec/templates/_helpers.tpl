@@ -25,6 +25,13 @@ app.kubernetes.io/component: {{ .component }}
 {{- printf "%s:%s" .image.repository (default .root.Chart.AppVersion .image.tag) -}}
 {{- end -}}
 
+{{/* Non-empty when the gateway mounts a models volume at /models: an
+existing claim, or the chart's own PVC. Otherwise nothing is mounted, so the
+models inside guard-spec-gateway-full stay visible. */}}
+{{- define "guard-spec.modelsVolume" -}}
+{{- if or .Values.models.existingClaim .Values.models.persistence.enabled -}}true{{- end -}}
+{{- end -}}
+
 {{- define "guard-spec.modelsClaim" -}}
 {{- if .Values.models.existingClaim -}}
 {{- .Values.models.existingClaim -}}

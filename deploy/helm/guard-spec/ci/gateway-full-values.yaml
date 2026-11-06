@@ -1,0 +1,16 @@
+# Used by CI (helm lint and template): guard-spec-gateway-full with its models
+# inside the image (no models volume) and the dbRoles job with its own
+# securityContext. Not a deployment example.
+gateway:
+  image:
+    repository: ghcr.io/guard-spec/guard-spec-gateway-full
+models:
+  persistence:
+    enabled: false
+dbRoles:
+  enabled: true
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    seccompProfile:
+      type: RuntimeDefault
