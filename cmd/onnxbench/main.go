@@ -5,7 +5,7 @@
 //
 // Each request scores one text of exactly -lengths tokens (special tokens
 // included). -conc goroutines issue requests in parallel; the table reports the
-// latency of single requests (p50/p99) and the aggregate throughput.
+// latency of single requests (p50/p95/p99) and the aggregate throughput.
 package main
 
 import (
@@ -72,8 +72,8 @@ func main() {
 	fmt.Printf("model=%s kind=%s ort=%s os/arch=%s/%s cpus=%d %s=%d %s=%q -intra=%d\n\n",
 		*modelDir, *kind, ver, runtime.GOOS, runtime.GOARCH, runtime.NumCPU(),
 		onnx.EnvMaxConcurrency, onnx.MaxConcurrencyFromEnv(), onnx.EnvIntraOpThreads, os.Getenv(onnx.EnvIntraOpThreads), *intra)
-	fmt.Println("| tokens | conc | p50 ms | p99 ms | mean ms | req/s |")
-	fmt.Println("|-------:|-----:|-------:|-------:|--------:|------:|")
+	fmt.Println("| tokens | conc | p50 ms | p95 ms | p99 ms | mean ms | req/s |")
+	fmt.Println("|-------:|-----:|-------:|-------:|-------:|--------:|------:|")
 
 	ctx := context.Background()
 	for _, ls := range strings.Split(*lengths, ",") {
@@ -118,8 +118,8 @@ func main() {
 			for _, d := range lat {
 				sum += d
 			}
-			fmt.Printf("| %6d | %4d | %6.1f | %6.1f | %7.1f | %5.1f |\n", got+2, conc,
-				ms(pct(lat, 50)), ms(pct(lat, 99)), ms(sum/time.Duration(len(lat))), float64(len(lat))/wall.Seconds())
+			fmt.Printf("| %6d | %4d | %6.1f | %6.1f | %6.1f | %7.1f | %5.1f |\n", got+2, conc,
+				ms(pct(lat, 50)), ms(pct(lat, 95)), ms(pct(lat, 99)), ms(sum/time.Duration(len(lat))), float64(len(lat))/wall.Seconds())
 		}
 	}
 }

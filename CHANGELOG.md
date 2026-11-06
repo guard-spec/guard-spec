@@ -11,6 +11,11 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ### Added
 
+- Bench workflow (`.github/workflows/bench.yml`, manual only): detection
+  latency with the released v3b and multilingual-e5-small models on
+  GitHub-hosted `ubuntu-24.04` (amd64) and `ubuntu-24.04-arm` runners, as a
+  markdown table in the job summary and an artifact. `cmd/eval` and
+  `cmd/onnxbench` now also report p95.
 - `GET /v1/organizations/:orgId/dashboard`: request log aggregates over 24h,
   7d or 30d (totals, block rate, latency p50/p95/p99, an hourly or daily
   series, top detections, rules and projects), computed in Postgres. The
