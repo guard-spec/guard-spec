@@ -28,6 +28,18 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   advisory lock. New metric `guardspec_retention_deleted_rows_total{table}`.
   Passed through by the Helm chart and both compose files.
 
+### Changed
+
+- Release: the control-plane image now gets full SLSA v1 provenance
+  (`mode=max`, builder id = the Actions run, the build arguments and labels
+  including the commit), like the gateway images. Up to v0.2.0 its
+  provenance was minimal; the fix applies from the next release.
+- `docs/security/verifying-releases.md`: commands and output re-run against
+  v0.2.0.
+- Docs and diagrams: the gateway is described as serving the OpenAI-compatible
+  and the Anthropic Messages APIs (context and component diagrams re-rendered,
+  README, DESIGN, Helm NOTES).
+
 ## [0.2.0] - 2026-11-06
 
 ### Upgrade notes

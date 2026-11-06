@@ -127,6 +127,16 @@ dockers_v2:
       BINARY: control-plane
     extra_files: [migrations, LICENSE, NOTICE, THIRD_PARTY_LICENSES.md]
     sbom: true
+    # Full SLSA provenance, as the gateway images get from docker/build-push-action:
+    # mode=max records the build arguments and labels (among them
+    # org.opencontainers.image.revision, the tag commit), the Dockerfile and the
+    # base image digests; builder-id names the Actions run; version=v1 pins the
+    # SLSA v1 format the gateway attestations use. Without the flag BuildKit
+    # attaches a minimal provenance with an empty builder id. The builder id is
+    # left out outside GitHub Actions (local snapshots).
+    flags:
+      - >-
+        --provenance=mode=max,version=v1{{ if isEnvSet "GITHUB_RUN_ID" }},builder-id={{ .Env.GITHUB_SERVER_URL }}/{{ .Env.GITHUB_REPOSITORY }}/actions/runs/{{ .Env.GITHUB_RUN_ID }}/attempts/{{ .Env.GITHUB_RUN_ATTEMPT }}{{ end }}
     labels:
       org.opencontainers.image.source: "{{ .GitURL }}"
       org.opencontainers.image.revision: "{{ .FullCommit }}"

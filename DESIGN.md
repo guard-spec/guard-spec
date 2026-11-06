@@ -37,15 +37,16 @@ detection". Benchmarks are published with their limitations.
 ## 2. Components
 
 ```
-client ──► gateway (Go, Fiber) ──────────────► upstream LLM (OpenAI-compatible)
+client ──► gateway (Go, Fiber) ──────────────► upstream LLM (OpenAI-compatible, Anthropic)
              │  reads keys, policies, settings, exemplars; writes audit rows
              ▼
           Postgres 17 ◄── control-plane (Go, Fiber): REST management API
 ```
 
 - **gateway** (`cmd/gateway`): OpenAI-compatible proxy (`/v1/chat/completions`,
-  `/v1/completions`) and guardrail endpoints (`/guardrail/scan`,
-  `/guardrail/scan/tools`, `/guardrail/sanitize`). There is no REST sync from
+  `/v1/completions`), the Anthropic Messages API (`/v1/messages`) and
+  guardrail endpoints (`/guardrail/scan`, `/guardrail/scan/tools`,
+  `/guardrail/sanitize`). There is no REST sync from
   the control plane: the gateway reads Postgres directly and caches briefly.
 - **control-plane** (`cmd/control-plane`): JWT login, organizations, RBAC,
   API keys, projects, policies, guard settings, exemplars, invites, audit log

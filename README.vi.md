@@ -22,12 +22,12 @@
 > English: [README.md](README.md) (bản đầy đủ, là tài liệu chính). Tài liệu: [guardspec.io/vi/docs](https://guardspec.io/vi/docs/).
 
 Guard Spec là một gateway tự host, đặt giữa ứng dụng của bạn và một API LLM
-tương thích OpenAI, để chặn tấn công prompt injection. Nó kiểm tra tin nhắn
-của người dùng, kết quả tool, tài liệu truy xuất (RAG) và mô tả tool MCP
-trước khi chúng đến model; sau đó kiểm tra câu trả lời của model (link rò rỉ
-dữ liệu, dữ liệu cá nhân, canary bị lộ) trước khi đến người dùng. Viết bằng
-Go, chạy thành hai service cạnh Postgres, được xây dựng và đánh giá cho
-**tiếng Anh và tiếng Việt**.
+(tương thích OpenAI, hoặc Messages API của Anthropic), để chặn tấn công
+prompt injection. Nó kiểm tra tin nhắn của người dùng, kết quả tool, tài liệu
+truy xuất (RAG) và mô tả tool MCP trước khi chúng đến model; sau đó kiểm tra
+câu trả lời của model (link rò rỉ dữ liệu, dữ liệu cá nhân, canary bị lộ)
+trước khi đến người dùng. Viết bằng Go, chạy thành hai service cạnh Postgres,
+được xây dựng và đánh giá cho **tiếng Anh và tiếng Việt**.
 
 Trạng thái: **v0.2.0, trước 1.0.** API và schema cơ sở dữ liệu còn có thể
 thay đổi. Hãy đọc phần [Mô hình bảo mật và giới hạn](#mô-hình-bảo-mật-và-giới-hạn)
@@ -43,7 +43,8 @@ trước khi dùng.
   MCP được chấm từng cái, có dấu hiệu "tool poisoning" của MCP.
 - Output guard: link và ảnh rò rỉ dữ liệu, dữ liệu cá nhân (kể cả số điện
   thoại, CCCD, số thẻ Việt Nam), canary bị lộ, kể cả khi stream.
-- Tương thích OpenAI: chỉ đổi `base_url`, giữ nguyên SDK. Định tuyến tới nhiều
+- Tương thích OpenAI, và Messages API của Anthropic (`/v1/messages`, cho
+  Claude Code): chỉ đổi base URL, giữ nguyên SDK. Định tuyến tới nhiều
   upstream (OpenAI, Azure OpenAI, Anthropic, Gemini, vLLM, Ollama).
 - Policy theo tổ chức và theo project, viết bằng chữ hoặc trình soạn trực
   quan, biên dịch sang CEL: cho qua, chặn, ghi log hoặc định tuyến.
