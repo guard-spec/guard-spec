@@ -1,0 +1,99 @@
+# In-cluster dependencies of the kind e2e (tests/kind/e2e.sh): a throwaway
+# Postgres and a fake OpenAI-compatible upstream. Test fixtures only.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  labels: {app: postgres}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: postgres}
+  template:
+    metadata:
+      labels: {app: postgres}
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:17.11-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b
+          env:
+            - {name: POSTGRES_DB, value: guardspec}
+            - {name: POSTGRES_USER, value: ps}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: guard-spec-secrets, key: POSTGRES_PASSWORD}
+            - {name: PGDATA, value: /var/lib/postgresql/data/pgdata}
+          ports:
+            - containerPort: 5432
+          readinessProbe:
+            exec:
+              command: [pg_isready, -U, ps, -d, guardspec]
+            periodSeconds: 2
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+spec:
+  selector: {app: postgres}
+  ports:
+    - port: 5432
+---
+# Answers every request with one fixed chat completion.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fake-upstream
+data:
+  default.conf: |
+    server {
+      listen 8080;
+      location / {
+        default_type application/json;
+        return 200 '{"id":"chatcmpl-e2e","object":"chat.completion","created":1700000000,"model":"e2e","choices":[{"index":0,"message":{"role":"assistant","content":"fake upstream reply"},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":3,"total_tokens":8}}';
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fake-upstream
+  labels: {app: fake-upstream}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: fake-upstream}
+  template:
+    metadata:
+      labels: {app: fake-upstream}
+    spec:
+      containers:
+        - name: nginx
+          image: nginxinc/nginx-unprivileged:1.29.8-alpine@sha256:0c79d56aee561a1d81c63f00eee5fb5fe29279560cdc55e91425133104c7fbe6
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet: {path: /, port: 8080}
+            periodSeconds: 2
+          volumeMounts:
+            - name: conf
+              mountPath: /etc/nginx/conf.d
+      volumes:
+        - name: conf
+          configMap:
+            name: fake-upstream
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fake-upstream
+spec:
+  selector: {app: fake-upstream}
+  ports:
+    - port: 8080

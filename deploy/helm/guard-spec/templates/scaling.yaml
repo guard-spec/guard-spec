@@ -1,0 +1,71 @@
+{{- /* HorizontalPodAutoscalers and PodDisruptionBudgets of the two
+Deployments, each turned on by its component's values. */}}
+{{- $full := include "guard-spec.fullname" . }}
+{{- range $key, $component := dict "gateway" "gateway" "controlPlane" "control-plane" }}
+{{- $v := get $.Values $key }}
+{{- $sel := dict "root" $ "component" $component }}
+{{- with $v.autoscaling }}
+{{- if .enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ $full }}-{{ $component }}
+  labels:
+    {{- include "guard-spec.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $component }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ $full }}-{{ $component }}
+  minReplicas: {{ .minReplicas }}
+  maxReplicas: {{ .maxReplicas }}
+  {{- if not (or .targetCPUUtilizationPercentage .targetMemoryUtilizationPercentage) }}
+  {{- fail (printf "%s.autoscaling needs targetCPUUtilizationPercentage or targetMemoryUtilizationPercentage" $key) }}
+  {{- end }}
+  metrics:
+    {{- with .targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ . }}
+    {{- end }}
+    {{- with .targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ . }}
+    {{- end }}
+  {{- with .behavior }}
+  behavior:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}
+{{- end }}
+{{- with $v.podDisruptionBudget }}
+{{- if .enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $full }}-{{ $component }}
+  labels:
+    {{- include "guard-spec.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $component }}
+spec:
+  {{- if and (not (kindIs "invalid" .maxUnavailable)) (ne (toString .maxUnavailable) "") }}
+  maxUnavailable: {{ .maxUnavailable }}
+  {{- else }}
+  minAvailable: {{ .minAvailable }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "guard-spec.selector" $sel | nindent 6 }}
+{{- end }}
+{{- end }}
+{{- end }}

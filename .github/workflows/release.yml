@@ -162,6 +162,9 @@ jobs:
             ./gateway                               # GET /readyz lists the active layers
 
           Without models the gateway logs a warning and runs L1 only.
+          ./doctor, with the gateway's environment, checks the database, the
+          migrations, the model files (SHA-256), the layers, the upstream and
+          the security settings; exit code 1 means a check failed.
           EOF
           tar -C "$RUNNER_TEMP/pkg" --sort=name --owner=0 --group=0 --numeric-owner \
             --mtime="@$SOURCE_DATE_EPOCH" -czf "$RUNNER_TEMP/out/$name.tar.gz" "$name"

@@ -41,7 +41,8 @@ spec:
 {{- end }}
 {{- if .Values.dbRoles.enabled }}
 # Sets the guardspec_app password from GUARDSPEC_APP_PASSWORD, like the compose
-# db-roles service. Run the migrations before installing.
+# db-roles service. Run the migrations before installing, or enable
+# migrations (a hook of weight -10, so it runs first).
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -50,6 +51,7 @@ metadata:
     {{- include "guard-spec.labels" . | nindent 4 }}
   annotations:
     helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "0"
     helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
 spec:
   backoffLimit: 3

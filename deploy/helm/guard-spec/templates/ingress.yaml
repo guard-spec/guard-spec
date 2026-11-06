@@ -1,0 +1,45 @@
+{{- if .Values.ingress.enabled }}
+{{- $full := include "guard-spec.fullname" . }}
+{{- $services := dict "gateway" (dict "name" (printf "%s-gateway" $full) "port" .Values.gateway.service.port) "controlPlane" (dict "name" (printf "%s-control-plane" $full) "port" .Values.controlPlane.service.port) }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $full }}
+  labels:
+    {{- include "guard-spec.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- with .Values.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    {{- range required "ingress.hosts needs at least one host" .Values.ingress.hosts }}
+    {{- $svc := get $services (.service | default "gateway") }}
+    {{- if not $svc }}
+    {{- fail (printf "ingress.hosts[].service must be gateway or controlPlane, not %q" .service) }}
+    {{- end }}
+    {{- if .host }}
+    - host: {{ .host | quote }}
+      http:
+    {{- else }}
+    - http:
+    {{- end }}
+        paths:
+          {{- range (.paths | default (list (dict "path" "/" "pathType" "Prefix"))) }}
+          - path: {{ .path | default "/" }}
+            pathType: {{ .pathType | default "Prefix" }}
+            backend:
+              service:
+                name: {{ $svc.name }}
+                port:
+                  number: {{ $svc.port }}
+          {{- end }}
+    {{- end }}
+{{- end }}

@@ -1,5 +1,11 @@
 # Guard Spec. Postgres is external: run the migrations against it before
-# installing (see README, "Kubernetes").
+# installing, or let the chart do it (migrations.enabled below; README,
+# "Kubernetes").
+#
+# Every part added on top of the two Deployments (migrations, dbRoles, model
+# pull, ingress, route, autoscaling, disruption budgets, network policies,
+# service account) is off by default. examples/ holds reference values for
+# EKS, AKS, GKE and OpenShift.
 
 # Set GUARD_ENV=dev only for a throwaway cluster. Any other value makes the
 # services refuse missing, default or weak secrets.
@@ -39,8 +45,38 @@ externalDatabase:
   ownerUser: ps
   sslmode: require
 
+# Optional hook job that applies migrations/ to the database before every
+# install and upgrade (helm.sh/hook pre-install,pre-upgrade, before dbRoles),
+# as the compose migrate service does. It connects as externalDatabase.ownerUser
+# with POSTGRES_PASSWORD from existingSecret. Off: run the migrations yourself
+# (README, "Kubernetes"); the services never migrate at startup.
+migrations:
+  enabled: false
+  # golang-migrate, the tool the compose file and CI use.
+  image:
+    repository: migrate/migrate
+    tag: v4.20.1
+    # Pinned for the default tag; empty it when you change the tag, or set
+    # the digest of your mirrored copy.
+    digest: sha256:76cc2074cb6642631f34a898ced71e6aeaa6b1a4d78c4daa743275a22e0c5be7
+    pullPolicy: IfNotPresent
+  # The SQL files come from the gateway image (/app/migrations), copied by an
+  # init container, so they always match the release being installed.
+  # Empty: gateway.image.
+  sourceImage:
+    repository: ""
+    tag: ""
+  # Key of the owner password in existingSecret.
+  passwordKey: POSTGRES_PASSWORD
+  backoffLimit: 3
+  activeDeadlineSeconds: 600
+  resources:
+    requests: {cpu: 10m, memory: 32Mi}
+    limits: {memory: 128Mi}
+
 # Optional hook job that sets the guardspec_app password from
-# GUARDSPEC_APP_PASSWORD, as the compose db-roles service does. Run the migrations first.
+# GUARDSPEC_APP_PASSWORD, as the compose db-roles service does. Run the
+# migrations first (migrations.enabled runs them in an earlier hook).
 dbRoles:
   enabled: false
   image:
@@ -59,6 +95,25 @@ dbRoles:
       type: RuntimeDefault
 
 imagePullSecrets: []
+
+# Service account of the gateway and control plane pods. Off: they run as the
+# namespace's default account. Neither service calls the Kubernetes API, so
+# the API token is never mounted; the annotations bind cloud identities,
+# whose webhooks inject their own tokens:
+#   EKS (IRSA):            eks.amazonaws.com/role-arn: arn:aws:iam::<account>:role/<role>
+#   GKE Workload Identity: iam.gke.io/gcp-service-account: <gsa>@<project>.iam.gserviceaccount.com
+#   AKS Workload Identity: azure.workload.identity/client-id: <client-id>
+#                          (plus podLabels azure.workload.identity/use: "true")
+serviceAccount:
+  create: false
+  # Name to create, or an existing account to use when create is false.
+  # Empty with create: the release full name.
+  name: ""
+  annotations: {}
+
+# Extra labels and annotations on the gateway and control plane pods.
+podLabels: {}
+podAnnotations: {}
 
 # Shared pod and container security settings: non-root, read-only root
 # filesystem, no privilege escalation, no capabilities.
@@ -119,6 +174,27 @@ gateway:
   nodeSelector: {}
   tolerations: []
   affinity: {}
+  # Spread replicas over nodes or zones. A constraint without labelSelector
+  # gets the gateway's pod labels. Example:
+  #   - maxSkew: 1
+  #     topologyKey: topology.kubernetes.io/zone
+  #     whenUnsatisfiable: ScheduleAnyway
+  topologySpreadConstraints: []
+  # HorizontalPodAutoscaler (autoscaling/v2). Enabled: the Deployment leaves
+  # the replica count to it. Rate limits are counted per replica.
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    # Empty: no memory target.
+    targetMemoryUtilizationPercentage: ""
+    behavior: {}
+  # PodDisruptionBudget (policy/v1): minAvailable, or maxUnavailable when set.
+  podDisruptionBudget:
+    enabled: false
+    minAvailable: 1
+    maxUnavailable: ""
 
 controlPlane:
   replicaCount: 1
@@ -166,17 +242,36 @@ controlPlane:
   nodeSelector: {}
   tolerations: []
   affinity: {}
+  # As for the gateway.
+  topologySpreadConstraints: []
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: ""
+    behavior: {}
+  # With one replica, minAvailable: 1 blocks node drains: raise replicaCount
+  # (or enable autoscaling) first.
+  podDisruptionBudget:
+    enabled: false
+    minAvailable: 1
+    maxUnavailable: ""
 
 # Detection models for the gateway, mounted read-only at /models when a claim
-# is used (existingClaim, or persistence.enabled). Fill the volume with the
-# image's ./models tool or your own job.
+# is used (existingClaim, or persistence.enabled). Fill the volume with
+# models.pull below, the image's ./models tool or your own job.
 #
-# Without either, nothing is mounted at /models:
+# Without either, nothing is mounted at /models (unless models.pull is on):
 # - guard-spec-gateway-full (models inside the image) runs L1 + L2 + L3:
 #     --set gateway.image.repository=ghcr.io/guard-spec/guard-spec-gateway-full
 #     --set models.persistence.enabled=false
 # - the plain gateway image runs L1 only; /readyz reports "degraded":true
 #   and stays ready.
+#
+# A ReadWriteOnce claim is mounted by pods of one node only: with gateway
+# replicas on several nodes use ReadWriteMany, or no claim and models.pull
+# (each pod fills an emptyDir of its own).
 models:
   # Use an existing PersistentVolumeClaim.
   existingClaim: ""
@@ -186,6 +281,105 @@ models:
     storageClass: ""
     accessModes: [ReadWriteOnce]
     size: 5Gi
+  # Init container that runs `./models pull` (the gateway image's tool and
+  # manifest.yaml) before the gateway starts: it downloads the recommended
+  # version of every non-optional model from the mirror or Hugging Face into
+  # /models/cache/<name>/<version>/, checks every file against the SHA-256
+  # pinned in the manifest, and does nothing when the files are there and
+  # verified. Without a claim the models go to an emptyDir of the pod. Not
+  # needed with gateway-full (models inside the image).
+  pull:
+    enabled: false
+    # Model references (name or name@version). Empty: the recommended ones.
+    models: []
+    # Base URL tried before Hugging Face, laid out as
+    # <mirror>/<name>/<version>/<file> (MODELS_MIRROR; docs/airgapped.md).
+    mirror: ""
+    # Optional Secret key holding HF_TOKEN, for gated optional models.
+    hfToken:
+      secretName: ""
+      key: HF_TOKEN
+    # true: the pod does not start when a model cannot be pulled. false: the
+    # gateway starts on the layers it can load (L1 at least), like compose.
+    required: false
+    # Image with the models tool and manifest.yaml. Empty: gateway.image.
+    image:
+      repository: ""
+      tag: ""
+    # Size limit of the emptyDir used when there is no claim.
+    emptyDirSizeLimit: 2Gi
+    resources:
+      requests: {cpu: 100m, memory: 64Mi}
+      limits: {memory: 256Mi}
+
+# Ingress (networking.k8s.io/v1) to the gateway and/or the control plane.
+# Each host names the Service it routes to: gateway or controlPlane. LLM
+# responses can stream for minutes: raise the controller's read timeout (for
+# ingress-nginx: nginx.ingress.kubernetes.io/proxy-read-timeout: "300").
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts: []
+  #  - host: llm.example.com
+  #    service: gateway
+  #    paths: [{path: /, pathType: Prefix}]   # the default
+  #  - host: guard.example.com
+  #    service: controlPlane
+  tls: []
+  #  - secretName: guard-spec-tls
+  #    hosts: [llm.example.com, guard.example.com]
+
+# OpenShift Routes (route.openshift.io/v1), instead of or next to the
+# Ingress. An empty host lets the router pick one.
+route:
+  enabled: false
+  annotations:
+    # Streaming LLM responses outlast the router's 30s default.
+    haproxy.router.openshift.io/timeout: 5m
+  gateway:
+    enabled: true
+    host: ""
+    tls:
+      termination: edge
+      insecureEdgeTerminationPolicy: Redirect
+  controlPlane:
+    enabled: true
+    host: ""
+    tls:
+      termination: edge
+      insecureEdgeTerminationPolicy: Redirect
+
+# NetworkPolicies for the gateway and control plane pods (the hook jobs are
+# not selected). Ingress: only the API and metrics ports are open, to the
+# sources listed (NetworkPolicyPeer lists; empty: any source).
+networkPolicy:
+  enabled: false
+  gateway:
+    from: []
+  controlPlane:
+    from: []
+  # Who may scrape the metrics ports, for example:
+  #   - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: monitoring}}
+  metrics:
+    from: []
+  egress:
+    # false: outbound traffic is not restricted. true: only DNS, the
+    # database and the rules below.
+    restrict: false
+    dnsPort: 53
+    database:
+      port: 5432
+      # Empty: any destination on that port. Example: [{ipBlock: {cidr: 10.0.8.0/24}}]
+      to: []
+    # Extra NetworkPolicyEgressRules. The defaults allow HTTPS anywhere:
+    # upstream LLM APIs and the model pull (gateway); SSO, webhooks, Slack,
+    # Telegram (control plane). Add the OTLP collector, SMTP or an in-cluster
+    # LLM here.
+    gateway:
+      - ports: [{port: 443, protocol: TCP}]
+    controlPlane:
+      - ports: [{port: 443, protocol: TCP}]
 
 # Prometheus Operator ServiceMonitor for both metrics Services.
 serviceMonitor:

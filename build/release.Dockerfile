@@ -11,6 +11,8 @@ ARG BINARY
 
 WORKDIR /app
 COPY ${TARGETPLATFORM}/${BINARY} /app/service
+# Installation checks (cmd/doctor): /app/doctor, run from /app.
+COPY ${TARGETPLATFORM}/doctor /app/doctor
 COPY migrations /app/migrations
 COPY LICENSE NOTICE THIRD_PARTY_LICENSES.md /usr/share/doc/guard-spec/
 

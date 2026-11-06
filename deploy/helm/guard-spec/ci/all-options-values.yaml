@@ -1,21 +1,100 @@
 # Used by CI (helm lint and template): turns on every optional part of the
 # chart so its templates are rendered and checked. Not a deployment example.
+migrations:
+  enabled: true
 dbRoles:
   enabled: true
 imagePullSecrets:
   - name: ghcr-pull
+serviceAccount:
+  create: true
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::111122223333:role/guard-spec
+podLabels:
+  team: security
+podAnnotations:
+  example.com/scrape: "false"
 gateway:
   extraEnvFrom:
     - secretRef: {name: guard-spec-alerts}
   nodeSelector: {kubernetes.io/arch: amd64}
   tolerations:
     - {key: dedicated, operator: Equal, value: guard-spec, effect: NoSchedule}
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: ScheduleAnyway
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: DoNotSchedule
+      labelSelector:
+        matchLabels: {app.kubernetes.io/component: gateway}
+  autoscaling:
+    enabled: true
+    targetMemoryUtilizationPercentage: 80
+    behavior:
+      scaleDown:
+        stabilizationWindowSeconds: 300
+  podDisruptionBudget:
+    enabled: true
 controlPlane:
+  replicaCount: 2
   adminEmail: admin@example.com
   extraEnvFrom:
     - secretRef: {name: guard-spec-alerts}
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: ScheduleAnyway
+  podDisruptionBudget:
+    enabled: true
+    maxUnavailable: 1
 models:
   existingClaim: guard-spec-models
+  pull:
+    enabled: true
+    models: [guardspec-classifier@v3b, multilingual-e5-small]
+    mirror: https://models.example.com/guard-spec
+    hfToken:
+      secretName: guard-spec-hf
+    required: true
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+  hosts:
+    - host: llm.example.com
+      service: gateway
+    - host: guard.example.com
+      service: controlPlane
+      paths:
+        - {path: /, pathType: Prefix}
+  tls:
+    - secretName: guard-spec-tls
+      hosts: [llm.example.com, guard.example.com]
+route:
+  enabled: true
+  gateway:
+    host: llm.apps.example.com
+networkPolicy:
+  enabled: true
+  gateway:
+    from:
+      - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: apps}}
+  metrics:
+    from:
+      - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: monitoring}}
+  egress:
+    restrict: true
+    database:
+      to:
+        - ipBlock: {cidr: 10.0.8.0/24}
+    gateway:
+      - ports: [{port: 443, protocol: TCP}]
+      - to:
+          - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: observability}}
+        ports: [{port: 4318, protocol: TCP}]
 serviceMonitor:
   enabled: true
   labels: {release: prometheus}

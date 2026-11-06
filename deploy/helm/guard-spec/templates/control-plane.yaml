@@ -8,16 +8,19 @@ metadata:
     {{- include "guard-spec.labels" . | nindent 4 }}
     app.kubernetes.io/component: control-plane
 spec:
+  {{- if not .Values.controlPlane.autoscaling.enabled }}
   replicas: {{ .Values.controlPlane.replicaCount }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "guard-spec.selector" $sel | nindent 6 }}
   template:
     metadata:
-      labels:
-        {{- include "guard-spec.labels" . | nindent 8 }}
-        app.kubernetes.io/component: control-plane
+      {{- include "guard-spec.podMetadata" $sel | nindent 6 }}
     spec:
+      {{- with include "guard-spec.serviceAccountName" . }}
+      serviceAccountName: {{ . }}
+      {{- end }}
       automountServiceAccountToken: false
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
@@ -82,6 +85,10 @@ spec:
             timeoutSeconds: 3
           resources:
             {{- toYaml .Values.controlPlane.resources | nindent 12 }}
+      {{- with .Values.controlPlane.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- include "guard-spec.topologySpread" (dict "root" $ "component" "control-plane" "constraints" .) | nindent 8 }}
+      {{- end }}
       {{- with .Values.controlPlane.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

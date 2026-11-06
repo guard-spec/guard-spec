@@ -1,0 +1,88 @@
+# Reference values for Google Kubernetes Engine. NOT VERIFIED on GKE: CI
+# renders them and validates the result against the Kubernetes schema only.
+# Adjust every <placeholder> and review before use.
+#
+#   helm install gs deploy/helm/guard-spec -n guard-spec \
+#     -f deploy/helm/guard-spec/examples/values-gke.yaml
+#
+# Assumes: Cloud SQL for PostgreSQL on a private IP (a server of its own, see
+# values.yaml), the GKE Ingress controller, Dataplane V2 (network policy
+# enforcement), Workload Identity Federation for GKE, and the Secret
+# guard-spec-secrets (README, "Kubernetes"; or External Secrets from Secret
+# Manager, docs/airgapped.md). docs/deploy/gcp.md covers the rest.
+
+externalDatabase:
+  url: postgres://guardspec_app@<cloud-sql-private-ip>:5432/guardspec?sslmode=require
+  host: <cloud-sql-private-ip>
+  port: 5432
+  database: guardspec
+  ownerUser: guardspec_owner
+  sslmode: require
+
+migrations:
+  enabled: true
+dbRoles:
+  enabled: true
+
+# Workload Identity: the Google service account the pods act as, for
+# example to read a models mirror in Cloud Storage or to call Vertex AI.
+serviceAccount:
+  create: true
+  annotations:
+    iam.gke.io/gcp-service-account: guard-spec@<project>.iam.gserviceaccount.com
+
+gateway:
+  env:
+    UPSTREAM_LLM_URL: https://api.openai.com/v1
+  extraEnvFrom:
+    - secretRef: {name: guard-spec-upstream}   # UPSTREAM_LLM_KEY
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: ScheduleAnyway
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 12
+  podDisruptionBudget:
+    enabled: true
+
+controlPlane:
+  replicaCount: 2
+  env:
+    PUBLIC_BASE_URL: https://guard.example.com
+    ALLOWED_ORIGINS: https://guard.example.com
+  podDisruptionBudget:
+    enabled: true
+
+# Each pod pulls into its own emptyDir; a Cloud Storage bucket served over
+# HTTPS works as MODELS_MIRROR (docs/airgapped.md).
+models:
+  persistence:
+    enabled: false
+  pull:
+    enabled: true
+    required: true
+
+# GKE Ingress: an external Application Load Balancer with a Google-managed
+# certificate (create the ManagedCertificate "guard-spec" yourself). The
+# backend timeout for streaming responses is set with a BackendConfig.
+ingress:
+  enabled: true
+  className: gce
+  annotations:
+    networking.gke.io/managed-certificates: guard-spec
+    kubernetes.io/ingress.global-static-ip-name: guard-spec
+  hosts:
+    - host: llm.example.com
+      service: gateway
+    - host: guard.example.com
+      service: controlPlane
+
+networkPolicy:
+  enabled: true
+  egress:
+    restrict: true
+    database:
+      to:
+        - ipBlock: {cidr: <cloud-sql-private-range>}

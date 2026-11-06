@@ -23,6 +23,35 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   `validate` and `test` (a plan against a mocked provider).
 - Documentation site at <https://guardspec.io/docs/>, built from this
   repository's Markdown; linked from the README.
+- Helm chart 0.2.0, every addition off by default (the default render is
+  unchanged): `migrations.enabled` runs golang-migrate as a pre-install /
+  pre-upgrade hook before `dbRoles` (the SQL comes from the gateway image);
+  `models.pull` adds an init container that runs `./models pull` (Hugging
+  Face or `MODELS_MIRROR`, SHA-256 checked against the manifest) into the
+  models claim or a per-pod `emptyDir`; `ingress`, OpenShift `route`,
+  `gateway/controlPlane.autoscaling` (HPA), `.podDisruptionBudget`,
+  `.topologySpreadConstraints`, `networkPolicy` (ingress per port, optional
+  egress restriction), `serviceAccount` (annotations for IRSA and GKE / AKS
+  Workload Identity), `podLabels` and `podAnnotations`.
+- Helm chart: reference values for EKS, AKS, GKE and OpenShift in
+  `deploy/helm/guard-spec/examples/` (rendered and schema-checked in CI, not
+  verified on those platforms).
+- `doctor`: checks a deployment from inside it (database reachable,
+  migration version against the image's `migrations/`, model files against
+  the manifest's SHA-256, which detection layers would load, upstream
+  reachable, secrets, dev mode and TLS settings). Exit 0 when nothing
+  failed, 1 when a check failed (`-strict`: also on warnings), 2 on usage
+  errors; `-json` for machines. Shipped at `/app/doctor` in the gateway,
+  gateway-full and control-plane images and in the release archives.
+- `docs/airgapped.md`: mirroring the images (with their cosign signatures
+  and attestations) and the models to a private registry and storage,
+  verifying signatures offline, pointing the chart at the mirror, and an
+  External Secrets example.
+- CI: a `kind-e2e` job (not a required check) installs the chart on kind with
+  images built from the change, an in-cluster Postgres and a fake upstream,
+  and checks that EN and VI prompt injections are blocked and a benign
+  prompt passes (L1 only); `tests/kind/e2e.sh` runs it locally. The `helm`
+  job lints and validates every new values file.
 
 ## [0.1.1] - 2026-11-06
 

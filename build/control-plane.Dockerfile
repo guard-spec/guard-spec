@@ -22,13 +22,14 @@ COPY . .
 COPY --from=web /web/dist ./web/dist
 RUN CGO_ENABLED=0 GOOS=linux \
     go build -ldflags="-s -w" \
-    -o /out/control-plane ./cmd/control-plane/
+    -o /out/control-plane ./cmd/control-plane/ \
+ && CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /out/doctor ./cmd/doctor/
 
 # --- runtime image ---
 FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 
 WORKDIR /app
-COPY --from=builder /out/control-plane .
+COPY --from=builder /out/control-plane /out/doctor ./
 COPY --from=builder /src/migrations ./migrations
 COPY --from=builder /src/LICENSE /src/NOTICE /src/THIRD_PARTY_LICENSES.md /usr/share/doc/guard-spec/
 
