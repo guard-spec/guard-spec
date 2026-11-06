@@ -13,7 +13,7 @@ import argparse
 from pathlib import Path
 
 import torch
-from transformers import AutoModelForSequenceClassification, AutoTokenizer
+from transformers import AutoModelForSequenceClassification, PreTrainedTokenizerFast
 
 
 def main():
@@ -33,7 +33,7 @@ def main():
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     models[0].save_pretrained(out)
-    AutoTokenizer.from_pretrained(a.runs[0]).save_pretrained(out)
+    PreTrainedTokenizerFast.from_pretrained(a.runs[0]).save_pretrained(out)  # tokenizer.json as is (see train.py)
     print(f"averaged {len(models)} checkpoints into {out}")
 
 

@@ -22,7 +22,7 @@ from pathlib import Path
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
-from transformers import AutoModelForSequenceClassification, AutoTokenizer, get_linear_schedule_with_warmup
+from transformers import AutoModelForSequenceClassification, PreTrainedTokenizerFast, get_linear_schedule_with_warmup
 
 from common_train import ROOT, auc, label_matrix, load_config, read_jsonl, risk_scores, seed_everything, sigmoid, tpr_at_fpr
 
@@ -136,7 +136,9 @@ def main():
     val_rows = [r for p in cfg["data"]["val"] for r in read_jsonl(ROOT / p)]
     y_tr, y_va = label_matrix(train_rows, labels), label_matrix(val_rows, labels)
 
-    tok = AutoTokenizer.from_pretrained(cfg["base_model"], revision=cfg["base_revision"])
+    # The base model's tokenizer.json as is (the file the gateway runs). transformers 5 AutoTokenizer rebuilds the
+    # XLM-R normalizer and pre-tokenizer instead, which tokenizes some whitespace differently.
+    tok = PreTrainedTokenizerFast.from_pretrained(cfg["base_model"], revision=cfg["base_revision"])
     model = AutoModelForSequenceClassification.from_pretrained(
         cfg["base_model"], revision=cfg["base_revision"], num_labels=len(labels),
         problem_type="multi_label_classification",

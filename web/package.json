@@ -53,5 +53,13 @@
     "vite": "8.3.5",
     "vitest": "4.1.12",
     "yaml": "2.9.1"
+  },
+  "overrides": {
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "11.0.5"
+    },
+    "read-package-json": {
+      "glob": "14.0.4"
+    }
   }
 }

@@ -51,6 +51,26 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   assigns the UID; elsewhere it still defaults to 70 unless
   `dbRoles.podSecurityContext` sets one.
 
+### Security
+
+- `github.com/go-jose/go-jose/v4` 4.1.4 → 4.1.9 (control plane, via the
+  OIDC login): fixes a denial of service when parsing JWKs with RSA keys
+  (GHSA-mgcc-cww5-fp2q, high) and panics in JSON parsing
+  (GHSA-vvm8-gf78-28g4) and in CBC-HMAC processing (GHSA-4w3g-jfj2-cw2q).
+- `golang.org/x/crypto` 0.58.0 → v0.58.1-0.20261009181718-2f1f834330b2,
+  which removes the unmaintained `openpgp` packages (GO-2026-5932). Guard
+  Spec never imported them; `govulncheck` and OpenSSF Scorecard reported
+  the module.
+- Training tooling (`train/`, not shipped): torch 2.13.0, transformers
+  5.10.2, onnx 1.22.0, protobuf 5.29.6, sentencepiece 0.2.1 and pyarrow
+  23.0.1 fix the open advisories against the pinned versions. The scripts
+  load the tokenizer with `PreTrainedTokenizerFast` so that an export keeps
+  the base model's `tokenizer.json` unchanged under transformers 5, and
+  `export.py` keeps the TorchScript ONNX exporter (`dynamo=False`).
+- Admin UI build tooling (not shipped): npm overrides move `minimatch` to
+  11.0.5 (GHSA-g3hv-75wg-m249) and `glob` to 14.0.4 (GHSA-3g3m-2fjr-6pw4)
+  under typescript-eslint and the license checker.
+
 ### Documentation
 
 - README: the `kubectl create secret` example includes `MFA_ENC_KEY`.

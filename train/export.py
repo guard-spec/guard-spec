@@ -29,7 +29,7 @@ import onnxruntime as ort
 import torch
 from onnxruntime.quantization import QuantType, quantize_dynamic
 from sklearn.metrics import precision_recall_curve
-from transformers import AutoModelForSequenceClassification, AutoTokenizer
+from transformers import AutoModelForSequenceClassification, PreTrainedTokenizerFast
 
 from common_train import (ROOT, auc, label_matrix, load_config, rates, read_jsonl, risk_scores, sigmoid,
                           threshold_at_fpr, tpr_at_fpr)
@@ -74,7 +74,7 @@ def main():
     out_dir = (ROOT / cfg["export"]["out_dir"]).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    tok = AutoTokenizer.from_pretrained(best)
+    tok = PreTrainedTokenizerFast.from_pretrained(best)  # tokenizer.json as trained with (see train.py)
     model = AutoModelForSequenceClassification.from_pretrained(best).eval()
 
     val = [dict(r, split=Path(p).stem) for p in cfg["data"]["val"] for r in read_jsonl(ROOT / p)]
@@ -96,11 +96,12 @@ def main():
         def forward(self, input_ids, attention_mask):
             return self.m(input_ids=input_ids, attention_mask=attention_mask).logits
 
+    # dynamo=False: the TorchScript exporter, as for every shipped model (torch >= 2.9 defaults to dynamo=True).
     torch.onnx.export(Wrapper(model), (dummy["input_ids"], dummy["attention_mask"]), str(fp32),
                       input_names=["input_ids", "attention_mask"], output_names=["logits"],
                       dynamic_axes={"input_ids": {0: "batch", 1: "seq"}, "attention_mask": {0: "batch", 1: "seq"},
                                     "logits": {0: "batch"}},
-                      opset_version=cfg["export"]["opset"], do_constant_folding=True)
+                      opset_version=cfg["export"]["opset"], do_constant_folding=True, dynamo=False)
 
     # 2. INT8 dynamic quantization ------------------------------------------------------
     int8 = out_dir / "model_int8.onnx"
