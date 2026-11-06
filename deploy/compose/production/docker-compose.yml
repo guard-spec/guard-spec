@@ -70,7 +70,7 @@ services:
     logging: *logging
 
   gateway:
-    image: ghcr.io/guard-spec/guard-spec-gateway:${GUARDSPEC_VERSION:-0.1.1}
+    image: ghcr.io/guard-spec/guard-spec-gateway:${GUARDSPEC_VERSION:-0.2.0}
     restart: unless-stopped
     environment:
       DATABASE_URL: postgres://guardspec_app@postgres:5432/${POSTGRES_DB:-guardspec}?sslmode=disable
@@ -137,7 +137,7 @@ services:
     logging: *logging
 
   control-plane:
-    image: ghcr.io/guard-spec/guard-spec-control-plane:${GUARDSPEC_VERSION:-0.1.1}
+    image: ghcr.io/guard-spec/guard-spec-control-plane:${GUARDSPEC_VERSION:-0.2.0}
     restart: unless-stopped
     environment:
       DATABASE_URL: postgres://guardspec_app@postgres:5432/${POSTGRES_DB:-guardspec}?sslmode=disable
@@ -253,7 +253,7 @@ services:
   # quick start's models-init. Fails the stack when a pull fails, because
   # DETECTOR_REQUIRE_ML defaults to true here.
   models-init:
-    image: ghcr.io/guard-spec/guard-spec-gateway:${GUARDSPEC_VERSION:-0.1.1}
+    image: ghcr.io/guard-spec/guard-spec-gateway:${GUARDSPEC_VERSION:-0.2.0}
     entrypoint:
       - /bin/sh
       - -c
@@ -282,7 +282,7 @@ services:
   #   docker compose --profile models run --rm models-pull guardspec-classifier@v3b
   models-pull:
     profiles: [models]
-    image: ghcr.io/guard-spec/guard-spec-gateway:${GUARDSPEC_VERSION:-0.1.1}
+    image: ghcr.io/guard-spec/guard-spec-gateway:${GUARDSPEC_VERSION:-0.2.0}
     entrypoint: ["./models", "pull", "-manifest", "manifest.yaml", "-dir", "/models/cache"]
     user: "0:0"
     environment:

@@ -9,6 +9,17 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-06
+
+### Upgrade notes
+
+- Run the database migrations before starting the 0.2.0 gateway: migration
+  017 adds the `shadow_results` table. With the Helm chart, set
+  `migrations.enabled=true` or run them as before; with compose, the
+  `migrate` service applies them.
+- Claude Code through `/v1/messages`: set `SCAN_TOOL_PREFIXES=mcp__` and
+  `INDIRECT_ACTION=redact` on the gateway (see `docs/integrations.md`).
+
 ### Added
 
 - Gateway: `POST /v1/messages`, the Anthropic Messages API, so that Claude
@@ -327,6 +338,7 @@ First release.
 - List endpoints still answer the older `{"data": [...]}` shape when called
   without `limit` and `cursor`; use the paginated form.
 
-[Unreleased]: https://github.com/guard-spec/guard-spec/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/guard-spec/guard-spec/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/guard-spec/guard-spec/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/guard-spec/guard-spec/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/guard-spec/guard-spec/releases/tag/v0.1.0
