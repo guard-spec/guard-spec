@@ -255,6 +255,9 @@ What each stage does:
 - **Fixed thresholds.** A direct injection score of 0.85 or more blocks.
   Tool results, documents and tool descriptions are scored one by one, and the
   largest of those scores blocks at `INDIRECT_BLOCK_THRESHOLD` (default 0.85).
+  An organization can lower both for its proxied requests (guard settings
+  `injection_threshold` and `indirect_threshold`), never raise them; a score
+  raised by the L1 floor is compared with them like any other.
 - **CEL policies** (`internal/policy`). Per-organization (and per-project)
   rules stored as a JSON condition tree and compiled to CEL on the server.
   They run after the fixed thresholds, so they can only tighten them. Actions
@@ -833,9 +836,10 @@ curl -s $CP/organizations/$ORG/policies -H "$AUTH" -H 'Content-Type: application
     {"name": "tools", "action": "block", "condition": {"field": "indirect.score", "operator": ">=", "value": 0.6}}
   ]}'
 
-# Scan system prompts as well, and spotlight tool results, for this org
+# Scan system prompts as well, spotlight tool results, and block at a fused
+# injection score of 0.7 (the gateway's own threshold is 0.85), for this org
 curl -s -X PUT $CP/organizations/$ORG/guard-settings -H "$AUTH" -H 'Content-Type: application/json' \
-  -d '{"scan_roles":{"system":true},"spotlight":"delimit"}'
+  -d '{"scan_roles":{"system":true},"spotlight":"delimit","injection_threshold":0.7}'
 
 # An org-specific attack exemplar (L3; needs the embedding model)
 curl -s $CP/organizations/$ORG/exemplars -H "$AUTH" -H 'Content-Type: application/json' \
@@ -1024,11 +1028,37 @@ upstreams, the output guard and the client.
 
 ![Flow page with a simulated request](docs/images/admin-flow.png)
 
+- Click any step to open its panel on the same page; nothing navigates away,
+  so unsaved rule edits stay. **Detectors** shows the layers, the running
+  classifier and the L1 floor (`FUSION_L1_FLOOR`, read-only), and sets the
+  organization's block thresholds (only stricter
+  than the gateway's); **L0 sanitizer** sets the scanned parts, spotlight and
+  what happens to injected tool content (the guard settings). These edits
+  are staged with the rule edits and saved by the same **Save changes**
+  (guard settings first, then each changed policy; a part that fails is kept
+  and reported on its own). **API key**, the **upstreams**, the **output
+  guard**, **Block**, **Allow**, **Log** and **Client** explain what happens
+  there (HTTP status, request log row, model allowlist, rules routing to an
+  upstream), with a link to the page that owns their settings: upstreams are
+  edited on Model providers, and the output guard is configured on the
+  gateway (`OUTPUT_*`), not per organization. Without `policies.write` or
+  `org.settings.write` the panels say so instead of only disabling fields.
 - Click a rule (or its entry in "Rules in order") to edit it. The condition
   has a **Visual** tab (a query builder with the fields and operators of
   `GET /v1/policy/schema`) and a **Text** tab (`scores.l2 > 0.9 &&
   injection.category != "benign"`), kept in sync by `/v1/policy/parse` and
-  `/v1/policy/format`; parse errors are marked where they occur.
+  `/v1/policy/format`; parse errors are marked where they occur. The field
+  picker is searchable and grouped (detection scores, anomalies, indirect
+  content, request, MCP), and every field, operator, action, step and edge
+  has a **?** tip (hover or keyboard focus) with its meaning, values, an
+  example and when to use it; the Text tab's completion and the Simulator use
+  the same help. Conditions are checked as you type: what the server would
+  refuse blocks saving, and conditions that cannot match as written (a score
+  out of range, a value a field never has, a score the detectors already
+  block) are flagged.
+- A scope without rules offers one-click templates: block high-risk
+  injection, log possible injection in tool responses, route suspicious
+  requests to another upstream (when there is one) and block hidden Unicode.
 - Drag a rule up or down to reorder it within its policy (or use the arrow
   buttons). Drag from a rule's round **match** handle to Block, Allow, Log or
   an upstream to set its action; an upstream makes it a `route` rule.
@@ -1041,6 +1071,8 @@ upstreams, the output guard and the client.
 | Rule editor, visual | Rule editor, text |
 |---|---|
 | ![Visual condition builder](docs/images/admin-rule-visual.png) | ![Condition as text](docs/images/admin-rule-text.png) |
+
+![Detectors panel with a staged block threshold](docs/images/admin-flow-panel.png)
 
 **Upstreams** manages the named upstreams and the org and project defaults.
 An upstream's key is never entered in the UI: `api_key_env` names a
@@ -1585,8 +1617,13 @@ and earlier turns missing from it have a budget of 1 MiB of their own.
 The sanitizer strips spoofed markers from client text and raises the anomaly
 score when it finds one, so a tool result cannot close the block it sits in.
 An org can override `scan_roles`, `spotlight` and `indirect_action` through
-`PUT /v1/organizations/:orgId/guard-settings`; the gateway reads them on every
-request and fails closed with 503 if it cannot.
+`PUT /v1/organizations/:orgId/guard-settings`, and lower the block thresholds
+of proxied requests with `injection_threshold` (the fused score of the
+scanned text, 0.85 by default) and `indirect_threshold` (tool results,
+documents and tool descriptions, `INDIRECT_BLOCK_THRESHOLD`). A threshold is a
+number in (0, 0.85]; the gateway uses the smaller of the org's value and its
+own, so an org can only make it stricter. The gateway reads these settings on
+every request and fails closed with 503 if it cannot.
 
 **`POST /guardrail/scan`** takes `text`, `documents` (at most 64, 128 KiB in
 total; `source` is `web`, `email`, `file`, `tool` or `other`), or both. The

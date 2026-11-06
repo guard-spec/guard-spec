@@ -6,6 +6,8 @@ import { ErrorBanner } from '../components/ui';
 import { errorText, useApp } from '../context';
 import type { MessageKey } from '../i18n';
 import type { PolicySchema, SchemaField, SimulateRequest, SimulateResponse, SimValue } from '../types';
+import { groupFields, groupKey } from './help';
+import { VariableTip } from './HelpText';
 
 /**
  * The index of the trace entry that decided: the first match of an allow,
@@ -84,9 +86,12 @@ function FieldInput({ f, value, onChange }: { f: SchemaField; value: string; onC
   }
   return (
     <div className="field field-compact">
-      <label htmlFor={id} className="mono" title={f.description}>
-        {f.name}
-      </label>
+      <span className="label-row">
+        <label htmlFor={id} className="mono">
+          {f.name}
+        </label>
+        <VariableTip name={f.name} fallback={f.description} />
+      </span>
       {input}
     </div>
   );
@@ -138,11 +143,16 @@ export function Simulator({ orgId, schema, makeRequest, result, onResult, embedd
       </h2>
       {embedded ? null : <p className="muted small">{t('sim.help')}</p>}
       <form onSubmit={run}>
-        <div className="sim-grid">
-          {schema.fields.map((f) => (
-            <FieldInput key={f.name} f={f} value={form[f.name] ?? ''} onChange={(v) => setForm({ ...form, [f.name]: v })} />
-          ))}
-        </div>
+        {groupFields(schema.fields).map((g) => (
+          <fieldset key={g.group} className="plain sim-group">
+            <legend className="sim-group-title">{t(groupKey(g.group))}</legend>
+            <div className="sim-grid">
+              {g.fields.map((f) => (
+                <FieldInput key={f.name} f={f} value={form[f.name] ?? ''} onChange={(v) => setForm({ ...form, [f.name]: v })} />
+              ))}
+            </div>
+          </fieldset>
+        ))}
         <div className="panel-actions">
           <button type="submit" className="btn btn-primary" disabled={busy}>
             {t('sim.run')}

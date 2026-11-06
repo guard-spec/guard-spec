@@ -854,7 +854,7 @@ func proxyHandler(gw gateway, f apiFormat) fiber.Handler {
 			return scanError(c, err)
 		}
 		entry.Scores, entry.Indirect, entry.SourceRole = verdict.Scores, verdict.Indirect, verdict.SourceRole
-		if verdict.Direct >= injectionBlockThreshold {
+		if verdict.Direct >= scanCfg.injectionThreshold() {
 			slog.Info("blocked injection", "score", verdict.Direct, "source_role", verdict.SourceRole)
 			entry.Detected = modelLayer(verdict.Scores)
 			entry.Trigger = verdict.DirectTrigger

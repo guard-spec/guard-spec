@@ -112,6 +112,37 @@ type Settings struct {
 	// IndirectAction is block or redact for untrusted content over the
 	// threshold (INDIRECT_ACTION).
 	IndirectAction *Action `json:"indirect_action,omitempty"`
+	// InjectionThreshold and IndirectThreshold lower the gateway's block
+	// thresholds for the org: the fused injection score of the user's own
+	// text, and the score of tool results, documents and tool descriptions.
+	// They can only make the gateway stricter: it uses the smaller of the
+	// org's value and its own (see Thresholds).
+	InjectionThreshold *float64 `json:"injection_threshold,omitempty"`
+	IndirectThreshold  *float64 `json:"indirect_threshold,omitempty"`
+}
+
+// Thresholds returns the direct and indirect block thresholds with the org's
+// overrides. An override above the gateway's own value is ignored, so an org
+// can tighten the thresholds but never loosen them.
+func (s Settings) Thresholds(direct, indirect float64) (float64, float64) {
+	if s.InjectionThreshold != nil {
+		direct = min(direct, *s.InjectionThreshold)
+	}
+	if s.IndirectThreshold != nil {
+		indirect = min(indirect, *s.IndirectThreshold)
+	}
+	return direct, indirect
+}
+
+// validThreshold checks an org threshold: a number in (0, BlockThreshold].
+func validThreshold(name string, v *float64) error {
+	if v == nil {
+		return nil
+	}
+	if !(*v > 0 && *v <= BlockThreshold) {
+		return fmt.Errorf("guard settings: %s must be a number in (0, %.2f]", name, BlockThreshold)
+	}
+	return nil
 }
 
 // Action returns the indirect action with the org's override.
@@ -150,6 +181,12 @@ func ParseSettings(raw []byte) (Settings, error) {
 			return Settings{}, fmt.Errorf("guard settings: indirect_action must be block or redact")
 		}
 		s.IndirectAction = &a
+	}
+	if err := validThreshold("injection_threshold", s.InjectionThreshold); err != nil {
+		return Settings{}, err
+	}
+	if err := validThreshold("indirect_threshold", s.IndirectThreshold); err != nil {
+		return Settings{}, err
 	}
 	return s, nil
 }

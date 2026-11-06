@@ -77,7 +77,7 @@ test('routes a rule edited as text, simulates it and round-trips the config', as
   await page.getByRole('button', { name: '+ Add rule' }).first().click();
   const panel = page.getByTestId('rule-panel');
   await panel.getByLabel('Name').fill(`jailbreaks-${id}`);
-  await panel.getByLabel('Action').selectOption('route');
+  await panel.getByLabel('Action', { exact: true }).selectOption('route');
   await panel.getByLabel('Target upstream').selectOption(`safe-${id}`);
   await panel.getByRole('tab', { name: 'Text' }).click();
   await panel.getByTestId('condition-text').click();
@@ -104,12 +104,12 @@ test('routes a rule edited as text, simulates it and round-trips the config', as
   // Simulate: the saved policy routes a jailbreak to the safe upstream.
   const sim = page.getByTestId('simulator');
   for (const f of ['injection.score', 'scores.l1', 'indirect.score']) await sim.getByLabel(f, { exact: true }).fill('');
-  await sim.getByLabel('scores.l2').fill('0.93');
-  await sim.getByLabel('injection.category').selectOption('jailbreak');
+  await sim.getByLabel('scores.l2', { exact: true }).fill('0.93');
+  await sim.getByLabel('injection.category', { exact: true }).selectOption('jailbreak');
   await sim.getByRole('button', { name: 'Simulate' }).click();
   await expect(page.getByTestId('sim-result')).toContainText(`safe-${id}`);
   await expect(page.locator('.react-flow__node.hl-match')).toContainText(`jailbreaks-${id}`);
-  await sim.getByLabel('scores.l2').fill('0.1');
+  await sim.getByLabel('scores.l2', { exact: true }).fill('0.1');
   await sim.getByRole('button', { name: 'Simulate' }).click();
   await expect(page.getByTestId('sim-result')).toContainText(`main-${id}`);
 
@@ -168,9 +168,9 @@ test('screenshots against the real control plane', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Policy flow', level: 1 })).toBeVisible();
 
   const sim = page.getByTestId('simulator');
-  await sim.getByLabel('scores.l2').fill('0.3');
-  await sim.getByLabel('injection.score').fill('0.72');
-  await sim.getByLabel('indirect.score').fill('0.6');
+  await sim.getByLabel('scores.l2', { exact: true }).fill('0.3');
+  await sim.getByLabel('injection.score', { exact: true }).fill('0.72');
+  await sim.getByLabel('indirect.score', { exact: true }).fill('0.6');
   await sim.getByRole('button', { name: 'Simulate' }).click();
   await expect(page.getByTestId('sim-result')).toContainText('safe-model');
   await shot('flow-simulator');

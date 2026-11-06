@@ -59,9 +59,11 @@ function uuid(): string {
 export const SCHEMA: PolicySchema = {
   fields: [
     { name: 'request.model', type: 'string', description: 'Model named in the request' },
+    { name: 'request.tenant_id', type: 'string', description: 'Organization id of the API key.' },
     { name: 'request.tokens', type: 'int', description: 'Estimated prompt tokens' },
     { name: 'injection.score', type: 'double', description: 'Fused injection score, 0 to 1' },
-    { name: 'injection.label', type: 'string', description: 'Fused label', values: ['benign', 'injection'] },
+    { name: 'injection.label', type: 'string', description: 'Fused label', values: ['BENIGN', 'jailbreak', 'instruction_override', 'exfiltration', 'role_play'] },
+    { name: 'injection.source_role', type: 'string', values: ['user', 'system', 'assistant', 'tool', 'tool_description'] },
     {
       name: 'injection.category',
       type: 'string',
@@ -73,7 +75,9 @@ export const SCHEMA: PolicySchema = {
     { name: 'scores.l3', type: 'double', description: 'L3 embedding score; -1 when not run' },
     { name: 'indirect.score', type: 'double', description: 'Highest score over tool and document content' },
     { name: 'indirect.source', type: 'string', values: ['tool', 'document', 'tool_description'] },
+    { name: 'anomaly.score', type: 'double', description: 'Encoding-anomaly score of the sanitizer, 0 to 1.' },
     { name: 'anomaly.has_tag_chars', type: 'bool', description: 'Unicode tag characters were found' },
+    { name: 'anomaly.has_bidi', type: 'bool', description: 'The text contained bidirectional control characters.' },
     { name: 'mcp.is_tool_response', type: 'bool' },
   ],
   operators: {
@@ -933,6 +937,9 @@ export const GATEWAY_MODELS: GatewayModels = {
   update_available: true,
   shadow: { enabled: true, model: 'guardspec-classifier@v2' },
   reload: { generation: 2, at: '2026-11-03T21:15:00Z', error: null },
+  layers: ['l1', 'l2', 'l3'],
+  fusion: 'logreg',
+  l1_floor: 0.985,
 };
 
 function gatewayModelsBody(opts: MockOptions): GatewayModels {
@@ -1304,7 +1311,15 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
 
     if (sub === '/guard-settings' && method === 'GET') return json(200, state.guard);
     if (sub === '/guard-settings' && method === 'PUT') {
-      state.guard = body as GuardSettings;
+      // As indirect.ParseSettings: an org threshold is a number in (0, 0.85].
+      const g = body as GuardSettings;
+      for (const k of ['injection_threshold', 'indirect_threshold'] as const) {
+        const v = g[k];
+        if (v !== undefined && !(typeof v === 'number' && v > 0 && v <= 0.85)) {
+          return json(400, { error: `guard settings: ${k} must be a number in (0, 0.85]` });
+        }
+      }
+      state.guard = g;
       return json(200, state.guard);
     }
 

@@ -106,14 +106,14 @@ const smallTheme = EditorView.theme({
   '&': { minHeight: '72px' },
 });
 
-function fieldCompletions(fields: readonly string[]) {
+function fieldCompletions(fields: readonly string[], info: Readonly<Record<string, string>> = {}) {
   return (ctx: CompletionContext): CompletionResult | null => {
     const word = ctx.matchBefore(/[A-Za-z_][\w.]*/);
     if (!word || (word.from === word.to && !ctx.explicit)) return null;
     return {
       from: word.from,
       options: [
-        ...fields.map((f) => ({ label: f, type: 'variable' })),
+        ...fields.map((f) => (info[f] ? { label: f, type: 'variable', info: info[f] } : { label: f, type: 'variable' })),
         { label: 'in', type: 'keyword' },
         { label: 'true', type: 'keyword' },
         { label: 'false', type: 'keyword' },
@@ -131,6 +131,8 @@ export interface CodeEditorProps {
   diagnostics?: EditorDiagnostic[];
   /** Field names offered by completion (expression mode). */
   fields?: readonly string[];
+  /** A description per field, shown next to the completion (flow/help.ts). */
+  fieldInfo?: Readonly<Record<string, string>>;
   /** Shows a unified diff against this text. */
   original?: string | null;
   readOnly?: boolean;
@@ -175,7 +177,7 @@ export function CodeEditor(props: CodeEditorProps) {
         if (u.docChanged && !external.current) onChange.current?.(u.state.doc.toString());
       }),
       c.lang.of(props.mode === 'yaml' ? yaml() : expressionLanguage),
-      c.complete.of(props.mode === 'expression' ? autocompletion({ override: [fieldCompletions(props.fields ?? [])] }) : []),
+      c.complete.of(props.mode === 'expression' ? autocompletion({ override: [fieldCompletions(props.fields ?? [], props.fieldInfo)] }) : []),
       c.diff.of([]),
       c.ro.of(EditorState.readOnly.of(props.readOnly ?? false)),
     ];
@@ -233,8 +235,8 @@ export function CodeEditor(props: CodeEditorProps) {
   useEffect(() => {
     const v = view.current;
     if (!v || props.mode !== 'expression') return;
-    v.dispatch({ effects: compartments.current.complete.reconfigure(autocompletion({ override: [fieldCompletions(props.fields ?? [])] })) });
-  }, [props.fields, props.mode]);
+    v.dispatch({ effects: compartments.current.complete.reconfigure(autocompletion({ override: [fieldCompletions(props.fields ?? [], props.fieldInfo)] })) });
+  }, [props.fields, props.fieldInfo, props.mode]);
 
   return <div ref={host} className="code-editor" />;
 }

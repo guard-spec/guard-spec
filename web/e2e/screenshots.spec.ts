@@ -30,9 +30,9 @@ test('flow with a simulated request', async ({ page }) => {
   await setTheme(page, 'light');
   await login(page);
   const sim = page.getByTestId('simulator');
-  await sim.getByLabel('scores.l2').fill('0.3');
-  await sim.getByLabel('injection.score').fill('0.72');
-  await sim.getByLabel('indirect.score').fill('0.6');
+  await sim.getByLabel('scores.l2', { exact: true }).fill('0.3');
+  await sim.getByLabel('injection.score', { exact: true }).fill('0.72');
+  await sim.getByLabel('indirect.score', { exact: true }).fill('0.6');
   await sim.getByRole('button', { name: 'Simulate' }).click();
   await expect(page.getByTestId('sim-result')).toContainText('safe-model');
   await shot(page, 'flow');
@@ -47,6 +47,15 @@ test('rule editor, visual and text', async ({ page }) => {
   await page.getByTestId('rule-panel').getByRole('tab', { name: 'Text' }).click();
   await expect(page.getByTestId('condition-text')).toContainText('scores.l2 > 0.9');
   await shot(page, 'rule-text');
+});
+
+test('flow, detectors panel', async ({ page }) => {
+  await setTheme(page, 'light');
+  await login(page);
+  await page.getByTestId('detectors-node').click();
+  await page.getByRole('textbox', { name: 'Block at injection score' }).fill('0.75');
+  await expect(page.getByTestId('node-panel-detectors')).toContainText('changed');
+  await shot(page, 'flow-panel');
 });
 
 test('flow, dark theme, Vietnamese', async ({ page }) => {

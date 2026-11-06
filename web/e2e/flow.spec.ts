@@ -36,10 +36,11 @@ test.describe('Flow page', () => {
     expect(mock.calls.some((c) => c.path === '/policy/schema')).toBe(true);
   });
 
-  test('clicking a detector opens guard settings', async ({ page }) => {
+  test('clicking a detector opens its panel on the same page', async ({ page }) => {
     await login(page);
     await page.getByTestId('diagram').getByText('L2 classifier', { exact: true }).click();
-    await expect(page.getByRole('heading', { name: 'Guard settings' })).toBeVisible();
+    await expect(page.getByTestId('node-panel-detectors')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Policy flow', level: 1 })).toBeVisible();
   });
 
   test('edits a rule in the visual and text tabs and saves it', async ({ page, mock }) => {
@@ -142,16 +143,27 @@ test.describe('Flow page', () => {
     await page.getByRole('button', { name: '+ Add rule' }).first().click();
     const panel = page.getByTestId('rule-panel');
     await panel.getByLabel('Name').fill('to nowhere');
-    await panel.getByLabel('Action').selectOption('route');
+    await panel.getByLabel('Action', { exact: true }).selectOption('route');
     await expect(panel.getByLabel('Target upstream')).toHaveValue('main');
     await expect(page.getByTestId('rule-list').getByRole('listitem')).toHaveCount(5);
     await panel.getByRole('button', { name: 'Delete rule' }).click();
     await expect(page.getByTestId('rule-list').getByRole('listitem')).toHaveCount(4);
 
-    // A rule with an empty value is refused by the server.
+    // A rule with an empty value is caught before saving.
     await page.getByRole('button', { name: '+ Add rule' }).first().click();
     await page.getByTestId('rule-panel').getByLabel('Name').fill('bad rule');
     await page.getByTestId('rule-panel').locator('.rule-value').fill('');
+    await expect(page.getByTestId('condition-problems')).toContainText('Enter a value for injection.score.');
+    await expect(page.getByRole('button', { name: 'Save changes' })).toBeDisabled();
+    await expect(page.getByText('Fix the rule conditions to save')).toBeVisible();
+
+    // An error only the server finds is shown on the rule.
+    await page.getByTestId('rule-panel').locator('.rule-value').fill('0.5');
+    await page.route('**/v1/organizations/*/policies/*', (route) =>
+      route.request().method() === 'PUT'
+        ? route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'rule "bad rule": cost limit exceeded' }) })
+        : route.fallback(),
+    );
     await page.getByRole('button', { name: 'Save changes' }).click();
     await expect(page.getByRole('alert').filter({ hasText: 'Policy baseline was not saved' })).toBeVisible();
     await expect(page.getByTestId('rule-node-bad rule')).toHaveClass(/fnode-error/);
@@ -160,8 +172,8 @@ test.describe('Flow page', () => {
   test('simulates a request and highlights its path', async ({ page }) => {
     await login(page);
     const sim = page.getByTestId('simulator');
-    await sim.getByLabel('scores.l2').fill('0.2');
-    await sim.getByLabel('injection.score').fill('0.7');
+    await sim.getByLabel('scores.l2', { exact: true }).fill('0.2');
+    await sim.getByLabel('injection.score', { exact: true }).fill('0.7');
     await sim.getByRole('button', { name: 'Simulate' }).click();
     const result = page.getByTestId('sim-result');
     await expect(result).toContainText('route');

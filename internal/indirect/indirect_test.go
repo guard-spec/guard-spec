@@ -63,10 +63,37 @@ func TestSettings(t *testing.T) {
 		`{"spotlite":"off"}`,
 		`{"scan_roles":["user"]}`,
 		`[]`,
+		`{"injection_threshold":0}`,
+		`{"injection_threshold":-0.5}`,
+		`{"injection_threshold":0.9}`,
+		`{"indirect_threshold":1}`,
+		`{"indirect_threshold":"0.5"}`,
 	} {
 		if _, err := ParseSettings([]byte(bad)); err == nil {
 			t.Errorf("ParseSettings(%s) accepted", bad)
 		}
+	}
+}
+
+func TestSettingsThresholds(t *testing.T) {
+	s, err := ParseSettings([]byte(`{"injection_threshold":0.6,"indirect_threshold":0.85}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Lower than the gateway's: the org's value. Higher: the gateway's.
+	if d, i := s.Thresholds(0.85, 0.7); d != 0.6 || i != 0.7 {
+		t.Errorf("Thresholds = %v %v, want 0.6 0.7", d, i)
+	}
+	if d, i := (Settings{}).Thresholds(0.85, 0.7); d != 0.85 || i != 0.7 {
+		t.Errorf("no override: Thresholds = %v %v", d, i)
+	}
+	// The values round-trip, and absent ones stay absent.
+	raw, err := json.Marshal(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != `{"injection_threshold":0.6,"indirect_threshold":0.85}` {
+		t.Errorf("marshal = %s", raw)
 	}
 }
 

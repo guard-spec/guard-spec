@@ -580,7 +580,7 @@
         <span class="step-title">Org Scan Settings</span>
         <span class="layer-chip" style="--lc:var(--c-gateway)">Gateway</span>
       </div>
-      <div class="step-desc">The org's <code>guard_settings</code> are read from PostgreSQL and override the gateway's <code>SCAN_ROLES</code> and <code>SPOTLIGHT</code> defaults (<code>INDIRECT_BLOCK_THRESHOLD</code> is gateway-wide). They decide which roles are classified. By default: user turns, tool results and tool descriptions. System messages and earlier assistant tool-call arguments can be switched on; they are classified but forwarded unchanged.</div>
+      <div class="step-desc">The org's <code>guard_settings</code> are read from PostgreSQL and override the gateway's <code>SCAN_ROLES</code>, <code>SPOTLIGHT</code> and <code>INDIRECT_ACTION</code> defaults, and can lower (never raise) the block thresholds: <code>injection_threshold</code> below the fixed 0.85 and <code>indirect_threshold</code> below <code>INDIRECT_BLOCK_THRESHOLD</code>. They decide which roles are classified. By default: user turns, tool results and tool descriptions. System messages and earlier assistant tool-call arguments can be switched on; they are classified but forwarded unchanged.</div>
       <div class="decisions">
         <div class="dec"><span class="dec-cond">settings cannot be read</span><span class="dec-arrow">→</span><span class="dec-block">HTTP 503, fail closed</span></div>
       </div>
@@ -657,9 +657,9 @@
         <span class="step-title">Fixed Thresholds</span>
         <span class="layer-chip" style="--lc:var(--c-hardblock)">Gateway</span>
       </div>
-      <div class="step-desc">Constants in <code>cmd/gateway/main.go</code>. They run before policies, so no policy can allow what they block. The indirect threshold can be lowered but never set above 0.85.</div>
+      <div class="step-desc">Constants in <code>cmd/gateway/main.go</code>. They run before policies, so no policy can allow what they block. The indirect threshold can be lowered but never set above 0.85; an org's guard settings can lower both thresholds for its own requests.</div>
       <div class="decisions">
-        <div class="dec"><span class="dec-cond">direct score ≥ 0.85</span><span class="dec-arrow">→</span><span class="dec-block">HTTP 400 content_filter</span></div>
+        <div class="dec"><span class="dec-cond">direct score ≥ 0.85 (or the org's lower injection_threshold)</span><span class="dec-arrow">→</span><span class="dec-block">HTTP 400 content_filter</span></div>
         <div class="dec"><span class="dec-cond">indirect.score ≥ INDIRECT_BLOCK_THRESHOLD (default 0.85)</span><span class="dec-arrow">→</span><span class="dec-block">HTTP 400 content_filter</span></div>
         <div class="dec"><span class="dec-cond">both below</span><span class="dec-arrow">→</span><span class="dec-pass">continue</span></div>
       </div>
