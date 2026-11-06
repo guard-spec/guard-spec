@@ -102,6 +102,11 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   UI **Models** page: the running model, a notice when a new version is
   available, the shadow comparison and its disagreements, in English and
   Vietnamese.
+- Helm chart: `gateway.shadow`, `gateway.modelsManifest` and
+  `gateway.adminToken` (all off by default); the control plane's
+  `GATEWAY_URL` points at the gateway Service (`controlPlane.gatewayURL`),
+  and `networkPolicy` lets it reach port 8080. `doctor` uses
+  `MODELS_MANIFEST` when `-manifest` is not given.
 
 ## [0.1.1] - 2026-11-06
 

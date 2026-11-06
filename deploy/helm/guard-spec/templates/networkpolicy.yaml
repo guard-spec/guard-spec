@@ -30,6 +30,15 @@ spec:
       from:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+    {{- if and (eq $key "gateway") (get $np $key).from (include "guard-spec.gatewayURL" $) }}
+    # The control plane reads /readyz for the Models page (GATEWAY_URL).
+    - ports:
+        - {port: 8080, protocol: TCP}
+      from:
+        - podSelector:
+            matchLabels:
+              {{- include "guard-spec.selector" (dict "root" $ "component" "control-plane") | nindent 14 }}
+    {{- end }}
     - ports:
         - {port: {{ index $p 1 }}, protocol: TCP}
       {{- with $np.metrics.from }}
@@ -49,6 +58,15 @@ spec:
       to:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+    {{- if and (eq $key "controlPlane") (include "guard-spec.gatewayURL" $) }}
+    # The gateway's /readyz for the Models page (GATEWAY_URL).
+    - ports:
+        - {port: 8080, protocol: TCP}
+      to:
+        - podSelector:
+            matchLabels:
+              {{- include "guard-spec.selector" (dict "root" $ "component" "gateway") | nindent 14 }}
+    {{- end }}
     {{- with (get $np.egress $key) }}
     {{- toYaml . | nindent 4 }}
     {{- end }}

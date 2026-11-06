@@ -17,6 +17,13 @@ podAnnotations:
 gateway:
   extraEnvFrom:
     - secretRef: {name: guard-spec-alerts}
+  shadow:
+    model: guardspec-classifier@v3b
+    sample: "0.5"
+    maxInflight: "2"
+  modelsManifest: /models/manifest.yaml
+  adminToken:
+    enabled: true
   nodeSelector: {kubernetes.io/arch: amd64}
   tolerations:
     - {key: dedicated, operator: Equal, value: guard-spec, effect: NoSchedule}

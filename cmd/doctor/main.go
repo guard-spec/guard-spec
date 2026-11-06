@@ -87,6 +87,7 @@ flags:`)
 	if err := fset.Parse(args); err != nil {
 		return o, err
 	}
+	fset.Visit(func(f *flag.Flag) { o.ManifestFlag = o.ManifestFlag || f.Name == "manifest" })
 	if fset.NArg() > 0 {
 		fset.Usage()
 		return o, fmt.Errorf("unexpected argument %q", fset.Arg(0))

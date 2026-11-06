@@ -1731,6 +1731,14 @@ kubectl exec deploy/gs-guard-spec-gateway -c gateway -- ./doctor   # checks the 
   (API and metrics ports per source; optional egress restriction to DNS, the
   database and listed destinations) and `serviceAccount` (annotations for EKS
   IRSA, GKE or AKS Workload Identity; the API token is never mounted).
+- **Shadow mode and model reload:** `gateway.shadow` (off while `model` and
+  `modelDir` are empty), `gateway.modelsManifest` (`MODELS_MANIFEST`) and
+  `gateway.adminToken.enabled` (`GATEWAY_ADMIN_TOKEN` from `existingSecret`,
+  off by default). The control plane gets `GATEWAY_URL` pointing at the
+  gateway Service (`controlPlane.gatewayURL`; `-` leaves it unset), and with
+  `networkPolicy` on, the chart lets it reach the gateway's port 8080. See
+  [Shadow mode and model reload](#shadow-mode-and-model-reload). `doctor`
+  reads the manifest of `MODELS_MANIFEST` too, unless `-manifest` is given.
 - **Air-gapped or mirrored registries:** [docs/airgapped.md](docs/airgapped.md)
   mirrors the images with their cosign signatures and attestations and the
   models, verifies them offline, points the chart at the mirrors and shows an
