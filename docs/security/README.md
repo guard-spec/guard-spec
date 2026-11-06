@@ -13,7 +13,7 @@ statement depends on a setting, the setting is named.
 | Document | Covers |
 |---|---|
 | This page | Architecture, data flow, stored data and retention, secrets, encryption |
-| [Verifying a release](verifying-releases.md) | cosign signatures of the images and archives, SBOMs, SLSA provenance, with the commands and their output for v0.1.1 |
+| [Verifying a release](verifying-releases.md) | cosign signatures of the images and archives, SBOMs, SLSA provenance, with the commands and their output for v0.2.0 |
 | [Security risks and hardening](../security-risks.md) | The threat model: risks that remain in a deployment, what reduces each, and a hardening checklist |
 | [SECURITY.md](../../SECURITY.md) | Reporting a vulnerability, supported versions, response targets |
 | [Security model and limitations](../../README.md#security-model-and-limitations) | What detection does and does not protect against |
@@ -67,8 +67,8 @@ The release images run as non-root with a read-only root filesystem.
 
 ## Data flow of one request
 
-1. An application sends an OpenAI-compatible request to the gateway with its
-   API key. The gateway hashes the key (SHA-256) and looks it up; the
+1. An application sends an OpenAI-compatible or Anthropic Messages request
+   to the gateway with its API key. The gateway hashes the key (SHA-256) and looks it up; the
    plaintext key is never stored.
 2. The sanitizer (L0) strips invisible and bidi characters. The detection
    layers score the parts listed in `SCAN_ROLES` (L1 rules, L2 classifier,
@@ -182,5 +182,5 @@ shortest path to a reviewed deployment.
 
 Images are signed with cosign (keyless, GitHub Actions OIDC) and carry SPDX
 SBOMs and SLSA provenance; archives are covered by signed checksum files.
-The commands, what each check proves and their output for v0.1.1 are in
+The commands, what each check proves and their output for v0.2.0 are in
 [Verifying a release](verifying-releases.md).

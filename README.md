@@ -22,11 +22,11 @@
 > Documentation: [guardspec.io/docs](https://guardspec.io/docs/) · Tiếng Việt: [README.vi.md](README.vi.md).
 
 Guard Spec is a self-hosted gateway that sits between your application and an
-OpenAI-compatible LLM API and blocks prompt injection. It checks user
-messages, tool results, retrieved documents and MCP tool descriptions before
-they reach the model. Then it checks the model's answer for exfiltration
-links, personal data and a leaked canary before the answer reaches your
-users. It is written in Go, runs as two services next to Postgres, and has
+LLM API (OpenAI-compatible, or Anthropic's Messages API) and blocks prompt
+injection. It checks user messages, tool results, retrieved documents and MCP
+tool descriptions before they reach the model. Then it checks the model's
+answer for exfiltration links, personal data and a leaked canary before the
+answer reaches your users. It is written in Go, runs as two services next to Postgres, and has
 been built and evaluated for **English and Vietnamese**.
 
 Status: **v0.2.0, pre-1.0.** The API and the database schema can still
@@ -67,7 +67,8 @@ before you rely on it.
 - Output guard: exfiltration links and images, personal data (including
   Vietnamese phone, ID and card numbers), a leaked canary, also when
   streaming.
-- OpenAI-compatible: change the `base_url`, keep your SDK. Routing to several
+- OpenAI-compatible, and the Anthropic Messages API (`/v1/messages`, for
+  Claude Code): change the base URL, keep your SDK. Routing to several
   upstreams (OpenAI, Azure OpenAI, Anthropic, Gemini, vLLM, Ollama).
 - Per-organization and per-project policies, written as text or in a visual
   editor and compiled to CEL: allow, block, log or route.
@@ -204,7 +205,8 @@ The diagram sources are in [docs/diagrams/](docs/diagrams/)
 
 Two Go services share one Postgres database:
 
-- **gateway** (data plane, port 8080): the OpenAI-compatible proxy and the
+- **gateway** (data plane, port 8080): the proxy (OpenAI-compatible and
+  Anthropic Messages APIs) and the
   guardrail endpoints. It reads API keys, policies, per-organization settings
   and exemplars from Postgres and writes one audit row per request.
 - **control-plane** (management API, port 8081, published on 18081 by

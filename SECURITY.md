@@ -79,7 +79,7 @@ fix needs longer.
 
 [docs/security/verifying-releases.md](docs/security/verifying-releases.md)
 has the full procedure (signatures pinned to the release tag, SBOMs, SLSA
-provenance) with its output for v0.1.0. In short:
+provenance) with its output for v0.2.0. In short:
 
 Release container images are signed with cosign (keyless, through GitHub
 Actions OIDC) and come with an SPDX SBOM and SLSA provenance (BuildKit

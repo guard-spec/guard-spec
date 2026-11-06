@@ -22,7 +22,7 @@ services:
   gateway:
     image: ghcr.io/guard-spec/guard-spec-gateway:${GUARDSPEC_VERSION:-0.2.0}
     ports:
-      - "${GATEWAY_PORT:-8080}:8080"   # proxy API (OpenAI-compatible)
+      - "${GATEWAY_PORT:-8080}:8080"   # proxy API (OpenAI-compatible, Anthropic Messages)
       - "${METRICS_PORT:-9090}:9090"   # Prometheus metrics
     environment:
       GUARD_ENV: ${GUARD_ENV:-}
