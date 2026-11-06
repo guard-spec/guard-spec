@@ -10,16 +10,21 @@ func TestLoadOpsConfig(t *testing.T) {
 	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
 	cfg, err := loadOpsConfig(env(nil))
 	if err != nil || cfg.MetricsAddr != ":9091" || cfg.Retention.Days != 90 ||
-		cfg.Retention.Interval != time.Hour || cfg.Retention.Batch != 5000 {
+		cfg.Retention.Interval != time.Hour || cfg.Retention.Batch != 5000 ||
+		cfg.Retention.ActivityDays != 365 || cfg.Retention.SessionDays != 30 {
 		t.Fatalf("defaults: %+v %v", cfg, err)
 	}
-	cfg, err = loadOpsConfig(env(map[string]string{"AUDIT_RETENTION_DAYS": "0", "METRICS_ADDR": "off"}))
-	if err != nil || cfg.Retention.Days != 0 || cfg.MetricsAddr != "off" {
+	cfg, err = loadOpsConfig(env(map[string]string{"AUDIT_RETENTION_DAYS": "0", "METRICS_ADDR": "off",
+		"ACTIVITY_LOG_RETENTION_DAYS": "0", "SESSION_RETENTION_DAYS": " 7 "}))
+	if err != nil || cfg.Retention.Days != 0 || cfg.MetricsAddr != "off" ||
+		cfg.Retention.ActivityDays != 0 || cfg.Retention.SessionDays != 7 {
 		t.Fatalf("%+v %v", cfg, err)
 	}
 	for _, bad := range []map[string]string{
 		{"AUDIT_RETENTION_DAYS": "-1"}, {"AUDIT_RETENTION_DAYS": "x"},
 		{"AUDIT_RETENTION_INTERVAL": "10s"}, {"AUDIT_RETENTION_BATCH": "0"},
+		{"ACTIVITY_LOG_RETENTION_DAYS": "-1"}, {"ACTIVITY_LOG_RETENTION_DAYS": "1y"},
+		{"SESSION_RETENTION_DAYS": "-5"}, {"SESSION_RETENTION_DAYS": "1.5"},
 	} {
 		if _, err := loadOpsConfig(env(bad)); err == nil {
 			t.Errorf("%v accepted", bad)

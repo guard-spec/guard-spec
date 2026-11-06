@@ -120,10 +120,11 @@ var (
 		Buckets: latencyBuckets,
 	}, []string{"route", "method", "status"})
 
-	// RetentionRuns counts audit retention runs by result (ok, skipped, error).
+	// RetentionRuns counts retention runs (audit rows, activity log and
+	// sessions in one pass) by result (ok, skipped, error).
 	RetentionRuns = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: namespace, Subsystem: "audit_retention", Name: "runs_total",
-		Help: "Audit retention runs by result: ok, skipped (another replica holds the lock) or error.",
+		Help: "Retention runs (audit rows, activity log, sessions) by result: ok, skipped (another replica holds the lock) or error.",
 	}, []string{"result"})
 
 	// EventsDropped counts events the emitter dropped because its buffer was
@@ -164,6 +165,13 @@ var (
 		Namespace: namespace, Subsystem: "audit_retention", Name: "deleted_rows_total",
 		Help: "Audit rows deleted because they were older than AUDIT_RETENTION_DAYS.",
 	}, []string{})
+
+	// RetentionTableDeleted counts rows of other tables deleted by the same
+	// retention job, by table (activity_log, sessions).
+	RetentionTableDeleted = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: namespace, Subsystem: "retention", Name: "deleted_rows_total",
+		Help: "Rows deleted by retention by table: activity_log (ACTIVITY_LOG_RETENTION_DAYS) or sessions (SESSION_RETENTION_DAYS).",
+	}, []string{"table"})
 )
 
 func init() {
@@ -172,7 +180,7 @@ func init() {
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 		RequestsTotal, RequestDuration, DetectorDuration, DetectorErrors,
 		UpstreamDuration, UpstreamErrors, PolicyErrors, RouteSelections, OutputActions, RateLimited,
-		HTTPRequests, HTTPDuration, RetentionRuns, RetentionDeleted,
+		HTTPRequests, HTTPDuration, RetentionRuns, RetentionDeleted, RetentionTableDeleted,
 		EventsDropped, EventsWritten, AlertsFired, Deliveries, DeliveryLatency,
 	)
 }

@@ -650,7 +650,9 @@ in a second table.
 | `OIDC_SECRET_*` | empty | Client secrets of SSO providers; each provider names its variable in `client_secret_env` |
 | `METRICS_ADDR` | `:9091` | Metrics listener; `off` disables it |
 | `AUDIT_RETENTION_DAYS` | `90` | Delete audit rows older than this; `0` keeps them |
-| `AUDIT_RETENTION_INTERVAL` | `1h` | Time between retention runs, at least `1m` |
+| `ACTIVITY_LOG_RETENTION_DAYS` | `365` | Delete activity log rows older than this; `0` keeps them |
+| `SESSION_RETENTION_DAYS` | `30` | Delete sessions revoked or expired more than this many days ago (active sessions are never deleted); `0` keeps them |
+| `AUDIT_RETENTION_INTERVAL` | `1h` | Time between retention runs (audit, activity log, sessions), at least `1m` |
 | `AUDIT_RETENTION_BATCH` | `5000` | Rows per delete, 1 to 100000 |
 
 **Tools**: `HF_TOKEN` (`cmd/models`, only for gated optional models in the
@@ -1587,8 +1589,11 @@ Keep that port on the internal network.
 
 The control plane exports `guardspec_control_plane_requests_total`,
 `guardspec_control_plane_request_duration_seconds`,
-`guardspec_audit_retention_runs_total{result}` and
-`guardspec_audit_retention_deleted_rows_total`. Labels take values from fixed
+`guardspec_audit_retention_runs_total{result}` (one run covers audit rows,
+the activity log and sessions),
+`guardspec_audit_retention_deleted_rows_total` and
+`guardspec_retention_deleted_rows_total{table}` (`activity_log`,
+`sessions`). Labels take values from fixed
 sets only; API key IDs are never a label.
 
 ### Tracing
@@ -1715,6 +1720,15 @@ stays deleted.
 The control plane deletes audit rows older than `AUDIT_RETENTION_DAYS` in
 batches, at start and then every `AUDIT_RETENTION_INTERVAL`. Every replica
 runs the job; a Postgres advisory lock lets one of them work at a time.
+
+The same job, under the same lock and in batches of `AUDIT_RETENTION_BATCH`,
+deletes activity log rows older than `ACTIVITY_LOG_RETENTION_DAYS` (default
+365) and sessions revoked or expired more than `SESSION_RETENTION_DAYS`
+(default 30) days ago. An active session is never deleted. `0` turns off
+either one. The activity log is row-level secured like the audit table, so
+its rows are deleted through a function with the table owner's rights (as
+for audit rows); the application role still cannot read or delete across
+orgs.
 
 ### Kubernetes
 

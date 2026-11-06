@@ -11,7 +11,8 @@ import (
 	"github.com/guard-spec/guard-spec/internal/retention"
 )
 
-// opsConfig is the metrics and audit retention configuration.
+// opsConfig is the metrics and retention (audit rows, activity log,
+// sessions) configuration.
 type opsConfig struct {
 	MetricsAddr string // METRICS_ADDR; "off" disables the metrics listener
 	Retention   retention.Config
@@ -37,7 +38,18 @@ func loadOpsConfig(env func(string) string) (opsConfig, error) {
 	if err != nil || batch < 1 || batch > 100000 {
 		return cfg, errors.New("AUDIT_RETENTION_BATCH must be between 1 and 100000")
 	}
-	cfg.Retention = retention.Config{Days: days, Interval: interval, Batch: batch}
+	activityDays, err := strconv.Atoi(get("ACTIVITY_LOG_RETENTION_DAYS", "365"))
+	if err != nil || activityDays < 0 {
+		return cfg, errors.New("ACTIVITY_LOG_RETENTION_DAYS must be a whole number of days, 0 or more (0 = keep forever)")
+	}
+	sessionDays, err := strconv.Atoi(get("SESSION_RETENTION_DAYS", "30"))
+	if err != nil || sessionDays < 0 {
+		return cfg, errors.New("SESSION_RETENTION_DAYS must be a whole number of days, 0 or more (0 = keep forever)")
+	}
+	cfg.Retention = retention.Config{
+		Days: days, ActivityDays: activityDays, SessionDays: sessionDays,
+		Interval: interval, Batch: batch,
+	}
 	return cfg, nil
 }
 
