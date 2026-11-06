@@ -65,6 +65,7 @@ go vet ./...
 go test -race ./...                         # unit tests, no services needed
 make test-onnx                              # -tags onnx; model tests skip without models/
 make fuzz FUZZTIME=30s                      # sanitizer, policy and request fuzzers
+make bench                                  # benchmarks (README, "Benchmarks"); bench-onnx with models
 ```
 
 Integration tests need Postgres with the migrations applied and the

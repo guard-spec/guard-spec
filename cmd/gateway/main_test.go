@@ -36,7 +36,7 @@ func noPolicies(context.Context, uuid.UUID, uuid.UUID) ([]policy.Policy, error) 
 }
 
 // testGateway returns a gateway with a stub upstream, no policies and no audit sink.
-func testGateway(t *testing.T, runner *inference.Runner) gateway {
+func testGateway(t testing.TB, runner *inference.Runner) gateway {
 	t.Helper()
 	engine, err := policy.New()
 	if err != nil {

@@ -48,7 +48,7 @@ type fakeUpstream struct {
 	body    string
 }
 
-func newFakeUpstream(t *testing.T, handler http.HandlerFunc) *fakeUpstream {
+func newFakeUpstream(t testing.TB, handler http.HandlerFunc) *fakeUpstream {
 	t.Helper()
 	f := &fakeUpstream{}
 	f.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -77,7 +77,7 @@ type harness struct {
 
 // startGateway serves on a real socket: fiber's app.Test buffers the whole
 // response, which would hide whether a stream is incremental.
-func startGateway(t *testing.T, upstreamURL string, mutate func(*gateway)) *harness {
+func startGateway(t testing.TB, upstreamURL string, mutate func(*gateway)) *harness {
 	t.Helper()
 	runner, err := inference.NewRunner("")
 	if err != nil {

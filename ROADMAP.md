@@ -43,9 +43,21 @@ Release and operations
 - Per-organization output guard settings.
 - A shared rate limiter (Redis or Postgres) so limits hold across replicas.
 - More languages, starting with the ones users ask for.
+- Input-side PII as a policy signal, only when a user brings a concrete
+  need: a new rule field (not the removed `pii.entities`) listing the kinds
+  of personal data found in request text, `log` first, using the output
+  guard's detectors, off by default per organization. Until then personal data
+  is redacted in answers only. See
+  [ADR 0002](docs/adr/0002-no-input-pii-toxicity-topic.md).
 
 ## Not planned
 
 Model routing, ClickHouse, GPU/Triton serving and LLM-judge models
 (Qwen3Guard, Granite Guardian) appeared in an early design draft. They are not
 planned for now; see [DESIGN.md](DESIGN.md).
+
+Toxicity and topic classification on requests or answers are not planned:
+they are content moderation, not prompt-injection defence, and need their own
+multilingual models and labelled data. Use your provider's moderation or a
+moderation model in your application. See
+[ADR 0002](docs/adr/0002-no-input-pii-toxicity-topic.md).

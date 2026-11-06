@@ -1,4 +1,4 @@
-.PHONY: build test lint vuln fuzz docker-build docker-up docker-down migrate-up migrate-down
+.PHONY: build test lint vuln fuzz bench docker-build docker-up docker-down migrate-up migrate-down
 
 GO      := go
 
@@ -38,6 +38,14 @@ fuzz:
 	$(GO) test ./internal/policy/ -run NONE -fuzz FuzzParseCondition -fuzztime $(FUZZTIME)
 	$(GO) test ./cmd/gateway/ -run NONE -fuzz FuzzChatRequest -fuzztime $(FUZZTIME)
 
+# Go benchmarks (README, "Benchmarks"): input sanitizer, output guard, CEL
+# policy evaluation and the gateway's HTTP path end to end with L1 only (no
+# models, no cgo). bench-onnx adds the HTTP path with L1+L2+L3 and L1+L2.
+BENCH_PKGS := ./internal/sanitizer ./internal/outputguard ./internal/policy ./cmd/gateway
+BENCHTIME  ?= 1s
+bench:
+	$(GO) test -run '^$$' -bench . -benchmem -benchtime $(BENCHTIME) $(BENCH_PKGS)
+
 docker-build:
 	docker build -f build/gateway.Dockerfile    -t guard-spec-gateway:latest .
 	docker build -f build/control-plane.Dockerfile -t guard-spec-control-plane:latest .
@@ -58,7 +66,7 @@ migrate-down:
 ONNX_DIR  := $(CURDIR)/.onnx
 ONNX_ENV  := CGO_ENABLED=1 CGO_LDFLAGS=-L$(ONNX_DIR)/lib ONNXRUNTIME_LIB=$(ONNX_DIR)/lib/libonnxruntime$(if $(filter Darwin,$(shell uname -s)),.dylib,.so)
 
-.PHONY: onnx-deps models-pull test-onnx onnxbench eval-ml calibrate
+.PHONY: onnx-deps models-pull test-onnx bench-onnx onnxbench eval-ml calibrate
 
 onnx-deps: $(ONNX_DIR)/lib/libtokenizers.a   ## fetch libonnxruntime + libtokenizers.a into .onnx/lib
 
@@ -83,6 +91,10 @@ eval-ml: onnx-deps
 # (never eval/); writes calibration.json next to the classifier.
 calibrate: onnx-deps
 	$(ONNX_ENV) $(GO) run -tags onnx ./cmd/calibrate fit -write
+
+# BenchmarkGatewayHTTPML: needs models/ (or MODEL_DIR); skips without them.
+bench-onnx: onnx-deps
+	$(ONNX_ENV) $(GO) test -tags onnx -run '^$$' -bench GatewayHTTPML -benchmem -benchtime $(BENCHTIME) ./cmd/gateway
 
 onnxbench: onnx-deps
 	$(ONNX_ENV) $(GO) run -tags onnx ./cmd/onnxbench -model models/local/guardspec-classifier-v3b
