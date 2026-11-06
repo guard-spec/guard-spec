@@ -86,6 +86,12 @@ type Result struct {
 	Category   string             // category of the strongest layer; "" when nothing matched
 	Categories map[string]float64 // calibrated per-category scores
 	Rules      []string           // explanation from every layer that ran
+	// Floor is the largest calibrated score of a layer that set
+	// LayerResult.Floor (0 when none did); the fused score is never below it.
+	Floor float64
+	// Cascaded is true when the cascade found L1 decisive and skipped the
+	// other layers.
+	Cascaded bool
 }
 
 // Fuser holds the layers and their calibrations. It is safe for concurrent
@@ -198,7 +204,7 @@ func (f *Fuser) Score(ctx context.Context, text string) Result {
 		}
 	}
 
-	res := Result{Categories: map[string]float64{}}
+	res := Result{Categories: map[string]float64{}, Cascaded: skip}
 	best := -1.0
 	for slot := range f.layers {
 		res.Layers[slot] = Missing
@@ -214,6 +220,9 @@ func (f *Fuser) Score(ctx context.Context, text string) Result {
 		c := f.cal[slot]
 		p := c.Apply(lr.Score)
 		res.Layers[slot] = p
+		if lr.Floor && p > res.Floor {
+			res.Floor = p
+		}
 		if p > best {
 			best = p
 			res.Score = p
@@ -240,6 +249,45 @@ func (f *Fuser) Score(ctx context.Context, text string) Result {
 		res.Category = ""
 	}
 	return res
+}
+
+// Replace fuses r again with another verdict in one slot: lr, calibrated with
+// c, or Missing when err is set. comb is the combiner to use (nil: max), as
+// SetCombiner would install it. The other layers keep their calibrated scores
+// from r, so a candidate model can be compared with the active one on the
+// same request without running L1 and L3 twice. Categories are not
+// recomputed; Category is lr's when the slot is the strongest layer.
+func Replace(r Result, slot int, lr LayerResult, err error, c Calibration, comb *LogReg) Result {
+	out := Result{Layers: r.Layers, Floor: r.Floor, Cascaded: r.Cascaded, Category: r.Category}
+	out.Layers[slot] = Missing
+	if err == nil {
+		out.Layers[slot] = c.Apply(lr.Score)
+	}
+	best := -1.0
+	bestSlot := -1
+	for i, p := range out.Layers {
+		if p != Missing && p > best {
+			best, bestSlot = p, i
+		}
+	}
+	if bestSlot >= 0 {
+		out.Score = best
+	}
+	if comb != nil {
+		if s, ok := comb.Apply(out.Layers); ok {
+			out.Score = s
+		}
+		if out.Floor > out.Score {
+			out.Score = out.Floor
+		}
+	}
+	if bestSlot == slot {
+		out.Category = lr.Category
+	}
+	if out.Score < minCategoryScore {
+		out.Category = ""
+	}
+	return out
 }
 
 // RulesLayer adapts the L1 rule engine.

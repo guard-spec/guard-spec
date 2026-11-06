@@ -67,6 +67,11 @@ spec:
                   name: {{ .Values.existingSecret }}
                   key: ADMIN_PASSWORD
             {{- end }}
+            {{- $gw := include "guard-spec.gatewayURL" . }}
+            {{- if $gw }}
+            - name: GATEWAY_URL
+              value: {{ $gw | quote }}
+            {{- end }}
             {{- range $k, $v := .Values.controlPlane.env }}
             - name: {{ $k }}
               value: {{ $v | quote }}

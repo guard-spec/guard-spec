@@ -35,7 +35,7 @@ async function overflows(page: Page): Promise<string[]> {
   }, HEADROOM);
 }
 
-const PAGES = ['Model providers', 'Request log', 'Activity log', 'Members', 'API keys', 'Exemplars', 'Projects', 'Users', 'Identity providers', 'Instance activity'];
+const PAGES = ['Model providers', 'Models', 'Request log', 'Activity log', 'Members', 'API keys', 'Exemplars', 'Projects', 'Users', 'Identity providers', 'Instance activity'];
 
 for (const width of [1280, 1440]) {
   test(`every table fits at ${width}px`, async ({ page }) => {

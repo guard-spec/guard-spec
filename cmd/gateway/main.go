@@ -116,8 +116,11 @@ func main() {
 		slog.Error("load detector", "err", err)
 		os.Exit(1)
 	}
-	defer func() { _ = detector.Close() }()
-	runner := inference.NewRunnerWith(inference.FusedBackend{F: detector.Fuser})
+	// The classifier can be reloaded at run time, and a shadow candidate
+	// compared with it (reload.go, shadow.go).
+	live := ml.NewLive(detector)
+	defer func() { _ = live.Close() }()
+	runner := inference.NewRunnerWith(inference.FusedBackend{F: live})
 
 	base, cancelUpstream := context.WithCancel(context.Background())
 	defer cancelUpstream()
@@ -148,7 +151,9 @@ func main() {
 	slog.Info("scan config", "roles", cfg.Scan.Roles.String(), "spotlight", cfg.Scan.Spotlight,
 		"indirect_threshold", cfg.Scan.IndirectThreshold)
 	app := newApp(gateway{
-		detector:     newDetectorStatus(detector, cfg.Detector.RequireML),
+		detector:     newLiveStatus(detector, live, cfg.Detector.RequireML),
+		live:         live,
+		adminToken:   cfg.AdminToken,
 		runner:       runner,
 		engine:       engine,
 		policies:     dbPolicyLoader(db),
@@ -169,6 +174,7 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	watchReload(ctx, live)
 
 	go func() {
 		slog.Info("gateway listening", "addr", cfg.ListenAddr, "version", version.String())
@@ -220,6 +226,11 @@ type gateway struct {
 
 	// detector is what /readyz reports: the active detection layers.
 	detector detectorStatus
+	// live is the reloadable detector behind runner, with shadow mode; nil
+	// in tests that score with a plain runner.
+	live *ml.Live
+	// adminToken is GATEWAY_ADMIN_TOKEN; "" turns the /admin routes off.
+	adminToken string
 }
 
 // newApp builds the Fiber app with all gateway routes.
@@ -240,12 +251,15 @@ func newApp(gw gateway, lookup tenant.LookupFn) *fiber.App {
 	// body, status "degraded") when a layer the configuration requires is
 	// missing; a degraded gateway that does not require its models stays ready.
 	app.Get("/readyz", func(c *fiber.Ctx) error {
+		det := gw.detector.current()
 		status, code := "ready", fiber.StatusOK
-		if !gw.detector.ready() {
+		if !det.ready() {
 			status, code = "degraded", fiber.StatusServiceUnavailable
 		}
-		return c.Status(code).JSON(fiber.Map{"status": status, "version": version.String(), "detector": gw.detector})
+		return c.Status(code).JSON(fiber.Map{"status": status, "version": version.String(), "detector": det})
 	})
+	// Model reload and status, with GATEWAY_ADMIN_TOKEN (reload.go).
+	registerAdmin(app, gw)
 
 	// All proxy routes require a valid API key.
 	app.Use(tenant.Middleware(lookup))
@@ -307,6 +321,12 @@ type requestEntry struct {
 	LatencyMs   int
 	Request     string // body as received; hashed, stored only if enabled
 	Response    string // buffered upstream body; empty when streamed
+
+	// Shadow collects the shadow model's comparison (shadow.go); nil when
+	// shadow mode is off or the request was not sampled. ShadowWait is how
+	// long the audit writer waits for it.
+	Shadow     *ml.Recorder
+	ShadowWait time.Duration
 
 	// ID is the requests row id, also the request_id of alert events.
 	ID uuid.UUID
@@ -422,6 +442,8 @@ func logRequest(db *pgxpool.Pool, storeContent bool, e requestEntry) {
 		target = &e.RouteTarget
 	}
 	req, resp := digest(e.Request), digest(e.Response)
+	// Wait for the shadow comparison before the transaction, not inside it.
+	shadow, withShadow := shadowRow(e)
 	err := tenant.WithOrg(ctx, db, e.OrgID, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, auditInsert,
 			e.OrgID,
@@ -443,7 +465,10 @@ func logRequest(db *pgxpool.Pool, storeContent bool, e requestEntry) {
 			target,
 			nullUUID(e.ID),
 		)
-		return err
+		if err != nil || !withShadow {
+			return err
+		}
+		return insertShadow(ctx, tx, e, shadow)
 	})
 	if err != nil {
 		slog.Warn("request log write failed", "err", err, "action", e.Action)
@@ -686,7 +711,7 @@ func chatHandler(gw gateway, upstreamPath string) fiber.Handler {
 		start := time.Now()
 		release := gw.audit.hold()
 		entry := newEntry(c)
-		gw := gw.forOrg(entry.OrgID)
+		gw := gw.forRequest(&entry)
 		tctx := requestContext(c, gw.base) // gw.base with the request span, for child spans
 		streaming := false                 // the stream writes the row when it ends
 		defer func() {
@@ -1233,6 +1258,9 @@ type config struct {
 	// Scan is SCAN_ROLES, SPOTLIGHT and INDIRECT_BLOCK_THRESHOLD; an org can
 	// override roles and spotlight in organizations.guard_settings.
 	Scan scanConfig
+	// AdminToken is GATEWAY_ADMIN_TOKEN: the bearer token of /admin/models
+	// (reload.go). Empty: those routes are off.
+	AdminToken string
 }
 
 func loadConfig() (config, error) {
@@ -1288,10 +1316,14 @@ func loadConfig() (config, error) {
 		WaitOnHalfClose:      waitOnHalfClose,
 		AuditStoreContent:    storeContent,
 		Scan:                 scan,
+		AdminToken:           strings.TrimSpace(os.Getenv("GATEWAY_ADMIN_TOKEN")),
 	}
 	// Refuse a default or weak database password unless GUARD_ENV=dev.
 	var secrets appconfig.Checker
 	secrets.DatabaseURL("DATABASE_URL", cfg.DatabaseURL)
+	if cfg.AdminToken != "" {
+		secrets.Secret("GATEWAY_ADMIN_TOKEN", cfg.AdminToken)
+	}
 	if err := secrets.Err(); err != nil {
 		return config{}, err
 	}

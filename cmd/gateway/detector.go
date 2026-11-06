@@ -111,6 +111,29 @@ type detectorStatus struct {
 	ONNX    bool   `json:"onnx"`
 	Fusion  string `json:"fusion,omitempty"`
 	L2Model string `json:"l2_model,omitempty"`
+	// Models reports what changes at run time: the running classifier as
+	// name@version, whether its files matched the manifest, the manifest's
+	// recommended version and the installed ones, shadow mode and the last
+	// reload. Absent without a reloadable detector (tests).
+	Models *ml.Status `json:"models,omitempty"`
+
+	live *ml.Live
+}
+
+// current fills in the parts that a reload can change.
+func (d detectorStatus) current() detectorStatus {
+	if d.live == nil {
+		return d
+	}
+	if k := ml.LayerKey(d.live.Layers()); k != "" {
+		d.Layers = strings.Split(k, ",")
+	}
+	d.Problems = d.live.Problems()
+	d.Degraded = len(d.Problems) > 0
+	d.Fusion, d.L2Model = d.live.Fusion(), d.live.L2Name()
+	st := d.live.Status()
+	d.Models = &st
+	return d
 }
 
 // ready reports whether the gateway may take traffic: a missing layer counts
@@ -118,6 +141,13 @@ type detectorStatus struct {
 // gateway that runs L1 only by design, such as the plain image without
 // models, is degraded but ready.
 func (d detectorStatus) ready() bool { return !d.Degraded || !d.Required }
+
+// newLiveStatus describes the running detector; required is cfg.RequireML.
+func newLiveStatus(s *ml.Stack, live *ml.Live, required bool) detectorStatus {
+	st := newDetectorStatus(s, required)
+	st.live = live
+	return st
+}
 
 // newDetectorStatus describes the loaded stack; required is cfg.RequireML.
 func newDetectorStatus(s *ml.Stack, required bool) detectorStatus {

@@ -99,6 +99,15 @@ curl -s localhost:8080/readyz | jq .detector        # 6. or https://<GATEWAY_HOS
   production default, a failed pull stops `up` before the new gateway
   starts). With `L2_MODEL` / `L3_MODEL` pinned, the gateway
   keeps the pinned version.
+- New classifier version: to try it before switching, keep `L2_MODEL`
+  pinned and set `SHADOW_L2_MODEL=guardspec-classifier@<new>`. It scores the
+  same traffic without deciding; compare in the admin UI (**Models**). Then
+  switch without a restart with `POST /admin/models/reload` and
+  `{"l2_model":"guardspec-classifier@<new>","shadow_l2_model":"off"}`
+  (`GATEWAY_ADMIN_TOKEN`), and set `L2_MODEL` in `.env` for the next start
+  (or set it and `up -d gateway`, which restarts). A reload checks the
+  files' SHA-256 and keeps the running model if anything fails; see
+  [README, Shadow mode and model reload](../README.md#shadow-mode-and-model-reload).
 - Check after the upgrade: `/readyz` lists the layers you expect, the admin
   UI loads, a known injection is blocked
   ([README quick start](../README.md#quick-start)).
@@ -153,6 +162,11 @@ docker compose [-f ...] --profile models run --rm models-pull guardspec-classifi
 docker compose [-f ...] up -d gateway
 curl -s localhost:8080/readyz | jq .detector.l2_model
 ```
+
+Without a restart: keep the pin in `.env` for the next start, and reload the
+running gateway with `POST /admin/models/reload` and
+`{"l2_model":"guardspec-classifier@<old>"}` (needs `GATEWAY_ADMIN_TOKEN`).
+SIGHUP reloads the targets the gateway already has, not a changed `.env`.
 
 Details, the L3 embedder and air-gapped installs:
 [docs/models.md](models.md#rolling-back).

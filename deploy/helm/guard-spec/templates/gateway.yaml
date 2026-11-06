@@ -97,6 +97,37 @@ spec:
             - name: MODELS_PATH
               value: /models
             {{- end }}
+            {{- with .Values.gateway.shadow }}
+            {{- if or .model .modelDir }}
+            {{- if .model }}
+            - name: SHADOW_L2_MODEL
+              value: {{ .model | quote }}
+            {{- end }}
+            {{- if .modelDir }}
+            - name: SHADOW_L2_MODEL_DIR
+              value: {{ .modelDir | quote }}
+            {{- end }}
+            - name: SHADOW_SAMPLE
+              value: {{ .sample | toString | quote }}
+            - name: SHADOW_TIMEOUT
+              value: {{ .timeout | quote }}
+            {{- if .maxInflight }}
+            - name: SHADOW_MAX_INFLIGHT
+              value: {{ .maxInflight | toString | quote }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
+            {{- if .Values.gateway.modelsManifest }}
+            - name: MODELS_MANIFEST
+              value: {{ .Values.gateway.modelsManifest | quote }}
+            {{- end }}
+            {{- if .Values.gateway.adminToken.enabled }}
+            - name: GATEWAY_ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: {{ .Values.gateway.adminToken.key }}
+            {{- end }}
             {{- range $k, $v := .Values.gateway.env }}
             - name: {{ $k }}
               value: {{ $v | quote }}

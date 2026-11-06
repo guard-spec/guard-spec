@@ -85,6 +85,18 @@ services:
       DETECTOR_CASCADE: ${DETECTOR_CASCADE:-false}
       # Production: refuse to start when a requested model layer is missing.
       DETECTOR_REQUIRE_ML: ${DETECTOR_REQUIRE_ML:-true}
+      # Shadow mode: a candidate classifier scored on the same traffic, never
+      # deciding; off while empty. Pull the candidate first (models-pull).
+      # README, "Shadow mode and model reload".
+      SHADOW_L2_MODEL: ${SHADOW_L2_MODEL:-}
+      SHADOW_L2_MODEL_DIR: ${SHADOW_L2_MODEL_DIR:-}
+      SHADOW_SAMPLE: ${SHADOW_SAMPLE:-1}
+      SHADOW_TIMEOUT: ${SHADOW_TIMEOUT:-2s}
+      # Manifest file for reloads and /readyz; empty: the image's built-in one.
+      MODELS_MANIFEST: ${MODELS_MANIFEST:-}
+      # Bearer token of POST /admin/models/reload (32+ bytes); empty turns it
+      # off. `docker compose kill -s HUP gateway` reloads without it.
+      GATEWAY_ADMIN_TOKEN: ${GATEWAY_ADMIN_TOKEN:-}
       # Keep these in line with GATEWAY_CPUS: concurrent model runs times
       # threads per run should not exceed the CPUs the container may use.
       INFERENCE_MAX_CONCURRENCY: ${INFERENCE_MAX_CONCURRENCY:-2}
@@ -142,6 +154,9 @@ services:
       UPSTREAM_LLM_URL: ${UPSTREAM_LLM_URL:-}
       UPSTREAM_KEY_ORGS: "${UPSTREAM_KEY_ORGS:-}"
       UPSTREAM_ALLOW_PRIVATE: ${CONTROL_PLANE_UPSTREAM_ALLOW_PRIVATE:-false}
+      # Where the Models page reads the gateway's /readyz (server side, on the
+      # backend network).
+      GATEWAY_URL: ${GATEWAY_URL:-http://gateway:8080}
       OIDC_SECRET_GOOGLE: ${OIDC_SECRET_GOOGLE:-}
       ALERTS_SECRET_ORGS: ${ALERTS_SECRET_ORGS:-}
       ALERTS_PRIVATE_ORGS: ${ALERTS_PRIVATE_ORGS:-}

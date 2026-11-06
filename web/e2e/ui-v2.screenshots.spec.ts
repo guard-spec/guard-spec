@@ -59,6 +59,7 @@ for (const theme of ['light', 'dark'] as const) {
         const pages: [string, string][] = [
           ['Policy flow', 'flow'],
           ['Model providers', 'providers'],
+          ['Models', 'models'],
           ['Request log', 'requests'],
           ['Activity log', 'activity'],
           ['Members', 'members'],

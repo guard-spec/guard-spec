@@ -136,6 +136,21 @@ func TestModelsVerified(t *testing.T) {
 	want(t, res["layers"], OK, "L3 on (testemb@v1)")
 }
 
+// The gateway's MODELS_MANIFEST is the manifest unless -manifest is given.
+func TestModelsManifestFromEnv(t *testing.T) {
+	man, dir := writeManifest(t), t.TempDir()
+	install(t, testClassifier, filepath.Join(dir, "cache", "testclf", "v1"))
+	install(t, testEmbedder, filepath.Join(dir, "cache", "testemb", "v1"))
+	env := modelEnv(t, dir)
+	env["MODELS_MANIFEST"] = man
+	res := collect(t, env, Options{Skip: only("models", "layers")})
+	want(t, res["models"], OK, "testclf@v1")
+	// An explicit -manifest wins: the built-in one knows no test models.
+	env["MODELS_MANIFEST"] = filepath.Join(dir, "missing.yaml")
+	res = collect(t, env, Options{Manifest: man, ManifestFlag: true, Skip: only("models", "layers")})
+	want(t, res["models"], OK, "testclf@v1")
+}
+
 // A directory outside the cache, like the gateway-full image's
 // L2_MODEL_DIR, is matched to its manifest entry by its files.
 func TestModelsExplicitDir(t *testing.T) {

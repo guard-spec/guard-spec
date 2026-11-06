@@ -92,7 +92,7 @@ func scanHandler(gw gateway) fiber.Handler {
 		}
 
 		entry := newEntry(c)
-		gw := gw.forOrg(entry.OrgID)
+		gw := gw.forRequest(&entry)
 		resp := fiber.Map{}
 		blocked := false
 		var direct float64

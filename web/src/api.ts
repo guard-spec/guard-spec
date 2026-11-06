@@ -20,6 +20,7 @@ import type {
   ExportProblem,
   Exemplar,
   ExemplarInput,
+  GatewayModels,
   GuardSettings,
   IdentityProvider,
   IdentityProviderInput,
@@ -34,12 +35,17 @@ import type {
   NewApiKey,
   Org,
   OrgSecurity,
+  PageEnvelope,
   PermissionMatrix,
   Policy,
   PolicyInput,
   PolicySchema,
   Project,
   Role,
+  ShadowDirection,
+  ShadowDisagreement,
+  ShadowSummary,
+  ShadowWindow,
   SimulateRequest,
   SimulateResponse,
   TotpSetup,
@@ -568,6 +574,26 @@ export class ApiClient {
   /** Aggregates of the request log over a window (24h by default), of one project or all. */
   getDashboard(orgId: UUID, q: { window?: DashboardWindow; project_id?: UUID } = {}): Promise<DashboardStats> {
     return this.request('GET', `/organizations/${enc(orgId)}/dashboard`, { query: q });
+  }
+
+  // ── Classifier models and shadow comparison ──────────────────────────────
+
+  /** The gateway's classifier models (instance-wide, any signed-in user). */
+  getGatewayModels(): Promise<GatewayModels> {
+    return this.request('GET', '/gateway/models');
+  }
+
+  /** The shadow classifier against the active one over a window (24h by default). */
+  getShadowSummary(orgId: UUID, q: { window?: ShadowWindow } = {}): Promise<ShadowSummary> {
+    return this.request('GET', `/organizations/${enc(orgId)}/shadow`, { query: q });
+  }
+
+  /** Requests where the models decide differently, newest first: {items, next_cursor}. */
+  listShadowDisagreements(
+    orgId: UUID,
+    q: { window?: ShadowWindow; direction?: ShadowDirection; limit?: number; cursor?: string } = {},
+  ): Promise<PageEnvelope<ShadowDisagreement>> {
+    return this.request('GET', `/organizations/${enc(orgId)}/shadow/disagreements`, { query: q });
   }
 
   // ── Upstreams ─────────────────────────────────────────────────────────────

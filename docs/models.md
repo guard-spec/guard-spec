@@ -118,12 +118,43 @@ in the image and `./models` otherwise.
    `docker compose --profile models run --rm models-pull guardspec-classifier@<old>`
    (`models list` shows what is there).
 2. Set `L2_MODEL=guardspec-classifier@<old>` in `.env`.
-3. Restart the gateway: `docker compose up -d gateway`.
-4. Check `/readyz` (`l2_model`) and the log line `L2 classifier loaded`.
+3. Restart the gateway: `docker compose up -d gateway`. Or, without a
+   restart, `POST /admin/models/reload` with
+   `{"l2_model":"guardspec-classifier@<old>"}` (see below), and keep step 2 for
+   the next restart.
+4. Check `/readyz` (`l2_model`, `models.l2_model`) and the log line
+   `L2 classifier loaded`.
 
 Undo by removing `L2_MODEL` and restarting. Calibration travels with the
 model (`calibration.json` in the version directory), so the fusion weights
 always match the classifier that is loaded.
+
+## Comparing a candidate first (shadow mode)
+
+Before switching, run the candidate next to the active classifier:
+
+```bash
+# .env
+SHADOW_L2_MODEL=guardspec-classifier@<candidate>   # pulled first
+SHADOW_SAMPLE=1                                    # share of requests compared
+```
+
+It scores the same traffic and records what it would have decided in
+`shadow_results`; it never changes a decision and runs off the response
+path. The admin UI's **Models** page shows the agreement rate, the requests
+where the candidate would block or allow differently, and the score
+distributions. README, [Shadow mode and model reload](../README.md#shadow-mode-and-model-reload),
+has the details.
+
+## Reloading without a restart
+
+`kill -HUP` the gateway, or `POST /admin/models/reload` with
+`GATEWAY_ADMIN_TOKEN`, loads the classifier again (or another version), checks
+every file against the manifest's SHA-256, and swaps it in without dropping a
+request. A failure keeps the running model. Versions that the built-in
+manifest does not list (a model of your own) need a manifest file that lists
+them, named by `MODELS_MANIFEST`, with the same format as
+`models/manifest.yaml`.
 
 ## Air-gapped installs
 

@@ -781,6 +781,8 @@ var capabilities = []capability{
 	{"policies.read", auth.RoleViewer, "View policies and run the simulator"},
 	{"policies.write", auth.RoleAdmin, "Create, edit and delete policies"},
 	{"requests.read", auth.RoleViewer, "View the request log"},
+	{"shadow.read", auth.RoleViewer, "View the shadow model comparison (aggregates)"},
+	{"shadow.disagreements.read", auth.RoleAdmin, "List the requests where the shadow model disagrees"},
 	{"exemplars.read", auth.RoleViewer, "View L3 exemplars"},
 	{"exemplars.write", auth.RoleAdmin, "Create, edit and delete L3 exemplars"},
 	{"upstreams.write", auth.RoleAdmin, "Manage model providers, defaults and connection tests"},

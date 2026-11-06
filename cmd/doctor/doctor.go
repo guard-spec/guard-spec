@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/guard-spec/guard-spec/internal/inference/ml"
 	"github.com/guard-spec/guard-spec/internal/onnx"
 	"github.com/guard-spec/guard-spec/internal/version"
 	"github.com/guard-spec/guard-spec/models"
@@ -52,6 +53,10 @@ func isCheckName(s string) bool {
 type Options struct {
 	// Manifest is the model manifest file; empty: the built-in copy.
 	Manifest string
+	// ManifestFlag is true when -manifest was given. Otherwise the gateway's
+	// MODELS_MANIFEST, when set, wins over the default file, as it does in
+	// the gateway.
+	ManifestFlag bool
 	// MigrationsDir holds the *.up.sql files; empty: the migration version
 	// is reported without comparing it.
 	MigrationsDir string
@@ -177,14 +182,19 @@ func printText(out io.Writer, rep Report) {
 	_, _ = fmt.Fprintf(out, "\nsummary: %d ok, %d warnings, %d failed, %d skipped\n", s.OK, s.Warnings, s.Failed, s.Skipped)
 }
 
-// loadManifest reads -manifest, or the copy built into the binary.
+// loadManifest reads -manifest, else MODELS_MANIFEST, else the default
+// manifest file or the copy built into the binary.
 func (d *doctor) loadManifest() (*onnx.Manifest, error) {
 	if d.manifest != nil {
 		return d.manifest, nil
 	}
 	var err error
-	if d.opts.Manifest != "" {
-		d.manifest, err = onnx.LoadManifest(d.opts.Manifest)
+	path := d.opts.Manifest
+	if env := strings.TrimSpace(d.get(ml.EnvManifest)); env != "" && !d.opts.ManifestFlag {
+		path = env
+	}
+	if path != "" {
+		d.manifest, err = onnx.LoadManifest(path)
 	} else {
 		d.manifest, err = onnx.ParseManifest(models.Manifest)
 	}

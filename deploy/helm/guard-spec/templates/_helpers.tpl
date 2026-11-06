@@ -112,3 +112,17 @@ annotations:
       name: {{ required "existingSecret is required" .Values.existingSecret }}
       key: {{ .Values.appPasswordKey | default "GUARDSPEC_APP_PASSWORD" }}
 {{- end -}}
+
+{{/*
+GATEWAY_URL of the control plane: controlPlane.gatewayURL, else this
+release's gateway Service; "" when it is "-".
+*/}}
+{{- define "guard-spec.gatewayURL" -}}
+{{- $u := .Values.controlPlane.gatewayURL -}}
+{{- if eq $u "-" -}}
+{{- else if $u -}}
+{{- $u -}}
+{{- else -}}
+{{- printf "http://%s-gateway:%v" (include "guard-spec.fullname" .) .Values.gateway.service.port -}}
+{{- end -}}
+{{- end }}

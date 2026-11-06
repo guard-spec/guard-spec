@@ -22,6 +22,8 @@ guardEnv: ""
 #                      also come from controlPlane.extraEnvFrom. Without it 2FA
 #                      cannot be turned on. Back it up with the database.
 #   ADMIN_PASSWORD     first owner (optional; with controlPlane.adminEmail)
+#   GATEWAY_ADMIN_TOKEN gateway, bearer token of POST /admin/models/reload
+#                      (only with gateway.adminToken.enabled; 32+ bytes)
 # kubectl create secret generic guard-spec-secrets \
 #   --from-literal=POSTGRES_PASSWORD=... --from-literal=GUARDSPEC_APP_PASSWORD=... \
 #   --from-literal=JWT_SECRET=... --from-literal=ADMIN_PASSWORD=... \
@@ -166,6 +168,26 @@ gateway:
     ALERTS_FLAG_THRESHOLD: "0.5"
     ALERTS_EVENTS: ""
   extraEnvFrom: []
+  # Shadow mode (README, "Shadow mode and model reload"): a candidate L2
+  # classifier scores the same traffic off the response path and only records
+  # what it would have decided. Off while model and modelDir are empty. The
+  # candidate must be in the models volume (models.pull.models), and it costs
+  # about one more classifier in memory and CPU for sampled requests.
+  shadow:
+    model: ""        # name@version, e.g. guardspec-classifier@v3b
+    modelDir: ""     # a directory under /models; wins over model
+    sample: "1"      # share of requests compared, 0 to 1
+    timeout: "2s"    # budget of one request's comparison
+    maxInflight: ""  # concurrent candidate runs; empty: CPUs / 2
+  # Manifest file (MODELS_MANIFEST) for reloads and /readyz, for example on
+  # the models volume. Empty: the manifest built into the image.
+  modelsManifest: ""
+  # POST /admin/models/reload and GET /admin/models (hot reload without a
+  # restart). Off unless enabled; the token is read from existingSecret.
+  # SIGHUP reloads without it. Each replica reloads on its own.
+  adminToken:
+    enabled: false
+    key: GATEWAY_ADMIN_TOKEN
   # With L1 + L2 + L3 loaded the gateway uses about 900 MiB right after
   # start; the limit leaves headroom for requests. L1 only needs much less.
   resources:
@@ -209,6 +231,10 @@ controlPlane:
   # The first owner is created when adminEmail is set and ADMIN_PASSWORD is in
   # the Secret.
   adminEmail: ""
+  # GATEWAY_URL: where the admin UI's Models page reads the gateway's /readyz
+  # (server side; no Internet). Empty: this release's gateway Service. "-":
+  # not set, and the page says it is not configured.
+  gatewayURL: ""
   env:
     ALLOWED_ORIGINS: ""
     # Same as gateway.env.UPSTREAM_KEY_ORGS; checked when upstreams are saved.
