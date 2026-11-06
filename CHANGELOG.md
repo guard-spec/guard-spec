@@ -73,11 +73,6 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   L1 + L2 + L3), [upgrade and rollback](docs/upgrade.md), and
   [managed PostgreSQL](docs/managed-postgres.md) (RDS, Cloud SQL, Neon,
   Supabase; reference, not yet verified on those providers).
-
-### Changed
-
-- `docs/security/verifying-releases.md` shows the verification output for
-  v0.1.1, and the Terraform reference deploys 0.1.1 by default.
 - Shadow mode: `SHADOW_L2_MODEL` (or `SHADOW_L2_MODEL_DIR`) runs a candidate
   L2 classifier on the same traffic as the active one, asynchronously and off
   the response path (`SHADOW_TIMEOUT`, `SHADOW_SAMPLE`,
@@ -107,6 +102,11 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   `GATEWAY_URL` points at the gateway Service (`controlPlane.gatewayURL`),
   and `networkPolicy` lets it reach port 8080. `doctor` uses
   `MODELS_MANIFEST` when `-manifest` is not given.
+
+### Changed
+
+- `docs/security/verifying-releases.md` shows the verification output for
+  v0.1.1, and the Terraform reference deploys 0.1.1 by default.
 
 ## [0.1.1] - 2026-11-06
 
