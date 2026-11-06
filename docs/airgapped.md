@@ -38,7 +38,7 @@ are not ours: pin them by digest, as above.
 ## 2. On the connected side
 
 ```bash
-V=0.1.1
+V=0.2.0
 ID='^https://github.com/guard-spec/guard-spec/'
 ISSUER=https://token.actions.githubusercontent.com
 
@@ -129,11 +129,11 @@ imagePullSecrets:
 gateway:
   image:
     repository: registry.internal/guard-spec/guard-spec-gateway
-    tag: "0.1.1"          # or "0.1.1@sha256:<index digest>" to pin the digest
+    tag: "0.2.0"          # or "0.2.0@sha256:<index digest>" to pin the digest
 controlPlane:
   image:
     repository: registry.internal/guard-spec/guard-spec-control-plane
-    tag: "0.1.1"
+    tag: "0.2.0"
 migrations:
   enabled: true
   image:
@@ -172,7 +172,7 @@ helm install gs ./guard-spec-0.2.0.tgz -n guard-spec -f values-airgapped.yaml
 kubectl -n guard-spec exec deploy/gs-guard-spec-gateway -c gateway -- ./doctor
 ```
 
-`doctor` (in the images released after 0.1.1) checks the database and migration version, the model files against
+`doctor` (in the images from 0.2.0) checks the database and migration version, the model files against
 the manifest's SHA-256, which detection layers will load, the upstream and the
 security settings; exit code 1 means a check failed.
 
