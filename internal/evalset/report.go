@@ -210,7 +210,7 @@ func (r Report) WriteTable(w io.Writer) {
 	}
 	for _, k := range []string{"all", "en", "vi"} {
 		l := r.Latency[k]
-		fmt.Fprintf(w, "latency %-3s p50=%.1fus p95=%.1fus p99=%.1fus\n", k, l.P50Micros, l.P95Micros, l.P99Micros)
+		_, _ = fmt.Fprintf(w, "latency %-3s p50=%.1fus p95=%.1fus p99=%.1fus\n", k, l.P50Micros, l.P95Micros, l.P99Micros)
 	}
 }
 
