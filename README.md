@@ -1,5 +1,24 @@
 # Guard Spec
 
+[![Release](https://img.shields.io/github/v/release/guard-spec/guard-spec?sort=semver&label=release)](https://github.com/guard-spec/guard-spec/releases/latest)
+[![License](https://img.shields.io/github/license/guard-spec/guard-spec)](LICENSE)
+[![CI](https://github.com/guard-spec/guard-spec/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/guard-spec/guard-spec/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/guard-spec/guard-spec/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/guard-spec/guard-spec/actions/workflows/codeql.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/guard-spec/guard-spec/badge)](https://scorecard.dev/viewer/?uri=github.com/guard-spec/guard-spec)
+
+[![Go](https://img.shields.io/github/go-mod/go-version/guard-spec/guard-spec?logo=go&logoColor=white)](go.mod)
+[![PostgreSQL 17](https://img.shields.io/badge/PostgreSQL-17-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![ONNX Runtime](https://img.shields.io/badge/ONNX_Runtime-1.31-005CED?logo=onnx&logoColor=white)](docs/adr/0001-onnx-runtime.md)
+[![React](https://img.shields.io/badge/Admin_UI-React-61DAFB?logo=react&logoColor=black)](web/)
+[![Images](https://img.shields.io/badge/images-ghcr.io-2496ED?logo=docker&logoColor=white)](https://github.com/guard-spec/guard-spec/pkgs/container/guard-spec-gateway)
+[![Helm](https://img.shields.io/badge/Helm-chart-0F1689?logo=helm&logoColor=white)](deploy/helm/guard-spec)
+[![Model](https://img.shields.io/badge/model-Hugging_Face-FFD21E?logo=huggingface&logoColor=black)](https://huggingface.co/guard-spec/guardspec-classifier)
+
+[![Signed with cosign](https://img.shields.io/badge/signed-cosign-4B32C3?logo=sigstore&logoColor=white)](SECURITY.md#verifying-releases)
+[![SBOM](https://img.shields.io/badge/SBOM-SPDX-0A7BBB)](SECURITY.md#verifying-releases)
+[![SLSA provenance](https://img.shields.io/badge/SLSA-provenance-6A5ACD)](SECURITY.md#verifying-releases)
+[![Security policy](https://img.shields.io/badge/security-policy-2E7D32)](SECURITY.md)
+
 > Tiếng Việt: [README.vi.md](README.vi.md).
 
 Guard Spec is a self-hosted gateway that sits between your application and an
