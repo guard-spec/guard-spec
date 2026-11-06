@@ -19,7 +19,7 @@
 [![SLSA provenance](https://img.shields.io/badge/SLSA-provenance-6A5ACD)](SECURITY.md#verifying-releases)
 [![Security policy](https://img.shields.io/badge/security-policy-2E7D32)](SECURITY.md)
 
-> English: [README.md](README.md) (bản đầy đủ, là tài liệu chính).
+> English: [README.md](README.md) (bản đầy đủ, là tài liệu chính). Tài liệu: [guardspec.io/vi/docs](https://guardspec.io/vi/docs/).
 
 Guard Spec là một gateway tự host, đặt giữa ứng dụng của bạn và một API LLM
 tương thích OpenAI, để chặn tấn công prompt injection. Nó kiểm tra tin nhắn
@@ -494,7 +494,9 @@ Guard Spec **không** bảo vệ trước:
 - Tấn công khối lượng lớn: rate limit chỉ trong bộ nhớ, theo từng replica.
 
 Các rủi ro còn lại khi triển khai, cách giảm từng rủi ro và checklist gia cố: xem
-[Rủi ro bảo mật và gia cố](docs/security-risks.vi.md).
+[Rủi ro bảo mật và gia cố](docs/security-risks.vi.md). Tài liệu cho bộ phận
+bảo mật (kiến trúc, luồng dữ liệu, dữ liệu lưu ở đâu và bao lâu, kiểm chữ ký,
+SBOM, provenance; tiếng Anh): [docs/security/](docs/security/README.md).
 
 Báo lỗ hổng bảo mật một cách riêng tư theo [SECURITY.md](SECURITY.md).
 

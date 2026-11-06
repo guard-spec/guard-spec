@@ -9,6 +9,21 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ## [Unreleased]
 
+### Added
+
+- `docs/security/`: documentation for security teams: architecture and trust
+  boundaries, the data flow of a request, what is stored where and for how
+  long (audit content off by default, retention per table), secrets and
+  encryption at rest, and how to verify a release (cosign signatures pinned
+  to the release tag, SBOMs, SLSA provenance) with the output for v0.1.0.
+- `deploy/terraform/aws/`: a Terraform reference for AWS (ECS on Fargate,
+  RDS for PostgreSQL 17, Secrets Manager, two ALBs), with variables for the
+  image tags or digests and the detection layers and models. Reference, not
+  yet verified against a real account. CI runs `terraform fmt -check`,
+  `validate` and `test` (a plan against a mocked provider).
+- Documentation site at <https://guardspec.io/docs/>, built from this
+  repository's Markdown; linked from the README.
+
 ## [0.1.1] - 2026-11-06
 
 ### Added

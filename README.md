@@ -19,7 +19,7 @@
 [![SLSA provenance](https://img.shields.io/badge/SLSA-provenance-6A5ACD)](SECURITY.md#verifying-releases)
 [![Security policy](https://img.shields.io/badge/security-policy-2E7D32)](SECURITY.md)
 
-> Tiếng Việt: [README.vi.md](README.vi.md).
+> Documentation: [guardspec.io/docs](https://guardspec.io/docs/) · Tiếng Việt: [README.vi.md](README.vi.md).
 
 Guard Spec is a self-hosted gateway that sits between your application and an
 OpenAI-compatible LLM API and blocks prompt injection. It checks user
@@ -42,6 +42,7 @@ before you rely on it.
 - [Architecture](#architecture)
 - [Quick start](#quick-start)
 - [Deployment guides](docs/deploy/README.md) (AWS, Google Cloud, on-premise; reference templates)
+- [Terraform for AWS](deploy/terraform/aws/README.md) (ECS on Fargate, RDS; reference, not yet verified)
 - [Models](#models)
 - [Configuration](#configuration)
 - [APIs](#apis)
@@ -50,6 +51,7 @@ before you rely on it.
 - [Alerts and notifications](#alerts-and-notifications)
 - [Benchmarks](#benchmarks)
 - [Security model and limitations](#security-model-and-limitations)
+- [Security documentation](docs/security/README.md) (architecture, data flow, retention, verifying a release)
 - [Operations](#operations)
 - [Development](#development)
 - [License](#license)
@@ -1258,6 +1260,9 @@ What it does **not** protect against:
 
 For the risks that remain in a deployment and how to reduce each one, with a
 hardening checklist, see [Security risks and hardening](docs/security-risks.md).
+For a security review (architecture, data flow, what is stored and for how
+long, verifying signatures, SBOMs and provenance), see
+[docs/security/](docs/security/README.md).
 
 Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
 
