@@ -34,6 +34,7 @@ type Metrics struct {
 // Latency summarises per-row pipeline latency.
 type Latency struct {
 	P50Micros float64 `json:"p50_us"`
+	P95Micros float64 `json:"p95_us,omitempty"`
 	P99Micros float64 `json:"p99_us"`
 }
 
@@ -117,6 +118,7 @@ func BuildReport(detector string, results []Result) Report {
 		}
 		rep.Latency[k] = Latency{
 			P50Micros: math.Round(float64(Percentile(ds, 50).Nanoseconds())/10) / 100,
+			P95Micros: math.Round(float64(Percentile(ds, 95).Nanoseconds())/10) / 100,
 			P99Micros: math.Round(float64(Percentile(ds, 99).Nanoseconds())/10) / 100,
 		}
 	}
@@ -208,7 +210,7 @@ func (r Report) WriteTable(w io.Writer) {
 	}
 	for _, k := range []string{"all", "en", "vi"} {
 		l := r.Latency[k]
-		fmt.Fprintf(w, "latency %-3s p50=%.1fus p99=%.1fus\n", k, l.P50Micros, l.P99Micros)
+		fmt.Fprintf(w, "latency %-3s p50=%.1fus p95=%.1fus p99=%.1fus\n", k, l.P50Micros, l.P95Micros, l.P99Micros)
 	}
 }
 

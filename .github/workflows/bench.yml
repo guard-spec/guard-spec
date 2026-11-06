@@ -1,0 +1,117 @@
+name: Bench
+
+# Detection latency on GitHub-hosted Linux runners (native amd64, plus arm64
+# for comparison), with the released models: guardspec-classifier v3b (L2)
+# and multilingual-e5-small (L3), pulled by cmd/models and checked against
+# the SHA-256 values of models/manifest.yaml.
+#
+# Two measurements, the same ones as README.md "Benchmarks":
+#   - cmd/eval: sanitizer + detector per row of eval/ (2,176 rows), one row at
+#     a time, for L1 only, L1+L2, L1+L2+L3 and L1+L2+L3 with the cascade;
+#   - cmd/onnxbench: one model run per request (L2 classifier, L3 embedder)
+#     at 64 to 2048 tokens (2048 is split into 512-token windows), with 1
+#     and 4 concurrent requests.
+#
+# GitHub-hosted runners are shared VMs: read the numbers as indicative.
+# Manual only (Actions > Bench > Run workflow, or `gh workflow run bench.yml`).
+
+on:
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  bench:
+    name: Bench (${{ matrix.runner }})
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    env:
+      CGO_ENABLED: "1"
+      CGO_LDFLAGS: -L${{ github.workspace }}/.onnx/lib
+      ONNXRUNTIME_LIB: ${{ github.workspace }}/.onnx/lib/libonnxruntime.so
+      MODEL_DIR: ${{ github.workspace }}/models
+      RUNNER_LABEL: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      # ONNX Runtime + libtokenizers.a, pinned by SHA-256 in build/onnx-deps.sh.
+      - run: make onnx-deps
+      # Hugging Face at the pinned revision, else the GitHub Release mirror;
+      # every file is checked against models/manifest.yaml.
+      - name: Pull models
+        run: go run ./cmd/models pull -dir models/cache guardspec-classifier@v3b multilingual-e5-small
+      - name: Build
+        run: |
+          go build -tags onnx -o bin/onnxbench ./cmd/onnxbench
+          go build -tags onnx -o bin/eval ./cmd/eval
+      - name: Bench
+        run: |
+          set -eu
+          out=bench-$RUNNER_LABEL.md
+          cpu=$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1)
+          {
+            echo "## Detection latency on $RUNNER_LABEL"
+            echo
+            echo "- Date (UTC): $(date -u +%Y-%m-%dT%H:%MZ)"
+            echo "- Commit: \`$GITHUB_SHA\`"
+            echo "- Runner: GitHub-hosted \`$RUNNER_LABEL\` ($(uname -m)), $(nproc) vCPUs, $(free -g | awk '/^Mem:/{print $2}') GB RAM"
+            echo "- CPU: $cpu"
+            echo "- $(go version | cut -d' ' -f3-), $(sed -n 's/^ORT_VERSION=/ONNX Runtime /p' build/onnx-deps.sh)"
+            echo "- Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo
+            echo "GitHub-hosted runners are shared VMs: the numbers are indicative."
+            echo
+            echo "### End to end: sanitizer + detector per eval row (cmd/eval, $(cat eval/data/*.jsonl | wc -l) rows, one at a time)"
+            echo
+            echo "| Detector | p50 ms | p95 ms | p99 ms |"
+            echo "|---|---:|---:|---:|"
+          } > "$out"
+          row() { # label, then cmd/eval arguments
+            label=$1; shift
+            ./bin/eval "$@" > eval.txt
+            awk -v l="$label" '/^latency all /{
+              for (i = 3; i <= NF; i++) { split($i, kv, "="); sub("us", "", kv[2]); v[kv[1]] = kv[2] / 1000 }
+              printf "| %s | %.2f | %.2f | %.2f |\n", l, v["p50"], v["p95"], v["p99"] }' eval.txt >> "$out"
+            grep '^latency ' eval.txt
+          }
+          row "L1 only" -detector fusion
+          row "L1 + L2 (v3b)" -layers l1,l2
+          row "L1 + L2 + L3 (v3b, default with models)" -layers l1,l2,l3
+          row "L1 + L2 + L3 (v3b), cascade" -layers l1,l2,l3 -cascade
+          for m in "L2 classifier (guardspec-classifier v3b, int8)|classifier|models/cache/guardspec-classifier/v3b" \
+                   "L3 embedder (multilingual-e5-small, int8)|embedder|models/cache/multilingual-e5-small/614241f"; do
+            label=${m%%|*}; rest=${m#*|}; kind=${rest%%|*}; dir=${rest#*|}
+            {
+              echo
+              echo "### Per layer: $label (cmd/onnxbench, 200 requests per row)"
+              echo
+              ./bin/onnxbench -model "$dir" -kind "$kind" -lengths 64,256,512,2048 -conc 1,4 -n 200 -warmup 10 > bench.txt
+              # The first line (model, ORT version, CPUs) as code, then the table.
+              printf '%s%s%s\n' "\`" "$(head -1 bench.txt)" "\`"
+              tail -n +2 bench.txt
+            } >> "$out"
+          done
+          {
+            echo
+            echo "<details><summary>lscpu</summary>"
+            echo
+            echo '```'
+            lscpu
+            echo '```'
+            echo "</details>"
+          } >> "$out"
+          cat "$out" >> "$GITHUB_STEP_SUMMARY"
+          cat "$out"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bench-${{ matrix.runner }}
+          path: bench-${{ matrix.runner }}.md
+          if-no-files-found: error
