@@ -19,6 +19,7 @@ import { KeysPage } from './pages/KeysPage';
 import { InvitePage } from './pages/InvitePage';
 import { LoginPage } from './pages/LoginPage';
 import { MembersPage } from './pages/MembersPage';
+import { ModelsPage } from './pages/ModelsPage';
 import { OrganizationPage } from './pages/OrganizationPage';
 import { OrgPicker } from './pages/OrgPicker';
 import { ProjectsPage } from './pages/ProjectsPage';
@@ -52,6 +53,7 @@ const ORG_PAGES: Partial<Record<Route, ComponentType>> = {
   simulator: SimulatorPage,
   providers: ProvidersPage,
   projects: ProjectsPage,
+  models: ModelsPage,
   requests: RequestLogPage,
   activity: ActivityPage,
   members: MembersPage,

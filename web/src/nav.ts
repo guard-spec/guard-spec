@@ -6,6 +6,7 @@
 
 import {
   Bell,
+  Boxes,
   BellRing,
   Building2,
   Cpu,
@@ -65,6 +66,7 @@ export const NAV: NavGroup[] = [
     items: [
       { route: 'providers', label: 'nav.providers', icon: Cpu },
       { route: 'projects', label: 'nav.projects', icon: FolderKanban },
+      { route: 'models', label: 'nav.models', icon: Boxes },
     ],
   },
   {

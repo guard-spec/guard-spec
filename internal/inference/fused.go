@@ -15,9 +15,15 @@ type Detail struct {
 	Rules      []string           // fired rule ids
 }
 
+// Scorer is what FusedBackend runs: a *fusion.Fuser, or a detector that can
+// swap its fuser at run time (ml.Live).
+type Scorer interface {
+	Score(ctx context.Context, text string) fusion.Result
+}
+
 // FusedBackend scores injection with fusion over L1 rules (and L2/L3 when
 // they are installed on the Fuser).
-type FusedBackend struct{ F *fusion.Fuser }
+type FusedBackend struct{ F Scorer }
 
 // Run implements ModelBackend.
 func (b FusedBackend) Run(ctx context.Context, text string) ([]Score, error) {

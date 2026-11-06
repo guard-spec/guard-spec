@@ -202,6 +202,90 @@ export interface DashboardStats {
   top_projects: { project_id: UUID | null; name: string | null; count: number; blocked: number }[];
 }
 
+// ── Classifier models and shadow comparison ─────────────────────────────────
+
+/** GET /gateway/models: the gateway's classifier models, read by the control plane (instance-wide). */
+export interface GatewayModels {
+  /** false: the control plane has no GATEWAY_URL. */
+  configured: boolean;
+  /** false (with configured): the gateway did not answer; see error. */
+  reachable: boolean;
+  error?: string;
+  checked_at: string;
+  /** The running L2 classifier, e.g. guardspec-classifier@v3b; null when none is loaded. */
+  l2_model: string | null;
+  /** Its SHA-256 matched the manifest at the last (re)load. */
+  l2_verified: boolean;
+  /** The manifest's recommended classifier. */
+  recommended: string | null;
+  /** Classifier versions in the gateway's model cache. */
+  installed: string[];
+  /** recommended differs from l2_model. */
+  update_available: boolean;
+  shadow: { enabled: boolean; model: string | null; error?: string };
+  reload: { generation: number; at: string | null; error: string | null };
+}
+
+/** A window of the shadow comparison (as the dashboard). */
+export type ShadowWindow = DashboardWindow;
+
+/** Which way the shadow model disagrees with the active one. */
+export type ShadowDirection = 'would_block' | 'would_allow';
+export const SHADOW_DIRECTIONS: readonly ShadowDirection[] = ['would_block', 'would_allow'];
+
+export interface ScoreStats {
+  mean: number | null;
+  p50: number | null;
+  p95: number | null;
+}
+
+/** GET /organizations/:orgId/shadow: the active and the shadow classifier over a window. */
+export interface ShadowSummary {
+  window: ShadowWindow;
+  from: string;
+  to: string;
+  /** The block threshold the decisions are compared at. */
+  threshold: number;
+  /** Shadow records in the window. */
+  total: number;
+  /** Records where both models produced a score. */
+  compared: number;
+  agree: number;
+  /** agree / compared; null when nothing was compared. */
+  agreement_rate: number | null;
+  /** The active model allowed, the shadow would block. */
+  shadow_would_block: number;
+  /** The active model blocked, the shadow would allow. */
+  shadow_would_allow: number;
+  not_compared: { timeout: number; skipped: number; error: number };
+  pairs: { active_model: string; shadow_model: string; count: number }[];
+  scores: {
+    active: ScoreStats;
+    shadow: ScoreStats;
+    /** shadow − active. */
+    delta: { mean: number | null; mean_abs: number | null; p95_abs: number | null };
+    histogram: { from: number; to: number; active: number; shadow: number }[];
+  };
+}
+
+/** A row of GET /organizations/:orgId/shadow/disagreements. */
+export interface ShadowDisagreement {
+  request_id: string;
+  created_at: string;
+  project_id: UUID | null;
+  /** What the gateway did. */
+  action: string;
+  /** The LLM model of the request. */
+  model: string | null;
+  active_model: string;
+  shadow_model: string;
+  active_score: number;
+  shadow_score: number;
+  active_decision: 'allow' | 'block';
+  shadow_decision: 'allow' | 'block';
+  direction: ShadowDirection;
+}
+
 // ── Upstreams (contract)────────────────────────────────────────────────────
 
 export interface Upstream {

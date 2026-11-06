@@ -78,6 +78,30 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 - `docs/security/verifying-releases.md` shows the verification output for
   v0.1.1, and the Terraform reference deploys 0.1.1 by default.
+- Shadow mode: `SHADOW_L2_MODEL` (or `SHADOW_L2_MODEL_DIR`) runs a candidate
+  L2 classifier on the same traffic as the active one, asynchronously and off
+  the response path (`SHADOW_TIMEOUT`, `SHADOW_SAMPLE`,
+  `SHADOW_MAX_INFLIGHT`). It records each compared request's scores and
+  would-be decisions in the new `shadow_results` table (migration 017, row
+  level secured, no content) and never changes a decision.
+- `GET /v1/organizations/:orgId/shadow` (viewer): agreement rate,
+  disagreements by direction, statuses and score distributions over 24h, 7d
+  or 30d; `GET /v1/organizations/:orgId/shadow/disagreements` (admin): the
+  disagreeing requests, paged. Capabilities `shadow.read` and
+  `shadow.disagreements.read`.
+- Hot reload of the models: SIGHUP, or `POST /admin/models/reload` with
+  `GATEWAY_ADMIN_TOKEN` (`GET /admin/models` for the status). A reload
+  verifies every file against the manifest's SHA-256, loads the model fully
+  and swaps it atomically; requests in flight are not dropped and a failure
+  keeps the running model. `MODELS_MANIFEST` names a manifest file to use
+  instead of the built-in one.
+- `GET /readyz`: `detector.models` reports the running classifier
+  (`name@version`, verified or not), the manifest's recommended version, the
+  installed versions, `update_available`, shadow mode and the last reload.
+- `GET /v1/gateway/models` on the control plane (`GATEWAY_URL`) and an admin
+  UI **Models** page: the running model, a notice when a new version is
+  available, the shadow comparison and its disagreements, in English and
+  Vietnamese.
 
 ## [0.1.1] - 2026-11-06
 

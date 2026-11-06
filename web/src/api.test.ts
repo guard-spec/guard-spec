@@ -116,6 +116,25 @@ describe('ApiClient', () => {
     expect(f.calls.map((c) => c.url)).toEqual(['/v1/organizations/o/dashboard', '/v1/organizations/o/dashboard?window=7d&project_id=p']);
   });
 
+  it('reads the gateway models and the shadow comparison', async () => {
+    const page = { items: [], next_cursor: null };
+    const f = fakeFetch([json(200, { configured: false }), json(200, { total: 0 }), json(200, { total: 0 }), json(200, page), json(200, page)]);
+    const api = new ApiClient({ getToken: () => 't', fetch: f.fetch });
+    await expect(api.getGatewayModels()).resolves.toEqual({ configured: false });
+    await api.getShadowSummary('o');
+    await api.getShadowSummary('o', { window: '7d' });
+    await expect(api.listShadowDisagreements('o', { window: '24h', limit: 25 })).resolves.toEqual(page);
+    await api.listShadowDisagreements('o', { window: '30d', direction: 'would_block', limit: 50, cursor: 'c1' });
+    expect(f.calls.map((c) => c.url)).toEqual([
+      '/v1/gateway/models',
+      '/v1/organizations/o/shadow',
+      '/v1/organizations/o/shadow?window=7d',
+      '/v1/organizations/o/shadow/disagreements?window=24h&limit=25',
+      '/v1/organizations/o/shadow/disagreements?window=30d&direction=would_block&limit=50&cursor=c1',
+    ]);
+    expect(headers(f.calls[0]).Authorization).toBe('Bearer t');
+  });
+
   it('accepts upstream lists with or without a data wrapper', async () => {
     const u = { id: 'u', name: 'main' };
     const f = fakeFetch([json(200, { data: [u] }), json(200, [u])]);

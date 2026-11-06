@@ -6,6 +6,7 @@ import { en } from '../i18n/en';
 import { vi as viMessages } from '../i18n/vi';
 import type { UpstreamInput } from '../types';
 import { DASH_WINDOWS, share, volumeBars } from './dashboard';
+import { binLabel, histogramMax, notComparedTotal } from './models';
 import { ApiError } from '../api';
 import { authErrorText, CODES } from '../auth/errors';
 import { translator } from '../i18n';
@@ -129,6 +130,25 @@ describe('dashboard', () => {
     expect(share(0, 0)).toBe(0);
     expect(DASH_WINDOWS[0]).toBe('24h');
     for (const w of DASH_WINDOWS) expect(en[`dash.window.${w}`]).toBeTruthy();
+  });
+});
+
+describe('models', () => {
+  it('sums the requests the shadow model did not score', () => {
+    expect(notComparedTotal({ not_compared: { timeout: 2, skipped: 3, error: 1 } })).toBe(6);
+    expect(notComparedTotal({ not_compared: { timeout: 0, skipped: 0, error: 0 } })).toBe(0);
+  });
+
+  it('scales histogram bars to the tallest bin of either model', () => {
+    expect(histogramMax([{ from: 0, to: 0.1, active: 4, shadow: 9 }, { from: 0.1, to: 0.2, active: 7, shadow: 1 }])).toBe(9);
+    // Empty bins: bars at width 0, never a division by 0.
+    expect(histogramMax([{ from: 0, to: 0.1, active: 0, shadow: 0 }])).toBe(1);
+    expect(histogramMax([])).toBe(1);
+  });
+
+  it('names score bins', () => {
+    expect(binLabel({ from: 0, to: 0.1 })).toBe('0.0–0.1');
+    expect(binLabel({ from: 0.9, to: 1 })).toBe('0.9–1.0');
   });
 });
 

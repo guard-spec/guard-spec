@@ -32,6 +32,8 @@ export const FALLBACK_MATRIX: PermissionMatrix = {
     { key: 'security.read', min_role: 'admin', description: 'View the security policy' },
     { key: 'alerts.read', min_role: 'viewer', description: 'View alert rules, channels, groups and alert history' },
     { key: 'alerts.write', min_role: 'admin', description: 'Manage alert rules, notification channels and user groups; send tests' },
+    { key: 'shadow.read', min_role: 'viewer', description: 'View the classifier models and the shadow comparison' },
+    { key: 'shadow.disagreements.read', min_role: 'admin', description: 'View the requests where the shadow model disagrees' },
     { key: 'alerts.deliveries.read', min_role: 'admin', description: 'View the notification delivery log' },
     { key: 'security.write', min_role: 'owner', description: 'Change the security policy (2FA, login methods, domain join)' },
   ],

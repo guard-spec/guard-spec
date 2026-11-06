@@ -129,6 +129,7 @@ func main() {
 		func(s *appSettings) {
 			s.mfaBox, s.publicURL, s.allowPrivate = mfaBox, cfg.PublicBaseURL, cfg.UpstreamAllowPrivate
 			s.trustedProxies = cfg.TrustedProxies
+			s.gatewayURL = cfg.GatewayURL
 			s.alertsBase = ctx
 			s.alertsCfg = &alertsCfg
 		},
@@ -189,6 +190,10 @@ type appSettings struct {
 	alertsBase    context.Context
 	noAlertEvents bool
 	alertsRT      *alertsRuntime
+	// gatewayURL is GATEWAY_URL: where the control plane reads the gateway's
+	// /readyz for the model status of the admin UI (shadow.go). Optional.
+	gatewayURL    string
+	gatewayClient *http.Client // tests
 }
 
 // withKeyOrgs sets the UPSTREAM_KEY_ORGS allowlist.
@@ -285,6 +290,9 @@ func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins 
 	instance.Delete("/identity-providers/:id", id.deleteProvider)
 	instance.Get("/activity", listInstanceActivity(db))
 
+	// The gateway's running and available models (shadow.go); instance-wide.
+	authed.Get("/gateway/models", getGatewayModels(settings))
+
 	authed.Get("/organizations", listMyOrgs(db))
 	authed.Post("/organizations", createOrg(db))
 	authed.Post("/cel/validate", validateCEL(eng))
@@ -347,6 +355,11 @@ func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins 
 	authed.Get("/organizations/:orgId/requests", viewer, listRequests(db))
 	// Aggregates of the request log over a window (dashboard.go).
 	authed.Get("/organizations/:orgId/dashboard", viewer, getDashboard(db))
+	// Shadow mode: the candidate model compared with the active one
+	// (shadow.go, migration 017). The aggregates are for viewers; the list
+	// of disagreeing requests for admins.
+	authed.Get("/organizations/:orgId/shadow", viewer, getShadowSummary(db))
+	authed.Get("/organizations/:orgId/shadow/disagreements", admin, listShadowDisagreements(db))
 
 	// L3 exemplars of the org (migration 009); never stored in the repository.
 	authed.Get("/organizations/:orgId/exemplars", viewer, listExemplars(db))
@@ -1056,6 +1069,9 @@ type appConfig struct {
 	// UpstreamURL is the gateway's UPSTREAM_LLM_URL, shown by the simulator
 	// (without credentials). Optional.
 	UpstreamURL string
+	// GatewayURL (GATEWAY_URL) is the gateway's base URL inside the
+	// deployment, such as http://gateway:8080, for the model status. Optional.
+	GatewayURL string
 	// MFAEncKey (MFA_ENC_KEY) encrypts TOTP secrets: 32 bytes in base64.
 	MFAEncKey string
 	// PublicBaseURL (PUBLIC_BASE_URL) is the external origin of the control
@@ -1078,6 +1094,7 @@ func loadConfig() appConfig {
 		AdminEmail:     os.Getenv("ADMIN_EMAIL"),
 		AdminPassword:  os.Getenv("ADMIN_PASSWORD"),
 		AllowedOrigins: os.Getenv("ALLOWED_ORIGINS"),
+		GatewayURL:     strings.TrimSpace(os.Getenv("GATEWAY_URL")),
 		UpstreamURL:    redactURL(os.Getenv("UPSTREAM_LLM_URL")),
 		MFAEncKey:      os.Getenv("MFA_ENC_KEY"),
 		PublicBaseURL:  os.Getenv("PUBLIC_BASE_URL"),

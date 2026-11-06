@@ -36,6 +36,10 @@ import {
   type PolicySchema,
   type Project,
   type Rule,
+  type GatewayModels,
+  type ShadowDisagreement,
+  type ShadowSummary,
+  type ShadowWindow,
   type SimValue,
   type TraceEntry,
   type Upstream,
@@ -678,6 +682,10 @@ export interface MockOptions {
   rich?: boolean;
   /** A control plane without the alerts endpoints (404). */
   noAlerts?: boolean;
+  /** GET /gateway/models: no GATEWAY_URL on the control plane, or the gateway does not answer. */
+  gateway?: 'unconfigured' | 'unreachable';
+  /** No shadow records (GET /shadow answers total 0). */
+  noShadow?: boolean;
 }
 
 // ── Identity contract (N15): state and seed ────────────────────────────────
@@ -911,6 +919,82 @@ function dashboardBody(state: MockState, url: URL): DashboardStats {
   };
 }
 
+// ── Classifier models and shadow comparison ────────────────────────────────
+
+/** GET /gateway/models: v3b runs, the manifest recommends v3c, v2 runs in shadow. */
+export const GATEWAY_MODELS: GatewayModels = {
+  configured: true,
+  reachable: true,
+  checked_at: '2026-11-04T08:00:00Z',
+  l2_model: 'guardspec-classifier@v3b',
+  l2_verified: true,
+  recommended: 'guardspec-classifier@v3c',
+  installed: ['guardspec-classifier@v2', 'guardspec-classifier@v3b'],
+  update_available: true,
+  shadow: { enabled: true, model: 'guardspec-classifier@v2' },
+  reload: { generation: 2, at: '2026-11-03T21:15:00Z', error: null },
+};
+
+function gatewayModelsBody(opts: MockOptions): GatewayModels {
+  if (opts.gateway === 'unconfigured') {
+    return { configured: false, reachable: false, checked_at: GATEWAY_MODELS.checked_at, l2_model: null, l2_verified: false, recommended: null, installed: [], update_available: false, shadow: { enabled: false, model: null }, reload: { generation: 0, at: null, error: null } };
+  }
+  if (opts.gateway === 'unreachable') {
+    return { ...gatewayModelsBody({ gateway: 'unconfigured' }), configured: true, error: 'dial tcp 10.0.0.5:8080: connect: connection refused' };
+  }
+  return GATEWAY_MODELS;
+}
+
+/** Disagreements of the shadow model, newest first. */
+export const SHADOW_DISAGREEMENTS: ShadowDisagreement[] = [
+  { created_at: '2026-11-04T07:52:00Z', model: 'gpt-4o', action: 'allow', active_score: 0.62, shadow_score: 0.91, active_decision: 'allow', shadow_decision: 'block', direction: 'would_block' },
+  { created_at: '2026-11-04T07:31:00Z', model: 'gpt-4o-mini', action: 'block', active_score: 0.88, shadow_score: 0.41, active_decision: 'block', shadow_decision: 'allow', direction: 'would_allow' },
+  { created_at: '2026-11-04T06:05:00Z', model: 'claude-sonnet-4-5', action: 'route', active_score: 0.7, shadow_score: 0.87, active_decision: 'allow', shadow_decision: 'block', direction: 'would_block' },
+  { created_at: '2026-11-04T03:47:00Z', model: null, action: 'log', active_score: 0.84, shadow_score: 0.86, active_decision: 'allow', shadow_decision: 'block', direction: 'would_block' },
+].map((d, i) => ({
+  ...d,
+  direction: d.direction as ShadowDisagreement['direction'],
+  active_decision: d.active_decision as 'allow' | 'block',
+  shadow_decision: d.shadow_decision as 'allow' | 'block',
+  request_id: `${['7c1e', '2a9f', 'e40b', '91d3'][i] ?? '0000'}a5b2-0000-4000-8000-${String(i + 1).padStart(12, '0')}`,
+  project_id: i % 2 === 0 ? null : '10000000-0000-4000-8000-000000000003',
+  active_model: 'guardspec-classifier@v3b',
+  shadow_model: 'guardspec-classifier@v2',
+}));
+
+/** GET /shadow of a window: the same comparison, scaled by the window. */
+export function shadowSummaryBody(window: ShadowWindow, empty = false): ShadowSummary {
+  const k = empty ? 0 : { '24h': 1, '7d': 6, '30d': 25 }[window];
+  const to = Date.parse('2026-11-04T08:01:00Z');
+  const hours = { '24h': 24, '7d': 168, '30d': 720 }[window];
+  const active = [412, 96, 41, 22, 15, 9, 8, 11, 19, 47];
+  const shadow = [398, 104, 45, 20, 17, 11, 6, 13, 18, 48];
+  const compared = 680 * k;
+  const wouldBlock = 3 * k;
+  const wouldAllow = 1 * k;
+  const nil = { mean: null, p50: null, p95: null };
+  return {
+    window,
+    from: new Date(to - hours * 3_600_000).toISOString(),
+    to: new Date(to).toISOString(),
+    threshold: 0.85,
+    total: 694 * k,
+    compared,
+    agree: compared - wouldBlock - wouldAllow,
+    agreement_rate: compared ? (compared - wouldBlock - wouldAllow) / compared : null,
+    shadow_would_block: wouldBlock,
+    shadow_would_allow: wouldAllow,
+    not_compared: { timeout: 9 * k, skipped: 4 * k, error: 1 * k },
+    pairs: empty ? [] : [{ active_model: 'guardspec-classifier@v3b', shadow_model: 'guardspec-classifier@v2', count: compared }],
+    scores: {
+      active: empty ? nil : { mean: 0.164, p50: 0.042, p95: 0.912 },
+      shadow: empty ? nil : { mean: 0.171, p50: 0.048, p95: 0.905 },
+      delta: empty ? { mean: null, mean_abs: null, p95_abs: null } : { mean: 0.007, mean_abs: 0.031, p95_abs: 0.118 },
+      histogram: active.map((a, i) => ({ from: i / 10, to: (i + 1) / 10, active: a * k, shadow: (shadow[i] ?? 0) * k })),
+    },
+  };
+}
+
 const IDENTITY_PATH =
   /^\/(auth\/(me|mfa|sessions|providers|oidc|identities|logout|password)|permissions|admin\/|providers\/catalog)|\/(members|security|activity)(\/|$)|\/upstreams\/[^/]+\/test$/;
 
@@ -1013,6 +1097,7 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
     }
     if (method === 'GET' && path === '/permissions') return json(200, PERMISSIONS);
     if (method === 'GET' && path === '/providers/catalog') return json(200, { items: CATALOG });
+    if (method === 'GET' && path === '/gateway/models') return json(200, gatewayModelsBody(opts));
 
     // Alerts: self service (alerts contract §6)
     if (/^\/(notifications|me\/channel-links|alerts\/capabilities)(\/|$)/.test(path)) {
@@ -1111,6 +1196,16 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
     }
 
     if (sub === '' && method === 'GET') return json(200, state.org);
+    const shadowWindow = (url.searchParams.get('window') ?? '24h') as ShadowWindow;
+    if (sub === '/shadow' && method === 'GET') return json(200, shadowSummaryBody(shadowWindow, opts.noShadow));
+    if (sub === '/shadow/disagreements' && method === 'GET') {
+      // shadow.disagreements.read: admin and owner (cmd/control-plane/members.go).
+      if (opts.role === 'viewer' || opts.role === 'member') return json(403, { error: 'requires role admin' });
+      const direction = url.searchParams.get('direction');
+      const rows = opts.noShadow ? [] : SHADOW_DISAGREEMENTS.filter((d) => !direction || d.direction === direction);
+      const { total: _total, ...page } = listBody(rows, url, false) as { items: unknown[]; next_cursor: string | null; total: number };
+      return json(200, page);
+    }
     if (sub === '/projects' && method === 'GET') return json(200, listBody(state.projects, url, legacy));
     if (sub === '/projects' && method === 'POST') {
       const b = body as { name: string; slug: string };

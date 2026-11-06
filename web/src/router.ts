@@ -27,6 +27,7 @@ export const PATHS = {
   simulator: 'simulator',
   providers: 'providers',
   projects: 'projects',
+  models: 'models',
   requests: 'requests',
   activity: 'activity',
   members: 'members',
@@ -56,7 +57,6 @@ export const ROUTES = Object.keys(PATHS) as Route[];
 /** Addresses of the first admin UI, and short forms, that now live elsewhere. */
 export const ALIASES: Readonly<Record<string, Route>> = {
   upstreams: 'providers',
-  models: 'providers',
   audit: 'requests',
   policies: 'flow',
   'audit-log': 'requests',

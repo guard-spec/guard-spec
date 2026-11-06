@@ -556,6 +556,15 @@ Then restart the gateway (`docker compose up -d gateway`); the log line
 are on. `models/` is mounted read-only at `/models` and never baked into an
 image.
 
+**Trying a new version safely.** Run it in shadow mode first
+(`SHADOW_L2_MODEL=guardspec-classifier@<candidate>`): it scores the same
+traffic as the active classifier and only records what it would have decided.
+The admin UI's Models page compares the two (agreement rate, disagreements in
+each direction, score distributions) and says when the manifest recommends a
+version other than the running one. Switch without a restart with
+`kill -HUP` or `POST /admin/models/reload`. Details in
+[Shadow mode and model reload](#shadow-mode-and-model-reload).
+
 **Know before enabling L2/L3.** On our eval set they raise recall but also
 block about 1.4% of benign prompts with classifier v3b (L1 alone: 0.1%),
 mostly Vietnamese teencode (3.5%) and English (1.7%). See [Benchmarks](#benchmarks). Where
@@ -601,6 +610,12 @@ in a second table.
 | `DETECTOR_CASCADE` | `false` | `true` skips L2/L3 when L1's calibrated score is below `DETECTOR_CASCADE_LOW` or above `DETECTOR_CASCADE_HIGH` |
 | `DETECTOR_CASCADE_LOW` / `DETECTOR_CASCADE_HIGH` | `0.03` / `0.965` | Cascade bounds |
 | `DETECTOR_REQUIRE_ML` | `false` | `true` refuses to start without the model layers (not with `GUARD_ENV=dev`) |
+| `MODELS_MANIFEST` | empty (the manifest built into the binary) | Manifest file read at start and on every reload: what a reload verifies against, and what `/readyz` reports as recommended. See [Shadow mode and model reload](#shadow-mode-and-model-reload) |
+| `SHADOW_L2_MODEL` / `SHADOW_L2_MODEL_DIR` | empty (off) | Candidate classifier compared with the active one on the same traffic, as `name@version` or a directory. It never changes a decision |
+| `SHADOW_TIMEOUT` | `2s` | Budget of one request's comparison; a candidate still running after it is recorded as `timeout` |
+| `SHADOW_SAMPLE` | `1` | Share of requests compared, 0 to 1 |
+| `SHADOW_MAX_INFLIGHT` | CPUs / 2 (at least 1) | Candidate runs at once, on their own ONNX limiter; a text that finds them all busy is not compared (`skipped`) |
+| `GATEWAY_ADMIN_TOKEN` | empty (off) | Bearer token of `POST /admin/models/reload` and `GET /admin/models`; at least 32 bytes. Empty: those routes answer 404 |
 | `ONNXRUNTIME_LIB` | set in the image | Path of `libonnxruntime.so` / `.dylib` (`-tags onnx` builds) |
 | `INFERENCE_MAX_CONCURRENCY` | number of CPUs | Concurrent model runs per process |
 | `INFERENCE_INTRA_OP_THREADS` | ORT's choice (Linux: min(4, CPUs); with L2+L3 each gets min(4, CPUs/2)) | ONNX Runtime threads per session |
@@ -621,6 +636,7 @@ in a second table.
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | empty | First owner of the default organization, created on start when both are set |
 | `ALLOWED_ORIGINS` | empty (compose: `http://localhost:3000`) | CORS origins; empty disables CORS. The UI at `/ui/` is same-origin and needs none |
 | `UPSTREAM_LLM_URL` | empty | The gateway's value, so that the policy simulator can show the `env` step; credentials in it are not shown |
+| `GATEWAY_URL` | empty (compose: `http://gateway:8080`) | The gateway's base URL inside the deployment. The control plane reads its `/readyz` (server side, 3 s timeout) for the Models page; empty: the page says it is not configured |
 | `UPSTREAM_KEY_ORGS` | empty (compose: `UPSTREAM_KEY_MAIN=*`) | As on the gateway. Saving an upstream (or a config file) that names a key variable not allowed for the org is refused |
 | `UPSTREAM_KEY_*`, `UPSTREAM_ALLOW_PRIVATE` | empty, `false` (compose: `false`; dev override: `true`) | Used only by `POST .../upstreams/:id/test` (owner only), which applies the gateway's key allowlist and address rules. A key is sent with a test only to orgs `UPSTREAM_KEY_ORGS` lists by id, not through `*` (except with `GUARD_ENV=dev`); the answer says `key_sent`. Give the control plane `UPSTREAM_KEY_*` variables only if tests should use them |
 | `TRUSTED_PROXIES` | empty | Comma-separated CIDRs or addresses of reverse proxies. Their `X-Forwarded-For` is read from the right, and the first address that is not a trusted proxy is the client, for rate limits, sessions and the activity log. Empty: the header is ignored and the TCP peer is the client |
@@ -1008,6 +1024,13 @@ An upstream's key is never entered in the UI: `api_key_env` names a
 `UPSTREAM_KEY_ORGS` decides which organizations may use it; the form shows a
 refused variable at the field.
 
+**Models** shows the gateway's running classifier (and whether its files
+matched the manifest), a notice when the manifest recommends another version,
+the installed versions and the last reload, read through the control plane
+(`GATEWAY_URL`). Below it, the shadow comparison: agreement rate, requests
+where the candidate would block or allow differently (admins), and score
+distributions. See [Shadow mode and model reload](#shadow-mode-and-model-reload).
+
 **Config as code** edits the whole routing and policy configuration as YAML,
 validates it (`?dry_run=true`, errors by path, marked in the editor), shows a
 diff against the loaded version and applies it after a confirmation that
@@ -1325,6 +1348,76 @@ buffered, so their response columns stay empty.
 Each request gets one audit row. `action` is `allow`, `block`, `error` (the
 upstream failed or the client left before it answered) or `output_leak` (the
 canary showed up in the answer).
+
+### Shadow mode and model reload
+
+**Shadow mode.** With `SHADOW_L2_MODEL=guardspec-classifier@v2` (or
+`SHADOW_L2_MODEL_DIR`), the gateway loads a second classifier next to the
+active one. For each sampled request (`SHADOW_SAMPLE`), every text the
+detector scores is scored again by the candidate, and its L2 verdict is fused
+with the same request's L1 and L3 scores and the candidate's own calibration
+and fusion weights. The request's comparison is the largest fused score of
+each side over its texts, and each side's decision at the direct threshold
+(0.85).
+
+- It runs **asynchronously**, never in the response path: the active result
+  is returned at once and the candidate runs on its own goroutine and its own
+  ONNX limiter (`SHADOW_MAX_INFLIGHT`), so it never takes a slot an active
+  request waits for. When every slot is busy the text is not compared
+  (`skipped`) rather than queued. The audit writer, already off the response
+  path, waits up to `SHADOW_TIMEOUT` for it; a slower candidate is recorded
+  as `timeout`. The cost is CPU: a candidate roughly doubles L2 work for
+  sampled traffic, so lower `SHADOW_SAMPLE` on a busy gateway.
+- It never changes a decision, a response or a policy input.
+- Results go to `shadow_results` (migration 017), one row per compared
+  request, written in the audit row's transaction and row-level secured per
+  org like `requests`. A row holds the two model names, scores and decisions
+  and a status (`ok`, `timeout`, `error`, `skipped`), **never content**,
+  whatever the audit privacy settings. Rows are deleted with their request
+  (audit retention).
+- Policies, sanitizer blocks and the indirect threshold are not replayed:
+  the comparison is of the model layers.
+
+Compare in the admin UI (**Models**), or with the API:
+`GET /v1/organizations/:orgId/shadow?window=24h|7d|30d` (viewer: agreement
+rate, `shadow_would_block` / `shadow_would_allow`, statuses, score means,
+p50/p95, the shadow − active delta and a 10-bin histogram) and
+`GET /v1/organizations/:orgId/shadow/disagreements?direction=would_block|would_allow`
+(admin: the disagreeing requests, newest first, paged; no content).
+
+**Reloading models without a restart.** Two triggers, both on the gateway:
+
+- `kill -HUP <gateway pid>` (`docker compose kill -s HUP gateway`) reloads
+  the current targets from disk: the pinned version, the manifest's
+  recommended one when none is pinned, and the shadow candidate.
+- `POST /admin/models/reload` with `Authorization: Bearer $GATEWAY_ADMIN_TOKEN`
+  reloads and can switch targets:
+  `{"l2_model":"guardspec-classifier@v2"}`, `{"l2_model_dir":"/models/x"}`,
+  `{"shadow_l2_model":"guardspec-classifier@v3b"}` or
+  `{"shadow_l2_model":"off"}`. It answers 200 with the new generation, or 409
+  with the error. `GET /admin/models` returns the status. The routes do not
+  exist unless the token is set; they are on the API port, so keep the token
+  secret and the port off the Internet as usual.
+
+A reload resolves the target, checks **every file against the manifest's
+SHA-256** (the built-in manifest, or `MODELS_MANIFEST`; a directory that is
+not an install of a listed version is refused), loads the classifier fully
+and scores a warm-up text, and only then swaps it in atomically, with its own
+calibration and fusion weights. Requests in flight finish on the model they
+started with, which is closed once the last of them is done; none is dropped
+or fails. On any error the running models stay, the error is logged and
+`/readyz` reports it (`detector.models.reload.error`). A change made by the
+endpoint lasts until the next restart; pin it in `.env` (`L2_MODEL`) to keep
+it. With several gateway replicas, reload each one.
+
+`/readyz` reports under `detector.models`: the running classifier as
+`name@version` and whether its files matched the manifest (`l2_verified`), the
+manifest's `recommended` version and whether it is installed, the versions
+`installed` in the cache, `update_available`, the shadow candidate and the
+last reload. The Models page shows it through the control plane
+(`GATEWAY_URL`, read server side); nothing calls the Internet. A new version
+shows up when a new manifest recommends it (a new image, or
+`MODELS_MANIFEST`); pull it (`models pull`), then reload.
 
 ### Upstream behaviour
 

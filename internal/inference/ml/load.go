@@ -34,6 +34,7 @@ const (
 	EnvCascadeHigh   = "DETECTOR_CASCADE_HIGH" // default DefaultCascade.High
 	EnvRequireML     = "DETECTOR_REQUIRE_ML"   // true: refuse to start without the ML layers (outside dev)
 	EnvFusion        = "DETECTOR_FUSION"       // logreg (default) or max
+	EnvManifest      = "MODELS_MANIFEST"       // manifest file; default: the copy built into the binary
 	L2DefaultV3B     = "local/guardspec-classifier-v3b"
 	L2DefaultV2      = "local/guardspec-classifier-v2"
 	L2DefaultV1      = "local/guardspec-classifier-v1"
@@ -71,6 +72,20 @@ type Config struct {
 	// Fusion is "logreg" (the default: a fitted logistic regression over the
 	// calibrated layers, max when no weights fit the active layers) or "max".
 	Fusion string
+	// Manifest is MODELS_MANIFEST: a manifest file read instead of the one
+	// built into the binary, at start and on every reload, so that new
+	// versions can be announced, verified and loaded without a new image.
+	Manifest string
+	// Shadow runs a candidate classifier next to the active one (shadow.go).
+	Shadow ShadowConfig
+}
+
+// manifest is the manifest in effect: Manifest when set, else the built-in one.
+func (c Config) manifest() (*onnx.Manifest, error) {
+	if c.Manifest == "" {
+		return builtinManifest()
+	}
+	return onnx.LoadManifest(c.Manifest)
 }
 
 // ConfigFromEnv reads the DETECTOR_*, *_MODEL and *_MODEL_DIR variables.
@@ -132,6 +147,10 @@ func ConfigFromEnv(get func(string) string) (Config, error) {
 	if cfg.Fusion != "max" && cfg.Fusion != "logreg" {
 		return Config{}, fmt.Errorf("%s must be max or logreg", EnvFusion)
 	}
+	cfg.Manifest = strings.TrimSpace(get(EnvManifest))
+	if cfg.Shadow, err = shadowConfigFromEnv(get); err != nil {
+		return Config{}, err
+	}
 	return cfg, nil
 }
 
@@ -185,13 +204,50 @@ type Stack struct {
 	// Fusion is the method in use: "logreg" or "max".
 	Fusion string
 
-	cal     CalibrationFile
-	closers []io.Closer
+	cfg     Config
+	threads int // ONNX intra-op threads per session; 0: ORT's choice
+	l2      *L2Model
+	closers []io.Closer // everything but l2
+}
+
+// L2Model is one loaded classifier with its calibration: what a reload
+// swaps in, or what shadow mode runs next to the active one.
+type L2Model struct {
+	Dir   string // where it was loaded from
+	Name  string // thresholds.json "model", else the directory name
+	Ref   string // name@version when the directory is a manifest install, else ""
+	Layer *ClassifierLayer
+	Cal   CalibrationFile
+	// CalSource is the calibration file, "built-in", or "" (raw scores).
+	CalSource string
+	// Verified is true when every file matched the manifest's SHA-256.
+	Verified bool
+
+	closer io.Closer
+}
+
+// Label is the model's name for logs, status and audit rows: Ref when known.
+func (m *L2Model) Label() string {
+	if m == nil {
+		return ""
+	}
+	if m.Ref != "" {
+		return m.Ref
+	}
+	return m.Name
+}
+
+// Close frees the classifier.
+func (m *L2Model) Close() error {
+	if m == nil || m.closer == nil {
+		return nil
+	}
+	return m.closer.Close()
 }
 
 // Close frees the models.
 func (s *Stack) Close() error {
-	var errs []error
+	errs := []error{s.l2.Close()}
 	for _, c := range s.closers {
 		errs = append(errs, c.Close())
 	}
@@ -205,58 +261,103 @@ func (s *Stack) Degraded() bool { return len(s.Problems) > 0 }
 // tag, missing files) is left out and listed in Problems; the error return is
 // for invalid configuration only. tenants may be nil (no per-org exemplars).
 func Build(ctx context.Context, cfg Config, tenants TenantStore) (*Stack, error) {
-	s := &Stack{Fuser: fusion.New()}
-	if !cfg.Layers[fusion.L1] {
-		s.Fuser.Set(fusion.L1, nil, fusion.Calibration{})
-	} else {
-		s.Active[fusion.L1] = true
-	}
-	threads := 0 // onnx default
+	s := &Stack{cfg: cfg}
+	s.Active[fusion.L1] = cfg.Layers[fusion.L1]
 	if cfg.Layers[fusion.L2] && cfg.Layers[fusion.L3] && os.Getenv(onnx.EnvIntraOpThreads) == "" {
 		// L2 and L3 run at the same time; split the cores between them rather
 		// than letting both sessions claim all of them.
-		threads = max(1, min(4, runtime.NumCPU()/2))
+		s.threads = max(1, min(4, runtime.NumCPU()/2))
 	}
 	if cfg.Layers[fusion.L2] {
-		if err := s.loadL2(cfg, threads); err != nil {
+		if err := s.loadL2(cfg); err != nil {
 			s.Problems = append(s.Problems, "L2: "+err.Error())
 		}
 	}
 	if cfg.Layers[fusion.L3] {
-		if err := s.loadL3(ctx, cfg, tenants, threads); err != nil {
+		if err := s.loadL3(ctx, cfg, tenants, s.threads); err != nil {
 			s.Problems = append(s.Problems, "L3: "+err.Error())
 		}
 	}
-	if cfg.Cascade != nil && s.Active[fusion.L1] {
-		s.Fuser.SetCascade(cfg.Cascade)
-	}
-	s.Fusion = "max"
-	if cfg.Fusion == "logreg" && (s.Active[fusion.L2] || s.Active[fusion.L3]) {
-		key := LayerKey(s.Active)
-		if lr, ok := s.cal.LogReg[key]; ok {
-			s.Fuser.SetCombiner(&lr)
-			s.Fusion = "logreg"
-		} else {
-			slog.Warn("no logistic-regression weights for these layers; fusing with max",
-				"model", s.L2Model, "layers", key)
-		}
-	}
+	s.Fuser, s.Fusion = s.assemble(s.l2)
 	return s, nil
 }
 
-func (s *Stack) loadL2(cfg Config, threads int) error {
+// assemble builds a fuser over the stack's L1 and L3 and the classifier m
+// (nil: no L2), with m's calibration and fusion weights. Build uses it, and so
+// does a reload: L1 and L3 are shared, only L2 changes.
+func (s *Stack) assemble(m *L2Model) (*fusion.Fuser, string) {
+	f := fusion.New()
+	if !s.Active[fusion.L1] {
+		f.Set(fusion.L1, nil, fusion.Calibration{})
+	}
+	active := s.Active
+	active[fusion.L2] = m != nil
+	if m != nil {
+		f.Set(fusion.L2, m.Layer, m.Cal.Platt)
+	}
+	if s.L3 != nil {
+		f.Set(fusion.L3, s.L3, DefaultL3Calibration)
+	}
+	if s.cfg.Cascade != nil && s.Active[fusion.L1] {
+		f.SetCascade(s.cfg.Cascade)
+	}
+	if s.cfg.Fusion == "logreg" && (active[fusion.L2] || active[fusion.L3]) {
+		key := LayerKey(active)
+		if lr, ok := combinerFor(m, key); ok {
+			f.SetCombiner(&lr)
+			return f, "logreg"
+		}
+		slog.Warn("no logistic-regression weights for these layers; fusing with max",
+			"model", m.Label(), "layers", key)
+	}
+	return f, "max"
+}
+
+// combinerFor is m's fusion weights for the layer set key. Without a
+// classifier there is no source of weights, and fusion uses max.
+func combinerFor(m *L2Model, key string) (fusion.LogReg, bool) {
+	if m == nil {
+		return fusion.LogReg{}, false
+	}
+	lr, ok := m.Cal.LogReg[key]
+	return lr, ok
+}
+
+func (s *Stack) loadL2(cfg Config) error {
 	dir, err := ResolveL2Dir(cfg)
 	if err != nil {
 		return err
 	}
-	c, err := onnx.NewClassifier(dir, onnx.Options{IntraOpThreads: threads})
+	m, err := LoadL2(dir, onnx.Options{IntraOpThreads: s.threads})
 	if err != nil {
-		return fmt.Errorf("%s: %w", dir, err)
+		return err
 	}
+	man, _ := cfg.manifest() // nil on error: no name for a directory outside the cache
+	m.Ref = RefForDir(cfg.ModelDir, dir, man)
+	s.l2 = m
+	s.Active[fusion.L2] = true
+	s.L2Dir, s.L2Model, s.L2 = dir, m.Name, m.Layer
+	return nil
+}
+
+// LoadL2 loads the classifier in dir with its calibration (dir/calibration.json,
+// else the built-in one for its name).
+func LoadL2(dir string, o onnx.Options) (*L2Model, error) {
+	c, err := onnx.NewClassifier(dir, o)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", dir, err)
+	}
+	return NewL2Model(dir, c, c)
+}
+
+// NewL2Model wraps a loaded classifier; closer frees it (nil: nothing to free).
+func NewL2Model(dir string, c Classifier, closer io.Closer) (*L2Model, error) {
 	layer, err := NewClassifierLayer(c)
 	if err != nil {
-		_ = c.Close()
-		return err
+		if closer != nil {
+			_ = closer.Close()
+		}
+		return nil, err
 	}
 	name := modelName(dir)
 	cal, src := calibrationFor(dir, name)
@@ -264,13 +365,8 @@ func (s *Stack) loadL2(cfg Config, threads int) error {
 		slog.Warn("L2: no calibration for this classifier; using raw scores. Fit one with `go run -tags onnx ./cmd/calibrate fit -write`",
 			"dir", dir, "model", name)
 	}
-	s.Fuser.Set(fusion.L2, layer, cal.Platt)
-	s.cal = cal
-	s.Active[fusion.L2] = true
-	s.L2Dir, s.L2Model, s.L2 = dir, name, layer
-	s.closers = append(s.closers, c)
 	slog.Info("L2 classifier loaded", "dir", dir, "model", name, "calibration", src, "A", cal.Platt.A, "B", cal.Platt.B)
-	return nil
+	return &L2Model{Dir: dir, Name: name, Layer: layer, Cal: cal, CalSource: src, closer: closer}, nil
 }
 
 func (s *Stack) loadL3(ctx context.Context, cfg Config, tenants TenantStore, threads int) error {
@@ -301,7 +397,6 @@ func (s *Stack) loadL3(ctx context.Context, cfg Config, tenants TenantStore, thr
 		_ = e.Close()
 		return err
 	}
-	s.Fuser.Set(fusion.L3, layer, DefaultL3Calibration)
 	s.Active[fusion.L3] = true
 	s.L3 = layer
 	s.closers = append(s.closers, e)
@@ -338,20 +433,20 @@ var builtinManifest = sync.OnceValues(func() (*onnx.Manifest, error) {
 // holds no model, and loading it then fails (no silent fallback to another
 // model). An error from 3-4 lists every directory tried.
 func ResolveL2Dir(cfg Config) (string, error) {
-	return resolveDir(cfg.ModelDir, cfg.L2Dir, cfg.L2Model, EnvL2Model, "classifier", L2Defaults)
+	return resolveDir(cfg.manifest, cfg.ModelDir, cfg.L2Dir, cfg.L2Model, EnvL2Model, "classifier", L2Defaults)
 }
 
 // ResolveL3Dir picks the embedder directory, in the order of ResolveL2Dir
 // with L3_MODEL_DIR, L3_MODEL and L3Defaults.
 func ResolveL3Dir(cfg Config) (string, error) {
-	return resolveDir(cfg.ModelDir, cfg.L3Dir, cfg.L3Model, EnvL3Model, "embedder", L3Defaults)
+	return resolveDir(cfg.manifest, cfg.ModelDir, cfg.L3Dir, cfg.L3Model, EnvL3Model, "embedder", L3Defaults)
 }
 
-func resolveDir(modelDir, dir, ref, refEnv, kind string, legacy []string) (string, error) {
+func resolveDir(manifest func() (*onnx.Manifest, error), modelDir, dir, ref, refEnv, kind string, legacy []string) (string, error) {
 	if dir != "" {
 		return dir, nil
 	}
-	m, merr := builtinManifest()
+	m, merr := manifest()
 	if ref != "" {
 		name, version, err := onnx.ParseRef(ref)
 		if err != nil {

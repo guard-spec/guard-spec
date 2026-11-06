@@ -47,6 +47,17 @@ services:
       DETECTOR_FUSION: ${DETECTOR_FUSION:-logreg} # or max
       DETECTOR_CASCADE: ${DETECTOR_CASCADE:-false} # true: skip L2/L3 when L1 is decisive
       DETECTOR_REQUIRE_ML: ${DETECTOR_REQUIRE_ML:-false}
+      # Shadow mode: a candidate classifier scored on the same traffic, never
+      # deciding (README, Shadow mode and model reload).
+      SHADOW_L2_MODEL: ${SHADOW_L2_MODEL:-}
+      SHADOW_L2_MODEL_DIR: ${SHADOW_L2_MODEL_DIR:-}
+      SHADOW_SAMPLE: ${SHADOW_SAMPLE:-1}
+      SHADOW_TIMEOUT: ${SHADOW_TIMEOUT:-2s}
+      # Manifest file for reloads and /readyz; empty: the image's built-in one.
+      MODELS_MANIFEST: ${MODELS_MANIFEST:-}
+      # Bearer token of POST /admin/models/reload; empty turns it off.
+      # `docker compose kill -s HUP gateway` reloads without it.
+      GATEWAY_ADMIN_TOKEN: ${GATEWAY_ADMIN_TOKEN:-}
       # internal/onnx: bound on concurrent model runs (default: CPU count) and
       # ORT threads per run (default: ORT picks). ONNXRUNTIME_LIB is set in the image.
       INFERENCE_MAX_CONCURRENCY: ${INFERENCE_MAX_CONCURRENCY:-}
@@ -111,6 +122,8 @@ services:
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
       # The gateway's upstream, shown by the policy simulator (credentials hidden).
       UPSTREAM_LLM_URL: ${UPSTREAM_LLM_URL:-}
+      # Where the Models page reads the gateway's /readyz (server side).
+      GATEWAY_URL: ${GATEWAY_URL:-http://gateway:8080}
       # Which orgs may name which key variable; checked when upstreams are
       # saved. No default here (unlike the gateway's): set UPSTREAM_KEY_ORGS
       # in .env for both. The dev override opts in.

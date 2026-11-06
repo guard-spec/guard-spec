@@ -2066,6 +2066,81 @@ fieldset.card legend + * {
   padding-bottom: 4px;
 }
 
+/* Models: running classifier and shadow comparison */
+.section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.chip-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.compact-table th,
+.compact-table td {
+  padding: 6px 8px;
+  font-size: 13px;
+}
+.compact-table tbody th {
+  font-weight: 500;
+}
+.compact-table tbody tr:last-child th {
+  border-bottom: none;
+}
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+th.num {
+  text-align: right;
+}
+.hist-table td {
+  width: 40%;
+}
+.hist-cell {
+  display: grid;
+  grid-template-columns: 1fr 4.5em;
+  align-items: center;
+  gap: 8px;
+}
+.hist-cell .meter-value {
+  text-align: right;
+}
+.meter-active {
+  fill: var(--accent);
+}
+.meter-shadow {
+  fill: var(--route);
+}
+.hist-legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 8px;
+}
+.legend-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+.legend-swatch + .legend-swatch,
+.hist-legend .legend-shadow {
+  margin-left: 10px;
+}
+.legend-active {
+  background: var(--accent);
+}
+.legend-shadow {
+  background: var(--route);
+}
+
 /* Forms: chips, key-value rows, toggles */
 .chips {
   display: flex;
