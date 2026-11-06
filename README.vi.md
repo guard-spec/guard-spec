@@ -355,7 +355,9 @@ dùng nhất:
 | `SPOTLIGHT` | `off` | Đánh dấu kết quả tool: `delimit`, `datamark` |
 | `OUTPUT_LINK_ALLOWLIST` | rỗng | Host được giữ ảnh/link trong câu trả lời |
 | `OUTPUT_CANARY` | `off` | `block` hoặc `redact` khi canary bị lộ |
+| `OUTPUT_UNKNOWN_BLOCKS` | `refuse` | `/v1/messages`: block nội dung có kiểu output guard không biết bị từ chối; `pass` cho qua không kiểm tra |
 | `AUDIT_STORE_CONTENT` | `false` | Lưu nội dung prompt/response vào audit |
+| `AUDIT_DEDUPE_WINDOW` | `10s` | Request bị từ chối lặp lại (client gửi lại) trong khoảng này được cộng vào `repeat_count` của dòng audit đầu tiên, không ghi dòng và sự kiện mới; `0` là tắt |
 | `RATE_LIMIT_RPM` / `RATE_LIMIT_TPM` | `0` | Giới hạn mỗi key (0 = không giới hạn) |
 
 ## API

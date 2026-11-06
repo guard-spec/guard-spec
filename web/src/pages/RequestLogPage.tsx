@@ -59,6 +59,11 @@ export function RequestLogPage() {
       cell: (r) => (
         <span className="name-line">
           <span className={`action action-${r.action}`}>{r.action}</span>
+          {r.repeat_count ? (
+            <span className="mono small muted" title={t('audit.repeats', { n: r.repeat_count })}>
+              ×{r.repeat_count}
+            </span>
+          ) : null}
           {r.route_target ? (
             <span className="mono small ellipsis route-target" title={r.route_target}>
               → {r.route_target}
@@ -133,6 +138,7 @@ export function RequestLogPage() {
             <dd>
               <span className={`action action-${open.action}`}>{open.action}</span>
               {open.route_target ? ` → ${open.route_target}` : ''}
+              {open.repeat_count ? ` · ${t('audit.repeats', { n: open.repeat_count })}` : ''}
             </dd>
             <dt>{t('audit.model')}</dt>
             <dd className="mono">{open.model ?? '—'}</dd>

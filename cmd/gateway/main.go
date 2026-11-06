@@ -144,10 +144,9 @@ func main() {
 		emitter = events.New(db, events.Config{Source: "gateway"})
 	}
 	flagAt := flagThreshold(os.Getenv)
-	audit := newAuditLog(func(e requestEntry) {
-		logRequest(db, cfg.AuditStoreContent, e)
-		emitEvents(emitter, e, flagAt)
-	})
+	audit := newAuditLog(dbAuditStore(db, cfg.AuditStoreContent, emitter, flagAt).write)
+	// Retried refusals add to the first one's row (audit_dedupe.go).
+	audit.dedupe = newRefusalDedupe(cfg.AuditDedupeWindow)
 	slog.Info("scan config", "roles", cfg.Scan.Roles.String(), "spotlight", cfg.Scan.Spotlight,
 		"indirect_threshold", cfg.Scan.IndirectThreshold, "tool_prefixes", cfg.Scan.ToolPrefixes)
 	app := newApp(gateway{
@@ -362,6 +361,16 @@ type requestEntry struct {
 	Route  string
 	Status int // HTTP status sent to the client
 	Start  time.Time
+
+	// Retried refusals (audit_dedupe.go). KeyHash is the caller's API key
+	// hash and Trigger a hash of the text that triggered a refusal; neither
+	// is stored. RepeatCount is the repeat_count column: how many identical
+	// refusals the row stands for (0 or 1: NULL).
+	KeyHash     string
+	Trigger     string
+	RepeatCount int64
+	repeat      *refusalRecord
+	repeatFirst bool
 }
 
 // newEntry starts a row for the caller. Handlers must copy what they need from
@@ -369,8 +378,9 @@ type requestEntry struct {
 func newEntry(c *fiber.Ctx) requestEntry {
 	orgID, _ := tenant.OrgID(c)
 	c.Locals(auditedKey, true) // observeEntry records this request's metrics
-	return requestEntry{ID: uuid.New(), KeyPrefix: apiKeyPrefix(c), OrgID: orgID, ProjectID: tenant.ProjectID(c), Action: actionBlock,
-		Request: string(c.Body()), Route: routeLabel(c.Path()), Status: fiber.StatusOK, Start: time.Now()}
+	return requestEntry{ID: uuid.New(), KeyPrefix: apiKeyPrefix(c), KeyHash: tenant.KeyHash(c), OrgID: orgID,
+		ProjectID: tenant.ProjectID(c), Action: actionBlock, Request: string(c.Body()), Route: routeLabel(c.Path()),
+		Status: fiber.StatusOK, Start: time.Now()}
 }
 
 // auditLog writes rows without delaying the response, and tracks them so that
@@ -378,7 +388,9 @@ func newEntry(c *fiber.Ctx) requestEntry {
 // keep every wg.Add ahead of the final Wait: once close has begun, a row is
 // written synchronously by its caller instead of being added to the group.
 type auditLog struct {
-	write  func(requestEntry)
+	write func(requestEntry)
+	// dedupe folds retried refusals into one row (audit_dedupe.go); nil: off.
+	dedupe *refusalDedupe
 	mu     sync.Mutex
 	closed bool
 	wg     sync.WaitGroup
@@ -403,7 +415,8 @@ func (a *auditLog) hold() (release func()) {
 }
 
 func (a *auditLog) record(e requestEntry) {
-	observeEntry(e)
+	observeEntry(e) // metrics count every request, repeats included
+	e.repeat, e.repeatFirst = a.dedupe.track(&e)
 	a.mu.Lock()
 	if a.closed {
 		a.mu.Unlock()
@@ -452,10 +465,22 @@ func auditTags(e requestEntry) []string {
 	return tags
 }
 
+// logRequest writes one requests row, logging a failure.
 func logRequest(db *pgxpool.Pool, storeContent bool, e requestEntry) {
+	if err := insertRequest(db, storeContent, e); err != nil {
+		slog.Warn("request log write failed", "err", err, "action", e.Action)
+	}
+}
+
+// insertRequest writes one requests row.
+func insertRequest(db *pgxpool.Pool, storeContent bool, e requestEntry) error {
 	if e.OrgID == uuid.Nil {
 		slog.Warn("request log skipped: no org")
-		return
+		return nil
+	}
+	var repeats *int64
+	if e.RepeatCount > 1 {
+		repeats = &e.RepeatCount
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -473,7 +498,7 @@ func logRequest(db *pgxpool.Pool, storeContent bool, e requestEntry) {
 	req, resp := digest(e.Request), digest(e.Response)
 	// Wait for the shadow comparison before the transaction, not inside it.
 	shadow, withShadow := shadowRow(e)
-	err := tenant.WithOrg(ctx, db, e.OrgID, func(tx pgx.Tx) error {
+	return tenant.WithOrg(ctx, db, e.OrgID, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, auditInsert,
 			e.OrgID,
 			nullUUID(e.ProjectID),
@@ -493,15 +518,13 @@ func logRequest(db *pgxpool.Pool, storeContent bool, e requestEntry) {
 			resp.SHA256, resp.Bytes, resp.Content,
 			target,
 			nullUUID(e.ID),
+			repeats,
 		)
 		if err != nil || !withShadow {
 			return err
 		}
 		return insertShadow(ctx, tx, e, shadow)
 	})
-	if err != nil {
-		slog.Warn("request log write failed", "err", err, "action", e.Action)
-	}
 }
 
 func nullUUID(id uuid.UUID) *uuid.UUID {
@@ -541,6 +564,9 @@ type textGuard struct {
 	// redactFn replaces the block being cleaned with a placeholder; nil when
 	// it is not untrusted content.
 	redactFn func()
+	// blocked is a hash of the text the sanitizer refused (errBlocked), the
+	// trigger of a retried refusal (audit_dedupe.go).
+	blocked string
 	// schemaKey names the tools' schema field: parameters (OpenAI, the
 	// default) or input_schema (the Messages API).
 	schemaKey string
@@ -570,6 +596,7 @@ func (g *textGuard) clean(text string) (string, error) {
 	// Block if anomaly score is high (tag chars = likely encoding attack)
 	if rep.AnomalyScore >= anomalyBlockThreshold {
 		slog.Info("blocked encoding attack", "score", rep.AnomalyScore, "had_tag_chars", rep.HadTagChars)
+		g.blocked = triggerHash(text)
 		return "", errBlocked
 	}
 	g.texts = append(g.texts, cleaned)
@@ -810,6 +837,7 @@ func proxyHandler(gw gateway, f apiFormat) fiber.Handler {
 		if err != nil {
 			if errors.Is(err, errBlocked) {
 				entry.Detected = layerSanitizer
+				entry.Trigger = guard.blocked
 			}
 			return guardError(c, err)
 		}
@@ -829,6 +857,7 @@ func proxyHandler(gw gateway, f apiFormat) fiber.Handler {
 		if verdict.Direct >= injectionBlockThreshold {
 			slog.Info("blocked injection", "score", verdict.Direct, "source_role", verdict.SourceRole)
 			entry.Detected = modelLayer(verdict.Scores)
+			entry.Trigger = verdict.DirectTrigger
 			return blockResponse(c, "Request blocked: prompt injection detected.")
 		}
 		blocking := verdict.Indirect.Score
@@ -847,6 +876,7 @@ func proxyHandler(gw gateway, f apiFormat) fiber.Handler {
 			slog.Info("blocked indirect injection", "score", verdict.Indirect.Score,
 				"source", verdict.Indirect.Source, "category", verdict.Indirect.Category)
 			entry.Detected = layerIndirect
+			entry.Trigger = verdict.IndirectTrigger
 			return blockResponse(c, "Request blocked: prompt injection detected in tool or document content.")
 		}
 
@@ -882,6 +912,7 @@ func proxyHandler(gw gateway, f apiFormat) fiber.Handler {
 		case policy.ActionBlock:
 			slog.Info("blocked by policy", "rule", decision.RuleID)
 			entry.Detected = layerPolicy
+			entry.Trigger = verdict.DirectTrigger + verdict.IndirectTrigger
 			return blockResponse(c, "Request blocked by policy.")
 		default:
 			// redact is refused when saved, so this is a stale rule.
@@ -1361,6 +1392,9 @@ type config struct {
 	// AdminToken is GATEWAY_ADMIN_TOKEN: the bearer token of /admin/models
 	// (reload.go). Empty: those routes are off.
 	AdminToken string
+	// AuditDedupeWindow is AUDIT_DEDUPE_WINDOW: retried refusals within it
+	// add to the first one's audit row (audit_dedupe.go); 0 is off.
+	AuditDedupeWindow time.Duration
 }
 
 func loadConfig() (config, error) {
@@ -1407,6 +1441,10 @@ func loadConfig() (config, error) {
 	if err != nil || cacheSize < 0 || cacheSize > 1_000_000 {
 		return config{}, errors.New("SCAN_CACHE_SIZE must be a number from 0 to 1000000")
 	}
+	dedupeWindow, err := parseDedupeWindow(strings.TrimSpace(os.Getenv("AUDIT_DEDUPE_WINDOW")))
+	if err != nil {
+		return config{}, err
+	}
 	provider := strings.ToLower(strings.TrimSpace(getenv("UPSTREAM_LLM_PROVIDER", providerOpenAICompatible)))
 	if provider != providerOpenAICompatible && provider != providerAnthropic {
 		return config{}, errors.New("UPSTREAM_LLM_PROVIDER must be openai_compatible or anthropic")
@@ -1427,6 +1465,7 @@ func loadConfig() (config, error) {
 		AuditStoreContent:    storeContent,
 		Scan:                 scan,
 		AdminToken:           strings.TrimSpace(os.Getenv("GATEWAY_ADMIN_TOKEN")),
+		AuditDedupeWindow:    dedupeWindow,
 	}
 	// Refuse a default or weak database password unless GUARD_ENV=dev.
 	var secrets appconfig.Checker
@@ -1488,6 +1527,15 @@ func loadOutputConfig(env func(string) string) (*outputguard.Config, error) {
 		cfg.DropReasoning = true
 	default:
 		return nil, errors.New("OUTPUT_REASONING must be guard or drop")
+	}
+	// Content blocks of a /v1/messages response of a type the guard does not
+	// know (a server tool other than web search and web fetch, say).
+	switch get("OUTPUT_UNKNOWN_BLOCKS", "refuse") {
+	case "refuse":
+	case "pass":
+		cfg.PassUnknownBlocks = true
+	default:
+		return nil, errors.New("OUTPUT_UNKNOWN_BLOCKS must be refuse or pass")
 	}
 	return &cfg, nil
 }

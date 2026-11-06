@@ -126,8 +126,9 @@ func anthropicBetas(values [][]byte) ([]string, error) {
 
 // guardMessagesBody sanitizes every untrusted text of a Messages API request,
 // with the roles of the chat path: user text is rewritten with its sanitized
-// form and classified; tool_result content and documents are classified one
-// by one as untrusted content; system text and the input of tool_use blocks
+// form and classified; tool_result content, documents and the readable text
+// of web search and web fetch results are classified one by one as
+// untrusted content; system text and the input of tool_use blocks
 // are classified when their scanning is on but forwarded unchanged; assistant
 // text and thinking are left alone, as in chat. Tool definitions are checked
 // for poisoning. Images and binary documents are passed on unscanned, as
@@ -214,14 +215,7 @@ func (g *textGuard) guardAnthropicMessage(m map[string]any) error {
 		return g.guardSystem(m["content"])
 	}
 	if role == "assistant" {
-		if !g.scanRoles().ToolCalls {
-			return nil
-		}
-		texts, err := toolUseTexts(m["content"])
-		if err != nil {
-			return err
-		}
-		return g.scoreOnly(indirect.SourceAssistant, texts)
+		return g.guardAssistantMessage(m)
 	}
 	g.source = indirect.SourceUser
 	defer func() { g.source = "" }()
@@ -242,8 +236,93 @@ func (g *textGuard) guardAnthropicMessage(m map[string]any) error {
 	}
 }
 
+// guardAssistantMessage covers an assistant turn: the input of its tool_use
+// and server_tool_use blocks is classified as tool calls when their scanning
+// is on, and the results of Anthropic's web tools (web_search_tool_result,
+// web_fetch_tool_result) as untrusted content, like tool results. Nothing is
+// rewritten, so thinking blocks and their signatures stay valid, unless a
+// result is redacted (INDIRECT_ACTION=redact). Assistant text, thinking and
+// blocks of other types are left alone: what came from the upstream went
+// through the output guard, which refuses block types it does not know
+// unless OUTPUT_UNKNOWN_BLOCKS=pass.
+func (g *textGuard) guardAssistantMessage(m map[string]any) error {
+	if blocks, ok := m["content"].([]any); ok {
+		for _, item := range blocks {
+			b, ok := item.(map[string]any)
+			if !ok {
+				return errUnsupportedContent
+			}
+			if kind, _ := b["type"].(string); outputguard.IsServerToolResult(kind) {
+				if err := rejectShadowKeys(b, "type", "content"); err != nil {
+					return err
+				}
+				if err := g.guardServerToolResult(b, m); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	if !g.scanRoles().ToolCalls {
+		return nil
+	}
+	texts, err := toolUseTexts(m["content"])
+	if err != nil {
+		return err
+	}
+	return g.scoreOnly(indirect.SourceAssistant, texts)
+}
+
+// redactedServerToolErrorCode is the error_code of a redacted server tool
+// result: the result is replaced with the tool's own error shape
+// ({type}_error), which the upstream accepts in a later turn.
+const redactedServerToolErrorCode = "unavailable"
+
+// guardServerToolResult classifies the readable text of a web tool's result
+// (titles, URLs, a fetched page: outputguard.ServerToolResultTexts) as one
+// untrusted tool output, through the scan cache, without rewriting it.
+// Encrypted content is opaque: it is what the upstream reads, so redaction
+// replaces the whole result with the tool's error shape (error_code
+// unavailable) and drops the citations of the message it is in (msg, nil
+// for none), which could point into it.
+func (g *textGuard) guardServerToolResult(b, msg map[string]any) error {
+	texts := outputguard.ServerToolResultTexts(b)
+	if len(texts) == 0 {
+		return nil // an error result, or encrypted content only
+	}
+	kind, _ := b["type"].(string)
+	redact := func() {
+		b["content"] = map[string]any{"type": kind + "_error", "error_code": redactedServerToolErrorCode}
+		dropCitations(msg)
+	}
+	return g.as(indirect.SourceTool, redact, func() error {
+		return g.scoreUntrusted(strings.Join(texts, "\n"))
+	})
+}
+
+// scoreUntrusted sanitizes an untrusted text for the detector, as the current
+// source and redactor, without forwarding the sanitized form.
+func (g *textGuard) scoreUntrusted(text string) error {
+	n := len(g.texts)
+	if _, err := g.clean(text); err != nil {
+		return err
+	}
+	g.texts = g.texts[:n]
+	return nil
+}
+
+// dropCitations removes the citations of a message's text blocks.
+func dropCitations(msg map[string]any) {
+	blocks, _ := msg["content"].([]any)
+	for _, item := range blocks {
+		if b, ok := item.(map[string]any); ok && b["type"] == "text" {
+			delete(b, "citations")
+		}
+	}
+}
+
 // guardBlocks sanitizes the text of content blocks in place, as the current
-// source; tool_result, document and search_result blocks switch the source.
+// source; tool_result, document and search_result blocks switch the source,
+// and web tool results are classified as tool output (guardServerToolResult).
 func (g *textGuard) guardBlocks(blocks []any) error {
 	for _, item := range blocks {
 		b, ok := item.(map[string]any)
@@ -279,8 +358,13 @@ func (g *textGuard) guardBlocks(blocks []any) error {
 				}
 				return g.guardNested(b, "content")
 			})
+		case outputguard.BlockWebSearchResult, outputguard.BlockWebFetchResult:
+			// Anthropic's API takes these in assistant turns only; scanned
+			// wherever they are.
+			err = g.guardServerToolResult(b, nil)
 		default:
 			// text, and any block with a text field; images have none.
+			// Blocks of other types pass with only their text field scanned.
 			err = g.guardStrings(b, "text")
 		}
 		if err != nil {

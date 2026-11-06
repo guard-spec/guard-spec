@@ -984,6 +984,9 @@ func listRequests(db *pgxpool.Pool) fiber.Handler {
 			// The named upstream the request went to (or failed to reach);
 			// null for UPSTREAM_LLM_URL, the stub and refused requests.
 			RouteTarget *string `json:"route_target"`
+			// How many identical refused requests the row stands for when
+			// retries were folded into it (migration 019); null for one.
+			RepeatCount *int `json:"repeat_count"`
 			// Present only when the org or gateway enabled content storage.
 			RequestContent  *string   `json:"request_content,omitempty"`
 			ResponseContent *string   `json:"response_content,omitempty"`
@@ -1022,7 +1025,7 @@ func listRequests(db *pgxpool.Pool) fiber.Handler {
 				`SELECT id, model, action, rule_id, injection_label,
 				        COALESCE(injection_score, 0), COALESCE(toxicity_score, 0), COALESCE(anomaly_score, 0),
 				        COALESCE(had_tag_chars, false), COALESCE(had_bidi, false), latency_ms,
-				        request_sha256, request_bytes, response_sha256, response_bytes, route_target,
+				        request_sha256, request_bytes, response_sha256, response_bytes, route_target, repeat_count,
 				        request_content, response_content, created_at
 				 FROM requests WHERE org_id = $1`+filter+cond+ks.orderLimit(pageReq{Limit: pg.Limit, Enveloped: true}),
 				args...)
@@ -1034,7 +1037,7 @@ func listRequests(db *pgxpool.Pool) fiber.Handler {
 				var r row
 				if err := rows.Scan(&r.ID, &r.Model, &r.Action, &r.RuleID, &r.InjectionLabel, &r.InjectionScore, &r.ToxicityScore,
 					&r.AnomalyScore, &r.HadTagChars, &r.HadBidi, &r.LatencyMs,
-					&r.RequestSHA256, &r.RequestBytes, &r.ResponseSHA256, &r.ResponseBytes, &r.RouteTarget,
+					&r.RequestSHA256, &r.RequestBytes, &r.ResponseSHA256, &r.ResponseBytes, &r.RouteTarget, &r.RepeatCount,
 					&r.RequestContent, &r.ResponseContent, &r.CreatedAt); err != nil {
 					return err
 				}

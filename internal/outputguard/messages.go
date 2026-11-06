@@ -10,14 +10,86 @@ import (
 
 // The Anthropic Messages API (/v1/messages). A response holds content blocks:
 // text, thinking, redacted_thinking and tool_use (server_tool_use for the
-// tools Anthropic runs). Text and thinking are guarded like the answer and
-// the reasoning of a chat completion, tool inputs like tool-call arguments.
-// A changed thinking block no longer matches its signature, so the upstream
-// refuses it if the client sends it back in a later turn.
+// tools Anthropic runs), and the results of Anthropic's web tools
+// (web_search_tool_result, web_fetch_tool_result). Text and thinking are
+// guarded like the answer and the reasoning of a chat completion, tool inputs
+// like tool-call arguments, and the readable text of a web tool result
+// (titles, URLs, a fetched page) like the answer; its encrypted parts are
+// passed on as they are. A changed thinking block no longer matches its
+// signature, so the upstream refuses it if the client sends it back in a
+// later turn; signatures themselves are never changed.
+
+// Content block types of Anthropic's server tools whose results the guard
+// knows. Any other block type is unknown (Config.PassUnknownBlocks).
+const (
+	BlockWebSearchResult = "web_search_tool_result"
+	BlockWebFetchResult  = "web_fetch_tool_result"
+)
+
+// IsServerToolResult reports a server tool result block the guards know.
+func IsServerToolResult(kind string) bool {
+	return kind == BlockWebSearchResult || kind == BlockWebFetchResult
+}
+
+// opaqueKeys are the fields of a server tool result that hold no text a
+// reader sees: identifiers, encrypted content, dates, codes. They are passed
+// on unchanged; every other string in the result is readable text.
+var opaqueKeys = map[string]bool{
+	"type": true, "encrypted_content": true, "encrypted_index": true, "page_age": true,
+	"retrieved_at": true, "error_code": true, "media_type": true, "file_id": true,
+	"tool_use_id": true, "id": true, "signature": true,
+}
+
+// ServerToolResultTexts returns the readable strings of a server tool result
+// block's content: titles, URLs and text, never encrypted content, the data
+// of a base64 source, identifiers or type names.
+func ServerToolResultTexts(b map[string]any) []string {
+	var out []string
+	walkReadable(b["content"], 0, func(s string) string {
+		if s != "" {
+			out = append(out, s)
+		}
+		return s
+	})
+	return out
+}
+
+// walkReadable calls fn on every readable string under v and stores what it
+// returns in place.
+func walkReadable(v any, depth int, fn func(string) string) any {
+	if depth > 32 {
+		return v
+	}
+	switch val := v.(type) {
+	case string:
+		return fn(val)
+	case []any:
+		for i := range val {
+			val[i] = walkReadable(val[i], depth+1, fn)
+		}
+	case map[string]any:
+		base64 := val["type"] == "base64"
+		for k, item := range val {
+			if opaqueKeys[k] || (base64 && k == "data") {
+				continue
+			}
+			val[k] = walkReadable(item, depth+1, fn)
+		}
+	}
+	return v
+}
+
+// guardServerResult guards the readable text of a server tool result.
+func (s *Scanner) guardServerResult(b map[string]any, counts Counts) {
+	if content, present := b["content"]; present {
+		b["content"] = walkReadable(content, 0, func(text string) string { return s.Text(text, counts) })
+	}
+}
 
 // MessagesResponse guards a complete (non-streaming) Messages API response.
 // A content block of a type the guard does not know is refused
-// (ErrUncheckable), as a content part that is not text is in a completion.
+// (ErrUncheckable), as a content part that is not text is in a completion,
+// unless Config.PassUnknownBlocks passes it on unchecked.
 func (s *Scanner) MessagesResponse(body []byte, counts Counts) ([]byte, error) {
 	doc, err := decodeObject(body)
 	if err != nil {
@@ -79,19 +151,31 @@ func (s *Scanner) guardBlock(b map[string]any, counts Counts) error {
 		if local[KindCanary] > 0 {
 			return ErrToolCanary
 		}
+	case BlockWebSearchResult, BlockWebFetchResult:
+		// What a web tool found: untrusted, guarded like the answer. A canary
+		// here counts as one in the text (OUTPUT_CANARY).
+		s.guardServerResult(b, counts)
 	default:
-		return ErrUncheckable
+		if !s.g.cfg.PassUnknownBlocks {
+			return ErrUncheckable
+		}
 	}
 	return nil
 }
 
-// guardCitations guards the quoted text of a text block's citations.
+// citationText are the readable fields of a citation: the quoted text, and
+// the title and URL of the web page or document it points to.
+var citationText = []string{"cited_text", "title", "url", "document_title"}
+
+// guardCitations guards the readable text of a text block's citations.
 func (s *Scanner) guardCitations(raw any, counts Counts) {
 	list, _ := raw.([]any)
 	for _, item := range list {
 		if c, ok := item.(map[string]any); ok {
-			if text, ok := c["cited_text"].(string); ok {
-				c["cited_text"] = s.Text(text, counts)
+			for _, key := range citationText {
+				if text, ok := c[key].(string); ok {
+					c[key] = s.Text(text, counts)
+				}
 			}
 		}
 	}
@@ -117,7 +201,7 @@ type MessageStream struct {
 }
 
 type messageBlock struct {
-	kind   string  // text, thinking or tool
+	kind   string  // text, thinking, tool, result, redacted or opaque
 	text   *Stream // text and thinking
 	input  strings.Builder
 	counts Counts // tool input
@@ -283,6 +367,10 @@ func (m *MessageStream) start(other []string, ev map[string]any) []byte {
 		}
 	case "redacted_thinking":
 		b.kind, b.done = "redacted", true
+	case BlockWebSearchResult, BlockWebFetchResult:
+		// A web tool's result comes whole in its start event, with no deltas.
+		b.kind, b.done = "result", true
+		m.s.guardServerResult(cb, b.counts)
 	case "tool_use", "server_tool_use":
 		b.kind = "tool"
 		if input, present := cb["input"]; present {
@@ -293,8 +381,11 @@ func (m *MessageStream) start(other []string, ev map[string]any) []byte {
 			return nil
 		}
 	default:
-		m.failed = true // a result block of a server tool, say: not checked
-		return nil
+		if !m.s.g.cfg.PassUnknownBlocks {
+			m.failed = true // a block type the guard does not know: not checked
+			return nil
+		}
+		b.kind = "opaque" // passed on unchecked, deltas included
 	}
 	if _, seen := m.blocks[index]; !seen {
 		m.order = append(m.order, index)
@@ -306,6 +397,9 @@ func (m *MessageStream) start(other []string, ev map[string]any) []byte {
 func (m *MessageStream) delta(other []string, ev map[string]any) []byte {
 	index := indexOf(ev)
 	b, ok := m.blocks[index]
+	if ok && b.kind == "opaque" {
+		return render(other, ev)
+	}
 	d, isMap := ev["delta"].(map[string]any)
 	if !ok || !isMap || b.done {
 		m.failed = true

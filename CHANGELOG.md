@@ -17,6 +17,8 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   log rows older than 365 days and sessions that ended more than 30 days
   ago; set `ACTIVITY_LOG_RETENTION_DAYS=0` or `SESSION_RETENTION_DAYS=0`
   first to keep them.
+- Run the database migrations before starting the new gateway: migration 019
+  adds the nullable `requests.repeat_count` column, which the gateway writes.
 
 ### Added
 
@@ -40,6 +42,28 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   false-positive rates are unchanged in every group and TPR at block rises
   from 0.932 to 0.939 (Vietnamese 0.936 to 0.949); `eval/baseline-onnx.json`
   is refreshed.
+- Gateway: Anthropic's web search and web fetch server tools work through
+  `/v1/messages` (Claude Code's `WebSearch` failed with a 502 before).
+  `web_search_tool_result` and `web_fetch_tool_result` blocks are accepted in
+  answers, whole and streamed: their readable text (titles, URLs, a fetched
+  page) goes through the output guard (links, personal data, canary), their
+  encrypted content, ids, dates and error codes pass unchanged, as do thinking
+  signatures. In requests, such blocks in the history are classified as tool
+  output (scan roles, scan cache, `INDIRECT_ACTION`); redaction replaces the
+  result with the tool's error shape (`error_code: unavailable`) and drops
+  the citations of that turn. Citations' title and URL are guarded too.
+- Gateway: `OUTPUT_UNKNOWN_BLOCKS=refuse|pass` (default `refuse`): what the
+  output guard does with a `/v1/messages` content block of a type it does not
+  know, such as the results of other server tools.
+- Gateway: retried refusals are recorded once. A request refused before the
+  upstream that matches a refusal of the same org and API key within
+  `AUDIT_DEDUPE_WINDOW` (default `10s`, sliding, at most 5 minutes per row;
+  `0` is off), with the same layer, label, policy rule and triggering text,
+  adds to the first row's `repeat_count` instead of writing a new row and a
+  new `detection.blocked` event. Claude Code's six attempts per refused
+  prompt are now one row with `repeat_count` 6. Allowed requests are never
+  folded. The count is per gateway process. The control plane's request list
+  returns `repeat_count`, and the admin UI's request log shows it.
 
 ### Changed
 
