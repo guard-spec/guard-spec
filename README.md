@@ -316,6 +316,21 @@ It runs in production mode (no `GUARD_ENV=dev`). Below, log in with the
 printed email and password instead of the development ones. Models and
 versions: [docs/models.md](docs/models.md).
 
+**Light mode** for a laptop or a small VM: L1 + L2 without the L3 embedder,
+about half the gateway's memory (500 MB instead of 940 MB measured) and 135 MB
+of models instead of 270 MB. One variable, which the script also writes into
+the new `.env`:
+
+```bash
+DETECTOR_LAYERS=l1,l2 scripts/quickstart.sh
+# quickstart: detection layers active: l1,l2
+```
+
+Measured CPU, memory and throughput per layer set, and how to size a host:
+[docs/sizing.md](docs/sizing.md). Pointing the OpenAI SDKs, LangChain,
+LlamaIndex, Claude Code or Cursor at the gateway, and what does not work:
+[docs/integrations.md](docs/integrations.md).
+
 **Contributors** build from source instead:
 
 ```bash
@@ -371,7 +386,7 @@ Use any model name your upstream knows. Each request leaves an audit row:
 
 ```bash
 curl -s "http://localhost:18081/v1/organizations/00000000-0000-0000-0000-000000000001/requests?limit=5" \
-  -H "Authorization: Bearer $TOKEN" | jq '.data[] | {action, injection_score, injection_label, created_at}'
+  -H "Authorization: Bearer $TOKEN" | jq '.items[] | {action, injection_score, injection_label, created_at}'
 ```
 
 Stop and remove everything, including the database volume and the images
@@ -383,6 +398,35 @@ docker image rm guard-spec-gateway:latest guard-spec-control-plane:latest
 ```
 
 ### Production
+
+For one host with HTTPS, use the production compose in
+[`deploy/compose/production/`](deploy/compose/production/README.md): Caddy in
+front with automatic HTTPS (or its internal CA for testing), only ports 80
+and 443 published, CPU and memory limits, log rotation, health checks and
+restart policies, secrets from `.env`:
+
+```bash
+cd deploy/compose/production
+cp .env.example .env && chmod 600 .env    # host names, CADDY_TLS, secrets
+docker compose up -d --wait
+```
+
+Running it:
+
+- [docs/sizing.md](docs/sizing.md): measured RAM and CPU for L1, L1 + L2 and
+  L1 + L2 + L3, and host sizes;
+- [docs/upgrade.md](docs/upgrade.md): upgrades and rollback of images,
+  migrations and models; backups with
+  [`scripts/backup.sh`](scripts/backup.sh) and
+  [`scripts/restore.sh`](scripts/restore.sh) (the database, `.env` with
+  `MFA_ENC_KEY`, Caddy's certificates);
+- [docs/managed-postgres.md](docs/managed-postgres.md): RDS, Cloud SQL, Neon
+  or Supabase instead of the `postgres` service (reference, not yet verified
+  on those providers);
+- [docs/integrations.md](docs/integrations.md): OpenAI SDKs, LangChain,
+  LlamaIndex, Claude Code and Cursor.
+
+The root `docker-compose.yml` also runs in production mode:
 
 ```bash
 scripts/quickstart.sh     # or: cp .env.example .env, fill in every secret
@@ -552,7 +596,7 @@ in a second table.
 | `L2_MODEL_DIR` | empty | Classifier directory; wins over `L2_MODEL`. With neither set: the recommended version when installed, else `$MODEL_DIR/local/guardspec-classifier-v3b`, `-v2`, `-v1`, `-v0` |
 | `L3_MODEL` | the manifest's recommended embedder (`multilingual-e5-small@614241f`) | Embedding model as `name@version` |
 | `L3_MODEL_DIR` | empty | Embedding model directory; wins over `L3_MODEL`. With neither set: the recommended version when installed, else `$MODEL_DIR/cache/multilingual-e5-small` |
-| `DETECTOR_LAYERS` | `l1,l2,l3` | Layers to run |
+| `DETECTOR_LAYERS` | `l1,l2,l3` | Layers to run; `l1,l2` is light mode, and compose's `models-init` then pulls the classifier only ([docs/sizing.md](docs/sizing.md)) |
 | `DETECTOR_FUSION` | `logreg` | `logreg` or `max` of the calibrated layers |
 | `DETECTOR_CASCADE` | `false` | `true` skips L2/L3 when L1's calibrated score is below `DETECTOR_CASCADE_LOW` or above `DETECTOR_CASCADE_HIGH` |
 | `DETECTOR_CASCADE_LOW` / `DETECTOR_CASCADE_HIGH` | `0.03` / `0.965` | Cascade bounds |

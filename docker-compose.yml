@@ -42,6 +42,7 @@ services:
       L2_MODEL_DIR: ${L2_MODEL_DIR:-}
       L3_MODEL: ${L3_MODEL:-}                    # default: the manifest's recommended embedder
       L3_MODEL_DIR: ${L3_MODEL_DIR:-}
+      # l1,l2 is light mode: no L3 embedder, less RAM (docs/sizing.md).
       DETECTOR_LAYERS: ${DETECTOR_LAYERS:-l1,l2,l3}
       DETECTOR_FUSION: ${DETECTOR_FUSION:-logreg} # or max
       DETECTOR_CASCADE: ${DETECTOR_CASCADE:-false} # true: skip L2/L3 when L1 is decisive
@@ -202,7 +203,9 @@ services:
   # every non-optional model in the image's manifest into
   # ./models/cache/<name>/<version>/ (Hugging Face, then the GitHub Release
   # mirror; MODELS_MIRROR is tried first when set), verifying SHA-256, and
-  # does nothing when the files are present and verified. When a pull fails
+  # does nothing when the files are present and verified. Light mode
+  # (DETECTOR_LAYERS=l1,l2) pulls the L2 classifier only (L2_MODEL, else the
+  # recommended guardspec-classifier), and l1 alone pulls nothing. When a pull fails
   # (offline, say) it warns and the gateway starts on the layers it can load,
   # unless DETECTOR_REQUIRE_ML=true, which makes the failure stop the stack.
   # Air-gapped: use the gateway-full image or a mirror (docs/models.md).
@@ -212,13 +215,20 @@ services:
       - /bin/sh
       - -c
       - |
-        ./models pull -manifest manifest.yaml -dir /models/cache && exit 0
+        case ",$${DETECTOR_LAYERS:-l1,l2,l3}," in
+        *,l3,*) set -- ;;
+        *,l2,*) set -- "$${L2_MODEL:-guardspec-classifier}" ;;
+        *) echo "models-init: DETECTOR_LAYERS=$${DETECTOR_LAYERS} needs no model"; exit 0 ;;
+        esac
+        ./models pull -manifest manifest.yaml -dir /models/cache "$$@" && exit 0
         if [ "$${DETECTOR_REQUIRE_ML:-false}" = true ]; then exit 1; fi
         echo "models-init: some models could not be pulled; the gateway runs without them (see /readyz and docs/models.md)" >&2
     user: "${MODELS_UID:-0}:${MODELS_GID:-0}"   # set to your uid/gid on Linux to own the files
     environment:
       MODELS_MIRROR: ${MODELS_MIRROR:-}
       DETECTOR_REQUIRE_ML: ${DETECTOR_REQUIRE_ML:-false}
+      DETECTOR_LAYERS: ${DETECTOR_LAYERS:-l1,l2,l3}
+      L2_MODEL: ${L2_MODEL:-}
     volumes:
       - ./models:/models
     restart: "no"

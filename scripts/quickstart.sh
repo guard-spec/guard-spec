@@ -3,10 +3,12 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Starts Guard Spec on a clean machine with the released images and the full
-# detector (L1 rules + L2 classifier + L3 embeddings):
+# detector (L1 rules + L2 classifier + L3 embeddings), or, with
+# DETECTOR_LAYERS=l1,l2, in light mode (no L3; less memory, docs/sizing.md):
 #
-#   1. creates .env from .env.example with strong random secrets, unless .env
-#      already exists (it is never overwritten);
+#   1. creates .env from .env.example with strong random secrets (and
+#      DETECTOR_LAYERS when it is set), unless .env already exists (it is
+#      never overwritten);
 #   2. runs `docker compose -f docker-compose.yml up -d` (the released images;
 #      not the dev override), whose models-init service pulls and verifies the
 #      models before the gateway starts;
@@ -16,7 +18,8 @@
 #
 #   scripts/quickstart.sh [docker compose options, such as -p myproject]
 #
-# Environment: GUARDSPEC_VERSION (image tag), GATEWAY_PORT and the other
+# Environment: DETECTOR_LAYERS (l1,l2 for light mode), GUARDSPEC_VERSION
+# (image tag), GATEWAY_PORT and the other
 # ports of .env.example, MODELS_MIRROR, COMPOSE_PROJECT_NAME and
 # QUICKSTART_TIMEOUT (seconds to wait for /readyz, default 600). Values set in
 # the environment win over .env, as in docker compose.
@@ -70,12 +73,13 @@ else
 	umask 077
 	# Only empty assignments are filled in; GUARD_ENV stays empty (production checks on).
 	awk -v pg="$postgres_password" -v app="$app_password" -v jwt="$jwt_secret" \
-		-v mfa="$mfa_key" -v admin="$admin_password" '
+		-v mfa="$mfa_key" -v admin="$admin_password" -v layers="${DETECTOR_LAYERS:-}" '
 		/^POSTGRES_PASSWORD=$/      { print "POSTGRES_PASSWORD=" pg; next }
 		/^GUARDSPEC_APP_PASSWORD=$/ { print "GUARDSPEC_APP_PASSWORD=" app; next }
 		/^JWT_SECRET=$/             { print "JWT_SECRET=" jwt; next }
 		/^MFA_ENC_KEY=$/            { print "MFA_ENC_KEY=" mfa; next }
 		/^ADMIN_PASSWORD=$/         { print "ADMIN_PASSWORD=" admin; next }
+		/^DETECTOR_LAYERS=$/        { print "DETECTOR_LAYERS=" layers; next }
 		{ print }
 	' .env.example >.env.tmp
 	for k in POSTGRES_PASSWORD GUARDSPEC_APP_PASSWORD JWT_SECRET MFA_ENC_KEY ADMIN_PASSWORD; do
@@ -98,7 +102,14 @@ env_value() {
 	printf '%s' "$v"
 }
 
-echo "quickstart: starting the stack (the first start downloads images and about 270 MB of models)"
+layers=$(env_value DETECTOR_LAYERS | tr -d ' ')
+layers=${layers:-l1,l2,l3}
+case ",$layers," in
+*,l3,*) size="about 270 MB of models" ;;
+*,l2,*) size="about 135 MB of models (light mode, no L3)" ;;
+*) size="no models (L1 only)" ;;
+esac
+echo "quickstart: starting the stack with layers $layers (the first start downloads images and $size)"
 docker compose "$@" -f docker-compose.yml up -d
 
 port=$(env_value GATEWAY_PORT)
@@ -119,9 +130,11 @@ until body=$(curl -fsS "$url" 2>/dev/null); do
 done
 echo
 echo "quickstart: ready: $body"
+# l1,l2 -> "layers":["l1","l2"], as /readyz reports the active layers.
+want="\"layers\":[\"$(printf '%s' "$layers" | sed 's/,/","/g')\"]"
 case "$body" in
-*'"l1","l2","l3"'*) echo "quickstart: full detector active (L1 + L2 + L3)" ;;
-*) echo "quickstart: warning: not every detection layer is active; see detector.problems above and docs/models.md" >&2 ;;
+*"$want"*) echo "quickstart: detection layers active: $layers" ;;
+*) echo "quickstart: warning: not every requested layer ($layers) is active; see detector.problems above and docs/models.md" >&2 ;;
 esac
 
 echo

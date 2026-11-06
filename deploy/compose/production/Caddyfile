@@ -1,0 +1,56 @@
+# Copyright 2026 The Guard Spec Authors
+# SPDX-License-Identifier: Apache-2.0
+#
+# Caddy in front of Guard Spec (docker-compose.yml in this directory).
+# {$VAR} values come from the caddy service's environment, set in .env:
+#
+#   GATEWAY_HOST  host name of the gateway API (your apps point their
+#                 OpenAI base URL at https://<GATEWAY_HOST>/v1)
+#   ADMIN_HOST    host name of the control plane and admin UI (/ui/)
+#   CADDY_TLS     your email: automatic HTTPS with Let's Encrypt / ZeroSSL
+#                 (both names must resolve to this host, ports 80 and 443 open);
+#                 internal: certificates from Caddy's own CA, for testing or a
+#                 private network (export the root from the caddy_data volume,
+#                 see README.md)
+
+{
+	# The admin API stays inside the container (health check only).
+	admin 127.0.0.1:2019
+}
+
+(common) {
+	tls {$CADDY_TLS}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+	log {
+		output stdout
+		format json
+	}
+}
+
+{$GATEWAY_HOST} {
+	import common
+	# Prompts can be long; refuse anything larger than this before it
+	# reaches the gateway.
+	request_body {
+		max_size 10MB
+	}
+	reverse_proxy gateway:8080 {
+		# Streamed chat completions (SSE): pass every chunk on at once.
+		flush_interval -1
+	}
+}
+
+{$ADMIN_HOST} {
+	import common
+	# ADMIN_ALLOW: client ranges allowed to reach the admin UI and API, such
+	# as your office or VPN ranges. Default: everyone.
+	@outside not remote_ip {$ADMIN_ALLOW:0.0.0.0/0 ::/0}
+	respond @outside 403
+	encode zstd gzip
+	reverse_proxy control-plane:8081
+}

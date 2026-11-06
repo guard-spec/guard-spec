@@ -3,6 +3,8 @@ bin/
 /gateway
 /control-plane
 *.log
+# scripts/backup.sh output (contains secrets)
+/backups/
 
 # Local environment
 .env
