@@ -299,6 +299,8 @@ var Teencode = map[string]string{
 	"vd": "vi du", "bn": "ban", "mn": "moi nguoi", "ae": "anh em",
 	"ad": "admin", "h": "gio", "b": "ban", "t": "toi", "iu": "yeu", "chx": "chua", "thui": "thoi",
 	"hem": "khong", "kp": "khong phai",
+	"gv":   "giao vien",
+	"qtac": "quy tac", // not "qt" ("quan trong", "quoc te"), "qdinh" ("quyet dinh") or "cdan" ("cong dan")
 }
 
 // expandTeencode replaces teencode words (letters only, whole word).
