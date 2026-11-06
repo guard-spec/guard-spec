@@ -50,8 +50,8 @@ These guides do not repeat the README. They assume you know:
 | PostgreSQL | 17 is what compose and CI use. Two roles: an owner role that runs the migrations (`ps` in compose) and `guardspec_app`, which migration 004 creates without a password. Roles are cluster-wide, so 004 fails on a server where `guardspec_app` already exists (another database or installation): give each installation a server of its own |
 | Migrations | `migrations/` of the release tag, applied with `migrate` as the owner role, before the services start. Nothing in the images or the Helm chart runs them for you |
 | App password | `GUARDSPEC_APP_PASSWORD` applied to `guardspec_app` after every migration run: `deploy/postgres/set-app-password.sh` or the chart's `dbRoles` job |
-| Gateway | `ghcr.io/guard-spec/guard-spec-gateway:0.1.0` (models mounted at `/models`) or `-gateway-full:0.1.0` (models inside). Port 8080 for clients, 9090 for metrics |
-| Control plane | `ghcr.io/guard-spec/guard-spec-control-plane:0.1.0`. Port 8081 for the API and the admin UI at `/ui/`, 9091 for metrics |
+| Gateway | `ghcr.io/guard-spec/guard-spec-gateway:0.1.1` (models mounted at `/models`) or `-gateway-full:0.1.1` (models inside). Port 8080 for clients, 9090 for metrics |
+| Control plane | `ghcr.io/guard-spec/guard-spec-control-plane:0.1.1`. Port 8081 for the API and the admin UI at `/ui/`, 9091 for metrics |
 | Secrets | `GUARDSPEC_APP_PASSWORD` (both services, as `PGPASSWORD`), `JWT_SECRET`, `MFA_ENC_KEY` and `ADMIN_PASSWORD` (control plane), the owner password (migrations only), `UPSTREAM_LLM_KEY` / `UPSTREAM_KEY_*` (gateway) |
 | TLS | The services speak plain HTTP. Terminate TLS in a load balancer or reverse proxy in front of them |
 
@@ -87,7 +87,7 @@ default. The cloud and Kubernetes guides show workarounds with plain
 manifests next to the chart. Pull requests that add these to the chart are
 welcome.
 
-The guides describe the chart on `main` (see Unreleased in the
+The guides describe the chart from 0.1.1 (see the
 [CHANGELOG](../../CHANGELOG.md)): it mounts `/models` only with a models
 claim, so `guard-spec-gateway-full` works with
 `models.persistence.enabled=false`; the gateway defaults to a 2Gi memory

@@ -18,7 +18,7 @@ Four setups:
 3. [Air-gapped](#4-air-gapped-installs): no access to ghcr.io or Hugging Face.
 4. [A reverse proxy for TLS](#5-reverse-proxy-and-tls) in front of any of them.
 
-Examples use version `0.1.0` and placeholders such as `<your-db-host>`.
+Examples use version `0.1.1` and placeholders such as `<your-db-host>`.
 
 ## 1. One VM with Docker Compose
 
@@ -50,7 +50,7 @@ Examples use version `0.1.0` and placeholders such as `<your-db-host>`.
 ### Steps
 
 ```bash
-git clone --branch v0.1.0 https://github.com/guard-spec/guard-spec.git
+git clone --branch v0.1.1 https://github.com/guard-spec/guard-spec.git
 cd guard-spec
 scripts/quickstart.sh
 ```
@@ -161,9 +161,8 @@ manifests. Release name `gs` gives the Services `gs-guard-spec-gateway` and
   runs `CREATE ROLE guardspec_app`, and roles are cluster-wide in Postgres:
   use a server where that role does not exist yet, or one database server
   per installation.
-- A checkout of the release tag: `git clone --branch v0.1.0 https://github.com/guard-spec/guard-spec.git`.
-  The chart behaviour below is the one on `main`, after 0.1.0
-  ([Known gaps](README.md#known-gaps-in-the-helm-chart)).
+- A checkout of the release tag: `git clone --branch v0.1.1 https://github.com/guard-spec/guard-spec.git`.
+  See [Known gaps](README.md#known-gaps-in-the-helm-chart).
 
 ### Step 1: namespace and secrets
 
@@ -194,13 +193,13 @@ ConfigMap (about 160 KB, under the 1 MiB ConfigMap limit). The password comes
 from `PGPASSWORD`, as in compose, so the URL carries none.
 
 ```bash
-kubectl create configmap guard-spec-migrations-0-1-0 --from-file=migrations/
+kubectl create configmap guard-spec-migrations-0-1-1 --from-file=migrations/
 kubectl apply -f - <<'EOF'
 # Template: adjust host, owner user and sslmode.
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: guard-spec-migrate-0-1-0
+  name: guard-spec-migrate-0-1-1
 spec:
   backoffLimit: 0
   template:
@@ -230,10 +229,10 @@ spec:
             - {name: migrations, mountPath: /migrations, readOnly: true}
       volumes:
         - name: migrations
-          configMap: {name: guard-spec-migrations-0-1-0}
+          configMap: {name: guard-spec-migrations-0-1-1}
 EOF
-kubectl wait --for=condition=complete job/guard-spec-migrate-0-1-0 --timeout=5m
-kubectl logs job/guard-spec-migrate-0-1-0
+kubectl wait --for=condition=complete job/guard-spec-migrate-0-1-1 --timeout=5m
+kubectl logs job/guard-spec-migrate-0-1-1
 ```
 
 The `guardspec_app` password is set by the chart's `dbRoles` hook in step 4
@@ -272,7 +271,7 @@ spec:
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: guard-spec-models-pull-0-1-0
+  name: guard-spec-models-pull-0-1-1
 spec:
   backoffLimit: 2
   template:
@@ -287,7 +286,7 @@ spec:
         seccompProfile: {type: RuntimeDefault}
       containers:
         - name: models
-          image: ghcr.io/guard-spec/guard-spec-gateway:0.1.0
+          image: ghcr.io/guard-spec/guard-spec-gateway:0.1.1
           command: ["./models", "pull", "-manifest", "manifest.yaml", "-dir", "/models/cache"]
           env:
             - {name: MODELS_MIRROR, value: ""}   # optional internal mirror
@@ -304,7 +303,7 @@ spec:
         - name: tmp
           emptyDir: {}
 EOF
-kubectl wait --for=condition=complete job/guard-spec-models-pull-0-1-0 --timeout=15m
+kubectl wait --for=condition=complete job/guard-spec-models-pull-0-1-1 --timeout=15m
 ```
 
 The same command with a model reference (`... /models/cache guardspec-classifier@<version>`)
@@ -461,7 +460,7 @@ helm install gs deploy/helm/guard-spec -f values-prod.yaml \
 The images do not depend on a fixed UID: their files are world-readable,
 nothing is written outside `/tmp` (an `emptyDir` in the chart), and the
 `gateway-full` models are `a=rX`. In a local check,
-`guard-spec-gateway-full:0.1.0` and `guard-spec-control-plane:0.1.0` started
+`guard-spec-gateway-full:0.1.1` and `guard-spec-control-plane:0.1.1` started
 and loaded L1 + L2 + L3 as UID 1000770000, group 0, with a read-only root
 filesystem. Not yet run on an OpenShift cluster.
 
@@ -493,9 +492,9 @@ the release tag (for `migrations/`, `docker-compose.yml` and the chart).
 
 | Image | Needed for |
 |---|---|
-| `ghcr.io/guard-spec/guard-spec-gateway:0.1.0` | gateway, `models-init`, `models-pull` |
-| `ghcr.io/guard-spec/guard-spec-gateway-full:0.1.0` | gateway with models inside (instead of the one above) |
-| `ghcr.io/guard-spec/guard-spec-control-plane:0.1.0` | control plane |
+| `ghcr.io/guard-spec/guard-spec-gateway:0.1.1` | gateway, `models-init`, `models-pull` |
+| `ghcr.io/guard-spec/guard-spec-gateway-full:0.1.1` | gateway with models inside (instead of the one above) |
+| `ghcr.io/guard-spec/guard-spec-control-plane:0.1.1` | control plane |
 | `migrate/migrate:v4.20.1` | migrations |
 | `postgres:17.11-alpine` | Postgres in compose, `db-roles`, the chart's `dbRoles` job |
 
@@ -504,7 +503,7 @@ Copy them to an internal registry with all platforms, for example with
 ([SECURITY.md](../../SECURITY.md#verifying-releases)):
 
 ```bash
-crane copy ghcr.io/guard-spec/guard-spec-gateway-full:0.1.0 <your-registry>/guard-spec/guard-spec-gateway-full:0.1.0
+crane copy ghcr.io/guard-spec/guard-spec-gateway-full:0.1.1 <your-registry>/guard-spec/guard-spec-gateway-full:0.1.1
 ```
 
 With compose, point the services at the mirror with a second file instead of
@@ -513,10 +512,10 @@ editing `docker-compose.yml`:
 ```yaml
 # docker-compose.airgap.yml (template)
 services:
-  gateway:       {image: <your-registry>/guard-spec/guard-spec-gateway:0.1.0}
-  models-init:   {image: <your-registry>/guard-spec/guard-spec-gateway:0.1.0}
-  models-pull:   {image: <your-registry>/guard-spec/guard-spec-gateway:0.1.0}
-  control-plane: {image: <your-registry>/guard-spec/guard-spec-control-plane:0.1.0}
+  gateway:       {image: <your-registry>/guard-spec/guard-spec-gateway:0.1.1}
+  models-init:   {image: <your-registry>/guard-spec/guard-spec-gateway:0.1.1}
+  models-pull:   {image: <your-registry>/guard-spec/guard-spec-gateway:0.1.1}
+  control-plane: {image: <your-registry>/guard-spec/guard-spec-control-plane:0.1.1}
   migrate:       {image: <your-registry>/migrate/migrate:v4.20.1}
   db-roles:      {image: <your-registry>/library/postgres:17.11-alpine}
   postgres:      {image: <your-registry>/library/postgres:17.11-alpine}
@@ -543,7 +542,7 @@ Three ways, from simplest:
 
    ```bash
    docker run --rm -v "$PWD/models:/models" --entrypoint ./models \
-     ghcr.io/guard-spec/guard-spec-gateway:0.1.0 pull -manifest manifest.yaml -dir /models/cache
+     ghcr.io/guard-spec/guard-spec-gateway:0.1.1 pull -manifest manifest.yaml -dir /models/cache
    tar czf guard-spec-models-0.1.0.tgz models/cache
    ```
 
@@ -552,7 +551,7 @@ Three ways, from simplest:
    ```bash
    tar xzf guard-spec-models-0.1.0.tgz
    docker run --rm -v "$PWD/models:/models:ro" --entrypoint ./models \
-     <your-registry>/guard-spec/guard-spec-gateway:0.1.0 verify -manifest manifest.yaml -dir /models/cache
+     <your-registry>/guard-spec/guard-spec-gateway:0.1.1 verify -manifest manifest.yaml -dir /models/cache
    ```
 
    `models-init` then finds the files present and verified and downloads
