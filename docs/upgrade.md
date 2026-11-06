@@ -102,6 +102,13 @@ curl -s localhost:8080/readyz | jq .detector        # 6. or https://<GATEWAY_HOS
 - Check after the upgrade: `/readyz` lists the layers you expect, the admin
   UI loads, a known injection is blocked
   ([README quick start](../README.md#quick-start)).
+- With images released after 0.1.1, also run `doctor` inside the gateway:
+  `docker compose [-f ...] exec gateway /app/doctor`. It checks the database,
+  that the migration version matches the image's `migrations/`, the model
+  files against the manifest's SHA-256, which layers will load, the upstream
+  and the security settings; exit code 1 means a check failed (`-strict`
+  also fails on warnings, `-json` for scripts). See
+  [README, Kubernetes](../README.md#kubernetes).
 
 ## Rolling back
 

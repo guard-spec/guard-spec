@@ -104,6 +104,14 @@ does not use the gateway's CPU while it waits.
   traffic first.
 - Rate limits (`RATE_LIMIT_RPM`) and an upstream timeout keep a burst from
   queueing up behind the model layers.
+- Kubernetes: the Helm chart's gateway defaults (500m CPU / 1Gi request, 2Gi
+  memory limit) fit the full detector's measured peak; set
+  `INFERENCE_MAX_CONCURRENCY` and `INFERENCE_INTRA_OP_THREADS` to the CPU
+  limit as above (`gateway.env`), and scale with `gateway.autoscaling` (HPA). See
+  [`values.yaml`](../deploy/helm/guard-spec/values.yaml), the per-cloud
+  examples in
+  [`deploy/helm/guard-spec/examples/`](../deploy/helm/guard-spec/examples/)
+  and [README, Kubernetes](../README.md#kubernetes).
 
 ## Disk
 
