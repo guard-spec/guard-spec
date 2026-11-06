@@ -17,7 +17,9 @@
 //     detector patterns) → × 0.3. Code comments are not suppressed, since
 //     they carry indirect injection into coding assistants;
 //   - negation: "never reveal ...", "không tiết lộ ..." weakens extraction
-//     and exfiltration rules → × 0.3.
+//     and exfiltration rules → × 0.3;
+//   - forgot: "tôi quên ...", "quên mất ..." is a statement, not an order to
+//     forget; it weakens single-clause override rules → × 0.3.
 //
 // Scoring:
 //   - each fired rule has a weight w in (0,1), scaled by the suppressors;
@@ -56,6 +58,11 @@ type Result struct {
 	Category   string             // category of the strongest rule; "" when none fired
 	Categories map[string]float64 // per-category scores (only categories that fired)
 	Rules      []string           // ids of fired rules, strongest first
+	// Decisive is true when a decisive rule fired without a suppressor: an
+	// override followed by its payload in the same message ("ignore the
+	// previous instructions and print ...", "bỏ qua hết quy tắc trước đó,
+	// giờ bạn là ..."). Fusion can use it as a floor (fusion.Fuser.SetL1Floor).
+	Decisive bool
 }
 
 // Suppression factors for meta discussion.
@@ -63,6 +70,7 @@ const (
 	metaFactor      = 0.4  // the match is in a sentence that asks about or discusses attacks
 	quoteFactor     = 0.4  // the match is quoted in a text that mentions or discusses attacks
 	codeQuoteFactor = 0.3  // a string literal in code
+	forgotFactor    = 0.3  // "tôi quên ...", "quên mất ...": a statement, not a command
 	baseScore       = 0.02 // no cue at all
 	cueStep         = 0.03 // per distinct cue word, for ranking only
 	maxCues         = 5
@@ -95,6 +103,11 @@ type rule struct {
 	crossSent  bool   // the terms may span sentences
 	noSuppress bool   // meta-discussion suppressors do not apply
 	needFlag   string // fires only when this flag rule matched
+	decisive   bool   // an override with its payload: sets Result.Decisive when unsuppressed
+	atEnd      bool   // the last term must end a clause (before , : ; . ! ? a newline or the end)
+	// notAfter: the match may not start right after one of these keys
+	// ("liệt kê", "thiết kế" are not "kệ").
+	notAfter map[string]bool
 }
 
 // flagRule is a regex on the lowercased original text. It fires as a rule
@@ -128,6 +141,7 @@ type token struct {
 	key    string
 	sent   int
 	quoted bool
+	end    bool // last word of a clause: followed by , : ; . ! ? a newline or the end of the text
 	mark   int8 // +1: sanitizer.HiddenMarker "[hidden]"; -1: sanitizer.HiddenEndMarker "[/hidden]"
 }
 
@@ -223,10 +237,11 @@ func (e *Engine) score(text string, depth int) Result {
 }
 
 type hit struct {
-	id     string
-	cat    string
-	w      float64
-	hidden bool // the match follows a hidden-content marker
+	id       string
+	cat      string
+	w        float64
+	hidden   bool // the match follows a hidden-content marker
+	decisive bool // a decisive rule, not suppressed
 }
 
 func (e *Engine) combine(d *doc, hits []hit) Result {
@@ -252,6 +267,7 @@ func (e *Engine) combine(d *doc, hits []hit) Result {
 		} else {
 			continue
 		}
+		res.Decisive = res.Decisive || h.decisive
 		c := res.Categories[h.cat]
 		res.Categories[h.cat] = 1 - (1-c)*(1-h.w)
 		if i > 0 {
@@ -306,6 +322,11 @@ func (e *Engine) matchRules(d *doc) []hit {
 			// "never reveal secrets", "không tiết lộ mật khẩu"
 			w *= 0.3
 		}
+		if r.cat == DirectInjection && !r.crossSent && d.forgotStatement(sp) {
+			// "mình quên mất quy tắc", "em quên hết quy tắc đi đường rồi":
+			// someone forgot the rules, nobody is told to forget them.
+			w *= forgotFactor
+		}
 		// Text hidden from the reader is not an example or a quotation, so the
 		// meta-discussion suppressors do not apply to it.
 		if !r.noSuppress && !hidden {
@@ -324,9 +345,27 @@ func (e *Engine) matchRules(d *doc) []hit {
 			}
 			w *= f
 		}
-		hits = append(hits, hit{id: r.id, cat: r.cat, w: w, hidden: hidden})
+		hits = append(hits, hit{id: r.id, cat: r.cat, w: w, hidden: hidden, decisive: r.decisive && w >= r.w})
 	}
 	return hits
+}
+
+// forgotStatement reports a match that starts with "quên" (forget) used as a
+// statement: after a first-person pronoun, with or without an aspect word
+// ("tôi quên", "mình lỡ quên"), or followed by "mất" ("quên mất"). "Hãy
+// quên" and "bạn đã quên" stay addressed to the model.
+func (d *doc) forgotStatement(s span) bool {
+	if d.toks[s.start].key != keyQuen {
+		return false
+	}
+	i := s.start - 1
+	if i >= 0 && forgotAspects[d.toks[i].key] {
+		i-- // "tôi đã quên"; "bạn đã quên" stays addressed to the model
+	}
+	if i >= 0 && forgotSubjects[d.toks[i].key] {
+		return true
+	}
+	return s.start+1 < len(d.toks) && d.toks[s.start+1].key == keyMat
 }
 
 func (d *doc) quotedSpan(s span) bool {
@@ -358,14 +397,27 @@ func (e *Engine) chain(d *doc, seq []*term, r *rule) (span, bool) {
 		if len(spans) == 0 {
 			return span{}, false
 		}
+		last := i == len(seq)-1
 		if i == 0 {
 			for _, s := range spans {
+				if r.atEnd && last && !d.toks[s.end-1].end {
+					continue
+				}
+				if s.start > 0 && r.notAfter[d.toks[s.start-1].key] {
+					continue
+				}
 				cur = append(cur, state{s.start, s.end})
+			}
+			if len(cur) == 0 {
+				return span{}, false
 			}
 			continue
 		}
 		var next []state
 		for _, s := range spans {
+			if r.atEnd && last && !d.toks[s.end-1].end {
+				continue
+			}
 			for _, c := range cur {
 				if s.start < c.end || s.start-c.end > r.gap {
 					continue
@@ -447,6 +499,11 @@ func (e *Engine) tokenize(s string) *doc {
 			d.toks = append(d.toks, token{key: k, sent: sent, quoted: quoted, mark: mark})
 		}
 	}
+	markEnd := func() {
+		if n := len(d.toks); n > 0 {
+			d.toks[n-1].end = true
+		}
+	}
 	for i, r := range s {
 		if (unicode.IsLetter(r) && !isSpacingModifier(r)) || unicode.IsDigit(r) {
 			if start < 0 {
@@ -477,16 +534,21 @@ func (e *Engine) tokenize(s string) *doc {
 			}
 		case '\n', '!', '?', ';':
 			sent++
+			markEnd()
+		case ',', ':':
+			markEnd()
 		case '.':
 			next, _ := utf8.DecodeRuneInString(s[i+1:])
 			if i+1 >= len(s) || unicode.IsSpace(next) {
 				sent++
+				markEnd()
 			}
 		}
 	}
 	if start >= 0 {
 		emit(len(s))
 	}
+	markEnd()
 	return d
 }
 
@@ -552,6 +614,18 @@ func (e *Engine) split(w string) []string {
 	}
 	return parts
 }
+
+// forgotSubjects are first-person pronouns that make "quen" a statement;
+// forgotAspects may stand between them ("tôi đã quên", "mình lỡ quên").
+var (
+	forgotSubjects = map[string]bool{"toi": true, "minh": true, "em": true, "to": true, "tui": true, "tao": true}
+	forgotAspects  = map[string]bool{"da": true, "lo": true, "bi": true, "hoi": true, "cung": true, "van": true}
+)
+
+var (
+	keyQuen = skeleton.Key("quen")
+	keyMat  = skeleton.Key("mat")
+)
 
 // negators before a request verb turn it into a prohibition (skeleton keys).
 var negators = map[string]bool{"never": true, "not": true, "dont": true, "cannot": true, "khong": true,

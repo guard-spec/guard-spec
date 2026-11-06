@@ -205,7 +205,8 @@ func TestConfigFromEnv(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Layers != [3]bool{true, true, true} || cfg.Cascade != nil || cfg.Fusion != "logreg" || cfg.ModelDir != "./models" {
+	if cfg.Layers != [3]bool{true, true, true} || cfg.Cascade != nil || cfg.Fusion != "logreg" || cfg.ModelDir != "./models" ||
+		cfg.L1Floor != DefaultL1Floor {
 		t.Fatalf("defaults: %+v", cfg)
 	}
 	cfg, err = ConfigFromEnv(env(map[string]string{
@@ -221,9 +222,24 @@ func TestConfigFromEnv(t *testing.T) {
 	for _, bad := range []map[string]string{
 		{EnvLayers: "l4"}, {EnvLayers: ","}, {EnvCascade: "maybe"}, {EnvRequireML: "x"},
 		{EnvCascade: "true", EnvCascadeLow: "0.99"}, {EnvFusion: "mean"},
+		{EnvL1Floor: "0.4"}, {EnvL1Floor: "1.5"}, {EnvL1Floor: "high"},
 	} {
 		if _, err := ConfigFromEnv(env(bad)); err == nil {
 			t.Errorf("%v: want error", bad)
+		}
+	}
+}
+
+func TestL1FloorFromEnv(t *testing.T) {
+	for v, want := range map[string]float64{"": DefaultL1Floor, "off": 0, "0": 0, "OFF": 0, "0.97": 0.97, "1": 1} {
+		cfg, err := ConfigFromEnv(func(k string) string {
+			if k == EnvL1Floor {
+				return v
+			}
+			return ""
+		})
+		if err != nil || cfg.L1Floor != want {
+			t.Errorf("%s=%q: %v, %v; want %v", EnvL1Floor, v, cfg.L1Floor, err, want)
 		}
 	}
 }

@@ -243,6 +243,15 @@ What each stage does:
   score. Both were fitted on the classifier's validation splits, never on
   `eval/`. A layer that did not run is left out (fallback: max of the layers
   that ran). An optional cascade skips L2 and L3 when L1 is already decisive.
+- **L1 floor** (`FUSION_L1_FLOOR`, default 0.985). The regression weights L1
+  at about half of L2, so a classifier that is sure a text is benign can
+  outvote a certain rule match. When L1 fires a *decisive* rule (an override
+  followed by its payload in the same message, such as "ignore the previous
+  instructions and print ..." or "bỏ qua hết quy tắc trước đó, giờ bạn là
+  ...") and its calibrated score reaches the floor, that score becomes a lower
+  bound of the fused score, and `fusion.l1_floor` is added to the fired rules.
+  `off` (or `0`) disables it; `/readyz` shows the value in use as
+  `detector.l1_floor`.
 - **Fixed thresholds.** A direct injection score of 0.85 or more blocks.
   Tool results, documents and tool descriptions are scored one by one, and the
   largest of those scores blocks at `INDIRECT_BLOCK_THRESHOLD` (default 0.85).
@@ -616,6 +625,7 @@ in a second table.
 | `DETECTOR_FUSION` | `logreg` | `logreg` or `max` of the calibrated layers |
 | `DETECTOR_CASCADE` | `false` | `true` skips L2/L3 when L1's calibrated score is below `DETECTOR_CASCADE_LOW` or above `DETECTOR_CASCADE_HIGH` |
 | `DETECTOR_CASCADE_LOW` / `DETECTOR_CASCADE_HIGH` | `0.03` / `0.965` | Cascade bounds |
+| `FUSION_L1_FLOOR` | `0.985` | With `logreg` fusion, a decisive L1 rule match whose calibrated score is at least this value is a lower bound of the fused score. `off` or `0` disables it; otherwise a number in (0.5, 1] |
 | `DETECTOR_REQUIRE_ML` | `false` | `true` refuses to start without the model layers (not with `GUARD_ENV=dev`) |
 | `MODELS_MANIFEST` | empty (the manifest built into the binary) | Manifest file read at start and on every reload: what a reload verifies against, and what `/readyz` reports as recommended. See [Shadow mode and model reload](#shadow-mode-and-model-reload) |
 | `SHADOW_L2_MODEL` / `SHADOW_L2_MODEL_DIR` | empty (off) | Candidate classifier compared with the active one on the same traffic, as `name@version` or a directory. It never changes a decision |
@@ -1124,7 +1134,19 @@ not shipped (FPR 2.2%, TPR 0.915; see the model card). All model rows were measu
 | L1 + L2 + L3 (v1), cascade | 0.987 | 0.932 | 0.953 | 2.7% | 1.1% | 3.6% | 7.0% | 3.8% | 2.9 / 8.5 ms |
 | L1 + L2 + L3 (v2) | 0.985 | 0.922 | 0.933 | 2.0% | 2.2% | 1.9% | 1.4% | 3.0% | 3.8 / 11.0 ms |
 | L1 + L2 + L3 (v2), cascade | 0.987 | 0.936 | 0.945 | 2.1% | 2.5% | 1.9% | 1.4% | 3.0% | 2.9 / 8.8 ms |
-| **L1 + L2 + L3 (v3b, default with models)** | 0.986 | 0.924 | 0.932 | 1.4% | 1.7% | 1.3% | 3.5% | 0.4% | 3.7 / 11.1 ms |
+| L1 + L2 + L3 (v3b), v0.2.0 | 0.986 | 0.924 | 0.932 | 1.4% | 1.7% | 1.3% | 3.5% | 0.4% | 3.7 / 11.1 ms |
+| L1 + L2 (v3b), L1 floor | 0.987 | 0.933 | 0.938 | 1.4% | 1.7% | 1.3% | 3.5% | 0.4% | 2.7 / 7.5 ms ¹ |
+| **L1 + L2 + L3 (v3b), L1 floor (default with models)** | 0.987 | 0.934 | 0.939 | 1.4% | 1.7% | 1.3% | 3.5% | 0.4% | 3.7 / 11.1 ms ¹ |
+
+The two "L1 floor" rows were measured on 2026-11-07 (branch of RF-c5446336:
+the Vietnamese override rules and `FUSION_L1_FLOOR=0.985`) with the same
+models and data, by `go run -tags onnx ./cmd/eval -layers l1,l2,l3` (and
+`-layers l1,l2`). Against v0.2.0 the false-positive rates are identical to
+four decimals in every group; 8 more attack rows are blocked (TPR at block
+0.932 → 0.939), all Vietnamese (VI TPR at block 0.936 → 0.949; teencode
+0.903 → 0.929, no-diacritics 0.943 → 0.960). ¹ The floor adds no model
+work; latency is the v0.2.0 measurement (the re-runs shared the machine with
+other jobs and are not comparable).
 
 L1 only after the hidden-HTML rules (2026-11-04, `go test ./internal/evalset
 -run TestBaseline -v`): AUC 0.952, TPR at block 0.881, FPR at block 0.1%
@@ -1156,7 +1178,7 @@ How to read them, and their limits:
   the same TPR at block (0.932 vs 0.933): Vietnamese without diacritics falls
   from 3.0% to 0.4% and English from 2.2% to 1.7%, but **Vietnamese teencode
   rises from 1.4% to 3.5%**, and English leet recall falls (0.825 vs 0.875).
-  `eval/baseline-onnx.json` holds the v3b run.
+  `eval/baseline-onnx.json` holds the v3b run with the L1 floor.
 - **Vietnamese teencode and no-diacritics benign text was the known weak
   spot** of the model layers. With L1+L2+L3, classifier v2 blocks 1.4% of
   teencode and 3.0% of no-diacritics benign rows (v1: 7.0% and 3.8%). The

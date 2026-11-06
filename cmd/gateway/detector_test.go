@@ -67,6 +67,7 @@ func TestReadyzReportsLayers(t *testing.T) {
 		Active:   [3]bool{true, false, true},
 		Problems: []string{"l2: no model"},
 		Fusion:   "logreg",
+		L1Floor:  0.985,
 	}, false)
 	// No API key: /readyz is open, like /health.
 	resp, err := newApp(gw, testLookup).Test(httptest.NewRequest("GET", "/readyz", nil), -1)
@@ -87,7 +88,8 @@ func TestReadyzReportsLayers(t *testing.T) {
 	if got := strings.Join(out.Detector.Layers, ","); got != "l1,l3" {
 		t.Errorf("layers = %q, want l1,l3", got)
 	}
-	if !out.Detector.Degraded || len(out.Detector.Problems) != 1 || out.Detector.Fusion != "logreg" {
+	if !out.Detector.Degraded || len(out.Detector.Problems) != 1 || out.Detector.Fusion != "logreg" ||
+		out.Detector.L1Floor != 0.985 {
 		t.Errorf("detector = %+v", out.Detector)
 	}
 	if out.Detector.ONNX != onnx.Available() {
