@@ -266,9 +266,16 @@ What each stage does:
   request and response. Content is stored only when you turn that on.
 
 Things that are **not built**, although older documents described them:
-fallback chains and cost caps for routing, toxicity/PII/topic detection on the
-input side, ClickHouse, GPU or Triton serving, and LLM-based judges such as
-Qwen3Guard or Granite Guardian. See [ROADMAP.md](ROADMAP.md) and [DESIGN.md](DESIGN.md).
+fallback chains and cost caps for routing, ClickHouse, GPU or Triton serving,
+and LLM-based judges such as Qwen3Guard or Granite Guardian. See
+[ROADMAP.md](ROADMAP.md) and [DESIGN.md](DESIGN.md).
+
+**PII, toxicity and topic detection on the input side** were decided against
+for now ([ADR 0002](docs/adr/0002-no-input-pii-toxicity-topic.md)). Personal
+data is redacted in answers by the output guard only; the gateway forwards
+prompts as it receives them. Toxicity and topic classification are out of
+scope for a prompt-injection guard; use your provider's moderation or a
+moderation model in your application. The ADR lists what you can do instead.
 
 ## Quick start
 
@@ -1084,6 +1091,62 @@ How to read them, and their limits:
   or between small groups such as `en/data_exfiltration` (29 rows), as
   signal.
 
+### Go benchmarks: sanitizer, output guard, policy and HTTP path
+
+Measured on **2026-11-06** with the benchmarks added on top of commit
+`19fc3ff`, on an **Apple M3 Max (14 cores, 36 GB), macOS 15.4.1, Go 1.26.10,
+ONNX Runtime 1.31.1**, by:
+
+```bash
+make bench                                              # L1 only; no models, no cgo
+MODEL_DIR=/path/to/models make bench-onnx               # adds L1+L2(v3b)+L3 and L1+L2; skips without models
+```
+
+`make bench` runs the `testing.B` benchmarks in `internal/sanitizer`,
+`internal/outputguard`, `internal/policy` and `cmd/gateway` (`BENCHTIME=5s`
+for longer runs). Numbers are from a single run with the default 1 s per
+benchmark.
+
+**End to end through the gateway.** A client posts `/v1/chat/completions` to
+the gateway on a loopback socket; the request goes through the sanitizer, the
+detector, one policy of five CEL rules, the proxy to a fake upstream
+(`httptest`, answers at once) and the output guard on the way back. Audit rows
+are built but not written to Postgres. So this is the gateway's own overhead,
+without a model and without a database. Latency is per request, sent one at a
+time; "parallel" is the time per request with 14 concurrent clients
+(`b.RunParallel`).
+
+| Request | L1 only p50 / p99 | L1 + L2 p50 / p99 | L1 + L2 + L3 p50 / p99 |
+|---|---|---|---|
+| Benign, English, 39 characters | 0.38 / 0.92 ms | 2.17 / 2.78 ms | 2.86 / 16.2 ms |
+| Benign, Vietnamese, 66 characters | 0.37 / 0.90 ms | 2.87 / 12.8 ms | 3.76 / 4.47 ms |
+| Benign, English, 2,014 characters | 1.35 / 1.92 ms | 25.5 / 122 ms | 37.9 / 40.1 ms |
+| Attack, blocked (no upstream call) | 0.15 / 0.43 ms | 2.22 / 5.24 ms | 3.09 / 3.68 ms |
+| Benign short, parallel (time per request) | 0.058 ms | 0.86 ms | 1.31 ms |
+
+Model time grows with the number of tokens in the prompt, so the long prompt
+costs much more than the short ones with L2 and L3. The p99 values come from a
+few hundred requests per row on a laptop and are noisy (for example 122 ms for
+L1 + L2 on the long prompt against a p50 of 25.5 ms); read the p50 column.
+
+**Components, in process** (one call per operation):
+
+| Benchmark | Input | Time per call | Allocations |
+|---|---|---|---|
+| `BenchmarkSanitize` (input sanitizer) | 39-char English prompt | 3.8 µs | 24 |
+| | 2,025-char prompt | 133 µs | 24 |
+| | 1,560 chars with zero-width, bidi and full-width characters | 224 µs | 83 |
+| `BenchmarkOutputGuardText` (whole answer) | 2,048-char answer, nothing to change | 0.50 ms | 10 |
+| | 1,836-char answer with e-mails, phones, cards, links, images | 0.61 ms | 781 |
+| `BenchmarkOutputGuardStream` (16-byte deltas) | 2,048-char answer, nothing to change | 3.8 ms | 356 |
+| | 1,836-char answer with findings | 4.5 ms | 7,000 |
+| `BenchmarkEvaluate` (CEL, compiled policy) | 1 rule | 2.6 µs | 70 |
+| | 10 rules | 15 µs | 393 |
+| | 50 rules | 82 µs | 1,905 |
+
+The stream figures are the total for all deltas of one answer (128 for the
+clean one), about 30 µs per delta.
+
 ## Security model and limitations
 
 What Guard Spec does:
@@ -1489,6 +1552,7 @@ go build ./...
 go vet ./...
 go test -race ./...                       # unit tests, no database or models needed
 go run ./cmd/eval -baseline eval/baseline.json   # detector eval vs the committed baseline
+make bench                                # Go benchmarks, see Benchmarks
 
 # Admin UI (optional: without it, go build embeds the placeholder in web/dist)
 npm --prefix web ci && npm --prefix web run build
@@ -1505,6 +1569,7 @@ go test -race -tags integration ./...
 # Model layers: cgo + ONNX Runtime
 make onnx-deps && make test-onnx
 make eval-ml                               # needs models/, see Models
+make bench-onnx                            # HTTP path benchmarks with L2/L3
 ```
 
 [CONTRIBUTING.md](CONTRIBUTING.md) covers the rules, including the most

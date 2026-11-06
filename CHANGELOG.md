@@ -21,6 +21,10 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 - Helm chart: the control plane reads `MFA_ENC_KEY` from `existingSecret`
   when the key is there (optional; `controlPlane.extraEnvFrom` still works).
 - `GET /readyz`: `detector.required` reports `DETECTOR_REQUIRE_ML`.
+- Go benchmarks for the input sanitizer, the output guard (whole answers and
+  streams), CEL policy evaluation and the gateway's HTTP path end to end
+  against a fake upstream. `make bench` runs them with L1 only; `make
+  bench-onnx` adds L1+L2+L3 and L1+L2 (skipped without models).
 
 ### Changed
 
@@ -45,6 +49,11 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 ### Documentation
 
 - README: the `kubectl create secret` example includes `MFA_ENC_KEY`.
+- ADR 0002: input-side PII, toxicity and topic detection are decided against
+  for now, with the reasons and what to use instead; README, ROADMAP and
+  DESIGN point to it.
+- README, "Benchmarks": measured numbers for the new Go benchmarks (Apple M3
+  Max), with the command and date.
 - docs/deploy: the workarounds for the points above are gone; notes on
   Helm 4 post-renderers (plugins only) and on migration 004's
   `CREATE ROLE` on a Postgres server shared with other databases.

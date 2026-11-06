@@ -192,8 +192,14 @@ Nguồn của các sơ đồ ở [docs/diagrams/](docs/diagrams/)
   và độ dài, không lưu nội dung.
 
 **Chưa xây dựng** (tài liệu cũ có nhắc): chuỗi dự phòng và giới hạn chi phí
-khi định tuyến, phát hiện toxicity/PII/chủ đề phía đầu vào, ClickHouse,
-Triton/GPU, Qwen3Guard/Granite Guardian. Xem [ROADMAP.md](ROADMAP.md).
+khi định tuyến, ClickHouse, Triton/GPU, Qwen3Guard/Granite Guardian. Xem
+[ROADMAP.md](ROADMAP.md).
+
+**Phát hiện PII, toxicity và chủ đề phía đầu vào**: tạm thời không làm
+([ADR 0002](docs/adr/0002-no-input-pii-toxicity-topic.md)). Dữ liệu cá nhân
+chỉ được che trong câu trả lời (output guard); prompt được chuyển tiếp nguyên
+vẹn. Toxicity và chủ đề nằm ngoài phạm vi của một lớp chống prompt injection;
+hãy dùng moderation của nhà cung cấp hoặc một mô hình moderation trong ứng dụng.
 
 ## Bắt đầu nhanh
 
