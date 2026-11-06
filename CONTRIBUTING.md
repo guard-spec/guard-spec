@@ -108,9 +108,24 @@ them yourself, with the command, the hardware and the date.
 - Update the README (and `README.vi.md` where it applies), `CHANGELOG.md` and
   `.env.example` when behaviour or configuration changes.
 - Fill in the pull request template, including how you tested.
+- The documentation site (<https://guardspec.io/docs/>) renders this
+  repository's Markdown at a pinned commit. A new page needs an entry in
+  `src/docs.json` of
+  [guard-spec.github.io](https://github.com/guard-spec/guard-spec.github.io)
+  (for example `docs/red-team.md` as `security/red-team` under Security);
+  links between pages work either way.
 
-## Reporting false positives and false negatives
+## Reporting bypasses and false positives
 
-Use the "False positive / false negative" issue template. Remove personal and
-confidential data from the text first. If the text cannot be shared, describe
-its shape (language, variant, length, which layer scored it) instead.
+Use the "Bypass (prompt got through)" or "False positive (benign blocked)"
+issue form, or **Report** on a row of the admin UI's request log, which
+fills the form for you. Post synthetic or anonymised text only: no personal
+data, secrets or customer data. If the text cannot be shared, describe its
+shape (language, variant, length, which layer scored it) instead. A severe
+bypass (one that would let an attacker exfiltrate data or call tools in a
+real deployment) goes to private reporting ([SECURITY.md](SECURITY.md)).
+
+[docs/red-team.md](docs/red-team.md) describes what happens next: triage
+labels, deduplication, whether a text goes to training or hold-out data
+(`train/import_issues.py`), how fixes ship and how reporters are credited.
+Reported texts never go into `eval/`.

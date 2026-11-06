@@ -298,6 +298,9 @@ type gatewayModels struct {
 	// L1Floor is FUSION_L1_FLOOR as the gateway applies it (0: off); null
 	// when the gateway does not report it (before the floor existed).
 	L1Floor *float64 `json:"l1_floor"`
+	// GatewayVersion is the gateway's version from /readyz; empty when it
+	// does not say. The admin UI puts it in bypass and false-positive reports.
+	GatewayVersion string `json:"gateway_version,omitempty"`
 }
 
 type gwShadow struct {
@@ -314,6 +317,7 @@ type gwReloadInfo struct {
 
 // gatewayReadyz is the part of the gateway's /readyz read here.
 type gatewayReadyz struct {
+	Version  string `json:"version"`
 	Detector struct {
 		Layers  []string `json:"layers"`
 		Fusion  string   `json:"fusion"`
@@ -360,6 +364,7 @@ func getGatewayModels(settings *appSettings) fiber.Handler {
 			return c.JSON(out)
 		}
 		out.Reachable = true
+		out.GatewayVersion = st.Version
 		out.Layers, out.Fusion, out.L1Floor = st.Detector.Layers, st.Detector.Fusion, st.Detector.L1Floor
 		m := st.Detector.Models
 		if m == nil {

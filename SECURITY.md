@@ -37,6 +37,17 @@ Out of scope: findings that require `GUARD_ENV=dev` or the development compose
 override, model accuracy without a concrete bypass, denial of service by
 volume alone, and issues in upstream LLMs.
 
+### Guardrail bypasses: public issue or private report
+
+No classifier catches every attack, so a single text that gets past the
+detector is usually not a vulnerability: report it with the public "Bypass"
+issue form, and it becomes training or hold-out data
+([docs/red-team.md](docs/red-team.md)). Report a bypass **privately**, as
+above, when it is severe: it would let an attacker exfiltrate data, call
+tools or reach another tenant in a real deployment, or it is a general
+technique (an encoding, a sanitizer gap, a policy-engine flaw) that defeats
+every layer for a whole class of texts. When in doubt, report privately.
+
 ## Hardening
 
 For the risks that remain when you run Guard Spec and how to reduce them, see

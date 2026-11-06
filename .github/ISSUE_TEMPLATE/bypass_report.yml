@@ -1,0 +1,117 @@
+name: "Bypass (prompt got through)"
+description: An attack text that Guard Spec allowed but should have blocked or flagged.
+title: "Bypass: "
+labels: [detection, bypass, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you: bypass reports are how the rules and the classifier improve. How a report is triaged, and whether it goes to training or hold-out data, is described in [docs/red-team.md](https://github.com/guard-spec/guard-spec/blob/main/docs/red-team.md).
+
+        > [!WARNING]
+        > **No personal data, secrets or customer data.** This issue is public. Post a **synthetic or anonymised** text only: replace names, e-mail addresses, phone numbers, account and ID numbers, API keys, internal host names and customer content with placeholders (`user@example.com`, `[NAME]`, `sk-REDACTED`).
+
+        > [!CAUTION]
+        > **Severe bypasses are reported privately, not here.** If the text would let an attacker exfiltrate data, call tools or reach other tenants in a real deployment, or it is a general technique that defeats every layer, use [private vulnerability reporting](https://github.com/guard-spec/guard-spec/security/advisories/new) as described in [SECURITY.md](https://github.com/guard-spec/guard-spec/blob/main/SECURITY.md#guardrail-bypasses-public-issue-or-private-report).
+
+        The admin UI fills most of this form for you: **Request log → Report** on the row.
+  - type: textarea
+    id: prompt
+    attributes:
+      label: Prompt
+      description: |
+        The text that got through, exactly as the gateway saw it, after removing personal data, secrets and customer data.
+        Synthetic or anonymised only. If you cannot share it, describe its shape instead (language, length, technique).
+      render: text
+    validations:
+      required: true
+  - type: dropdown
+    id: language
+    attributes:
+      label: Language
+      options:
+        - English
+        - Vietnamese (with diacritics)
+        - Vietnamese (without diacritics)
+        - Vietnamese (teencode)
+        - Mixed
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where it appeared
+      description: The part of the request that carried the text.
+      options:
+        - User prompt
+        - RAG document
+        - Tool result
+        - MCP tool description
+        - Other (system message, model output)
+    validations:
+      required: true
+  - type: dropdown
+    id: attack_type
+    attributes:
+      label: Attack type
+      description: What the text tries to do. Maintainers can change it during triage.
+      options:
+        - Direct injection (override the instructions)
+        - Jailbreak (role-play, persona, hypothetical)
+        - Prompt extraction (reveal the system prompt)
+        - Data exfiltration (send data out)
+        - Indirect injection (instructions inside content)
+        - Tool poisoning (MCP or tool description)
+        - Obfuscation (encoding, homoglyphs, spacing)
+        - Not sure
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Guard Spec version
+      description: The gateway version (`gateway --version`, or the Models page of the admin UI).
+      placeholder: v0.2.1
+    validations:
+      required: true
+  - type: input
+    id: layers
+    attributes:
+      label: Detector layers
+      description: DETECTOR_LAYERS, the classifier version and the fusion (the Models page shows them).
+      placeholder: l1,l2,l3 · guardspec-classifier@v3b · fusion logreg
+    validations:
+      required: true
+  - type: textarea
+    id: audit
+    attributes:
+      label: Response or audit fields
+      description: |
+        From the request log row or POST /guardrail/scan: decision (action), injection_score, label, the layer or rule that decided, anomaly_score.
+        No API keys, request IDs of other people or upstream answers with customer data.
+      render: text
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected outcome
+      description: What should have happened (block, flag, route) and what the attack tries to achieve.
+    validations:
+      required: true
+  - type: input
+    id: pair
+    attributes:
+      label: Related report
+      description: Optional. The issue number of a benign twin of this text (a minimal pair), so both land in the same data split.
+      placeholder: "#123"
+  - type: checkboxes
+    id: consent
+    attributes:
+      label: Confirmation
+      options:
+        - label: The text is synthetic or anonymised and contains no personal data, secrets or customer data.
+          required: true
+        - label: This is not a severe bypass (see the caution above and SECURITY.md); severe ones go to private reporting.
+          required: true
+        - label: I agree that the text may be added to the project's training or hold-out data and published under Apache-2.0.
+          required: true

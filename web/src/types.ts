@@ -238,6 +238,8 @@ export interface GatewayModels {
   reload: { generation: number; at: string | null; error: string | null };
   /** The detection layers that run (l1, l2, l3); null or absent when the gateway did not say. */
   layers?: string[] | null;
+  /** The gateway's version (its /readyz); absent from older control planes or gateways. */
+  gateway_version?: string;
   /** The fusion combiner: logreg or max. */
   fusion?: string;
   /** FUSION_L1_FLOOR as applied (0: off); null or absent when the gateway does not report it. */

@@ -531,7 +531,11 @@ Báo lỗ hổng bảo mật một cách riêng tư theo [SECURITY.md](SECURITY.
 
 Xem [CONTRIBUTING.md](CONTRIBUTING.md) (DCO sign-off, cách chạy test và eval).
 Quy tắc quan trọng nhất: **không bao giờ dùng `eval/` để tinh chỉnh**. Báo
-chặn nhầm/bỏ sót bằng mẫu issue "False positive / false negative".
+chặn nhầm/lọt lưới bằng mẫu issue "False positive" hoặc "Bypass", hoặc nút
+**Báo cáo** trên một dòng của Nhật ký yêu cầu trong giao diện quản trị; báo
+cáo được xử lý thế nào và trở thành dữ liệu huấn luyện ra sao xem ở
+[docs/red-team.md](docs/red-team.md) (tiếng Anh). Lỗi lọt lưới nghiêm trọng
+báo riêng tư theo [SECURITY.md](SECURITY.md).
 
 ## Giấy phép
 

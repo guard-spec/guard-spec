@@ -2,4 +2,7 @@ blank_issues_enabled: false
 contact_links:
   - name: Report a security vulnerability
     url: https://github.com/guard-spec/guard-spec/security/advisories/new
-    about: Guardrail bypasses, cross-tenant access and leaks are reported privately, never as issues.
+    about: Severe guardrail bypasses (data exfiltration, tool calls, cross-tenant access) and leaks are reported privately, never as issues.
+  - name: How bypass and false-positive reports are handled
+    url: https://github.com/guard-spec/guard-spec/blob/main/docs/red-team.md
+    about: Triage, deduplication, training or hold-out data, and how fixes ship.

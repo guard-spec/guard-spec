@@ -205,6 +205,16 @@ jobs:
           path: web/playwright-report
           retention-days: 7
 
+  red-team-import:
+    name: Red-team issue import (train/import_issues.py)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Standard library only, fixtures only: no install, no network.
+      - run: python3 -m unittest discover -s train/tests -v
+
   release-config:
     name: GoReleaser config
     runs-on: ubuntu-latest
