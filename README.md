@@ -1022,8 +1022,8 @@ setup of each channel, webhook signature verification and the metrics.
 
 All numbers below were measured by us on **2026-11-04** at commit `2275698`
 (the base of this release), on an **Apple M3 Max (14 cores, 36 GB), macOS
-15.4.1, Go 1.26.10, ONNX Runtime 1.31.1**. We have no amd64 server
-numbers yet.
+15.4.1, Go 1.26.10, ONNX Runtime 1.31.1**. Latency on Linux amd64 and
+arm64 is under [Detection latency on Linux](#detection-latency-on-linux-github-hosted-runners).
 
 The eval set is `eval/`: 2,176 rows, 1,171 attacks and 1,005 benign, 926
 English and 1,250 Vietnamese, built deterministically by
@@ -1085,8 +1085,8 @@ How to read them, and their limits:
   catches more (0.922 vs 0.915).
 - **Latency** is the sanitizer plus the detector for one row at a time, in
   process, measured by `cmd/eval`. It is not end-to-end HTTP latency through
-  the gateway and does not include the upstream model. It was measured on a
-  laptop, not on a server.
+  the gateway and does not include the upstream model. The table above was
+  measured on a laptop; Linux numbers are below.
 - The set is small. Do not read small differences between configurations,
   or between small groups such as `en/data_exfiltration` (29 rows), as
   signal.
@@ -1146,6 +1146,60 @@ L1 + L2 on the long prompt against a p50 of 25.5 ms); read the p50 column.
 
 The stream figures are the total for all deltas of one answer (128 for the
 clean one), about 30 µs per delta.
+
+### Detection latency on Linux (GitHub-hosted runners)
+
+Measured on **2026-11-06** at commit `70827a7`, by the manual
+[Bench workflow](.github/workflows/bench.yml)
+([run 42171305472](https://github.com/guard-spec/guard-spec/actions/runs/42171305472)),
+with Go 1.26.10, ONNX Runtime 1.31.1 and the released models
+(guardspec-classifier v3b, multilingual-e5-small, both int8):
+
+- **amd64**: GitHub-hosted `ubuntu-24.04` runner, **AMD EPYC 9V74** (4 vCPUs,
+  16 GB), native x86_64, not emulated;
+- **arm64**: GitHub-hosted `ubuntu-24.04-arm` runner, **Arm Neoverse-N2**
+  (4 vCPUs, 16 GB), for comparison.
+
+GitHub-hosted runners are shared virtual machines, so other tenants can slow
+a run down: read these numbers as indicative, not as a server benchmark.
+Each row is a single run.
+
+**Sanitizer + detector per eval row** (`cmd/eval`, the 2,176 rows of
+`eval/`, one at a time, in process; the same measurement as the table above):
+
+| Detector | amd64 p50 / p95 / p99 | arm64 p50 / p95 / p99 |
+|---|---|---|
+| L1 only | 0.15 / 0.34 / 0.48 ms | 0.17 / 0.34 / 0.49 ms |
+| L1 + L2 (v3b) | 5.2 / 13.7 / 24.1 ms | 5.7 / 14.3 / 17.6 ms |
+| **L1 + L2 + L3 (v3b, default with models)** | 7.2 / 20.0 / 25.1 ms | 9.5 / 24.0 / 30.2 ms |
+| L1 + L2 + L3 (v3b), cascade | 5.4 / 16.1 / 19.6 ms | 6.7 / 20.0 / 24.0 ms |
+
+**One model run per request** (`cmd/onnxbench`, 200 requests per row, a text
+of exactly that many tokens; 2,048 tokens are scored as several overlapping
+512-token windows). "Conc 4" is four concurrent requests: on 4 vCPUs each run
+already uses every core, so latency grows about 4x and throughput stays flat.
+
+| Layer | Tokens | Conc | amd64 p50 / p95 / p99 | amd64 req/s | arm64 p50 / p95 / p99 | arm64 req/s |
+|---|---:|---:|---|---:|---|---:|
+| L2 classifier (v3b) | 64 | 1 | 8.6 / 19.1 / 21.8 ms | 90 | 8.8 / 9.1 / 9.4 ms | 113 |
+| | 64 | 4 | 27.9 / 37.8 / 48.0 ms | 141 | 32.6 / 46.5 / 50.3 ms | 118 |
+| | 512 | 1 | 85 / 88 / 92 ms | 11.7 | 85 / 90 / 100 ms | 11.6 |
+| | 512 | 4 | 371 / 454 / 477 ms | 10.7 | 399 / 496 / 548 ms | 10.0 |
+| | 2,048 | 1 | 323 / 335 / 368 ms | 3.1 | 305 / 312 / 326 ms | 3.3 |
+| L3 embedder (e5-small) | 64 | 1 | 7.9 / 8.6 / 9.8 ms | 125 | 9.8 / 10.7 / 11.3 ms | 101 |
+| | 64 | 4 | 26.4 / 40.4 / 45.9 ms | 147 | 33.8 / 51.5 / 57.5 ms | 113 |
+| | 512 | 1 | 74 / 82 / 85 ms | 13.3 | 74 / 81 / 85 ms | 13.3 |
+| | 512 | 4 | 348 / 416 / 446 ms | 11.6 | 333 / 450 / 471 ms | 11.7 |
+| | 2,048 | 1 | 456 / 478 / 494 ms | 2.2 | 364 / 378 / 388 ms | 2.7 |
+
+The run's job summaries and the `bench-ubuntu-24.04*` artifacts have the full
+tables (256 tokens, 2,048 tokens at concurrency 4) and the `lscpu` output.
+Run it again with `gh workflow run bench.yml`.
+
+On these 4-vCPU runners, the default L1 + L2 + L3 costs about 7 ms per typical
+eval row at p50 on amd64, roughly twice the M3 Max laptop (3.7 ms), and model
+time grows about linearly with the prompt's tokens: plan for about 0.15 to 0.25 ms
+per token per layer for long prompts on a comparable CPU.
 
 ## Security model and limitations
 
