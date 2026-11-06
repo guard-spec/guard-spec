@@ -8,10 +8,10 @@ import { headerClass } from './components/DataTable';
 import { formatDate, formatDateTime, formatRelative, localeOf } from './dates';
 import { fitViewport } from './flow/layout';
 import { translator } from './i18n';
-import { computeStats, normLabel, ruleNames } from './pages/dashboard';
+import { normLabel, ruleNames } from './pages/dashboard';
 import { detailsText } from './pages/ActivityPage';
 import { panelPosition } from './shell/Shell';
-import type { AuditRow, Policy } from './types';
+import type { Policy } from './types';
 
 describe('labels and names', () => {
   it('compares detector labels in any case', () => {
@@ -19,20 +19,6 @@ describe('labels and names', () => {
     expect(normLabel(' Jailbreak ')).toBe('jailbreak');
     expect(normLabel('')).toBeNull();
     expect(normLabel(null)).toBeNull();
-    const row = (label: string): AuditRow => ({
-      id: label,
-      model: null,
-      action: 'allow',
-      rule_id: null,
-      injection_label: label,
-      injection_score: 0,
-      anomaly_score: 0,
-      had_tag_chars: false,
-      had_bidi: false,
-      latency_ms: 1,
-      created_at: '2026-11-04T08:00:00Z',
-    });
-    expect(computeStats([row('BENIGN'), row('benign'), row('JAILBREAK'), row('jailbreak')]).topLabels).toEqual([{ label: 'jailbreak', count: 2 }]);
   });
 
   it('names rules by id', () => {

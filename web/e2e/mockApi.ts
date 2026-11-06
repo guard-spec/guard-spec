@@ -26,6 +26,8 @@ import {
   type AuditRow,
   type ConditionLeaf,
   type ConditionNode,
+  type DashboardStats,
+  type DashboardWindow,
   type Exemplar,
   type FieldType,
   type GuardSettings,
@@ -836,6 +838,79 @@ function listBody(items: unknown[], url: URL, legacy: boolean, extra: Record<str
   return { items: slice, next_cursor: next, total: items.length };
 }
 
+/**
+ * GET /dashboard, aggregated like cmd/control-plane/dashboard.go. The window
+ * ends a minute after the newest seeded row (fixed dates), not at the clock;
+ * even rows belong to the first project, odd ones to none.
+ */
+function dashboardBody(state: MockState, url: URL): DashboardStats {
+  const hours: Record<DashboardWindow, number> = { '24h': 24, '7d': 168, '30d': 720 };
+  const window = (url.searchParams.get('window') ?? '24h') as DashboardWindow;
+  const projectFilter = url.searchParams.get('project_id');
+  const first = state.projects[0];
+  const newest = Math.max(0, ...state.requests.map((r) => Date.parse(r.created_at)));
+  const to = newest + 60_000;
+  const from = to - hours[window] * 3_600_000;
+  const rows = state.requests
+    .map((r, i) => ({ r, project: i % 2 === 0 ? (first ?? null) : null }))
+    .filter(({ r, project }) => {
+      const at = Date.parse(r.created_at);
+      return at >= from && at < to && (!projectFilter || project?.id === projectFilter);
+    });
+  const bucket = hours[window] <= 48 ? 'hour' : 'day';
+  const step = bucket === 'hour' ? 3_600_000 : 86_400_000;
+  const trunc = (ms: number) => ms - (ms % step);
+  const count = <K>(key: (x: (typeof rows)[number]) => K | null) => {
+    const m = new Map<K, { count: number; blocked: number }>();
+    for (const x of rows) {
+      const k = key(x);
+      if (k === null) continue;
+      const c = m.get(k) ?? { count: 0, blocked: 0 };
+      c.count += 1;
+      if (x.r.action === 'block') c.blocked += 1;
+      m.set(k, c);
+    }
+    return [...m.entries()].sort((a, b) => b[1].count - a[1].count);
+  };
+  const lat = rows.flatMap(({ r }) => (r.latency_ms === null ? [] : [r.latency_ms])).sort((a, b) => a - b);
+  const pct = (q: number) => {
+    if (lat.length === 0) return null;
+    const pos = q * (lat.length - 1);
+    const lo = Math.floor(pos);
+    return (lat[lo] ?? 0) + ((lat[Math.ceil(pos)] ?? 0) - (lat[lo] ?? 0)) * (pos - lo);
+  };
+  const perBucket = new Map(count(({ r }) => trunc(Date.parse(r.created_at))));
+  const series: DashboardStats['series'] = [];
+  for (let b = trunc(from); b <= to; b += step) series.push({ start: new Date(b).toISOString(), ...(perBucket.get(b) ?? { count: 0, blocked: 0 }) });
+  const rules = new Map(state.policies.flatMap((p) => p.rules.map((r) => [r.id, { rule: r.name, policy: p.name }] as const)));
+  const blocked = rows.filter(({ r }) => r.action === 'block').length;
+  return {
+    window,
+    from: new Date(from).toISOString(),
+    to: new Date(to).toISOString(),
+    bucket,
+    project_id: projectFilter,
+    total: rows.length,
+    blocked,
+    block_rate: rows.length ? blocked / rows.length : 0,
+    by_action: count(({ r }) => r.action).map(([action, c]) => ({ action, count: c.count })),
+    latency_ms: { p50: pct(0.5), p95: pct(0.95), p99: pct(0.99) },
+    series,
+    top_labels: count(({ r }) => {
+      const l = r.injection_label?.trim().toLowerCase();
+      return l && l !== 'benign' ? l : null;
+    })
+      .slice(0, 5)
+      .map(([label, c]) => ({ label, count: c.count })),
+    top_rules: count(({ r }) => r.rule_id)
+      .slice(0, 5)
+      .map(([id, c]) => ({ rule_id: id, rule: rules.get(id)?.rule ?? null, policy: rules.get(id)?.policy ?? null, count: c.count })),
+    top_projects: count(({ project }) => project?.id ?? '')
+      .slice(0, 5)
+      .map(([id, c]) => ({ project_id: id || null, name: state.projects.find((p) => p.id === id)?.name ?? null, ...c })),
+  };
+}
+
 const IDENTITY_PATH =
   /^\/(auth\/(me|mfa|sessions|providers|oidc|identities|logout|password)|permissions|admin\/|providers\/catalog)|\/(members|security|activity)(\/|$)|\/upstreams\/[^/]+\/test$/;
 
@@ -1197,6 +1272,10 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
       const body = listBody(rows, url, false) as { total?: number; total_capped?: boolean };
       if (rows.length > 400) Object.assign(body, { total: 400, total_capped: true });
       return json(200, body);
+    }
+    if (sub === '/dashboard' && method === 'GET') {
+      if (legacy) return json(404, { error: `Cannot ${method} /v1${path}` });
+      return json(200, dashboardBody(state, url));
     }
 
     // Members, invites, security, activity (identity contract §3–§5): admin and up.

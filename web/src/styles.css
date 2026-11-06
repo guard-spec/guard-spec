@@ -1980,6 +1980,14 @@ fieldset.card legend + * {
   grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
   gap: 12px;
 }
+.dash-grid-even {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.segmented-text button {
+  width: auto;
+  padding: 0 10px;
+  font-size: 13px;
+}
 .bars {
   display: flex;
   align-items: flex-end;

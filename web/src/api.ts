@@ -15,6 +15,8 @@ import type {
   ConnectionTest,
   CreatedApiKey,
   CreatedInvite,
+  DashboardStats,
+  DashboardWindow,
   ExportProblem,
   Exemplar,
   ExemplarInput,
@@ -561,6 +563,11 @@ export class ApiClient {
 
   async listRequests(orgId: UUID, limit = 100): Promise<AuditRow[]> {
     return listOf<AuditRow>(await this.request('GET', `/organizations/${enc(orgId)}/requests`, { query: { limit } }));
+  }
+
+  /** Aggregates of the request log over a window (24h by default), of one project or all. */
+  getDashboard(orgId: UUID, q: { window?: DashboardWindow; project_id?: UUID } = {}): Promise<DashboardStats> {
+    return this.request('GET', `/organizations/${enc(orgId)}/dashboard`, { query: q });
   }
 
   // ── Upstreams ─────────────────────────────────────────────────────────────

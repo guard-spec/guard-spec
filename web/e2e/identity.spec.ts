@@ -251,7 +251,10 @@ test.describe('control plane without the identity API (main before N15)', () => 
   test('degrades gracefully and still pages older lists', async ({ page }) => {
     await page.goto('/ui/');
     await expect(page.getByTestId('sso-buttons')).toHaveCount(0);
-    await login(page, 'Members');
+    // No /dashboard either: the dashboard says so instead of a sample.
+    await login(page, null);
+    await expect(page.getByText('Not available on this control plane')).toBeVisible();
+    await go(page, 'Members');
     await expect(page.getByText('Not available on this control plane')).toBeVisible();
     await go(page, 'Activity log');
     await expect(page.getByText('Not available on this control plane')).toBeVisible();

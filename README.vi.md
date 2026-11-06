@@ -347,6 +347,13 @@ Control plane (cổng 8081, compose mở ra 18081): đăng nhập, tổ chức, 
 project, policy, guard settings, exemplar, lời mời, audit log. Bảng đầy đủ và
 ví dụ curl ở mục [APIs](README.md#apis).
 
+`GET /v1/organizations/:orgId/dashboard?window=24h|7d|30d&project_id=` (vai trò
+viewer trở lên, như `/requests`) trả về số liệu tổng hợp của nhật ký yêu cầu,
+tính trong Postgres trên toàn bộ khoảng thời gian: tổng số yêu cầu, số bị chặn,
+tỷ lệ chặn, số theo quyết định, độ trễ p50/p95/p99, chuỗi thời gian theo giờ
+(24h) hoặc theo ngày (UTC), các nhãn phát hiện, luật và dự án nhiều nhất.
+Trang Bảng điều khiển dùng endpoint này.
+
 ### Giao diện quản trị
 
 Control plane phục vụ giao diện quản trị tại `/ui/` (với compose:
