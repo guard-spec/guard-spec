@@ -53,6 +53,11 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   prompt passes (L1 only); `tests/kind/e2e.sh` runs it locally. The `helm`
   job lints and validates every new values file.
 
+### Changed
+
+- `docs/security/verifying-releases.md` shows the verification output for
+  v0.1.1, and the Terraform reference deploys 0.1.1 by default.
+
 ## [0.1.1] - 2026-11-06
 
 ### Added

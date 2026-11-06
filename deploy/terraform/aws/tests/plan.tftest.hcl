@@ -35,7 +35,7 @@ run "defaults" {
   command = plan
 
   assert {
-    condition     = local.gateway_image == "ghcr.io/guard-spec/guard-spec-gateway-full:0.1.0"
+    condition     = local.gateway_image == "ghcr.io/guard-spec/guard-spec-gateway-full:0.1.1"
     error_message = "the gateway defaults to the gateway-full image of the release"
   }
   assert {
@@ -69,13 +69,13 @@ run "rules_only_pinned_digest" {
 
   variables {
     gateway_image        = "ghcr.io/guard-spec/guard-spec-gateway"
-    gateway_image_digest = "sha256:e765d231b541c6bcbc7f383611b11b8f741b909eaf3c6acd9537e71421fd0929"
+    gateway_image_digest = "sha256:948d14a0441e40a97ef83dd4824c4ffb146817e72fa125a3dab711af27b62729"
     detector_layers      = "l1"
     upstream_llm_url     = ""
   }
 
   assert {
-    condition     = local.gateway_image == "ghcr.io/guard-spec/guard-spec-gateway@sha256:e765d231b541c6bcbc7f383611b11b8f741b909eaf3c6acd9537e71421fd0929"
+    condition     = local.gateway_image == "ghcr.io/guard-spec/guard-spec-gateway@sha256:948d14a0441e40a97ef83dd4824c4ffb146817e72fa125a3dab711af27b62729"
     error_message = "a digest wins over the tag"
   }
   assert {
