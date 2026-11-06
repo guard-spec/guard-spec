@@ -33,6 +33,23 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   name starts with one of the given prefixes. Claude Code's own `Bash` and
   `Agent` tool descriptions score as poisoning; `SCAN_TOOL_PREFIXES=mcp__`
   checks only the tools of its MCP servers.
+- Gateway: `SCAN_HISTORY` for `/v1/messages`, `latest` by default: only the
+  trailing turn (after the last assistant message), the system prompt and
+  the tools are classified; earlier tool results come from a per-process scan
+  cache (`SCAN_CACHE_SIZE`, scores by SHA-256 of the content per org, cleared
+  on model reload), so a refused or redacted result stays so; earlier user
+  text is trusted. The size limits count only what is classified (a cold
+  cache gets a 1 MiB budget for earlier turns). `full` classifies every turn;
+  chat completions are unchanged.
+- Gateway: `INDIRECT_ACTION=redact` (and `indirect_action` in an org's guard
+  settings): a tool result or document over the indirect threshold is
+  replaced with a placeholder (`is_error: true` on a `tool_result`) and the
+  request goes on, on `/v1/messages` and `/v1/chat/completions`. The audit row
+  carries `input:redacted=<n>` and the scores; a `detection.flagged` event
+  has `decision: redact`. Tool descriptions still block. Default: `block`.
+- Gateway: a tool result or document longer than one detector call (about
+  28 KB) is scored in overlapping segments instead of being refused with 413;
+  the 128 KiB limit per request stays.
 - Control plane: the Anthropic provider preset says it also serves
   `/v1/messages` (`anthropic_messages`), and the connection test of an
   Anthropic upstream sends the key as `x-api-key` with `anthropic-version`.

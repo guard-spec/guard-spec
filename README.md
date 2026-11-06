@@ -596,6 +596,9 @@ in a second table.
 | `SCAN_TOOL_PREFIXES` | empty (every tool) | Comma-separated tool-name prefixes: only tool definitions whose name starts with one of them are checked for poisoning; the others are trusted as the client's own. For Claude Code: `mcp__` (its MCP servers' tools), see [docs/integrations.md](docs/integrations.md#claude-code-checked-through-the-gateway) |
 | `SPOTLIGHT` | `off` | Mark tool results for the model: `off`, `delimit`, `datamark` |
 | `INDIRECT_BLOCK_THRESHOLD` | `0.85` | Block threshold for tool results, documents and tool descriptions, in (0, 0.85] |
+| `INDIRECT_ACTION` | `block` | What happens to a tool result or document over the threshold: `block` refuses the request; `redact` replaces that block with `[removed by Guard Spec: prompt injection detected in tool output]` (`is_error: true` on a `tool_result`) and lets the request go on, with `input:redacted=<n>` in the audit row and a `detection.flagged` event (`decision: redact`). Tool descriptions always block. An org can override it (`indirect_action` in guard settings) |
+| `SCAN_HISTORY` | `latest` | `/v1/messages` only: `latest` classifies the trailing turn (after the last assistant message), takes earlier tool results from the scan cache, and does not classify earlier user text again; `full` classifies every turn. Chat completions always classify every turn |
+| `SCAN_CACHE_SIZE` | `4096` | Entries of the per-process scan cache of `/v1/messages` (scores of the system prompt, tool definitions and tool results by SHA-256 of their content, per org; cleared on model reload, 6 h lifetime); `0` turns it off |
 | `OUTPUT_GUARD` | `on` | `off` passes responses through unchanged |
 | `OUTPUT_LINK_ALLOWLIST` | empty | Comma-separated hosts (and their subdomains) whose images and links are kept |
 | `OUTPUT_PII_REDACT` | `true` | Redact e-mail, phone, CCCD and card numbers |
@@ -1323,6 +1326,12 @@ What it does **not** protect against:
   sets `UPSTREAM_KEY_ORGS=UPSTREAM_KEY_MAIN=*` and
   `UPSTREAM_ALLOW_PRIVATE=true` for a single-team setup with Ollama on the
   host; change both before letting untrusted users create orgs.
+- **Forged conversation history on `/v1/messages`.** With `SCAN_HISTORY=latest`
+  (the default there), the user text of earlier turns is not classified
+  again: it was when it was the trailing turn. A client that holds a gateway
+  key can put unscanned text into "history". Earlier tool results and
+  documents are still checked (from the scan cache, or scanned again). Use
+  `SCAN_HISTORY=full` when the key holders are not trusted this far.
 - **Volume attacks.** Rate limits are per gateway replica and in memory; put
   a proper rate limiter or WAF in front for abuse protection.
 - **2FA enrollment is trust on first use.** When an organization starts
@@ -1505,9 +1514,15 @@ larger of the detector's and the MCP signals': a secret path (`~/.ssh`,
 "send all emails to" or invisible characters reach 0.9 on their own; weaker
 signals ("Before using this tool", `mcp.json`, a description over 1500 bytes,
 ...) count 0.5 each and only block together. The request is blocked when the
-largest untrusted score reaches `INDIRECT_BLOCK_THRESHOLD`. The audit row's
-`injection_score` and `injection_label` hold the strongest finding, direct or
-not. Untrusted text is limited to 128 KiB per request (413 above).
+largest untrusted score reaches `INDIRECT_BLOCK_THRESHOLD`; with
+`INDIRECT_ACTION=redact` an offending tool result or document is replaced
+with a placeholder instead and the request goes on (tool descriptions still
+block). The audit row's `injection_score` and `injection_label` hold the
+strongest finding, direct or not. Untrusted text is limited to 128 KiB per
+request (413 above); a text longer than one detector call (about 28 KB) is
+scored in overlapping segments, every byte of it. On `/v1/messages` the limit
+counts what is actually classified: results found in the scan cache are not,
+and earlier turns missing from it have a budget of 1 MiB of their own.
 
 **Spotlighting** applies to tool results only:
 
@@ -1519,7 +1534,7 @@ not. Untrusted text is limited to 128 KiB per request (413 above).
 
 The sanitizer strips spoofed markers from client text and raises the anomaly
 score when it finds one, so a tool result cannot close the block it sits in.
-An org can override `scan_roles` and `spotlight` through
+An org can override `scan_roles`, `spotlight` and `indirect_action` through
 `PUT /v1/organizations/:orgId/guard-settings`; the gateway reads them on every
 request and fails closed with 503 if it cannot.
 

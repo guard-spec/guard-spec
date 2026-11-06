@@ -32,6 +32,7 @@ make an LLM application safe on its own.
 | D2 | A benign request is blocked | Users are refused | Measure on your traffic, allow exemplars, `DETECTOR_LAYERS` |
 | D3 | Model layers silently missing | Only L1 runs; recall drops | `DETECTOR_REQUIRE_ML=true`, alert on `/readyz` `degraded` |
 | D4 | Indirect injection in content you do not scan | Tool results or system prompts are not checked | `SCAN_ROLES`, per-org `scan_roles`, `SPOTLIGHT` |
+| D5 | Forged history on `/v1/messages` | Unscanned text placed in earlier turns reaches the model | Trust key holders, or `SCAN_HISTORY=full` |
 | A1 | The agent misuses a tool | Data loss, unwanted actions | Authorisation in your app, egress control, confirmations |
 | A2 | Exfiltration through links the guard keeps | Data leaves through the answer | Short host allowlist, disable auto-linking in your UI |
 | P1 | Services exposed without TLS | Credentials and prompts readable on the network | TLS at a reverse proxy or load balancer |
@@ -110,6 +111,25 @@ What to do:
   you put them in a prompt.
 - Turn on `SPOTLIGHT` (`delimit` or `datamark`) so the model can tell data from
   instructions.
+
+### D5. Forged history on `/v1/messages`
+
+Claude Code and other Messages API clients resend the whole conversation on
+every turn. With `SCAN_HISTORY=latest` (the default for `/v1/messages`) the
+gateway classifies only the trailing turn, the messages after the last
+assistant message, plus the system prompt and tools. Earlier tool results
+and documents are still checked, from the scan cache or by scanning them
+again, so content that was refused or redacted stays refused or redacted.
+The user text of earlier turns is not classified again: the gateway trusts
+the client that holds the API key not to forge it. A key holder who writes
+an injection into an earlier "user" turn gets it past the detector.
+
+What to do:
+
+- Give gateway keys only to clients you trust this far (a developer's own
+  Claude Code is one).
+- Set `SCAN_HISTORY=full` for keys used by untrusted clients; long sessions
+  then reach the 128 KiB limit sooner.
 
 ## Application and agent risks
 

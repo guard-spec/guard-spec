@@ -53,6 +53,7 @@ var messagesFormat = apiFormat{
 	guardResponse: (*outputguard.Scanner).MessagesResponse,
 	newStream:     func(s *outputguard.Scanner) streamGuard { return s.NewMessageStream() },
 	streamError:   anthropicStreamError,
+	history:       true,
 }
 
 // errNotAnthropic refuses /v1/messages for an upstream of another provider.
@@ -131,6 +132,13 @@ func anthropicBetas(values [][]byte) ([]string, error) {
 // text and thinking are left alone, as in chat. Tool definitions are checked
 // for poisoning. Images and binary documents are passed on unscanned, as
 // image parts are in chat.
+//
+// With SCAN_HISTORY=latest (g.latest), the turns up to the last assistant
+// message are history: they are still sanitized, and their tool results and
+// documents are scored through the scan cache (so a block refused or redacted
+// before is refused or redacted again, without running the detector), but
+// their user text is not classified again: it was when it was the trailing
+// turn. The client that holds the gateway key is trusted not to forge history.
 func (g *textGuard) guardMessagesBody(body map[string]any) error {
 	g.schemaKey = "input_schema"
 	if err := rejectShadowKeys(body, "system", "messages", "tools"); err != nil {
@@ -144,7 +152,13 @@ func (g *textGuard) guardMessagesBody(body map[string]any) error {
 		if !ok {
 			return errUnsupportedContent
 		}
-		for _, msg := range messages {
+		last := -1 // the last assistant message: the trailing turn follows it
+		for i, msg := range messages {
+			if m, ok := msg.(map[string]any); ok && m["role"] == "assistant" {
+				last = i
+			}
+		}
+		for i, msg := range messages {
 			m, ok := msg.(map[string]any)
 			if !ok {
 				return errUnsupportedContent
@@ -152,7 +166,10 @@ func (g *textGuard) guardMessagesBody(body map[string]any) error {
 			if err := rejectShadowKeys(m, "role", "content"); err != nil {
 				return err
 			}
-			if err := g.guardAnthropicMessage(m); err != nil {
+			g.history = g.latest && i <= last
+			err := g.guardAnthropicMessage(m)
+			g.history = false
+			if err != nil {
 				return err
 			}
 		}
@@ -240,11 +257,23 @@ func (g *textGuard) guardBlocks(blocks []any) error {
 		var err error
 		switch kind {
 		case "tool_result":
-			err = g.as(indirect.SourceTool, func() error { return g.guardNested(b, "content") })
+			redact := func() {
+				b["content"], b["is_error"] = redactedToolOutput, true
+			}
+			err = g.as(indirect.SourceTool, redact, func() error { return g.guardNested(b, "content") })
 		case "document":
-			err = g.as(indirect.SourceDocument, func() error { return g.guardDocument(b) })
+			redact := func() {
+				b["source"] = map[string]any{"type": "text", "media_type": "text/plain", "data": redactedDocument}
+				delete(b, "title")
+				delete(b, "context")
+			}
+			err = g.as(indirect.SourceDocument, redact, func() error { return g.guardDocument(b) })
 		case "search_result":
-			err = g.as(indirect.SourceDocument, func() error {
+			redact := func() {
+				b["title"] = "removed"
+				b["content"] = []any{map[string]any{"type": "text", "text": redactedDocument}}
+			}
+			err = g.as(indirect.SourceDocument, redact, func() error {
 				if err := g.guardStrings(b, "title"); err != nil {
 					return err
 				}
@@ -261,11 +290,12 @@ func (g *textGuard) guardBlocks(blocks []any) error {
 	return nil
 }
 
-// as runs fn with source set, then restores the previous one.
-func (g *textGuard) as(src indirect.Source, fn func() error) error {
-	prev := g.source
-	g.source = src
-	defer func() { g.source = prev }()
+// as runs fn with source and the block's redactor set, then restores the
+// previous ones.
+func (g *textGuard) as(src indirect.Source, redact func(), fn func() error) error {
+	prevSrc, prevRedact := g.source, g.redactFn
+	g.source, g.redactFn = src, redact
+	defer func() { g.source, g.redactFn = prevSrc, prevRedact }()
 	return fn()
 }
 

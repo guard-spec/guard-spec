@@ -38,6 +38,9 @@ type apiFormat struct {
 	newStream func(*outputguard.Scanner) streamGuard
 	// streamError renders the event that ends a stream the gateway stopped.
 	streamError func(message, errType, code string) []byte
+	// history: the format follows SCAN_HISTORY and scores through the scan
+	// cache (the Messages API, whose clients resend the whole session).
+	history bool
 }
 
 // openAIFormat is chat completions (path /chat/completions) or legacy

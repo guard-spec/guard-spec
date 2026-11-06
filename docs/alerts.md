@@ -68,7 +68,7 @@ Every event has:
 | type | source | severity | attrs |
 |---|---|---|---|
 | `detection.blocked` | gateway | warning | request_id, categories[], score, layer, decision, api_key_id, model (+ policy_id when a policy rule matched) |
-| `detection.flagged` | gateway | info | same as above (score ≥ flag threshold, not blocked) |
+| `detection.flagged` | gateway | info | same as above (score ≥ flag threshold, not blocked); warning with `decision: redact` and `redacted` (count) when untrusted content was replaced (`INDIRECT_ACTION=redact`) |
 | `upstream.error` | gateway | warning | upstream_id, status, error_kind (timeout\|5xx\|model_not_allowed\|connect), request_id |
 | `security.login_failed` | cp | warning | user_id\|null, email_hash, ip, reason |
 | `security.mfa_locked` | cp | critical | user_id |

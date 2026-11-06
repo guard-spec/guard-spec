@@ -197,3 +197,71 @@ func TestMessagesNamedAnthropicUpstream(t *testing.T) {
 		t.Errorf("rows %v", count)
 	}
 }
+
+// An org's guard settings turn on redaction; the audit row says allow with
+// input:redacted=1 and keeps the score, and the upstream gets the placeholder.
+func TestMessagesRedactFromOrgSettings(t *testing.T) {
+	ctx := context.Background()
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		url = "postgres://guardspec_app:guardspec_app@localhost:5432/guardspec?sslmode=disable"
+	}
+	db, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	org := uuid.New()
+	key := "gs_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	err = tenant.WithOrg(ctx, db, org, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `INSERT INTO organizations (id, name, slug, guard_settings)
+			VALUES ($1,'r',$2,'{"indirect_action":"redact"}')`, org, org.String()); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, `INSERT INTO api_keys (key_hash, key_prefix, org_id) VALUES ($1, $2, $3)`,
+			tenant.HashKey(key), key[:11], org)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	up := newFakeUpstream(t, func(w http.ResponseWriter, _ *http.Request) {
+		anthropicJSON(w, messageResponse(`{"type":"text","text":"ok"}`))
+	})
+	runner, err := inference.NewRunner("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gw := testGateway(t, runner)
+	withAnthropic(up.URL)(&gw)
+	gw.settings = dbSettingsLoader(db)
+	gw.cache = newScanCache(defaultScanCacheSize, scanCacheTTL)
+	gw.audit = newAuditLog(func(e requestEntry) { logRequest(db, false, e) })
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := newApp(gw, dbKeyLookup(db))
+	go func() { _ = app.Listener(ln) }()
+	t.Cleanup(func() { _ = app.ShutdownWithTimeout(time.Second) })
+	h := &harness{url: "http://" + ln.Addr().String(), gw: gw}
+
+	resp, got := h.post(t, "/v1/messages", sessionBody([]string{toolAttack}, ""), map[string]string{"x-api-key": key})
+	up.mu.Lock()
+	sent := up.body
+	up.mu.Unlock()
+	if resp.StatusCode != 200 || !strings.Contains(sent, redactedToolOutput) || strings.Contains(sent, "Ignore all previous") {
+		t.Fatalf("got %d %s; upstream %s", resp.StatusCode, got, sent)
+	}
+	gw.audit.wait()
+	var action string
+	var tags []string
+	var score float32
+	err = tenant.WithOrg(ctx, db, org, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT action, pii_entities, injection_score FROM requests WHERE org_id = $1`, org).
+			Scan(&action, &tags, &score)
+	})
+	if err != nil || action != actionAllow || len(tags) != 1 || tags[0] != "input:redacted=1" || score < 0.85 {
+		t.Errorf("row %s %v %v %v", action, tags, score, err)
+	}
+}

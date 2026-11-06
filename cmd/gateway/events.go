@@ -30,6 +30,11 @@ const (
 	layerScan      = "scan" // the /guardrail/scan endpoints
 )
 
+// decisionRedact is the decision of a detection.flagged event for a request
+// whose untrusted content was redacted; its audit row says allow (or route)
+// with the tag input:redacted=<n>.
+const decisionRedact = "redact"
+
 // error_kind values of upstream.error.
 const (
 	errorKindTimeout = "timeout"
@@ -166,6 +171,11 @@ func eventsFor(e *requestEntry, flagAt float64) []events.Event {
 	switch {
 	case e.Action == actionBlock && e.Detected != "":
 		out = append(out, detection(events.DetectionBlocked, events.Warning, e.Detected))
+	case e.Redacted > 0:
+		// Untrusted content removed (INDIRECT_ACTION=redact); the request went on.
+		ev := detection(events.DetectionFlagged, events.Warning, layerIndirect)
+		ev.Attrs["decision"], ev.Attrs["redacted"] = decisionRedact, e.Redacted
+		out = append(out, ev)
 	case (e.Action == actionAllow || e.Action == actionRoute) && score >= flagAt:
 		out = append(out, detection(events.DetectionFlagged, events.Info, modelLayer(e.Scores)))
 	}

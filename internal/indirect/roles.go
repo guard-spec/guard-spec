@@ -109,6 +109,17 @@ func (r Roles) String() string {
 type Settings struct {
 	ScanRoles map[string]bool `json:"scan_roles,omitempty"` // role name -> scanned
 	Spotlight *Mode           `json:"spotlight,omitempty"`
+	// IndirectAction is block or redact for untrusted content over the
+	// threshold (INDIRECT_ACTION).
+	IndirectAction *Action `json:"indirect_action,omitempty"`
+}
+
+// Action returns the indirect action with the org's override.
+func (s Settings) Action(def Action) Action {
+	if s.IndirectAction != nil {
+		return *s.IndirectAction
+	}
+	return def
 }
 
 // ParseSettings decodes and validates stored or submitted settings. Unknown
@@ -132,6 +143,13 @@ func ParseSettings(raw []byte) (Settings, error) {
 		if _, err := ParseMode(string(*s.Spotlight)); err != nil {
 			return Settings{}, fmt.Errorf("guard settings: %w", err)
 		}
+	}
+	if s.IndirectAction != nil {
+		a, err := ParseAction(string(*s.IndirectAction))
+		if err != nil || *s.IndirectAction == "" {
+			return Settings{}, fmt.Errorf("guard settings: indirect_action must be block or redact")
+		}
+		s.IndirectAction = &a
 	}
 	return s, nil
 }

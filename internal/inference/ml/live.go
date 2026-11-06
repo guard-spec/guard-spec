@@ -154,6 +154,14 @@ func (l *Live) Score(ctx context.Context, text string) fusion.Result {
 	return r
 }
 
+// Generation is the id of the running models; every reload changes it.
+// Caches of scores key on it.
+func (l *Live) Generation() int64 {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.cur.id
+}
+
 // ShadowEnabled reports whether a candidate is loaded now.
 func (l *Live) ShadowEnabled() bool {
 	l.mu.RLock()

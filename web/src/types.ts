@@ -132,7 +132,10 @@ export const DEFAULT_SCAN_ROLES: Record<ScanRole, boolean> = {
 export interface GuardSettings {
   scan_roles?: Partial<Record<ScanRole, boolean>>;
   spotlight?: SpotlightMode;
+  indirect_action?: IndirectAction;
 }
+
+export type IndirectAction = 'block' | 'redact';
 
 // ── Exemplars ───────────────────────────────────────────────────────────────
 

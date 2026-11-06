@@ -169,6 +169,7 @@ func main() {
 		scan:     &cfg.Scan,
 		settings: dbSettingsLoader(db),
 		limits:   newRateLimiter(ops.RateLimit, dbKeyLimits(db)),
+		cache:    newScanCache(cfg.ScanCacheSize, scanCacheTTL),
 
 		waitOnHalfClose: cfg.WaitOnHalfClose,
 	}, dbKeyLookup(db))
@@ -217,6 +218,8 @@ type gateway struct {
 	pool      *upstreamPool
 	output    *outputguard.Guard // nil: responses are passed on unchanged
 	limits    *rateLimiter       // nil: no rate limit
+	// cache keeps detector results of unchanged texts (scan_cache.go); nil: off.
+	cache *scanCache
 	// base is the parent of upstream calls and scans: a fiber ctx dies with the
 	// handler, and fasthttp's RequestCtx.Done races with server shutdown.
 	base context.Context
@@ -324,7 +327,10 @@ type requestEntry struct {
 	Scores    inference.Scores
 	Report    sanitizer.Report
 	Output    outputguard.Counts // what the output guard acted on, never the content
-	Indirect  indirect.Verdict   // strongest untrusted part (tool result, tool description)
+	// Redacted counts the untrusted texts replaced with a placeholder
+	// (INDIRECT_ACTION=redact); their scores are in Indirect.
+	Redacted int
+	Indirect indirect.Verdict // strongest untrusted part (tool result, tool description)
 	// SourceRole is where the strongest injection finding came from: user,
 	// system, assistant, tool or tool_description.
 	SourceRole string
@@ -424,7 +430,7 @@ func (a *auditLog) close() {
 func (a *auditLog) wait() { a.wg.Wait() }
 
 // outputTags renders output guard counts for the pii_entities column, as
-// "output:<kind>=<count>", sorted. The column has no other writer.
+// "output:<kind>=<count>", sorted. auditTags adds the input redactions.
 func outputTags(counts outputguard.Counts) []string {
 	var tags []string
 	for kind, n := range counts {
@@ -433,6 +439,16 @@ func outputTags(counts outputguard.Counts) []string {
 		}
 	}
 	sort.Strings(tags)
+	return tags
+}
+
+// auditTags is the pii_entities column: the output guard's counts, then
+// "input:redacted=<n>" when untrusted content was redacted.
+func auditTags(e requestEntry) []string {
+	tags := outputTags(e.Output)
+	if e.Redacted > 0 {
+		tags = append(tags, fmt.Sprintf("input:redacted=%d", e.Redacted))
+	}
 	return tags
 }
 
@@ -471,7 +487,7 @@ func logRequest(db *pgxpool.Pool, storeContent bool, e requestEntry) {
 			e.Report.HadTagChars,
 			e.Report.HadBidi,
 			e.LatencyMs,
-			outputTags(e.Output),
+			auditTags(e),
 			storeContent,
 			req.SHA256, req.Bytes, req.Content,
 			resp.SHA256, resp.Bytes, resp.Content,
@@ -515,6 +531,16 @@ type textGuard struct {
 	tools  []indirect.Tool // tool definitions to classify
 	// toolPrefixes, when set, limits the tools classified (SCAN_TOOL_PREFIXES).
 	toolPrefixes []string
+	// org keys the scan cache.
+	org uuid.UUID
+	// latest is SCAN_HISTORY=latest on /v1/messages: history holds while an
+	// earlier turn is cleaned, whose own text is then not classified.
+	latest, history bool
+	// useCache scores parts through gateway.cache (/v1/messages).
+	useCache bool
+	// redactFn replaces the block being cleaned with a placeholder; nil when
+	// it is not untrusted content.
+	redactFn func()
 	// schemaKey names the tools' schema field: parameters (OpenAI, the
 	// default) or input_schema (the Messages API).
 	schemaKey string
@@ -775,7 +801,8 @@ func proxyHandler(gw gateway, f apiFormat) fiber.Handler {
 		}
 
 		// Extract + sanitize untrusted text
-		guard := textGuard{roles: &scanCfg.Roles, toolPrefixes: scanCfg.toolPrefixes()}
+		guard := textGuard{roles: &scanCfg.Roles, toolPrefixes: scanCfg.toolPrefixes(), org: entry.OrgID,
+			latest: f.history && scanCfg.History == historyLatest, useCache: f.history}
 		_, endSpan := tracing.Start(tctx, "sanitize")
 		err = f.guardBody(&guard, body)
 		endSpan(err)
@@ -804,7 +831,19 @@ func proxyHandler(gw gateway, f apiFormat) fiber.Handler {
 			entry.Detected = modelLayer(verdict.Scores)
 			return blockResponse(c, "Request blocked: prompt injection detected.")
 		}
-		if verdict.Indirect.Score >= scanCfg.IndirectThreshold {
+		blocking := verdict.Indirect.Score
+		if scanCfg.IndirectAction == indirect.ActionRedact {
+			// Tool results and documents over the threshold are replaced with a
+			// placeholder; what is left, and tool definitions, still block.
+			redacted, rest := guard.redactUntrusted(scanCfg.IndirectThreshold)
+			if redacted > 0 {
+				entry.Redacted = redacted
+				blocking = max(rest, verdict.Tools)
+				slog.Info("redacted indirect injection", "parts", redacted, "score", verdict.Indirect.Score,
+					"source", verdict.Indirect.Source, "category", verdict.Indirect.Category)
+			}
+		}
+		if blocking >= scanCfg.IndirectThreshold {
 			slog.Info("blocked indirect injection", "score", verdict.Indirect.Score,
 				"source", verdict.Indirect.Source, "category", verdict.Indirect.Category)
 			entry.Detected = layerIndirect
@@ -1317,6 +1356,8 @@ type config struct {
 	// Scan is SCAN_ROLES, SPOTLIGHT and INDIRECT_BLOCK_THRESHOLD; an org can
 	// override roles and spotlight in organizations.guard_settings.
 	Scan scanConfig
+	// ScanCacheSize is SCAN_CACHE_SIZE: entries of the scan cache; 0 is off.
+	ScanCacheSize int
 	// AdminToken is GATEWAY_ADMIN_TOKEN: the bearer token of /admin/models
 	// (reload.go). Empty: those routes are off.
 	AdminToken string
@@ -1362,12 +1403,17 @@ func loadConfig() (config, error) {
 	if err != nil {
 		return config{}, fmt.Errorf("UPSTREAM_ALLOW_PRIVATE must be true or false: %w", err)
 	}
+	cacheSize, err := strconv.Atoi(getenv("SCAN_CACHE_SIZE", strconv.Itoa(defaultScanCacheSize)))
+	if err != nil || cacheSize < 0 || cacheSize > 1_000_000 {
+		return config{}, errors.New("SCAN_CACHE_SIZE must be a number from 0 to 1000000")
+	}
 	provider := strings.ToLower(strings.TrimSpace(getenv("UPSTREAM_LLM_PROVIDER", providerOpenAICompatible)))
 	if provider != providerOpenAICompatible && provider != providerAnthropic {
 		return config{}, errors.New("UPSTREAM_LLM_PROVIDER must be openai_compatible or anthropic")
 	}
 	cfg := config{
 		UpstreamProvider:     provider,
+		ScanCacheSize:        cacheSize,
 		ListenAddr:           getenv("LISTEN_ADDR", ":8080"),
 		Detector:             detector,
 		DatabaseURL:          getenv("DATABASE_URL", ""),
