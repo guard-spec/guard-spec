@@ -60,10 +60,8 @@ representative at an online or offline event.
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
 reported to the community leaders responsible for enforcement at
-`conduct@<to-be-set>` (the maintainers have not set this address yet;
-until then, contact a maintainer listed in [MAINTAINERS.md](MAINTAINERS.md)
-privately through GitHub, or use the repository's private vulnerability
-reporting form and say that the report is about conduct).
+conduct@guardspec.io. If you cannot use email, contact a maintainer listed
+in [MAINTAINERS.md](MAINTAINERS.md) privately through GitHub.
 All complaints will be reviewed and investigated promptly and fairly.
 
 All community leaders are obligated to respect the privacy and security of the
