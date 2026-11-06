@@ -108,6 +108,14 @@ describe('ApiClient', () => {
     expect(f.calls[1]?.url).toBe('/v1/organizations/o/requests?limit=5');
   });
 
+  it('reads the dashboard of a window and project', async () => {
+    const f = fakeFetch([json(200, { total: 0 }), json(200, { total: 1 })]);
+    const api = new ApiClient({ getToken: () => 't', fetch: f.fetch });
+    await expect(api.getDashboard('o')).resolves.toEqual({ total: 0 });
+    await api.getDashboard('o', { window: '7d', project_id: 'p' });
+    expect(f.calls.map((c) => c.url)).toEqual(['/v1/organizations/o/dashboard', '/v1/organizations/o/dashboard?window=7d&project_id=p']);
+  });
+
   it('accepts upstream lists with or without a data wrapper', async () => {
     const u = { id: 'u', name: 'main' };
     const f = fakeFetch([json(200, { data: [u] }), json(200, [u])]);

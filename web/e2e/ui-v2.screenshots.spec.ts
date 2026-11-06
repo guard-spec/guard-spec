@@ -54,7 +54,7 @@ for (const theme of ['light', 'dark'] as const) {
         test.setTimeout(120_000);
         await prepare(page, theme, vp);
         await login(page, null);
-        await expect(page.getByTestId('dash-sample')).toBeVisible();
+        await expect(page.getByTestId('dash-range')).toBeVisible();
         await shot(page, 'dashboard', theme, vp, vp === 'desktop');
         const pages: [string, string][] = [
           ['Policy flow', 'flow'],

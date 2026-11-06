@@ -175,7 +175,34 @@ export interface AuditRow {
   created_at: string;
 }
 
-// ── Upstreams (contract) ────────────────────────────────────────────────────
+/** A window of GET /organizations/:orgId/dashboard. */
+export type DashboardWindow = '24h' | '7d' | '30d';
+
+/** GET /organizations/:orgId/dashboard: aggregates of the request log over a window that ends now. */
+export interface DashboardStats {
+  window: DashboardWindow;
+  from: string;
+  to: string;
+  /** The series buckets, in UTC. */
+  bucket: 'hour' | 'day';
+  project_id: UUID | null;
+  total: number;
+  blocked: number;
+  block_rate: number;
+  by_action: { action: string; count: number }[];
+  /** Latency percentiles in ms; null when no request has a latency. */
+  latency_ms: { p50: number | null; p95: number | null; p99: number | null };
+  /** One entry per bucket, oldest first, empty buckets included. */
+  series: { start: string; count: number; blocked: number }[];
+  /** Detector labels other than benign, in lower case. */
+  top_labels: { label: string; count: number }[];
+  /** The names are null for a rule no longer in the org's policies. */
+  top_rules: { rule_id: UUID; rule: string | null; policy: string | null; count: number }[];
+  /** project_id and name are null for requests without a project. */
+  top_projects: { project_id: UUID | null; name: string | null; count: number; blocked: number }[];
+}
+
+// ── Upstreams (contract)────────────────────────────────────────────────────
 
 export interface Upstream {
   id: UUID;

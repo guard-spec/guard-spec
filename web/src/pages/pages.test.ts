@@ -4,8 +4,8 @@
 import { describe, expect, it } from 'vitest';
 import { en } from '../i18n/en';
 import { vi as viMessages } from '../i18n/vi';
-import type { AuditRow, UpstreamInput } from '../types';
-import { computeStats, quantile } from './dashboard';
+import type { UpstreamInput } from '../types';
+import { DASH_WINDOWS, share, volumeBars } from './dashboard';
 import { ApiError } from '../api';
 import { authErrorText, CODES } from '../auth/errors';
 import { translator } from '../i18n';
@@ -107,41 +107,28 @@ describe('identity provider and security validation', () => {
   });
 });
 
-describe('dashboard stats', () => {
-  const row = (action: string, label: string, latency: number, minutesAgo: number): AuditRow => ({
-    id: `${action}-${minutesAgo}`,
-    model: 'gpt-4o',
-    action,
-    rule_id: null,
-    injection_label: label,
-    injection_score: 0,
-    anomaly_score: 0,
-    had_tag_chars: false,
-    had_bidi: false,
-    latency_ms: latency,
-    created_at: new Date(Date.UTC(2026, 10, 4, 8) - minutesAgo * 60_000).toISOString(),
-  });
-
-  it('computes rates, latency percentiles and volume buckets', () => {
-    const rows = [row('allow', 'benign', 100, 0), row('block', 'injection', 30, 10), row('block', 'jailbreak', 40, 20), row('route', 'injection', 500, 30)];
-    const s = computeStats(rows, 4);
-    expect(s.count).toBe(4);
-    expect(s.blocked).toBe(2);
-    expect(s.blockRate).toBe(0.5);
-    expect(s.byAction[0]).toEqual({ action: 'block', count: 2 });
-    expect(s.topLabels).toEqual([
-      { label: 'injection', count: 2 },
-      { label: 'jailbreak', count: 1 },
+describe('dashboard', () => {
+  it('turns the server series into bars', () => {
+    const { bars, max } = volumeBars({
+      series: [
+        { start: '2026-11-04T07:00:00Z', count: 3, blocked: 1 },
+        { start: '2026-11-04T08:00:00Z', count: 0, blocked: 0 },
+      ],
+    });
+    expect(bars).toEqual([
+      { start: Date.UTC(2026, 10, 4, 7), count: 3, blocked: 1 },
+      { start: Date.UTC(2026, 10, 4, 8), count: 0, blocked: 0 },
     ]);
-    expect(s.p50).toBe(40);
-    expect(s.p99).toBe(500);
-    expect(s.volume).toHaveLength(4);
-    expect(s.volume.reduce((a, b) => a + b.count, 0)).toBe(4);
+    expect(max).toBe(3);
+    // No traffic: bars at height 0, never a division by 0.
+    expect(volumeBars({ series: [] }).max).toBe(1);
   });
 
-  it('handles no rows', () => {
-    expect(computeStats([])).toMatchObject({ count: 0, blockRate: 0, p50: null, volume: [] });
-    expect(quantile([], 0.5)).toBeNull();
+  it('computes shares and offers 24h first', () => {
+    expect(share(1, 4)).toBe(0.25);
+    expect(share(0, 0)).toBe(0);
+    expect(DASH_WINDOWS[0]).toBe('24h');
+    for (const w of DASH_WINDOWS) expect(en[`dash.window.${w}`]).toBeTruthy();
   });
 });
 

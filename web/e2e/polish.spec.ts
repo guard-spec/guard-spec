@@ -86,8 +86,9 @@ test('members show provider names for sign-in methods, never oidc:<id>', async (
 
 test('dashboard and request log compare labels in any case and show decisions alike', async ({ page }) => {
   await login(page, null);
-  await expect(page.getByTestId('dash-sample')).toBeVisible();
-  const top = page.locator('.rank-list');
+  await expect(page.getByTestId('dash-range')).toBeVisible();
+  const top = page.getByTestId('dash-labels');
+  await expect(top).toContainText('jailbreak');
   await expect(top).not.toContainText(/benign/i);
   const transforms = await page.locator('.meter-list .action').evaluateAll((els) => els.map((e) => getComputedStyle(e).textTransform));
   expect(new Set(transforms)).toEqual(new Set(['uppercase']));
@@ -96,6 +97,27 @@ test('dashboard and request log compare labels in any case and show decisions al
   // Rule names, not ids.
   await page.getByLabel('Filter by action').selectOption('route');
   await expect(page.getByTestId('audit-table')).toContainText('suspicious to safe model');
+});
+
+test('dashboard reads server aggregates by window and project', async ({ page, mock }) => {
+  const calls: string[] = [];
+  page.on('request', (r) => {
+    if (r.url().includes('/dashboard')) calls.push(new URL(r.url()).search);
+  });
+  await login(page, null);
+  await expect(page.getByTestId('dash-range')).toContainText('24 hours, by hour');
+  // All 420 seeded requests fall in the last day; none is read by the browser.
+  await expect(page.locator('.tile-value').first()).toHaveText('420');
+  // Rules by name and policy, not id.
+  await expect(page.getByTestId('dash-rules')).toContainText('high l2 · baseline');
+  await expect(page.getByTestId('dash-projects')).toContainText(mock.projects[0]?.name ?? 'missing');
+  await expect(page.getByTestId('dash-projects')).toContainText('No project');
+
+  await page.getByRole('group', { name: 'Period' }).getByRole('button', { name: '7d' }).click();
+  await expect(page.getByTestId('dash-range')).toContainText('7 days, by day');
+  await page.getByLabel('Project', { exact: true }).selectOption({ label: mock.projects[0]?.name ?? '' });
+  await expect(page.locator('.tile-value').first()).toHaveText('210');
+  expect(calls).toContain(`?window=7d&project_id=${mock.projects[0]?.id}`);
 });
 
 test('activity shows the email of a user target', async ({ page, mock }) => {
