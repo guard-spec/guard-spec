@@ -67,7 +67,7 @@ func TestReadyzReportsLayers(t *testing.T) {
 		Active:   [3]bool{true, false, true},
 		Problems: []string{"l2: no model"},
 		Fusion:   "logreg",
-	})
+	}, false)
 	// No API key: /readyz is open, like /health.
 	resp, err := newApp(gw, testLookup).Test(httptest.NewRequest("GET", "/readyz", nil), -1)
 	if err != nil {
@@ -96,8 +96,60 @@ func TestReadyzReportsLayers(t *testing.T) {
 }
 
 func TestDetectorStatusNil(t *testing.T) {
-	st := newDetectorStatus(nil)
+	st := newDetectorStatus(nil, false)
 	if st.Layers == nil || len(st.Layers) != 0 {
 		t.Errorf("layers = %#v, want empty non-nil", st.Layers)
+	}
+}
+
+// /readyz answers 503 only when a layer the configuration requires is
+// missing; a gateway that runs on fewer layers by design stays ready.
+func TestReadyzStatusCode(t *testing.T) {
+	runner, err := inference.NewRunner("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	full := &ml.Stack{Active: [3]bool{true, true, true}, Fusion: "logreg"}
+	l1Only := &ml.Stack{Active: [3]bool{true, false, false}, Problems: []string{"l2: no model", "l3: no model"}}
+	for _, tc := range []struct {
+		name       string
+		stack      *ml.Stack
+		required   bool
+		wantCode   int
+		wantStatus string
+	}{
+		{"all layers", full, false, 200, "ready"},
+		{"all layers, required", full, true, 200, "ready"},
+		{"degraded, not required (plain image without models)", l1Only, false, 200, "ready"},
+		{"degraded, required (DETECTOR_REQUIRE_ML=true in dev mode)", l1Only, true, 503, "degraded"},
+		{"L1 only requested, required", &ml.Stack{Active: [3]bool{true, false, false}}, true, 200, "ready"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gw := testGateway(t, runner)
+			gw.detector = newDetectorStatus(tc.stack, tc.required)
+			resp, err := newApp(gw, testLookup).Test(httptest.NewRequest("GET", "/readyz", nil), -1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = resp.Body.Close() }()
+			if resp.StatusCode != tc.wantCode {
+				t.Fatalf("status code = %d, want %d", resp.StatusCode, tc.wantCode)
+			}
+			var out struct {
+				Status   string         `json:"status"`
+				Detector detectorStatus `json:"detector"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+				t.Fatal(err)
+			}
+			if out.Status != tc.wantStatus {
+				t.Errorf("status = %q, want %q", out.Status, tc.wantStatus)
+			}
+			// The body stays detailed whatever the code.
+			if out.Detector.Degraded != tc.stack.Degraded() || out.Detector.Required != tc.required ||
+				len(out.Detector.Problems) != len(tc.stack.Problems) {
+				t.Errorf("detector = %+v", out.Detector)
+			}
+		})
 	}
 }

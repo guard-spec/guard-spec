@@ -314,7 +314,9 @@ curl -s localhost:8080/readyz   # "layers":["l1","l2","l3"]
 ```
 
 `/models` rỗng thì gateway ghi cảnh báo, vẫn chạy với L1, và `/readyz` trả
-`"layers":["l1"]`, `"degraded":true` kèm lý do. Mỗi image có SBOM, provenance
+`"layers":["l1"]`, `"degraded":true` kèm lý do, mã 200. Với
+`DETECTOR_REQUIRE_ML=true`, thiếu một lớp thì gateway không khởi động, hoặc
+(khi `GUARD_ENV=dev`) `/readyz` trả 503 với `"status":"degraded"`. Mỗi image có SBOM, provenance
 và chữ ký cosign (keyless); cách kiểm tra ở [SECURITY.md](SECURITY.md#verifying-releases).
 
 ## Cấu hình

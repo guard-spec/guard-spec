@@ -71,7 +71,7 @@ points:
 
 | Service | Fargate task | Basis |
 |---|---|---|
-| gateway (L1 + L2 + L3) | 1 vCPU, 2 GB, 2 tasks | About 900 MiB of memory right after start in a local check of `gateway-full:0.1.0`; the chart's 1Gi limit is too tight for the model layers |
+| gateway (L1 + L2 + L3) | 1 vCPU, 2 GB, 2 tasks | About 900 MiB of memory right after start in a local check of `gateway-full:0.1.0`; the chart's default is a 1Gi request and a 2Gi limit |
 | gateway (L1 only, `DETECTOR_LAYERS=l1`) | 0.5 vCPU, 1 GB | Measure |
 | control plane | 0.25 vCPU, 0.5 GB, 1 task | Chart defaults: 100m CPU, 64Mi request, 256Mi limit |
 | RDS | `db.t4g.small`, 20 GB gp3 | Measure: the audit table grows with every request, bounded by `AUDIT_RETENTION_DAYS` |
@@ -377,15 +377,16 @@ AWS-specific parts:
 
 - **Secrets.** Sync the Secrets Manager values into the Kubernetes Secrets the
   chart expects (`guard-spec-secrets` with `POSTGRES_PASSWORD`,
-  `GUARDSPEC_APP_PASSWORD`, `JWT_SECRET`, `ADMIN_PASSWORD`; a second Secret
-  with `MFA_ENC_KEY` for `controlPlane.extraEnvFrom`) with the External
+  `GUARDSPEC_APP_PASSWORD`, `JWT_SECRET`, `ADMIN_PASSWORD`, `MFA_ENC_KEY`)
+  with the External
   Secrets Operator or the Secrets Store CSI driver, or create them with
   `kubectl create secret` from a trusted machine.
 - **Models.** The chart's PVC is ReadWriteOnce. For two gateway replicas on
   different nodes, use the EFS CSI driver and a ReadWriteMany claim
   (`models.existingClaim`), filled by the
   [models Job](on-premise.md#step-3-models). With EBS (gp3, ReadWriteOnce),
-  keep `gateway.replicaCount=1`.
+  keep `gateway.replicaCount=1`. Or use `gateway-full` with no models volume
+  ([gateway-full with the Helm chart](on-premise.md#gateway-full-with-the-helm-chart)).
 - **Migrations.** The [migration Job](on-premise.md#step-2-migrations-no-chart-job-yet)
   works as is; the host is the RDS endpoint and the owner is `gsowner`.
   `dbRoles.enabled=true` sets the app password.
@@ -417,8 +418,8 @@ AWS-specific parts:
 
   A second Ingress with `alb.ingress.kubernetes.io/scheme: internal` and
   `healthcheck-path: /health` serves the control plane on `<admin-host>`.
-- **Resources.** Raise `gateway.resources` from the chart defaults (see
-  [Sizing](#sizing)).
+- **Resources.** The chart defaults fit L1 + L2 + L3; adjust
+  `gateway.resources` after measuring (see [Sizing](#sizing)).
 - **Metrics.** `serviceMonitor.enabled=true` with the Prometheus Operator, or
   scrape the `*-metrics` Services with the CloudWatch agent.
 

@@ -57,11 +57,16 @@ spec:
     spec:
       restartPolicy: Never
       automountServiceAccountToken: false
+      {{- /* The postgres image runs as root unless told otherwise, so
+      runAsNonRoot needs a UID: 70, its postgres user, unless the values set
+      one. OpenShift (security.openshift.io/v1) assigns one from the
+      namespace range instead, and rejects a fixed UID outside it. */}}
+      {{- $psc := deepCopy (.Values.dbRoles.podSecurityContext | default dict) }}
+      {{- if and (not (hasKey $psc "runAsUser")) (not (.Capabilities.APIVersions.Has "security.openshift.io/v1")) }}
+      {{- $_ := set $psc "runAsUser" 70 }}
+      {{- end }}
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 70  # postgres user in the alpine image
-        seccompProfile:
-          type: RuntimeDefault
+        {{- toYaml $psc | nindent 8 }}
       containers:
         - name: db-roles
           image: {{ printf "%s:%s" .Values.dbRoles.image.repository .Values.dbRoles.image.tag }}

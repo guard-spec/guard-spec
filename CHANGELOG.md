@@ -16,6 +16,38 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   series, top detections, rules and projects), computed in Postgres. The
   admin UI dashboard uses it, with a period and a project filter, instead of
   sampling the latest 1,000 requests in the browser.
+- Helm chart: `dbRoles.podSecurityContext` sets the pod securityContext of
+  the `dbRoles` job.
+- Helm chart: the control plane reads `MFA_ENC_KEY` from `existingSecret`
+  when the key is there (optional; `controlPlane.extraEnvFrom` still works).
+- `GET /readyz`: `detector.required` reports `DETECTOR_REQUIRE_ML`.
+
+### Changed
+
+- `GET /readyz` answers 503, with `"status":"degraded"` and the same detailed
+  body, when a detection layer the configuration requires
+  (`DETECTOR_REQUIRE_ML=true`) is missing. A gateway that runs on fewer
+  layers without requiring them (the plain image without models) stays at
+  200 with `"degraded":true`. Outside `GUARD_ENV=dev` such a gateway already
+  refused to start, so this shows mostly in dev mode.
+- Helm chart: the gateway mounts a volume at `/models` only with a models
+  claim (`models.existingClaim`, or `models.persistence.enabled=true`, the
+  default). With neither, nothing is mounted (before: an `emptyDir`), so
+  `guard-spec-gateway-full` keeps the models inside its image and starts.
+- Helm chart: gateway resources default to a 500m CPU / 1Gi request and a
+  2Gi memory limit (before: 250m / 256Mi and 1Gi); L1 + L2 + L3 use about
+  900 MiB right after start.
+- Helm chart: the `dbRoles` job no longer forces `runAsUser: 70` on
+  OpenShift (clusters serving `security.openshift.io/v1`), where the SCC
+  assigns the UID; elsewhere it still defaults to 70 unless
+  `dbRoles.podSecurityContext` sets one.
+
+### Documentation
+
+- README: the `kubectl create secret` example includes `MFA_ENC_KEY`.
+- docs/deploy: the workarounds for the points above are gone; notes on
+  Helm 4 post-renderers (plugins only) and on migration 004's
+  `CREATE ROLE` on a Postgres server shared with other databases.
 
 ## [0.1.0] - 2026-11-06
 

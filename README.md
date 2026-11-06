@@ -438,7 +438,11 @@ curl -s localhost:8080/readyz
 
 With an empty `/models` the gateway logs a warning per missing layer, keeps
 running on L1, and `/readyz` shows `"layers":["l1"]`, `"degraded":true` and
-the reason. The image's `HEALTHCHECK` uses `/readyz`. Every image has a
+the reason, and still answers 200: running on L1 is a choice the
+configuration allows. With `DETECTOR_REQUIRE_ML=true` a missing layer stops
+the gateway at start, or, under `GUARD_ENV=dev`, makes `/readyz` answer 503
+with `"status":"degraded"` and the same body. The image's `HEALTHCHECK` uses
+`/readyz`. Every image has a
 BuildKit SPDX SBOM and SLSA provenance and is signed with cosign (keyless);
 see [SECURITY.md](SECURITY.md#verifying-releases).
 
@@ -605,7 +609,7 @@ or `x-api-key: gs_...`.
 | Method and path | Purpose |
 |---|---|
 | `GET /health` | Liveness, no key |
-| `GET /readyz` | Readiness, no key; `detector.layers` lists the active layers (`l1`, `l2`, `l3`), `detector.degraded` and `detector.problems` say why a requested layer is missing, `detector.onnx` whether the binary has `-tags onnx` |
+| `GET /readyz` | Readiness, no key; `detector.layers` lists the active layers (`l1`, `l2`, `l3`), `detector.degraded` and `detector.problems` say why a requested layer is missing, `detector.required` is `DETECTOR_REQUIRE_ML`, `detector.onnx` whether the binary has `-tags onnx`. 200, or 503 (`"status":"degraded"`) when a required layer is missing |
 | `POST /v1/chat/completions` | OpenAI-compatible chat, guarded in and out, streaming supported |
 | `POST /v1/completions` | Legacy completions, guarded the same way |
 | `POST /guardrail/scan` | Score `text` and/or `documents[]` without calling a model |
@@ -1442,7 +1446,8 @@ chart does not run the migrations.
 ```bash
 kubectl create secret generic guard-spec-secrets \
   --from-literal=POSTGRES_PASSWORD=... --from-literal=GUARDSPEC_APP_PASSWORD=... \
-  --from-literal=JWT_SECRET=... --from-literal=ADMIN_PASSWORD=...
+  --from-literal=JWT_SECRET=... --from-literal=ADMIN_PASSWORD=... \
+  --from-literal=MFA_ENC_KEY="$(openssl rand -base64 32)"   # back it up with the database
 # migrate first, as the owner role: migrate -path migrations -database "postgres://ps:...@host/guardspec" up
 helm install gs deploy/helm/guard-spec \
   --set externalDatabase.url='postgres://guardspec_app@db.example:5432/guardspec?sslmode=require' \
@@ -1452,16 +1457,28 @@ helm install gs deploy/helm/guard-spec \
 
 - **Secrets** come from `existingSecret`. `GUARDSPEC_APP_PASSWORD` reaches both
   services as `PGPASSWORD`, so URLs carry no password. `POSTGRES_PASSWORD` is
-  used only by the optional `dbRoles` hook job.
+  used only by the optional `dbRoles` hook job. `MFA_ENC_KEY` (see
+  [Configuration](#configuration)) is optional in that Secret; it can come
+  from `controlPlane.extraEnvFrom` instead.
 - **Metrics** are served on separate ClusterIP Services (`*-metrics`), so
   exposing an API Service never exposes `/metrics`. `serviceMonitor.enabled=true`
   adds a Prometheus Operator ServiceMonitor.
-- **Models** come from a PVC mounted read-only at `/models` in the gateway.
-  The release gateway image is built with `-tags onnx` and runs L1 + L2 + L3
-  when the models are there; with an empty PVC it runs L1 only. The readiness
-  probe uses `/readyz`, which lists the active layers.
+- **Models** come from a PVC mounted read-only at `/models` in the gateway
+  (`models.existingClaim`, or the chart's own with
+  `models.persistence.enabled=true`, the default). The release gateway image
+  is built with `-tags onnx` and runs L1 + L2 + L3 when the models are there;
+  with an empty PVC it runs L1 only. With `models.persistence.enabled=false`
+  and no `existingClaim` nothing is mounted at `/models`: use that with
+  `gateway.image.repository=ghcr.io/guard-spec/guard-spec-gateway-full`,
+  which has the models inside. The readiness probe uses `/readyz`, which
+  lists the active layers and answers 503 only when a layer the
+  configuration requires (`DETECTOR_REQUIRE_ML=true`) is missing.
+- **Resources:** the gateway defaults (request 500m CPU / 1Gi, limit 2Gi)
+  fit L1 + L2 + L3, which use about 900 MiB right after start.
 - **Security:** pods run as non-root with a read-only root filesystem, no
-  capabilities and the RuntimeDefault seccomp profile.
+  capabilities and the RuntimeDefault seccomp profile. The `dbRoles` job runs
+  as UID 70 (the postgres image's user) unless `dbRoles.podSecurityContext`
+  sets one; on OpenShift it lets the SCC pick the UID.
 - **Rate limits** are per replica, so `gateway.replicaCount` multiplies the
   effective limit.
 
