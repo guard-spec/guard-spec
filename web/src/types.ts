@@ -162,6 +162,8 @@ export interface AuditRow {
   action: string;
   rule_id: UUID | null;
   route_target?: string | null;
+  /** Identical refused requests folded into this row (retries); null for one. */
+  repeat_count?: number | null;
   injection_label: string | null;
   injection_score: number;
   toxicity_score?: number;

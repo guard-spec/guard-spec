@@ -307,6 +307,7 @@ export const vi: Messages = {
   'audit.model': 'Mô hình gửi đi',
   'audit.action': 'Hành động',
   'audit.route': 'Upstream đích',
+  'audit.repeats': 'Bị từ chối {n} lần (client gửi lại trong vài giây)',
   'audit.rule': 'Luật',
   'audit.label': 'Nhãn',
   'audit.score': 'Injection',

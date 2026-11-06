@@ -433,6 +433,14 @@ type requestVerdict struct {
 	// Tools is the strongest tool definition's score: redact mode never
 	// removes a tool, so it still blocks.
 	Tools float64
+	// DirectTrigger and IndirectTrigger hash the text behind Direct and
+	// Indirect: the key of a retried refusal (audit_dedupe.go).
+	DirectTrigger, IndirectTrigger string
+}
+
+// triggerHash hashes the text that triggered a refusal.
+func triggerHash(parts ...string) string {
+	return cacheKey(uuid.Nil, "trigger", parts...)
 }
 
 // Kinds of scan cache entries.
@@ -506,6 +514,7 @@ func (gw gateway) scoreRequest(g *textGuard) (requestVerdict, error) {
 		}
 		if c := float64(scores.Injection.Confidence); v.SourceRole == "" || c > v.Direct {
 			v.Scores, v.Direct, v.SourceRole = scores, c, string(p.source)
+			v.DirectTrigger = triggerHash(string(p.source), p.text)
 		}
 	}
 
@@ -520,6 +529,7 @@ func (gw gateway) scoreRequest(g *textGuard) (requestVerdict, error) {
 		}
 		if c := float64(scores.Injection.Confidence); v.SourceRole == "" || c > v.Direct {
 			v.Scores, v.Direct = scores, c
+			v.DirectTrigger = triggerHash(append([]string{"direct"}, texts...)...)
 			if v.SourceRole, err = gw.attribute(direct, v.Direct); err != nil {
 				return v, err
 			}
@@ -544,6 +554,7 @@ func (gw gateway) scoreRequest(g *textGuard) (requestVerdict, error) {
 		}
 		if v.Indirect.Source == "" || p.verdict.Score > v.Indirect.Score {
 			v.Indirect = p.verdict
+			v.IndirectTrigger = key
 		}
 	}
 	for _, t := range g.tools {
@@ -564,6 +575,7 @@ func (gw gateway) scoreRequest(g *textGuard) (requestVerdict, error) {
 		v.Tools = max(v.Tools, tv.Score)
 		if v.Indirect.Source == "" || tv.Score > v.Indirect.Score {
 			v.Indirect = tv.Verdict
+			v.IndirectTrigger = key
 		}
 	}
 

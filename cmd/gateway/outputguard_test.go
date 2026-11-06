@@ -285,15 +285,16 @@ func TestLoadOutputConfig(t *testing.T) {
 	}
 	cfg, err := loadOutputConfig(env(nil))
 	if err != nil || cfg == nil || !cfg.RedactPII || cfg.RedactIPv4 || cfg.Canary != outputguard.CanaryOff ||
-		len(cfg.LinkAllowlist) != 0 || cfg.DropReasoning {
+		len(cfg.LinkAllowlist) != 0 || cfg.DropReasoning || cfg.PassUnknownBlocks {
 		t.Errorf("defaults = %+v, %v", cfg, err)
 	}
 	cfg, err = loadOutputConfig(env(map[string]string{
 		"OUTPUT_LINK_ALLOWLIST": " docs.example.com, ,cdn.example.org", "OUTPUT_PII_REDACT": "false",
 		"OUTPUT_PII_IPV4": "true", "OUTPUT_CANARY": "Block", "OUTPUT_REASONING": "drop",
+		"OUTPUT_UNKNOWN_BLOCKS": "Pass",
 	}))
 	if err != nil || len(cfg.LinkAllowlist) != 2 || cfg.RedactPII || !cfg.RedactIPv4 ||
-		cfg.Canary != outputguard.CanaryBlock || !cfg.DropReasoning {
+		cfg.Canary != outputguard.CanaryBlock || !cfg.DropReasoning || !cfg.PassUnknownBlocks {
 		t.Errorf("cfg = %+v, %v", cfg, err)
 	}
 	if cfg, err := loadOutputConfig(env(map[string]string{"OUTPUT_GUARD": "off"})); err != nil || cfg != nil {
@@ -301,7 +302,7 @@ func TestLoadOutputConfig(t *testing.T) {
 	}
 	for _, bad := range []map[string]string{
 		{"OUTPUT_GUARD": "maybe"}, {"OUTPUT_PII_REDACT": "yes please"},
-		{"OUTPUT_CANARY": "loud"}, {"OUTPUT_REASONING": "hide"},
+		{"OUTPUT_CANARY": "loud"}, {"OUTPUT_REASONING": "hide"}, {"OUTPUT_UNKNOWN_BLOCKS": "scan"},
 	} {
 		if _, err := loadOutputConfig(env(bad)); err == nil {
 			t.Errorf("accepted %v", bad)

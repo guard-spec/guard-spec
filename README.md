@@ -603,6 +603,7 @@ in a second table.
 | `UPSTREAM_ALLOW_PRIVATE` | `false` (compose: `true`) | `true` lets org-defined upstreams reach loopback, RFC 1918, unique local (fc00::/7) and CGNAT (100.64.0.0/10) addresses. Checked when the gateway connects. `UPSTREAM_LLM_URL` is never restricted |
 | `CLIENT_HALF_CLOSE` | `cancel` | `wait` keeps the upstream call running when a client half-closes its socket |
 | `AUDIT_STORE_CONTENT` | `false` | `true` stores prompt and response content in audit rows for every org |
+| `AUDIT_DEDUPE_WINDOW` | `10s` | Retried refusals: a request refused the same way as one within this window (same org, API key, layer, label, rule and triggering text) adds to the first row's `repeat_count` instead of writing a row and an alert event. The window slides with each repeat, up to 5 minutes per row. `0` turns it off. Per process. See [Audit privacy](#audit-privacy) |
 | `SCAN_ROLES` | `user,tool,tool_descriptions` | Parts to classify: `user`, `tool`, `system`, `tool_calls`, `tool_descriptions`, or `all` / `none` |
 | `SCAN_TOOL_PREFIXES` | empty (every tool) | Comma-separated tool-name prefixes: only tool definitions whose name starts with one of them are checked for poisoning; the others are trusted as the client's own. For Claude Code: `mcp__` (its MCP servers' tools), see [docs/integrations.md](docs/integrations.md#claude-code-checked-through-the-gateway) |
 | `SPOTLIGHT` | `off` | Mark tool results for the model: `off`, `delimit`, `datamark` |
@@ -616,6 +617,7 @@ in a second table.
 | `OUTPUT_PII_IPV4` | `false` | Also redact IPv4 addresses |
 | `OUTPUT_CANARY` | `off` | `block` or `redact` injects a canary and acts when it leaks |
 | `OUTPUT_REASONING` | `guard` | `drop` removes `reasoning` / `reasoning_content` instead of guarding them |
+| `OUTPUT_UNKNOWN_BLOCKS` | `refuse` | `/v1/messages`: a response content block of a type the output guard does not know (a server tool other than web search and web fetch, say) is refused (502, or an error event in a stream); `pass` passes such blocks on unchanged and unchecked |
 | `MODEL_DIR` | `./models` (`/models` in the image) | Root of the model files. `MODELS_PATH` is the older name |
 | `L2_MODEL` | the manifest's recommended classifier (`guardspec-classifier@v3b`) | Classifier as `name@version` (a bare name: its recommended version), loaded from `$MODEL_DIR/cache/<name>/<version>`. Pin or roll back with it; see [docs/models.md](docs/models.md) |
 | `L2_MODEL_DIR` | empty | Classifier directory; wins over `L2_MODEL`. With neither set: the recommended version when installed, else `$MODEL_DIR/local/guardspec-classifier-v3b`, `-v2`, `-v1`, `-v0` |
@@ -700,7 +702,7 @@ or `x-api-key: gs_...`.
 | `GET /readyz` | Readiness, no key; `detector.layers` lists the active layers (`l1`, `l2`, `l3`), `detector.degraded` and `detector.problems` say why a requested layer is missing, `detector.required` is `DETECTOR_REQUIRE_ML`, `detector.onnx` whether the binary has `-tags onnx`. 200, or 503 (`"status":"degraded"`) when a required layer is missing |
 | `POST /v1/chat/completions` | OpenAI-compatible chat, guarded in and out, streaming supported |
 | `POST /v1/completions` | Legacy completions, guarded the same way |
-| `POST /v1/messages` | Anthropic Messages API (Claude Code with `ANTHROPIC_BASE_URL`), guarded in and out the same way, streaming supported. Sent as is to an upstream with provider `anthropic` (`{base_url}/messages`, the key as `x-api-key`, the client's `anthropic-version` or `2023-06-01`, and its `anthropic-beta`); any other upstream: 400, no translation. Errors in the Anthropic shape `{"type":"error","error":{"type":"...","message":"..."}}` with the same statuses |
+| `POST /v1/messages` | Anthropic Messages API (Claude Code with `ANTHROPIC_BASE_URL`), guarded in and out the same way, streaming supported. Anthropic's web search and web fetch tools work: their results (`web_search_tool_result`, `web_fetch_tool_result`) pass with their encrypted content untouched, their readable text (titles, URLs, a fetched page) is classified as tool output in requests and guarded in answers; other block types in answers follow `OUTPUT_UNKNOWN_BLOCKS`. Sent as is to an upstream with provider `anthropic` (`{base_url}/messages`, the key as `x-api-key`, the client's `anthropic-version` or `2023-06-01`, and its `anthropic-beta`); any other upstream: 400, no translation. Errors in the Anthropic shape `{"type":"error","error":{"type":"...","message":"..."}}` with the same statuses |
 | `POST /v1/messages/count_tokens` | Forwarded to the same Anthropic upstream (default route); key and rate limit apply, the body is not scanned (no model runs on it) |
 | `GET /v1/models` | Models of the key's default route: the upstream's allowed models, its forced model, or the upstream's own list. OpenAI list shape; Anthropic's when the request has `anthropic-version` |
 | `POST /guardrail/scan` | Score `text` and/or `documents[]` without calling a model |
@@ -787,7 +789,7 @@ needs `Authorization: Bearer <token from /v1/auth/login>`. Roles are `owner`,
 | `GET`, `POST /organizations/:orgId/policies` (409 on a name the org already uses; `enabled` defaults to true) | viewer, admin |
 | `POST /organizations/:orgId/policies/simulate` | viewer |
 | `PUT`, `DELETE /organizations/:orgId/policies/:id` | admin |
-| `GET /organizations/:orgId/requests?limit=&cursor=&action=` (includes `route_target`) | viewer |
+| `GET /organizations/:orgId/requests?limit=&cursor=&action=` (includes `route_target` and `repeat_count`) | viewer |
 | `GET /organizations/:orgId/dashboard?window=24h\|7d\|30d&project_id=` (request log aggregates; see below) | viewer |
 | `GET`, `POST /organizations/:orgId/exemplars` | viewer, admin |
 | `PUT`, `DELETE /organizations/:orgId/exemplars/:id` | admin |
@@ -1389,6 +1391,22 @@ Each request gets one audit row. `action` is `allow`, `block`, `error` (the
 upstream failed or the client left before it answered) or `output_leak` (the
 canary showed up in the answer).
 
+**Retried refusals.** Some clients send a refused request again: Claude Code
+sends it six times within a fraction of a second, the bodies differing a
+little. A request refused before the upstream (`block` by the sanitizer, the
+detector, the indirect threshold or a policy) whose org, API key, detection
+layer, injection label, policy rule and the hash of the text that triggered
+the refusal (the classified user turn, or the tool result or document that
+scored highest; not the whole body) match a refusal within
+`AUDIT_DEDUPE_WINDOW` (default 10 s, sliding with each repeat, at most 5
+minutes per row) is not written as a row of its own: the first refusal's row
+gets `repeat_count`, the number of refusals it stands for (null for one), and
+only that row sends a `detection.blocked` event. Allowed, routed and redacted
+requests, upstream errors and output guard blocks always get their own row;
+metrics still count every request. The state is in the gateway process: with
+several replicas, retries that land on another replica start a row there.
+Migration 019 adds the column; the admin UI's request log shows it as `×N`.
+
 ### Shadow mode and model reload
 
 **Shadow mode.** With `SHADOW_L2_MODEL=guardspec-classifier@v2` (or
@@ -1508,6 +1526,12 @@ characters behind the upstream. Held text is flushed at `finish_reason` and at
 - **Content parts.** Text parts are guarded. A part that is not text cannot
   be checked: a whole response gets 502, and a stream ends with an error
   event.
+- **Messages API blocks.** On `/v1/messages`, text, thinking, tool and server
+  tool input, citations (quoted text, title, URL) and the readable text of
+  web search and web fetch results are guarded; encrypted content, ids,
+  dates and signatures pass unchanged. `redacted_thinking` passes. A block of
+  any other type is refused like a non-text part, or passed unchecked with
+  `OUTPUT_UNKNOWN_BLOCKS=pass`.
 
 The audit row counts what was removed per type in `pii_entities`, as
 `output:email=2`. It never stores the content. These settings apply to every

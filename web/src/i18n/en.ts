@@ -306,6 +306,7 @@ export const en = {
   'audit.model': 'Model sent upstream',
   'audit.action': 'Action',
   'audit.route': 'Route target',
+  'audit.repeats': 'Refused {n} times (retries within a few seconds)',
   'audit.rule': 'Rule',
   'audit.label': 'Label',
   'audit.score': 'Injection',

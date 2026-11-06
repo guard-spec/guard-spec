@@ -90,6 +90,16 @@ Notes:
   least `ALERTS_FLAG_THRESHOLD` (default 0.5); a request is blocked at 0.85.
 - A request refused for another reason (invalid body, rate limit) emits no
   detection event.
+- Retried refusals send one event. A client that resends a refused request
+  (Claude Code does, six times) gets the same refusal each time; within the
+  gateway's `AUDIT_DEDUPE_WINDOW` (default 10 s) a refusal that matches an
+  earlier one (org, API key, layer, label, policy rule, the text that
+  triggered it) is counted in the first audit row's `repeat_count` and sends
+  no `detection.blocked` event of its own. Events are not updated afterwards,
+  so the event does not carry the count; read it from the audit row
+  (`request_id`). A rule that counts `detection.blocked` events therefore
+  counts refused attempts, not retries. Set `AUDIT_DEDUPE_WINDOW=0` for one
+  event per request.
 
 Control-plane events reuse the activity-log hook: every activity write also
 emits an event. Instance-level rows (logins, 2FA locks, SSO providers) go to

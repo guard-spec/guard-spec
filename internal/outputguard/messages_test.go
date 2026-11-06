@@ -170,7 +170,7 @@ func TestMessageStreamCanary(t *testing.T) {
 
 func TestMessageStreamUncheckable(t *testing.T) {
 	for name, events := range map[string][]string{
-		"unknown block":     {blockStart(0, `{"type":"web_search_tool_result","content":[{"title":"x"}]}`)},
+		"unknown block":     {blockStart(0, `{"type":"code_execution_tool_result","content":{"stdout":"x"}}`)},
 		"delta of no block": {blockDelta(3, `{"type":"text_delta","text":"x"}`)},
 		"wrong delta type":  {blockStart(0, `{"type":"text","text":""}`), blockDelta(0, `{"type":"input_json_delta","partial_json":"{"}`)},
 		"unknown delta":     {blockStart(0, `{"type":"text","text":""}`), blockDelta(0, `{"type":"mystery_delta"}`)},
