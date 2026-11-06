@@ -54,10 +54,21 @@ builds:
     flags: [-trimpath]
     ldflags: ["-s -w -X github.com/guard-spec/guard-spec/internal/version.Version={{.Version}}"]
     mod_timestamp: "{{ .CommitTimestamp }}"
+  # Installation checks (database, migrations, model SHA-256, layers,
+  # upstream, security settings); also in every image as /app/doctor.
+  - id: doctor
+    main: ./cmd/doctor
+    binary: doctor
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags: ["-s -w -X github.com/guard-spec/guard-spec/internal/version.Version={{.Version}}"]
+    mod_timestamp: "{{ .CommitTimestamp }}"
 
 archives:
   - id: default
-    ids: [gateway, control-plane, models]
+    ids: [gateway, control-plane, models, doctor]
     formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
@@ -103,7 +114,8 @@ signs:
 # .github/workflows/release.yml build it from build/gateway.Dockerfile instead.
 dockers_v2:
   - id: control-plane
-    ids: [control-plane]
+    # doctor is copied in as /app/doctor (build/release.Dockerfile).
+    ids: [control-plane, doctor]
     dockerfile: build/release.Dockerfile
     images:
       - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/guard-spec-control-plane"

@@ -48,7 +48,7 @@ These guides do not repeat the README. They assume you know:
 | Piece | Notes |
 |---|---|
 | PostgreSQL | 17 is what compose and CI use. Two roles: an owner role that runs the migrations (`ps` in compose) and `guardspec_app`, which migration 004 creates without a password. Roles are cluster-wide, so 004 fails on a server where `guardspec_app` already exists (another database or installation): give each installation a server of its own |
-| Migrations | `migrations/` of the release tag, applied with `migrate` as the owner role, before the services start. Nothing in the images or the Helm chart runs them for you |
+| Migrations | `migrations/` of the release tag, applied with `migrate` as the owner role, before the services start. The services never run them; the Helm chart does when `migrations.enabled=true` (a pre-install / pre-upgrade hook), otherwise you do |
 | App password | `GUARDSPEC_APP_PASSWORD` applied to `guardspec_app` after every migration run: `deploy/postgres/set-app-password.sh` or the chart's `dbRoles` job |
 | Gateway | `ghcr.io/guard-spec/guard-spec-gateway:0.1.1` (models mounted at `/models`) or `-gateway-full:0.1.1` (models inside). Port 8080 for clients, 9090 for metrics |
 | Control plane | `ghcr.io/guard-spec/guard-spec-control-plane:0.1.1`. Port 8081 for the API and the admin UI at `/ui/`, 9091 for metrics |
@@ -79,21 +79,35 @@ These guides do not repeat the README. They assume you know:
 - **Schema changes before 1.0.** Read the [CHANGELOG](../../CHANGELOG.md)
   and snapshot the database before every upgrade.
 
-## Known gaps in the Helm chart
+## The Helm chart on `main`
 
-From the CHANGELOG: the chart has **no autoscaling, PodDisruptionBudget,
-Ingress or migration job**, and the **models volume is ReadWriteOnce** by
-default. The cloud and Kubernetes guides show workarounds with plain
-manifests next to the chart. Pull requests that add these to the chart are
-welcome.
+Chart 0.2.0 (see Unreleased in the [CHANGELOG](../../CHANGELOG.md)) adds,
+each off by default: a **migration hook** (`migrations.enabled`), a **model
+pull init container** (`models.pull`, into the claim or a per-pod
+`emptyDir`, so several replicas no longer need a ReadWriteMany volume),
+**Ingress** and OpenShift **Routes**, **HPA**, **PodDisruptionBudget**,
+**topologySpreadConstraints**, **NetworkPolicies** and a **ServiceAccount**
+with annotations for IRSA and Workload Identity. Reference values per
+platform are in
+[`deploy/helm/guard-spec/examples/`](../../deploy/helm/guard-spec/examples/)
+(EKS, AKS, GKE, OpenShift): rendered and schema-checked in CI, installed on
+kind by the `kind-e2e` job with its own values, not verified on the clouds.
+Where a guide below shows plain manifests for one of these, the chart's
+values now do the same job.
 
-The guides describe the chart from 0.1.1 (see the
-[CHANGELOG](../../CHANGELOG.md)): it mounts `/models` only with a models
-claim, so `guard-spec-gateway-full` works with
+Mirrored registries and disconnected clusters: [../airgapped.md](../airgapped.md)
+(images with cosign signatures and attestations, models, offline
+verification, chart values, External Secrets). After installing,
+`kubectl exec deploy/<release>-guard-spec-gateway -c gateway -- ./doctor`
+(images released after 0.1.1) checks the database, migrations, models,
+layers, upstream and security settings.
+
+Since chart 0.1.1 (see the [CHANGELOG](../../CHANGELOG.md)): `/models` is
+mounted only with a models claim (or `models.pull`), so
+`guard-spec-gateway-full` works with
 `models.persistence.enabled=false`; the gateway defaults to a 2Gi memory
 limit; the `dbRoles` job takes its securityContext from values and leaves the
-UID to OpenShift; and `MFA_ENC_KEY` can sit in `existingSecret`. The 0.1.0
-chart has none of these.
+UID to OpenShift; and `MFA_ENC_KEY` can sit in `existingSecret`.
 
 **Patching the chart output.** Helm 4 accepts only post-renderer plugins for
 `--post-renderer`; a plain script, as Helm 3 allowed, is rejected

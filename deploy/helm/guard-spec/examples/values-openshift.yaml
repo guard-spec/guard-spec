@@ -1,0 +1,95 @@
+# Reference values for OpenShift 4.x. NOT VERIFIED on OpenShift: CI renders
+# them (with --api-versions security.openshift.io/v1) and validates the
+# result against the Kubernetes schema only. Adjust every <placeholder> and
+# review before use.
+#
+#   helm install gs deploy/helm/guard-spec -n guard-spec \
+#     -f deploy/helm/guard-spec/examples/values-openshift.yaml
+#
+# The restricted-v2 SCC assigns every pod a random UID (and fsGroup) from
+# the namespace range and rejects fixed ones, so the UIDs of values.yaml
+# are removed below (null deletes a default). The images run under any
+# UID: their files are readable by all, and they write only to the mounted
+# volumes. The dbRoles job leaves its UID to the SCC by itself.
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: null
+  runAsGroup: null
+  fsGroup: null
+  seccompProfile:
+    type: RuntimeDefault
+
+externalDatabase:
+  url: postgres://guardspec_app@<postgres-host>:5432/guardspec?sslmode=verify-full
+  host: <postgres-host>
+  port: 5432
+  database: guardspec
+  ownerUser: guardspec_owner
+  sslmode: verify-full
+
+migrations:
+  enabled: true
+dbRoles:
+  enabled: true
+
+gateway:
+  env:
+    UPSTREAM_LLM_URL: https://<llm-endpoint>/v1
+  extraEnvFrom:
+    - secretRef: {name: guard-spec-upstream}   # UPSTREAM_LLM_KEY
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: ScheduleAnyway
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 8
+  podDisruptionBudget:
+    enabled: true
+
+controlPlane:
+  replicaCount: 2
+  env:
+    PUBLIC_BASE_URL: https://guard.apps.<cluster-domain>
+    ALLOWED_ORIGINS: https://guard.apps.<cluster-domain>
+  podDisruptionBudget:
+    enabled: true
+
+# A disconnected cluster: the models come from an internal mirror
+# (docs/airgapped.md). With network access, drop the mirror.
+models:
+  persistence:
+    enabled: false
+  pull:
+    enabled: true
+    required: true
+    mirror: https://models.<internal-domain>/guard-spec
+
+# Routes, edge TLS with the router's certificate. An Ingress works too
+# (OpenShift turns it into Routes); keep ingress.enabled false then.
+route:
+  enabled: true
+  gateway:
+    host: llm.apps.<cluster-domain>
+  controlPlane:
+    host: guard.apps.<cluster-domain>
+
+# The router reaches the pods from the openshift-ingress namespace (host
+# network routers: allow the node network instead).
+networkPolicy:
+  enabled: true
+  gateway:
+    from:
+      - namespaceSelector:
+          matchLabels: {network.openshift.io/policy-group: ingress}
+      - podSelector: {}
+  controlPlane:
+    from:
+      - namespaceSelector:
+          matchLabels: {network.openshift.io/policy-group: ingress}
+  metrics:
+    from:
+      - namespaceSelector:
+          matchLabels: {network.openshift.io/policy-group: monitoring}

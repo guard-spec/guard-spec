@@ -1,0 +1,26 @@
+# Optional e2e variant (EXTRA_VALUES=tests/kind/values-models.yaml
+# tests/kind/e2e.sh): the models.pull init container downloads the
+# recommended L2 and L3 models (~250 MB, Hugging Face) into a per-pod
+# emptyDir and the gateway must load all three layers. Not run in CI, to keep
+# the job short and off Hugging Face.
+gateway:
+  replicaCount: 1
+  env:
+    DETECTOR_REQUIRE_ML: "true"
+  resources:
+    requests: {cpu: 500m, memory: 1Gi}
+    limits: {memory: 2Gi}
+  podDisruptionBudget:
+    enabled: false
+models:
+  pull:
+    enabled: true
+    required: true
+networkPolicy:
+  egress:
+    gateway:
+      - to:
+          - podSelector: {matchLabels: {app: fake-upstream}}
+        ports: [{port: 8080, protocol: TCP}]
+      # Hugging Face and the GitHub Release mirror.
+      - ports: [{port: 443, protocol: TCP}]

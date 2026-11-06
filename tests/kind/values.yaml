@@ -1,0 +1,67 @@
+# Chart values of the kind e2e (tests/kind/e2e.sh): images built from this
+# checkout and loaded into kind, the in-cluster Postgres of manifests.yaml,
+# production mode (GUARD_ENV unset, so the services check the generated
+# secrets), and the chart's optional parts that work on kind. L1 only: no
+# models volume, so the e2e does not download the L2/L3 models (~250 MB).
+guardEnv: ""
+
+externalDatabase:
+  url: postgres://guardspec_app@postgres:5432/guardspec?sslmode=disable
+  host: postgres
+  port: 5432
+  database: guardspec
+  ownerUser: ps
+  sslmode: disable
+
+migrations:
+  enabled: true
+  sourceImage:
+    repository: guard-spec-gateway
+    tag: e2e
+dbRoles:
+  enabled: true
+
+serviceAccount:
+  create: true
+
+gateway:
+  replicaCount: 2
+  image:
+    repository: guard-spec-gateway
+    tag: e2e
+    pullPolicy: Never
+  env:
+    UPSTREAM_LLM_URL: http://fake-upstream:8080/v1
+  resources:
+    requests: {cpu: 100m, memory: 128Mi}
+    limits: {memory: 1Gi}
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: ScheduleAnyway
+  podDisruptionBudget:
+    enabled: true
+
+controlPlane:
+  image:
+    repository: guard-spec-control-plane
+    tag: e2e
+    pullPolicy: Never
+  adminEmail: admin@e2e.example.com
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {memory: 256Mi}
+
+models:
+  persistence:
+    enabled: false
+
+networkPolicy:
+  enabled: true
+  egress:
+    restrict: true
+    gateway:
+      - to:
+          - podSelector: {matchLabels: {app: fake-upstream}}
+        ports: [{port: 8080, protocol: TCP}]
+    controlPlane: []

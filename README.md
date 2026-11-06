@@ -1561,25 +1561,52 @@ runs the job; a Postgres advisory lock lets one of them work at a time.
 
 ### Kubernetes
 
-A minimal chart is in `deploy/helm/guard-spec`. It deploys the gateway and the
-control plane against an external Postgres; Postgres is not bundled, and the
-chart does not run the migrations.
+The chart is in `deploy/helm/guard-spec`. It deploys the gateway and the
+control plane against an external Postgres; Postgres is not bundled. Its
+optional parts are off by default (the defaults render only the two
+Deployments, their Services and the models PVC); `values.yaml` documents each.
 
 ```bash
 kubectl create secret generic guard-spec-secrets \
   --from-literal=POSTGRES_PASSWORD=... --from-literal=GUARDSPEC_APP_PASSWORD=... \
   --from-literal=JWT_SECRET=... --from-literal=ADMIN_PASSWORD=... \
   --from-literal=MFA_ENC_KEY="$(openssl rand -base64 32)"   # back it up with the database
-# migrate first, as the owner role: migrate -path migrations -database "postgres://ps:...@host/guardspec" up
 helm install gs deploy/helm/guard-spec \
   --set externalDatabase.url='postgres://guardspec_app@db.example:5432/guardspec?sslmode=require' \
-  --set externalDatabase.host=db.example --set dbRoles.enabled=true \
+  --set externalDatabase.host=db.example \
+  --set migrations.enabled=true --set dbRoles.enabled=true \
   --set controlPlane.adminEmail=admin@example.com
+kubectl exec deploy/gs-guard-spec-gateway -c gateway -- ./doctor   # checks the install (images after 0.1.1)
 ```
 
+- **Migrations:** `migrations.enabled=true` applies `migrations/` (copied
+  from the gateway image of the release) with golang-migrate in a
+  pre-install / pre-upgrade hook, before `dbRoles` sets the application role
+  password. It is off by default, as before: then migrate yourself first, as
+  the owner role (`migrate -path migrations -database "postgres://ps:...@host/guardspec" up`).
+  The services never migrate at startup.
+- **Cloud and OpenShift examples:** `deploy/helm/guard-spec/examples/` has
+  values for EKS, AKS, GKE and OpenShift (random UIDs, Routes). They are
+  rendered and schema-checked in CI but not verified on those platforms.
+- **Exposure and scaling:** `ingress` (or `route` on OpenShift),
+  `gateway.autoscaling` / `controlPlane.autoscaling` (HPA),
+  `*.podDisruptionBudget`, `*.topologySpreadConstraints`, `networkPolicy`
+  (API and metrics ports per source; optional egress restriction to DNS, the
+  database and listed destinations) and `serviceAccount` (annotations for EKS
+  IRSA, GKE or AKS Workload Identity; the API token is never mounted).
+- **Air-gapped or mirrored registries:** [docs/airgapped.md](docs/airgapped.md)
+  mirrors the images with their cosign signatures and attestations and the
+  models, verifies them offline, points the chart at the mirrors and shows an
+  External Secrets example.
+- **`doctor`** (`/app/doctor` in the gateway and control-plane images
+  released after 0.1.1, and in the release archives) checks
+  the database, the migration version, the model files against the
+  manifest's SHA-256, which detection layers will load, the upstream and the
+  security settings. Exit code 0: nothing failed (warnings allowed); 1: a
+  check failed (`-strict`: or warned); 2: usage error. `-json` for scripts.
 - **Secrets** come from `existingSecret`. `GUARDSPEC_APP_PASSWORD` reaches both
   services as `PGPASSWORD`, so URLs carry no password. `POSTGRES_PASSWORD` is
-  used only by the optional `dbRoles` hook job. `MFA_ENC_KEY` (see
+  used only by the optional `migrations` and `dbRoles` hook jobs. `MFA_ENC_KEY` (see
   [Configuration](#configuration)) is optional in that Secret; it can come
   from `controlPlane.extraEnvFrom` instead.
 - **Metrics** are served on separate ClusterIP Services (`*-metrics`), so
@@ -1592,7 +1619,12 @@ helm install gs deploy/helm/guard-spec \
   with an empty PVC it runs L1 only. With `models.persistence.enabled=false`
   and no `existingClaim` nothing is mounted at `/models`: use that with
   `gateway.image.repository=ghcr.io/guard-spec/guard-spec-gateway-full`,
-  which has the models inside. The readiness probe uses `/readyz`, which
+  which has the models inside. `models.pull.enabled=true` adds an init
+  container that runs `./models pull` (Hugging Face, or `models.pull.mirror`)
+  into the claim, or into a per-pod `emptyDir` without one, checking every
+  file's SHA-256 against the manifest; a ReadWriteOnce claim serves one node
+  only, so several replicas on several nodes need ReadWriteMany or the
+  `emptyDir`. The readiness probe uses `/readyz`, which
   lists the active layers and answers 503 only when a layer the
   configuration requires (`DETECTOR_REQUIRE_ML=true`) is missing.
 - **Resources:** the gateway defaults (request 500m CPU / 1Gi, limit 2Gi)
@@ -1601,8 +1633,12 @@ helm install gs deploy/helm/guard-spec \
   capabilities and the RuntimeDefault seccomp profile. The `dbRoles` job runs
   as UID 70 (the postgres image's user) unless `dbRoles.podSecurityContext`
   sets one; on OpenShift it lets the SCC pick the UID.
-- **Rate limits** are per replica, so `gateway.replicaCount` multiplies the
-  effective limit.
+- **Rate limits** are per replica, so `gateway.replicaCount` (or the
+  autoscaler) multiplies the effective limit.
+- **Tested** by the `kind-e2e` CI job (`tests/kind/e2e.sh`): images built
+  from the change, an in-cluster Postgres and fake upstream, the migrations
+  and `dbRoles` hooks, network policies, and EN / VI injections blocked with
+  L1 only.
 
 ## Development
 

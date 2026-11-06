@@ -1,6 +1,8 @@
 {{- $name := printf "%s-gateway" (include "guard-spec.fullname" .) -}}
 {{- $sel := dict "root" . "component" "gateway" -}}
 {{- $models := include "guard-spec.modelsVolume" . -}}
+{{- $claim := include "guard-spec.modelsClaimUsed" . -}}
+{{- $pull := .Values.models.pull -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -9,16 +11,19 @@ metadata:
     {{- include "guard-spec.labels" . | nindent 4 }}
     app.kubernetes.io/component: gateway
 spec:
+  {{- if not .Values.gateway.autoscaling.enabled }}
   replicas: {{ .Values.gateway.replicaCount }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "guard-spec.selector" $sel | nindent 6 }}
   template:
     metadata:
-      labels:
-        {{- include "guard-spec.labels" . | nindent 8 }}
-        app.kubernetes.io/component: gateway
+      {{- include "guard-spec.podMetadata" $sel | nindent 6 }}
     spec:
+      {{- with include "guard-spec.serviceAccountName" . }}
+      serviceAccountName: {{ . }}
+      {{- end }}
       automountServiceAccountToken: false
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
@@ -26,6 +31,51 @@ spec:
       {{- end }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- if $pull.enabled }}
+      initContainers:
+        # ./models pull: downloads the models of the image's manifest.yaml
+        # into /models/cache, verifying every SHA-256; a no-op when present.
+        - name: models-pull
+          image: {{ include "guard-spec.gatewayDerivedImage" (dict "root" . "image" $pull.image) }}
+          imagePullPolicy: {{ .Values.gateway.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              ./models pull -manifest manifest.yaml -dir /models/cache "$@" && exit 0
+              if [ "$MODELS_REQUIRED" = true ]; then
+                echo "models-pull: a model could not be pulled (models.pull.required=true)" >&2
+                exit 1
+              fi
+              echo "models-pull: some models could not be pulled; the gateway starts on the layers it can load (see /readyz)" >&2
+            - models-pull
+            {{- range $pull.models }}
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            - name: HOME
+              value: /tmp
+            - name: MODELS_REQUIRED
+              value: {{ $pull.required | toString | quote }}
+            - name: MODELS_MIRROR
+              value: {{ $pull.mirror | quote }}
+            {{- if $pull.hfToken.secretName }}
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $pull.hfToken.secretName }}
+                  key: {{ $pull.hfToken.key | default "HF_TOKEN" }}
+            {{- end }}
+          volumeMounts:
+            - name: models
+              mountPath: /models
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            {{- toYaml $pull.resources | nindent 12 }}
+      {{- end }}
       containers:
         - name: gateway
           image: {{ include "guard-spec.image" (dict "root" . "image" .Values.gateway.image) }}
@@ -78,14 +128,24 @@ spec:
           resources:
             {{- toYaml .Values.gateway.resources | nindent 12 }}
       volumes:
-        {{- if $models }}
+        {{- if $claim }}
         - name: models
           persistentVolumeClaim:
             claimName: {{ include "guard-spec.modelsClaim" . }}
+            {{- if not $pull.enabled }}
             readOnly: true
+            {{- end }}
+        {{- else if $models }}
+        - name: models
+          emptyDir:
+            sizeLimit: {{ $pull.emptyDirSizeLimit }}
         {{- end }}
         - name: tmp
           emptyDir: {}
+      {{- with .Values.gateway.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- include "guard-spec.topologySpread" (dict "root" $ "component" "gateway" "constraints" .) | nindent 8 }}
+      {{- end }}
       {{- with .Values.gateway.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

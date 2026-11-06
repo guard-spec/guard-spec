@@ -1,11 +1,27 @@
 Guard Spec is installed.
-
+{{ if .Values.migrations.enabled }}
+The migrations hook applied migrations/ of the gateway image{{ if .Values.dbRoles.enabled }}, and the dbRoles
+hook set the guardspec_app password from {{ .Values.existingSecret }}/{{ .Values.appPasswordKey }}{{ end }}.
+{{- if not .Values.dbRoles.enabled }}
+The guardspec_app role must have the password in
+{{ .Values.existingSecret }}/{{ .Values.appPasswordKey }} (set dbRoles.enabled=true to do this from the chart).
+{{- end }}
+{{- else }}
 Before the services can start, the database must be migrated (migrations/ in
-the repository) and the guardspec_app role must have the password in
+the repository, or migrations.enabled=true) and the guardspec_app role must have the password in
 {{ .Values.existingSecret }}/{{ .Values.appPasswordKey }}{{ if not .Values.dbRoles.enabled }} (set dbRoles.enabled=true to do this from the chart){{ end }}.
+{{- end }}
 
 Gateway (OpenAI-compatible):  {{ include "guard-spec.fullname" . }}-gateway:{{ .Values.gateway.service.port }}
 Control plane API:            {{ include "guard-spec.fullname" . }}-control-plane:{{ .Values.controlPlane.service.port }}
 Metrics (cluster only):       {{ include "guard-spec.fullname" . }}-gateway-metrics:{{ .Values.gateway.metricsPort }}, {{ include "guard-spec.fullname" . }}-control-plane-metrics:{{ .Values.controlPlane.metricsPort }}
 
+Check the installation (database, migrations, models, layers, upstream,
+security; images released after 0.1.1):
+  kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "guard-spec.fullname" . }}-gateway -c gateway -- ./doctor
+
+{{ if .Values.gateway.autoscaling.enabled -}}
+Rate limits are counted per gateway replica ({{ .Values.gateway.autoscaling.minReplicas }} to {{ .Values.gateway.autoscaling.maxReplicas }} with the autoscaler).
+{{- else -}}
 Rate limits are counted per gateway replica ({{ .Values.gateway.replicaCount }} now).
+{{- end }}

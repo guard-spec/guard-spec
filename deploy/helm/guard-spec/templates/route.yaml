@@ -1,0 +1,36 @@
+{{- if .Values.route.enabled }}
+{{- $full := include "guard-spec.fullname" . }}
+{{- range $key, $svc := dict "gateway" "gateway" "controlPlane" "control-plane" }}
+{{- $r := get $.Values.route $key }}
+{{- if $r.enabled }}
+---
+# OpenShift Route to the {{ $svc }} Service.
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ $full }}-{{ $svc }}
+  labels:
+    {{- include "guard-spec.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $svc }}
+  {{- with $.Values.route.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with $r.host }}
+  host: {{ . | quote }}
+  {{- end }}
+  to:
+    kind: Service
+    name: {{ $full }}-{{ $svc }}
+    weight: 100
+  port:
+    targetPort: http
+  {{- with $r.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  wildcardPolicy: None
+{{- end }}
+{{- end }}
+{{- end }}

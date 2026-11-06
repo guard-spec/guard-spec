@@ -25,11 +25,71 @@ app.kubernetes.io/component: {{ .component }}
 {{- printf "%s:%s" .image.repository (default .root.Chart.AppVersion .image.tag) -}}
 {{- end -}}
 
-{{/* Non-empty when the gateway mounts a models volume at /models: an
-existing claim, or the chart's own PVC. Otherwise nothing is mounted, so the
+{{/* repository:tag, or repository:tag@digest when .image.digest is set. */}}
+{{- define "guard-spec.imageDigest" -}}
+{{- $ref := printf "%s:%s" .repository .tag -}}
+{{- with .digest }}{{ $ref = printf "%s@%s" $ref . }}{{ end -}}
+{{- $ref -}}
+{{- end -}}
+
+{{/* An image whose empty repository and tag fall back to the gateway's. */}}
+{{- define "guard-spec.gatewayDerivedImage" -}}
+{{- $img := dict "repository" (default .root.Values.gateway.image.repository .image.repository) "tag" (default .root.Values.gateway.image.tag .image.tag) -}}
+{{- include "guard-spec.image" (dict "root" .root "image" $img) -}}
+{{- end -}}
+
+{{/* Non-empty when the gateway has a PersistentVolumeClaim for the models:
+an existing claim, or the chart's own PVC. */}}
+{{- define "guard-spec.modelsClaimUsed" -}}
+{{- if or .Values.models.existingClaim .Values.models.persistence.enabled -}}true{{- end -}}
+{{- end -}}
+
+{{/* Non-empty when the gateway mounts a models volume at /models: a claim,
+or an emptyDir filled by models.pull. Otherwise nothing is mounted, so the
 models inside guard-spec-gateway-full stay visible. */}}
 {{- define "guard-spec.modelsVolume" -}}
-{{- if or .Values.models.existingClaim .Values.models.persistence.enabled -}}true{{- end -}}
+{{- if or (include "guard-spec.modelsClaimUsed" .) .Values.models.pull.enabled -}}true{{- end -}}
+{{- end -}}
+
+{{/* serviceAccountName of the gateway and control plane pods, or "" for the
+namespace default. */}}
+{{- define "guard-spec.serviceAccountName" -}}
+{{- if .Values.serviceAccount.create -}}
+{{- default (include "guard-spec.fullname" .) .Values.serviceAccount.name -}}
+{{- else -}}
+{{- .Values.serviceAccount.name -}}
+{{- end -}}
+{{- end -}}
+
+{{/* topologySpreadConstraints; a constraint without labelSelector gets the
+component's selector labels. Call with (dict "root" $ "component" "gateway"
+"constraints" list). */}}
+{{- define "guard-spec.topologySpread" -}}
+{{- $sel := include "guard-spec.selector" (dict "root" .root "component" .component) | fromYaml -}}
+{{- $out := list -}}
+{{- range .constraints -}}
+{{- $c := deepCopy . -}}
+{{- if not (hasKey $c "labelSelector") -}}
+{{- $_ := set $c "labelSelector" (dict "matchLabels" $sel) -}}
+{{- end -}}
+{{- $out = append $out $c -}}
+{{- end -}}
+{{- toYaml $out -}}
+{{- end -}}
+
+{{/* Pod metadata of a component: chart labels, component, podLabels and
+podAnnotations. Call with (dict "root" $ "component" "gateway"). */}}
+{{- define "guard-spec.podMetadata" -}}
+labels:
+  {{- include "guard-spec.labels" .root | nindent 2 }}
+  app.kubernetes.io/component: {{ .component }}
+  {{- with .root.Values.podLabels }}
+  {{- toYaml . | nindent 2 }}
+  {{- end }}
+{{- with .root.Values.podAnnotations }}
+annotations:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
 {{- end -}}
 
 {{- define "guard-spec.modelsClaim" -}}

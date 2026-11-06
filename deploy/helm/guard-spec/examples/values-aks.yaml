@@ -1,0 +1,94 @@
+# Reference values for Azure Kubernetes Service. NOT VERIFIED on AKS: CI
+# renders them and validates the result against the Kubernetes schema only.
+# Adjust every <placeholder> and review before use.
+#
+#   helm install gs deploy/helm/guard-spec -n guard-spec \
+#     -f deploy/helm/guard-spec/examples/values-aks.yaml
+#
+# Assumes: Azure Database for PostgreSQL flexible server (a server of its
+# own, see values.yaml), the application routing add-on (managed NGINX),
+# Azure Files for a ReadWriteMany models volume, a network policy engine
+# (Azure, Calico or Cilium), Workload Identity enabled on the cluster, and
+# the Secret guard-spec-secrets (README, "Kubernetes"; or External Secrets
+# from Key Vault, docs/airgapped.md).
+
+externalDatabase:
+  url: postgres://guardspec_app@<server>.postgres.database.azure.com:5432/guardspec?sslmode=verify-full
+  host: <server>.postgres.database.azure.com
+  port: 5432
+  database: guardspec
+  ownerUser: guardspec_owner
+  sslmode: verify-full
+
+migrations:
+  enabled: true
+dbRoles:
+  enabled: true
+
+# Workload Identity: the managed identity's client id on the account, and
+# the label the webhook looks for on the pods.
+serviceAccount:
+  create: true
+  annotations:
+    azure.workload.identity/client-id: <managed-identity-client-id>
+podLabels:
+  azure.workload.identity/use: "true"
+
+gateway:
+  env:
+    UPSTREAM_LLM_URL: https://<resource>.openai.azure.com/openai/v1
+  extraEnvFrom:
+    - secretRef: {name: guard-spec-upstream}   # UPSTREAM_LLM_KEY
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: ScheduleAnyway
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 12
+  podDisruptionBudget:
+    enabled: true
+
+controlPlane:
+  replicaCount: 2
+  env:
+    PUBLIC_BASE_URL: https://guard.example.com
+    ALLOWED_ORIGINS: https://guard.example.com
+  podDisruptionBudget:
+    enabled: true
+
+# One ReadWriteMany volume on Azure Files, filled by the first pod's init
+# container and verified (not downloaded again) by the others.
+models:
+  persistence:
+    enabled: true
+    storageClass: azurefile-csi
+    accessModes: [ReadWriteMany]
+    size: 5Gi
+  pull:
+    enabled: true
+    required: true
+
+ingress:
+  enabled: true
+  className: webapprouting.kubernetes.azure.com
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-body-size: 10m
+  hosts:
+    - host: llm.example.com
+      service: gateway
+    - host: guard.example.com
+      service: controlPlane
+  tls:
+    - secretName: guard-spec-tls
+      hosts: [llm.example.com, guard.example.com]
+
+networkPolicy:
+  enabled: true
+  egress:
+    restrict: true
+    database:
+      to:
+        - ipBlock: {cidr: <postgres-subnet-cidr>}

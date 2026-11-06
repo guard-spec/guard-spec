@@ -1,0 +1,17 @@
+# Used by CI (helm lint and template): no claim, the models pulled into an
+# emptyDir per pod, an existing service account, ingress without a host and
+# network policies with open egress. Not a deployment example.
+serviceAccount:
+  name: guard-spec-existing
+models:
+  persistence:
+    enabled: false
+  pull:
+    enabled: true
+ingress:
+  enabled: true
+  hosts:
+    - paths:
+        - {path: /v1, pathType: Prefix}
+networkPolicy:
+  enabled: true

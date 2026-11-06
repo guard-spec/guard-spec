@@ -24,14 +24,15 @@ ENV CGO_ENABLED=1 CGO_LDFLAGS=-L/opt/onnx/lib GOTOOLCHAIN=local
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
     go build -tags onnx -trimpath -ldflags="-s -w -X github.com/guard-spec/guard-spec/internal/version.Version=${VERSION#v}" -o /out/gateway ./cmd/gateway/ \
  && go build -tags onnx -trimpath -ldflags="-s -w" -o /out/onnxbench ./cmd/onnxbench/ \
- && go build -trimpath -ldflags="-s -w -X github.com/guard-spec/guard-spec/internal/version.Version=${VERSION#v}" -o /out/models ./cmd/models/
+ && go build -trimpath -ldflags="-s -w -X github.com/guard-spec/guard-spec/internal/version.Version=${VERSION#v}" -o /out/models ./cmd/models/ \
+ && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/guard-spec/guard-spec/internal/version.Version=${VERSION#v}" -o /out/doctor ./cmd/doctor/
 
 # --- dist: the linux onnx tarball of a release (.github/workflows/release.yml) ---
 # docker buildx build --target dist --output type=local,dest=out ...
 # Same binary as the image; it needs glibc >= 2.36 (Debian 12) at run time and
 # ONNXRUNTIME_LIB pointing at the bundled libonnxruntime.so.
 FROM scratch AS dist
-COPY --from=builder /out/gateway /out/models /
+COPY --from=builder /out/gateway /out/models /out/doctor /
 COPY --from=builder /opt/onnx/lib/libonnxruntime.so /lib/
 COPY --from=builder /opt/onnx/LICENSE.onnxruntime /src/LICENSE /src/NOTICE /src/THIRD_PARTY_LICENSES.md /src/models/manifest.yaml /
 
@@ -51,7 +52,7 @@ ENV ONNXRUNTIME_LIB=/usr/local/lib/libonnxruntime.so \
     MODEL_DIR=/models
 
 WORKDIR /app
-COPY --from=builder /out/gateway /out/onnxbench /out/models ./
+COPY --from=builder /out/gateway /out/onnxbench /out/models /out/doctor ./
 COPY --from=builder /src/migrations ./migrations
 COPY --from=builder /src/models/manifest.yaml ./manifest.yaml
 COPY --from=builder /src/LICENSE /src/NOTICE /src/THIRD_PARTY_LICENSES.md /usr/share/doc/guard-spec/
