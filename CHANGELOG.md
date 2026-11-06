@@ -9,6 +9,23 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ## [Unreleased]
 
+### Added
+
+- Public, reproducible benchmark against other prompt-injection detectors
+  ([docs/benchmark.md](docs/benchmark.md)): Guard Spec L1, L1+L2 and
+  L1+L2+L3 versus ProtectAI `deberta-v3-base-prompt-injection-v2` (and LLM
+  Guard's default threshold for it) on `eval/` and four public datasets at
+  pinned Hugging Face revisions (`deepset/prompt-injections`,
+  `jackhhao/jailbreak-classification`, `Lakera/gandalf_ignore_instructions`,
+  `reshabhs/SPML_Chatbot_Prompt_Injection`). ROC AUC, TPR/FPR at each
+  detector's default, TPR at FPR ≤ 1%, latency p50/p95 and model size per
+  detector, dataset and language. `make benchmark` reproduces it
+  (`bench/run.py`, Python locked in `bench/uv.lock`); Meta Prompt Guard 2 is
+  gated and runs only with `PROMPTGUARD=1` and the user's own `HF_TOKEN`.
+  The manual-only **Benchmark** workflow runs it on `ubuntu-24.04`.
+- `cmd/eval -scores <file>`: per-row scores, gateway decisions and latencies
+  as JSON lines.
+
 ## [0.2.1] - 2026-11-07
 
 ### Upgrade notes

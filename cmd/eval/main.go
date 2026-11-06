@@ -1,6 +1,6 @@
 // Command eval scores a prompt-injection detector on the EN/VI eval set.
 //
-//	go run ./cmd/eval [-data eval/data] [-detector fusion|l1|regex] [-json out.json]
+//	go run ./cmd/eval [-data eval/data] [-detector fusion|l1|regex] [-json out.json] [-scores rows.jsonl]
 //	go run ./cmd/eval -baseline eval/baseline.json [-max-regression 0.02]
 //	go run ./cmd/eval -path tool
 //	go run -tags onnx ./cmd/eval -detector fusion-ml [-layers l1,l2,l3] [-cascade] [-fusion logreg|max]
@@ -33,6 +33,7 @@ func run() int {
 	dataDir := flag.String("data", "eval/data", "directory with *.jsonl eval files")
 	detName := flag.String("detector", evalset.DefaultDetector, "detector: "+strings.Join(evalset.DetectorNames(), ", "))
 	jsonOut := flag.String("json", "", "write the report as JSON to this file")
+	scoresOut := flag.String("scores", "", "write per-row scores, gateway decisions and latencies as JSON lines to this file (bench/)")
 	baseline := flag.String("baseline", "", "baseline report to compare against")
 	maxReg := flag.Float64("max-regression", 0.02, "largest allowed drop (TPR, AUC) or rise (FPR) versus the baseline")
 	path := flag.String("path", evalset.PathDirect, "input path: direct (user message) or tool (tool result / tool definition)")
@@ -93,6 +94,13 @@ func run() int {
 	rep := evalset.BuildReport(name, results)
 	rep.WriteTable(os.Stdout)
 
+	if *scoresOut != "" {
+		if err := writeScores(*scoresOut, results); err != nil {
+			fmt.Fprintln(os.Stderr, "scores:", err)
+			return 2
+		}
+	}
+
 	if *jsonOut != "" {
 		b, err := evalset.MarshalReport(rep)
 		if err != nil {
@@ -130,4 +138,16 @@ func run() int {
 		fmt.Printf("\nno regression versus %s (max %.3f)\n", *baseline, *maxReg)
 	}
 	return 0
+}
+
+func writeScores(path string, results []evalset.Result) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	if err := evalset.WriteScores(f, results); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
 }

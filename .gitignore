@@ -37,6 +37,10 @@ train/.venv/
 train/runs/
 models/local/
 
+# Benchmark (bench/run.py): downloads, scores and venv; results/ is committed
+bench/.cache/
+bench/.venv/
+
 # GoReleaser output
 /dist/
 
