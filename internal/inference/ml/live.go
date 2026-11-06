@@ -520,6 +520,13 @@ func (l *Live) Fusion() string {
 	return l.cur.fusion
 }
 
+// L1Floor is the L1 floor of the running generation (0: off or not used).
+func (l *Live) L1Floor() float64 {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.cur.fuser.L1Floor()
+}
+
 // Layers reports which layers run now: L2 follows the loaded generation.
 func (l *Live) Layers() [3]bool {
 	l.mu.RLock()

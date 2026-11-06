@@ -22,6 +22,13 @@
 // a weighted layer did not run (failed, or skipped by the cascade), that
 // request falls back to max, so fusion still degrades to the layers that ran.
 //
+// L1 floor (SetL1Floor): the combiner weights L1 at about 0.46 against 0.91
+// for L2, so a classifier that is sure a text is benign outvotes even a
+// certain rule match. When L1 fires a decisive rule (an override followed by
+// its payload, rules.Result.Decisive) and its calibrated score reaches the
+// floor, that score becomes a lower bound of the fused score, like a layer
+// with LayerResult.Floor.
+//
 // L1 runs first; L2 and L3 then run in parallel. With a Cascade, L2 and L3 are
 // skipped when L1's calibrated score is already decisive.
 package fusion
@@ -61,6 +68,9 @@ type LayerResult struct {
 	// score, whatever the combiner; for an explicit match such as an
 	// organization's own block exemplar.
 	Floor bool
+	// Decisive marks an L1 verdict that rests on a decisive rule; with
+	// SetL1Floor it bounds the fused score from below.
+	Decisive bool
 }
 
 // Layer is a detector stage. L2 and L3 implement it later.
@@ -87,8 +97,11 @@ type Result struct {
 	Categories map[string]float64 // calibrated per-category scores
 	Rules      []string           // explanation from every layer that ran
 	// Floor is the largest calibrated score of a layer that set
-	// LayerResult.Floor (0 when none did); the fused score is never below it.
+	// LayerResult.Floor, or of a decisive L1 verdict at or above the L1 floor
+	// (0 when none); the fused score is never below it.
 	Floor float64
+	// L1Floored is true when the L1 floor applied (Floor holds L1's score).
+	L1Floored bool
 	// Cascaded is true when the cascade found L1 decisive and skipped the
 	// other layers.
 	Cascaded bool
@@ -102,7 +115,19 @@ type Fuser struct {
 	cal     [numLayers]Calibration
 	cascade *Cascade
 	combine *LogReg
+	l1Floor float64 // 0: off
 }
+
+// L1FloorRule is the explanation added to Result.Rules when the L1 floor
+// raised the fused score.
+const L1FloorRule = "fusion.l1_floor"
+
+// SetL1Floor makes a decisive L1 verdict whose calibrated score is at least
+// min a lower bound of the fused score. 0 turns it off.
+func (f *Fuser) SetL1Floor(min float64) { f.l1Floor = min }
+
+// L1Floor is the floor set by SetL1Floor (0: off).
+func (f *Fuser) L1Floor() float64 { return f.l1Floor }
 
 // Cascade skips L2 and L3 when L1's calibrated score is decisive: at least
 // High, or at most Low. A skipped layer is reported as Missing.
@@ -223,6 +248,10 @@ func (f *Fuser) Score(ctx context.Context, text string) Result {
 		if lr.Floor && p > res.Floor {
 			res.Floor = p
 		}
+		if slot == L1 && f.l1Floor > 0 && lr.Decisive && p >= f.l1Floor && p > res.Floor {
+			res.Floor = p
+			res.L1Floored = true
+		}
 		if p > best {
 			best = p
 			res.Score = p
@@ -239,10 +268,11 @@ func (f *Fuser) Score(ctx context.Context, text string) Result {
 		if s, ok := f.combine.Apply(res.Layers); ok {
 			res.Score = s
 		}
-		for slot := range out {
-			if ran[slot] && errs[slot] == nil && out[slot].Floor && res.Layers[slot] > res.Score {
-				res.Score = res.Layers[slot]
+		if res.Floor > res.Score {
+			if res.L1Floored {
+				res.Rules = append(res.Rules, L1FloorRule)
 			}
+			res.Score = res.Floor
 		}
 	}
 	if res.Score < minCategoryScore {
@@ -296,7 +326,8 @@ type RulesLayer struct{ E *rules.Engine }
 // Score implements Layer.
 func (r RulesLayer) Score(_ context.Context, text string) (LayerResult, error) {
 	res := r.E.Score(text)
-	return LayerResult{Score: res.Score, Category: res.Category, Categories: res.Categories, Rules: res.Rules}, nil
+	return LayerResult{Score: res.Score, Category: res.Category, Categories: res.Categories, Rules: res.Rules,
+		Decisive: res.Decisive}, nil
 }
 
 const eps = 1e-4

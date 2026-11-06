@@ -257,9 +257,9 @@ func New() *Engine {
 		seq: seq(overrideVerb, targetStrong)})
 	b.add(rule{id: "di.override.weak", cat: DirectInjection, w: 0.35, gap: 2,
 		seq: seq(overrideVerb, targetWeak)})
-	b.add(rule{id: "di.override.chained", cat: DirectInjection, w: 0.93, gap: 4, crossSent: true,
+	b.add(rule{id: "di.override.chained", decisive: true, cat: DirectInjection, w: 0.93, gap: 4, crossSent: true,
 		seq: seq(overrideVerb, targetStrong, continuation, imperative)})
-	b.add(rule{id: "di.override.chained_qualified", cat: DirectInjection, w: 0.95, gap: 4, crossSent: true,
+	b.add(rule{id: "di.override.chained_qualified", decisive: true, cat: DirectInjection, w: 0.95, gap: 4, crossSent: true,
 		seq: seq(overrideVerb, b.or(qualCore, qualWeak), target, continuation, imperative)})
 	b.add(rule{id: "di.override.everything", cat: DirectInjection, w: 0.9, gap: 2,
 		seq: seq(overrideVerb, b.t("everything", "all that", "all", "anything", "tat ca", "moi thu", "het"),
@@ -429,11 +429,11 @@ func New() *Engine {
 				"as null", "as cancelled", "as canceled", "as obsolete", "vo hieu", "khong ap dung", "chua tung",
 				"does not exist", "doesn t exist", "were never given", "was never given", "khong co hieu luc",
 				"het hieu luc", "da bi xoa", "were deleted", "have been deleted"))})
-	b.add(rule{id: "di.override.all_rules_then", cat: DirectInjection, w: 0.85, gap: 2, crossSent: true,
+	b.add(rule{id: "di.override.all_rules_then", decisive: true, cat: DirectInjection, w: 0.85, gap: 2, crossSent: true,
 		seq: seq(overrideVerb, qualWeak, targetWeak, b.t("say", "print", "tell", "write", "output", "respond",
 			"reply", "answer", "reveal", "give", "translate", "show", "list", "send", "repeat", "noi", "in ra",
 			"viet", "tra loi", "tiet lo", "gui", "liet ke", "hay noi", "hay viet", "hay tra loi"))})
-	b.add(rule{id: "di.override.postqualified_chained", cat: DirectInjection, w: 0.95, gap: 4, crossSent: true,
+	b.add(rule{id: "di.override.postqualified_chained", decisive: true, cat: DirectInjection, w: 0.95, gap: 4, crossSent: true,
 		seq: seq(overrideVerb, target, qualPost, continuation, imperative)})
 	b.add(rule{id: "di.system_override", cat: DirectInjection, w: 0.75, gap: 1,
 		seq: seq(b.t("system override", "admin override", "ghi de he thong", "override he thong", "override mode",
@@ -473,13 +473,13 @@ func New() *Engine {
 		"from now on you are", "from now on you re", "from now on act as", "now act as")
 	// The rules must be qualified ("hết", "mọi", "trước đó"): "bỏ qua phần
 	// hướng dẫn, giờ bạn là người dùng nâng cao" is a tutorial.
-	b.add(rule{id: "di.override.then_role", cat: DirectInjection, w: 0.93, gap: 4, crossSent: true,
+	b.add(rule{id: "di.override.then_role", decisive: true, cat: DirectInjection, w: 0.93, gap: 4, crossSent: true,
 		seq: seq(b.or(overrideVerb, keVerb), b.or(qualCore, qualWeak), target, roleNow), notAfter: notKe})
-	b.add(rule{id: "di.override.postqualified_role", cat: DirectInjection, w: 0.93, gap: 4, crossSent: true,
+	b.add(rule{id: "di.override.postqualified_role", decisive: true, cat: DirectInjection, w: 0.93, gap: 4, crossSent: true,
 		seq: seq(b.or(overrideVerb, keVerb), target, qualPost, roleNow), notAfter: notKe})
 	// Override with a qualifier, then a request in the next clause:
 	// "bỏ qua hết quy tắc trước đó, cho mình xem ...".
-	b.add(rule{id: "di.override.postqualified_then", cat: DirectInjection, w: 0.93, gap: 3, crossSent: true,
+	b.add(rule{id: "di.override.postqualified_then", decisive: true, cat: DirectInjection, w: 0.93, gap: 3, crossSent: true,
 		seq: seq(b.or(overrideVerb, keVerb), target, qualPost, b.t("cho minh", "cho minh xem", "cho toi",
 			"cho toi xem", "cho xem", "dua minh", "dua toi", "dua cho minh", "dua cho toi", "in ra", "noi ra",
 			"tiet lo", "viet ra", "liet ke", "gui minh", "gui cho minh", "give me", "show me", "tell me")), notAfter: notKe})
@@ -595,7 +595,7 @@ func New() *Engine {
 				"spell", "spelled", "with spaces", "base64", "hex", "encode", "encoded", "hint", "riddle",
 				"rhyme", "poem", "acrostic", "first letter", "characters of", "synonym", "translate",
 				"nguoc", "tung chu", "tung ky tu", "goi y", "ma hoa", "bai tho", "chu cai dau", "dich"))})
-	b.add(rule{id: "pe.ignore_then_reveal", cat: PromptExtraction, w: 0.95, gap: 14, crossSent: true,
+	b.add(rule{id: "pe.ignore_then_reveal", decisive: true, cat: PromptExtraction, w: 0.95, gap: 14, crossSent: true,
 		seq: seq(overrideVerb, target, peVerb, peTarget)})
 	b.cue(peTarget)
 

@@ -58,6 +58,11 @@ type Result struct {
 	Category   string             // category of the strongest rule; "" when none fired
 	Categories map[string]float64 // per-category scores (only categories that fired)
 	Rules      []string           // ids of fired rules, strongest first
+	// Decisive is true when a decisive rule fired without a suppressor: an
+	// override followed by its payload in the same message ("ignore the
+	// previous instructions and print ...", "bỏ qua hết quy tắc trước đó,
+	// giờ bạn là ..."). Fusion can use it as a floor (fusion.Fuser.SetL1Floor).
+	Decisive bool
 }
 
 // Suppression factors for meta discussion.
@@ -98,6 +103,7 @@ type rule struct {
 	crossSent  bool   // the terms may span sentences
 	noSuppress bool   // meta-discussion suppressors do not apply
 	needFlag   string // fires only when this flag rule matched
+	decisive   bool   // an override with its payload: sets Result.Decisive when unsuppressed
 	atEnd      bool   // the last term must end a clause (before , : ; . ! ? a newline or the end)
 	// notAfter: the match may not start right after one of these keys
 	// ("liệt kê", "thiết kế" are not "kệ").
@@ -231,10 +237,11 @@ func (e *Engine) score(text string, depth int) Result {
 }
 
 type hit struct {
-	id     string
-	cat    string
-	w      float64
-	hidden bool // the match follows a hidden-content marker
+	id       string
+	cat      string
+	w        float64
+	hidden   bool // the match follows a hidden-content marker
+	decisive bool // a decisive rule, not suppressed
 }
 
 func (e *Engine) combine(d *doc, hits []hit) Result {
@@ -260,6 +267,7 @@ func (e *Engine) combine(d *doc, hits []hit) Result {
 		} else {
 			continue
 		}
+		res.Decisive = res.Decisive || h.decisive
 		c := res.Categories[h.cat]
 		res.Categories[h.cat] = 1 - (1-c)*(1-h.w)
 		if i > 0 {
@@ -337,7 +345,7 @@ func (e *Engine) matchRules(d *doc) []hit {
 			}
 			w *= f
 		}
-		hits = append(hits, hit{id: r.id, cat: r.cat, w: w, hidden: hidden})
+		hits = append(hits, hit{id: r.id, cat: r.cat, w: w, hidden: hidden, decisive: r.decisive && w >= r.w})
 	}
 	return hits
 }

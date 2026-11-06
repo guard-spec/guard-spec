@@ -54,7 +54,8 @@ func buildDetector(ctx context.Context, cfg ml.Config, store ml.TenantStore) (*m
 	if cfg.Cascade != nil {
 		casc = fmt.Sprintf("low=%.4g high=%.4g", cfg.Cascade.Low, cfg.Cascade.High)
 	}
-	slog.Info("detector", "layers", ml.LayerKey(stack.Active), "fusion", stack.Fusion, "cascade", casc, "l2_model", stack.L2Model)
+	slog.Info("detector", "layers", ml.LayerKey(stack.Active), "fusion", stack.Fusion, "cascade", casc,
+		"l1_floor", stack.L1Floor, "l2_model", stack.L2Model)
 	return stack, nil
 }
 
@@ -108,9 +109,13 @@ type detectorStatus struct {
 	// start at all; in dev mode it starts and /readyz answers 503.
 	Required bool `json:"required"`
 	// ONNX reports whether the binary was built with -tags onnx.
-	ONNX    bool   `json:"onnx"`
-	Fusion  string `json:"fusion,omitempty"`
-	L2Model string `json:"l2_model,omitempty"`
+	ONNX   bool   `json:"onnx"`
+	Fusion string `json:"fusion,omitempty"`
+	// L1Floor is FUSION_L1_FLOOR as applied: with the logreg combiner, a
+	// decisive L1 verdict at or above it bounds the fused score. 0: off, or
+	// fusion is max (which never goes below L1 anyway).
+	L1Floor float64 `json:"l1_floor"`
+	L2Model string  `json:"l2_model,omitempty"`
 	// Models reports what changes at run time: the running classifier as
 	// name@version, whether its files matched the manifest, the manifest's
 	// recommended version and the installed ones, shadow mode and the last
@@ -130,7 +135,7 @@ func (d detectorStatus) current() detectorStatus {
 	}
 	d.Problems = d.live.Problems()
 	d.Degraded = len(d.Problems) > 0
-	d.Fusion, d.L2Model = d.live.Fusion(), d.live.L2Name()
+	d.Fusion, d.L2Model, d.L1Floor = d.live.Fusion(), d.live.L2Name(), d.live.L1Floor()
 	st := d.live.Status()
 	d.Models = &st
 	return d
@@ -159,6 +164,6 @@ func newDetectorStatus(s *ml.Stack, required bool) detectorStatus {
 		st.Layers = strings.Split(k, ",")
 	}
 	st.Degraded, st.Problems = s.Degraded(), s.Problems
-	st.Fusion, st.L2Model = s.Fusion, s.L2Model
+	st.Fusion, st.L2Model, st.L1Floor = s.Fusion, s.L2Model, s.L1Floor
 	return st
 }

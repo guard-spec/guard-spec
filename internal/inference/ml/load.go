@@ -34,6 +34,7 @@ const (
 	EnvCascadeHigh   = "DETECTOR_CASCADE_HIGH" // default DefaultCascade.High
 	EnvRequireML     = "DETECTOR_REQUIRE_ML"   // true: refuse to start without the ML layers (outside dev)
 	EnvFusion        = "DETECTOR_FUSION"       // logreg (default) or max
+	EnvL1Floor       = "FUSION_L1_FLOOR"       // calibrated L1 floor for decisive rules; 0 or off disables
 	EnvManifest      = "MODELS_MANIFEST"       // manifest file; default: the copy built into the binary
 	L2DefaultV3B     = "local/guardspec-classifier-v3b"
 	L2DefaultV2      = "local/guardspec-classifier-v2"
@@ -51,6 +52,15 @@ const (
 // rows) or at most 0.03 (raw 0.02, L1's floor where no rule fired: 11% of
 // benign rows and 0.24% of attacks). Chosen on train/data/val.jsonl + val_hard.jsonl.
 var DefaultCascade = fusion.Cascade{Low: 0.03, High: 0.965}
+
+// DefaultL1Floor is the calibrated L1 score at or above which a decisive L1
+// verdict (an override followed by its payload) bounds the fused score from
+// below. Chosen on the classifier's validation splits (train/data/val.jsonl,
+// val_hard.jsonl, val_vi_variants.jsonl, val_v3.jsonl: 5,840 rows), never on
+// eval/: at 0.985 no benign row is floored and 73 of 1,654 attacks are; at
+// 0.98 two benign rows would be ("bỏ wa tin nhắn trc của mình và gửi lại ...",
+// L1 0.984).
+const DefaultL1Floor = 0.985
 
 // Config selects and locates the detection layers.
 type Config struct {
@@ -72,6 +82,9 @@ type Config struct {
 	// Fusion is "logreg" (the default: a fitted logistic regression over the
 	// calibrated layers, max when no weights fit the active layers) or "max".
 	Fusion string
+	// L1Floor is FUSION_L1_FLOOR (default DefaultL1Floor; 0: off). It only
+	// matters with the logreg combiner: max already keeps L1's score.
+	L1Floor float64
 	// Manifest is MODELS_MANIFEST: a manifest file read instead of the one
 	// built into the binary, at start and on every reload, so that new
 	// versions can be announced, verified and loaded without a new image.
@@ -94,7 +107,7 @@ func ConfigFromEnv(get func(string) string) (Config, error) {
 		ModelDir: get(EnvModelDir),
 		L2Dir:    get(EnvL2Dir), L2Model: strings.TrimSpace(get(EnvL2Model)),
 		L3Dir: get(EnvL3Dir), L3Model: strings.TrimSpace(get(EnvL3Model)),
-		Fusion: "logreg",
+		Fusion: "logreg", L1Floor: DefaultL1Floor,
 	}
 	for _, kv := range [][2]string{{EnvL2Model, cfg.L2Model}, {EnvL3Model, cfg.L3Model}} {
 		if kv[1] != "" {
@@ -147,11 +160,31 @@ func ConfigFromEnv(get func(string) string) (Config, error) {
 	if cfg.Fusion != "max" && cfg.Fusion != "logreg" {
 		return Config{}, fmt.Errorf("%s must be max or logreg", EnvFusion)
 	}
+	if cfg.L1Floor, err = parseL1Floor(get(EnvL1Floor)); err != nil {
+		return Config{}, err
+	}
 	cfg.Manifest = strings.TrimSpace(get(EnvManifest))
 	if cfg.Shadow, err = shadowConfigFromEnv(get); err != nil {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+// parseL1Floor reads FUSION_L1_FLOOR: empty is the default, "off" or 0
+// turns the floor off, anything else must be in (0.5, 1].
+func parseL1Floor(v string) (float64, error) {
+	v = strings.TrimSpace(strings.ToLower(v))
+	switch v {
+	case "":
+		return DefaultL1Floor, nil
+	case "off", "false", "0":
+		return 0, nil
+	}
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil || f <= 0.5 || f > 1 {
+		return 0, fmt.Errorf("%s must be off, 0 or a number in (0.5, 1]", EnvL1Floor)
+	}
+	return f, nil
 }
 
 // ParseLayers reads a list such as "l1,l2,l3".
@@ -203,6 +236,9 @@ type Stack struct {
 
 	// Fusion is the method in use: "logreg" or "max".
 	Fusion string
+	// L1Floor is the L1 floor in use with the logreg combiner (0: off or
+	// not applicable).
+	L1Floor float64
 
 	cfg     Config
 	threads int // ONNX intra-op threads per session; 0: ORT's choice
@@ -279,6 +315,7 @@ func Build(ctx context.Context, cfg Config, tenants TenantStore) (*Stack, error)
 		}
 	}
 	s.Fuser, s.Fusion = s.assemble(s.l2)
+	s.L1Floor = s.Fuser.L1Floor()
 	return s, nil
 }
 
@@ -305,6 +342,9 @@ func (s *Stack) assemble(m *L2Model) (*fusion.Fuser, string) {
 		key := LayerKey(active)
 		if lr, ok := combinerFor(m, key); ok {
 			f.SetCombiner(&lr)
+			if s.Active[fusion.L1] {
+				f.SetL1Floor(s.cfg.L1Floor)
+			}
 			return f, "logreg"
 		}
 		slog.Warn("no logistic-regression weights for these layers; fusing with max",
