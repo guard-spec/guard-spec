@@ -41,6 +41,7 @@ before you rely on it.
 - [How it fits in your stack](#how-it-fits-in-your-stack)
 - [Architecture](#architecture)
 - [Quick start](#quick-start)
+- [Deployment guides](docs/deploy/README.md) (AWS, Google Cloud, on-premise; reference templates)
 - [Models](#models)
 - [Configuration](#configuration)
 - [APIs](#apis)
@@ -398,6 +399,14 @@ with superuser credentials in `PGHOST`, `PGUSER`, `PGDATABASE` and
 `PGPASSWORD`.
 
 For Kubernetes see [Operations: Kubernetes](#kubernetes).
+
+**Deployment guides.** [docs/deploy/](docs/deploy/README.md) has reference
+guides for [AWS](docs/deploy/aws.md) (ECS on Fargate or EKS, RDS, Secrets
+Manager, ALB), [Google Cloud](docs/deploy/gcp.md) (GKE Autopilot or Cloud
+Run, Cloud SQL, Secret Manager) and [on-premise](docs/deploy/on-premise.md)
+(one VM with compose, Kubernetes, OpenShift, air-gapped, a reverse proxy).
+They are templates the maintainers have not yet verified on those
+platforms; reports of what worked and what did not are welcome.
 
 ### Install from a release
 

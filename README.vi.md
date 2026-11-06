@@ -259,6 +259,15 @@ Triển khai thật: `cp .env.example .env`, điền mọi secret (ví dụ
 Ngoài `GUARD_ENV=dev`, service từ chối khởi động nếu secret thiếu, là giá trị
 mặc định hoặc quá ngắn. Chi tiết và Helm: xem README tiếng Anh.
 
+**Hướng dẫn triển khai** (tiếng Anh): [docs/deploy/](docs/deploy/README.md)
+có hướng dẫn tham khảo cho [AWS](docs/deploy/aws.md) (ECS Fargate hoặc EKS,
+RDS, Secrets Manager, ALB), [Google Cloud](docs/deploy/gcp.md) (GKE Autopilot
+hoặc Cloud Run, Cloud SQL, Secret Manager) và
+[máy chủ riêng](docs/deploy/on-premise.md) (một VM với compose, Kubernetes,
+OpenShift, môi trường air-gapped, reverse proxy). Đây là bản mẫu, nhóm phát
+triển chưa kiểm chứng trên các nền tảng đó; rất mong bạn báo lại điều gì chạy
+được và điều gì không.
+
 ## Model
 
 | Lớp | File | Lấy ở đâu |
