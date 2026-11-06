@@ -38,7 +38,7 @@ are not ours: pin them by digest, as above.
 ## 2. On the connected side
 
 ```bash
-V=0.2.0
+V=0.2.1
 ID='^https://github.com/guard-spec/guard-spec/'
 ISSUER=https://token.actions.githubusercontent.com
 
@@ -129,11 +129,11 @@ imagePullSecrets:
 gateway:
   image:
     repository: registry.internal/guard-spec/guard-spec-gateway
-    tag: "0.2.0"          # or "0.2.0@sha256:<index digest>" to pin the digest
+    tag: "0.2.1"          # or "0.2.1@sha256:<index digest>" to pin the digest
 controlPlane:
   image:
     repository: registry.internal/guard-spec/guard-spec-control-plane
-    tag: "0.2.0"
+    tag: "0.2.1"
 migrations:
   enabled: true
   image:
@@ -168,7 +168,7 @@ With gateway-full instead: `gateway.image.repository=.../guard-spec-gateway-full
 Then, as in the README ("Kubernetes"):
 
 ```bash
-helm install gs ./guard-spec-0.2.0.tgz -n guard-spec -f values-airgapped.yaml
+helm install gs ./guard-spec-0.2.1.tgz -n guard-spec -f values-airgapped.yaml
 kubectl -n guard-spec exec deploy/gs-guard-spec-gateway -c gateway -- ./doctor
 ```
 
