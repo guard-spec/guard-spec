@@ -9,6 +9,14 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ## [Unreleased]
 
+### Added
+
+- `GET /v1/organizations/:orgId/dashboard`: request log aggregates over 24h,
+  7d or 30d (totals, block rate, latency p50/p95/p99, an hourly or daily
+  series, top detections, rules and projects), computed in Postgres. The
+  admin UI dashboard uses it, with a period and a project filter, instead of
+  sampling the latest 1,000 requests in the browser.
+
 ## [0.1.0] - 2026-11-06
 
 First release.

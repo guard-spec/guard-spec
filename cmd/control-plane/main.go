@@ -345,6 +345,8 @@ func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins 
 	authed.Delete("/organizations/:orgId/policies/:id", admin, deletePolicy(db))
 
 	authed.Get("/organizations/:orgId/requests", viewer, listRequests(db))
+	// Aggregates of the request log over a window (dashboard.go).
+	authed.Get("/organizations/:orgId/dashboard", viewer, getDashboard(db))
 
 	// L3 exemplars of the org (migration 009); never stored in the repository.
 	authed.Get("/organizations/:orgId/exemplars", viewer, listExemplars(db))

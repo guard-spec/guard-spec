@@ -665,6 +665,7 @@ needs `Authorization: Bearer <token from /v1/auth/login>`. Roles are `owner`,
 | `POST /organizations/:orgId/policies/simulate` | viewer |
 | `PUT`, `DELETE /organizations/:orgId/policies/:id` | admin |
 | `GET /organizations/:orgId/requests?limit=&cursor=&action=` (includes `route_target`) | viewer |
+| `GET /organizations/:orgId/dashboard?window=24h\|7d\|30d&project_id=` (request log aggregates; see below) | viewer |
 | `GET`, `POST /organizations/:orgId/exemplars` | viewer, admin |
 | `PUT`, `DELETE /organizations/:orgId/exemplars/:id` | admin |
 | `GET`, `POST /organizations/:orgId/invites`, `DELETE .../invites/:inviteId` (also under `/orgs/:orgId`) | admin |
@@ -675,6 +676,15 @@ most 200) and answer `{"items": [...], "next_cursor": "..." | null, "total": n}`
 so rows added between pages do not shift them. For one release, the endpoints
 that existed before answer in their old shape (`{"data": [...]}`) when the
 request has neither `limit` nor `cursor`.
+
+**Dashboard.** `GET /organizations/:orgId/dashboard` aggregates the request
+log in Postgres over a window that ends now (`window` is `24h`, the default,
+`7d` or `30d`; `project_id` narrows it to one project): `total`, `blocked`,
+`block_rate`, `by_action`, `latency_ms` (`p50`, `p95`, `p99`; null without
+latencies), a `series` of `{start, count, blocked}` per hour (24h) or per day
+(UTC, empty buckets included), and the top five `top_labels` (benign left
+out), `top_rules` (with rule and policy names) and `top_projects`. The admin
+UI dashboard reads it.
 
 **Errors** are `{"error": "message"}`; the identity endpoints add a
 machine-readable `"code"` (such as `mfa_required`, `login_method_not_allowed`,
