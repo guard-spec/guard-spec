@@ -265,6 +265,20 @@ Triển khai thật: `cp .env.example .env`, điền mọi secret (ví dụ
 Ngoài `GUARD_ENV=dev`, service từ chối khởi động nếu secret thiếu, là giá trị
 mặc định hoặc quá ngắn. Chi tiết và Helm: xem README tiếng Anh.
 
+- **Chế độ nhẹ** (L1 + L2, không L3, khoảng một nửa RAM của gateway) cho máy
+  cá nhân: `DETECTOR_LAYERS=l1,l2 scripts/quickstart.sh`. Số đo RAM/CPU và
+  cách chọn cấu hình máy: [docs/sizing.md](docs/sizing.md) (tiếng Anh).
+- **Compose cho production** trên một máy, có HTTPS tự động qua Caddy,
+  giới hạn CPU/RAM, xoay vòng log, health check:
+  [deploy/compose/production/](deploy/compose/production/README.md) (tiếng Anh).
+- **Sao lưu, khôi phục, nâng cấp và quay lui**: `scripts/backup.sh`,
+  `scripts/restore.sh` và [docs/upgrade.md](docs/upgrade.md) (tiếng Anh).
+- **PostgreSQL được quản lý** (RDS, Cloud SQL, Neon, Supabase):
+  [docs/managed-postgres.md](docs/managed-postgres.md) (tiếng Anh; tài liệu
+  tham khảo, chưa kiểm chứng trên các nhà cung cấp đó).
+- **Kết nối ứng dụng** (OpenAI SDK, LangChain, LlamaIndex, Claude Code,
+  Cursor): [docs/integrations.md](docs/integrations.md) (tiếng Anh).
+
 **Hướng dẫn triển khai** (tiếng Anh): [docs/deploy/](docs/deploy/README.md)
 có hướng dẫn tham khảo cho [AWS](docs/deploy/aws.md) (ECS Fargate hoặc EKS,
 RDS, Secrets Manager, ALB), [Google Cloud](docs/deploy/gcp.md) (GKE Autopilot

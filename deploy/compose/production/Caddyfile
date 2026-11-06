@@ -47,6 +47,10 @@
 
 {$ADMIN_HOST} {
 	import common
+	# ADMIN_ALLOW: client ranges allowed to reach the admin UI and API, such
+	# as your office or VPN ranges. Default: everyone.
+	@outside not remote_ip {$ADMIN_ALLOW:0.0.0.0/0 ::/0}
+	respond @outside 403
 	encode zstd gzip
 	reverse_proxy control-plane:8081
 }

@@ -52,6 +52,27 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   and checks that EN and VI prompt injections are blocked and a benign
   prompt passes (L1 only); `tests/kind/e2e.sh` runs it locally. The `helm`
   job lints and validates every new values file.
+- Light mode: `DETECTOR_LAYERS=l1,l2` (L1 + L2, no L3 embedder) in
+  `.env.example`; `scripts/quickstart.sh` writes it into a new `.env`, checks
+  that `/readyz` reports the requested layers, and compose's `models-init`
+  pulls only the models the layers need (the classifier for `l1,l2`, none
+  for `l1`).
+- `deploy/compose/production/`: a production compose for one host. Caddy with
+  automatic HTTPS (or `CADDY_TLS=internal` for testing) is the only service
+  with published ports; CPU and memory limits, json-file log rotation,
+  health checks, `unless-stopped` restarts, internal network for Postgres,
+  `DETECTOR_REQUIRE_ML=true`, secrets required from `.env`.
+  `managed-postgres.yml` runs it against a managed database.
+- `scripts/backup.sh` and `scripts/restore.sh`: `pg_dump` / `pg_restore` of a
+  compose stack together with its `.env` (`MFA_ENC_KEY` and the other
+  secrets) and Caddy's certificates; restore only into an empty database and
+  creates the cluster-wide `guardspec_app` role first.
+- Docs: [integrations](docs/integrations.md) (OpenAI SDK for Python and
+  JavaScript, LangChain, LlamaIndex, Claude Code hooks, Cursor, with limits),
+  [sizing](docs/sizing.md) (RAM and CPU measured for L1, L1 + L2 and
+  L1 + L2 + L3), [upgrade and rollback](docs/upgrade.md), and
+  [managed PostgreSQL](docs/managed-postgres.md) (RDS, Cloud SQL, Neon,
+  Supabase; reference, not yet verified on those providers).
 
 ### Changed
 

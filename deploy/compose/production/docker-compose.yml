@@ -45,6 +45,8 @@ services:
       # Your email for an ACME account (Let's Encrypt, ZeroSSL), or "internal"
       # for certificates from Caddy's own CA (testing; clients must trust it).
       CADDY_TLS: ${CADDY_TLS:?set CADDY_TLS in .env to your email (automatic HTTPS) or internal}
+      # Space-separated client ranges allowed on ADMIN_HOST (default: all).
+      ADMIN_ALLOW: ${ADMIN_ALLOW:-0.0.0.0/0 ::/0}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data       # certificates and keys, the internal CA's root
@@ -158,8 +160,9 @@ services:
     depends_on:
       db-roles:
         condition: service_completed_successfully
+    # The image's own check (its binary's "health" subcommand; the image is
+    # distroless, no shell or curl), with these timings.
     healthcheck:
-      test: ["CMD", "/app/control-plane", "health"]
       interval: 15s
       timeout: 5s
       retries: 3

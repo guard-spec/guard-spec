@@ -1,0 +1,35 @@
+# Copyright 2026 The Guard Spec Authors
+# SPDX-License-Identifier: Apache-2.0
+#
+# Use a managed PostgreSQL (RDS, Cloud SQL, Neon, Supabase, ...) instead of
+# the postgres service. Reference, not yet verified on those providers:
+# docs/managed-postgres.md. Run the migrations and set the guardspec_app
+# password first (same document), then:
+#
+#   docker compose -f docker-compose.yml -f managed-postgres.yml up -d
+#
+# .env: DATABASE_URL=postgres://guardspec_app@<host>:5432/guardspec?sslmode=verify-full
+# (no password in the URL: GUARDSPEC_APP_PASSWORD is passed as PGPASSWORD).
+# POSTGRES_PASSWORD is not used; set it to any long value or the file's
+# required-variable checks refuse to start.
+
+services:
+  gateway:
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env to the managed database (docs/managed-postgres.md)}
+    depends_on: !override
+      models-init:
+        condition: service_completed_successfully
+
+  control-plane:
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env to the managed database (docs/managed-postgres.md)}
+    depends_on: !reset []
+
+  # The local database and its jobs only start with --profile local-postgres.
+  postgres:
+    profiles: [local-postgres]
+  migrate:
+    profiles: [local-postgres]
+  db-roles:
+    profiles: [local-postgres]
