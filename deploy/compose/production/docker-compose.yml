@@ -1,0 +1,294 @@
+# Copyright 2026 The Guard Spec Authors
+# SPDX-License-Identifier: Apache-2.0
+#
+# Guard Spec on one host for production: Caddy in front with automatic HTTPS,
+# nothing else reachable from outside. See README.md in this directory.
+#
+#   cd deploy/compose/production
+#   cp .env.example .env      # fill in every secret and both host names
+#   docker compose up -d
+#
+# Differences from the repository's docker-compose.yml (the quick start):
+# - only Caddy publishes ports (80 and 443); the gateway, the control plane,
+#   their metrics and Postgres are on internal networks;
+# - Caddy terminates TLS: Let's Encrypt / ZeroSSL certificates for public host
+#   names (CADDY_TLS=<your email>), or its own internal CA for testing
+#   (CADDY_TLS=internal);
+# - CPU and memory limits, log rotation, health checks and restart policies
+#   on every long-running service;
+# - models live in a named volume instead of ./models.
+#
+# Secrets come from .env next to this file (compose reads it by itself); the
+# services refuse to start with missing, default or weak secrets.
+
+name: ${COMPOSE_PROJECT_NAME:-guard-spec-prod}
+
+# Docker's json-file driver with rotation: at most LOG_MAX_FILE files of
+# LOG_MAX_SIZE per container.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: ${LOG_MAX_SIZE:-10m}
+    max-file: "${LOG_MAX_FILE:-5}"
+
+services:
+  caddy:
+    image: caddy:2.11.9-alpine@sha256:71d41fe4b1ae92a058abc87afe614178b996d8a6b96d0f4c71ae30606e5927e3
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+      - "${HTTPS_PORT:-443}:443/udp"   # HTTP/3
+    environment:
+      GATEWAY_HOST: ${GATEWAY_HOST:?set GATEWAY_HOST in .env, such as guard.example.com}
+      ADMIN_HOST: ${ADMIN_HOST:?set ADMIN_HOST in .env, such as guard-admin.example.com}
+      # Your email for an ACME account (Let's Encrypt, ZeroSSL), or "internal"
+      # for certificates from Caddy's own CA (testing; clients must trust it).
+      CADDY_TLS: ${CADDY_TLS:?set CADDY_TLS in .env to your email (automatic HTTPS) or internal}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data       # certificates and keys, the internal CA's root
+      - caddy_config:/config
+    networks: [edge]
+    depends_on:
+      gateway:
+        condition: service_healthy
+      control-plane:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: "${CADDY_CPUS:-1}"
+          memory: ${CADDY_MEMORY:-256m}
+    logging: *logging
+
+  gateway:
+    image: ghcr.io/guard-spec/guard-spec-gateway:${GUARDSPEC_VERSION:-0.1.0}
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://guardspec_app@postgres:5432/${POSTGRES_DB:-guardspec}?sslmode=disable
+      PGPASSWORD: ${GUARDSPEC_APP_PASSWORD:?set GUARDSPEC_APP_PASSWORD in .env}
+      AUDIT_STORE_CONTENT: ${AUDIT_STORE_CONTENT:-false}
+      MODEL_DIR: /models
+      L2_MODEL: ${L2_MODEL:-}
+      L3_MODEL: ${L3_MODEL:-}
+      # l1,l2 is light mode: no L3 embedder, about half the memory (docs/sizing.md).
+      DETECTOR_LAYERS: ${DETECTOR_LAYERS:-l1,l2,l3}
+      DETECTOR_FUSION: ${DETECTOR_FUSION:-logreg}
+      DETECTOR_CASCADE: ${DETECTOR_CASCADE:-false}
+      # Production: refuse to start when a requested model layer is missing.
+      DETECTOR_REQUIRE_ML: ${DETECTOR_REQUIRE_ML:-true}
+      # Keep these in line with GATEWAY_CPUS: concurrent model runs times
+      # threads per run should not exceed the CPUs the container may use.
+      INFERENCE_MAX_CONCURRENCY: ${INFERENCE_MAX_CONCURRENCY:-2}
+      INFERENCE_INTRA_OP_THREADS: ${INFERENCE_INTRA_OP_THREADS:-1}
+      UPSTREAM_LLM_URL: ${UPSTREAM_LLM_URL:-}
+      UPSTREAM_LLM_KEY: ${UPSTREAM_LLM_KEY:-}
+      UPSTREAM_LLM_TIMEOUT: ${UPSTREAM_LLM_TIMEOUT:-}
+      UPSTREAM_KEY_MAIN: ${UPSTREAM_KEY_MAIN:-}
+      UPSTREAM_KEY_ORGS: "${UPSTREAM_KEY_ORGS:-}"
+      UPSTREAM_ALLOW_PRIVATE: ${UPSTREAM_ALLOW_PRIVATE:-false}
+      METRICS_ADDR: ":9090"   # internal only; scrape it from the edge network
+      RATE_LIMIT_RPM: ${RATE_LIMIT_RPM:-0}
+      RATE_LIMIT_TPM: ${RATE_LIMIT_TPM:-0}
+      ALERTS_FLAG_THRESHOLD: ${ALERTS_FLAG_THRESHOLD:-0.5}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_PROPAGATE_UPSTREAM: ${OTEL_PROPAGATE_UPSTREAM:-false}
+    volumes:
+      - models:/models:ro
+    networks: [edge, backend]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      db-roles:
+        condition: service_completed_successfully
+      models-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8080/readyz"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: "${GATEWAY_CPUS:-2}"
+          memory: ${GATEWAY_MEMORY:-2g}
+    logging: *logging
+
+  control-plane:
+    image: ghcr.io/guard-spec/guard-spec-control-plane:${GUARDSPEC_VERSION:-0.1.0}
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://guardspec_app@postgres:5432/${POSTGRES_DB:-guardspec}?sslmode=disable
+      PGPASSWORD: ${GUARDSPEC_APP_PASSWORD:?set GUARDSPEC_APP_PASSWORD in .env}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      MFA_ENC_KEY: ${MFA_ENC_KEY:?set MFA_ENC_KEY in .env (openssl rand -base64 32) and back it up}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      ALLOWED_ORIGINS: https://${ADMIN_HOST}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://${ADMIN_HOST}}
+      # Caddy's address is on the edge network: believe its X-Forwarded-For,
+      # so that login rate limits and audit see the real client.
+      TRUSTED_PROXIES: ${EDGE_SUBNET:-172.30.89.0/24}
+      UPSTREAM_LLM_URL: ${UPSTREAM_LLM_URL:-}
+      UPSTREAM_KEY_ORGS: "${UPSTREAM_KEY_ORGS:-}"
+      UPSTREAM_ALLOW_PRIVATE: ${CONTROL_PLANE_UPSTREAM_ALLOW_PRIVATE:-false}
+      OIDC_SECRET_GOOGLE: ${OIDC_SECRET_GOOGLE:-}
+      ALERTS_SECRET_ORGS: ${ALERTS_SECRET_ORGS:-}
+      ALERTS_PRIVATE_ORGS: ${ALERTS_PRIVATE_ORGS:-}
+      ALERTS_EMAIL_DAILY_CAP: ${ALERTS_EMAIL_DAILY_CAP:-500}
+      ALERTS_LANG: ${ALERTS_LANG:-en}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-}
+      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
+      TELEGRAM_POLLING: ${TELEGRAM_POLLING:-}
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
+      SMTP_URL: ${SMTP_URL:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      METRICS_ADDR: ":9091"
+      AUDIT_RETENTION_DAYS: ${AUDIT_RETENTION_DAYS:-90}
+    networks: [edge, backend]
+    depends_on:
+      db-roles:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "/app/control-plane", "health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "${CONTROL_PLANE_CPUS:-1}"
+          memory: ${CONTROL_PLANE_MEMORY:-256m}
+    logging: *logging
+
+  postgres:
+    image: postgres:17.11-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-guardspec}
+      POSTGRES_USER: ps
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks: [backend]
+    shm_size: 256m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ps -d ${POSTGRES_DB:-guardspec}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "${POSTGRES_CPUS:-2}"
+          memory: ${POSTGRES_MEMORY:-1g}
+    logging: *logging
+
+  # One-shot jobs, run on every `up` before the services they feed.
+  migrate:
+    image: migrate/migrate:v4.20.1@sha256:76cc2074cb6642631f34a898ced71e6aeaa6b1a4d78c4daa743275a22e0c5be7
+    command:
+      - -path=/migrations
+      - -database=postgres://ps@postgres:5432/${POSTGRES_DB:-guardspec}?sslmode=disable
+      - up
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - ../../../migrations:/migrations:ro
+    networks: [backend]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    logging: *logging
+
+  db-roles:
+    image: postgres:17.11-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b
+    entrypoint: ["/bin/sh", "/set-app-password.sh"]
+    environment:
+      PGHOST: postgres
+      PGUSER: ps
+      PGDATABASE: ${POSTGRES_DB:-guardspec}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      GUARDSPEC_APP_PASSWORD: ${GUARDSPEC_APP_PASSWORD:?set GUARDSPEC_APP_PASSWORD in .env}
+    volumes:
+      - ../../postgres/set-app-password.sh:/set-app-password.sh:ro
+    networks: [backend]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
+    logging: *logging
+
+  # Pulls the models the configured layers need into the models volume,
+  # verifying SHA-256; does nothing when they are there. Same logic as the
+  # quick start's models-init. Fails the stack when a pull fails, because
+  # DETECTOR_REQUIRE_ML defaults to true here.
+  models-init:
+    image: ghcr.io/guard-spec/guard-spec-gateway:${GUARDSPEC_VERSION:-0.1.0}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        case ",$${DETECTOR_LAYERS:-l1,l2,l3}," in
+        *,l3,*) set -- ;;
+        *,l2,*) set -- "$${L2_MODEL:-guardspec-classifier}" ;;
+        *) echo "models-init: DETECTOR_LAYERS=$${DETECTOR_LAYERS} needs no model"; exit 0 ;;
+        esac
+        ./models pull -manifest manifest.yaml -dir /models/cache "$$@" && exit 0
+        if [ "$${DETECTOR_REQUIRE_ML:-true}" = true ]; then exit 1; fi
+        echo "models-init: some models could not be pulled; the gateway runs without them" >&2
+    user: "0:0"   # writes the volume; the gateway reads it as nobody
+    environment:
+      MODELS_MIRROR: ${MODELS_MIRROR:-}
+      DETECTOR_REQUIRE_ML: ${DETECTOR_REQUIRE_ML:-true}
+      DETECTOR_LAYERS: ${DETECTOR_LAYERS:-l1,l2,l3}
+      L2_MODEL: ${L2_MODEL:-}
+    volumes:
+      - models:/models
+    networks: [edge]   # needs the internet (or MODELS_MIRROR)
+    restart: "no"
+    logging: *logging
+
+  # Other models or versions on demand (rollback, docs/upgrade.md):
+  #   docker compose --profile models run --rm models-pull guardspec-classifier@v3b
+  models-pull:
+    profiles: [models]
+    image: ghcr.io/guard-spec/guard-spec-gateway:${GUARDSPEC_VERSION:-0.1.0}
+    entrypoint: ["./models", "pull", "-manifest", "manifest.yaml", "-dir", "/models/cache"]
+    user: "0:0"
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}
+      MODELS_MIRROR: ${MODELS_MIRROR:-}
+    volumes:
+      - models:/models
+    networks: [edge]
+    restart: "no"
+
+networks:
+  # Caddy, the services and egress (upstream LLMs, SMTP, model downloads).
+  # The fixed subnet is what the control plane's TRUSTED_PROXIES trusts;
+  # change EDGE_SUBNET if it collides with one of your networks.
+  edge:
+    ipam:
+      config:
+        - subnet: ${EDGE_SUBNET:-172.30.89.0/24}
+  # Postgres and the jobs: no route to the outside.
+  backend:
+    internal: true
+
+volumes:
+  pgdata:
+  models:
+  caddy_data:
+  caddy_config:
