@@ -1,0 +1,21 @@
+# Used by CI (helm lint and template): turns on every optional part of the
+# chart so its templates are rendered and checked. Not a deployment example.
+dbRoles:
+  enabled: true
+imagePullSecrets:
+  - name: ghcr-pull
+gateway:
+  extraEnvFrom:
+    - secretRef: {name: guard-spec-alerts}
+  nodeSelector: {kubernetes.io/arch: amd64}
+  tolerations:
+    - {key: dedicated, operator: Equal, value: guard-spec, effect: NoSchedule}
+controlPlane:
+  adminEmail: admin@example.com
+  extraEnvFrom:
+    - secretRef: {name: guard-spec-alerts}
+models:
+  existingClaim: guard-spec-models
+serviceMonitor:
+  enabled: true
+  labels: {release: prometheus}
