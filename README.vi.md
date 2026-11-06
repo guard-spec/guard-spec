@@ -410,8 +410,8 @@ kênh, nhóm, lịch sử cảnh báo và nhật ký gửi. Chi tiết ở
 ## Benchmark
 
 Đo ngày **2026-11-04**, commit `2275698`, trên **Apple M3 Max (14 nhân,
-36 GB), macOS 15.4.1, Go 1.26.10, ONNX Runtime 1.31.1**. Chưa có số đo trên
-máy chủ amd64. Bộ eval `eval/`: 2.176 dòng (1.171 tấn công, 1.005 lành tính;
+36 GB), macOS 15.4.1, Go 1.26.10, ONNX Runtime 1.31.1**. Số đo trên Linux
+amd64 và arm64 ở mục "Độ trễ trên Linux" bên dưới. Bộ eval `eval/`: 2.176 dòng (1.171 tấn công, 1.005 lành tính;
 926 tiếng Anh, 1.250 tiếng Việt). "Chặn" là ngưỡng 0.85.
 
 | Bộ phát hiện | ROC AUC | TPR khi chặn | FPR khi chặn | FPR tiếng Việt | FPR teencode | FPR không dấu | Độ trễ p50 / p99 |
@@ -433,7 +433,49 @@ Giới hạn cần biết:
 - **Teencode và tiếng Việt không dấu (lành tính) là điểm yếu đã biết** khi bật
   L2/L3.
 - Độ trễ là sanitizer + bộ phát hiện cho từng dòng, trong tiến trình, không
-  phải độ trễ HTTP đầu-cuối, và đo trên laptop.
+  phải độ trễ HTTP đầu-cuối. Bảng trên đo trên laptop; số trên Linux ở dưới.
+
+### Độ trễ trên Linux (runner GitHub-hosted)
+
+Đo ngày **2026-11-06**, commit `70827a7`, bằng workflow thủ công
+[Bench](.github/workflows/bench.yml)
+([run 42171305472](https://github.com/guard-spec/guard-spec/actions/runs/42171305472)),
+Go 1.26.10, ONNX Runtime 1.31.1, model đã phát hành (guardspec-classifier v3b,
+multilingual-e5-small, đều int8):
+
+- **amd64**: runner GitHub-hosted `ubuntu-24.04`, **AMD EPYC 9V74** (4 vCPU,
+  16 GB), x86_64 thật, không giả lập;
+- **arm64**: runner GitHub-hosted `ubuntu-24.04-arm`, **Arm Neoverse-N2**
+  (4 vCPU, 16 GB), để so sánh.
+
+Runner GitHub-hosted là máy ảo dùng chung, máy khác có thể làm chậm lần đo:
+chỉ xem các số này là tham khảo, không phải benchmark máy chủ. Mỗi dòng là một
+lần chạy.
+
+Sanitizer + bộ phát hiện cho từng dòng của `eval/` (`cmd/eval`, 2.176 dòng,
+lần lượt từng dòng):
+
+| Bộ phát hiện | amd64 p50 / p95 / p99 | arm64 p50 / p95 / p99 |
+|---|---|---|
+| Chỉ L1 | 0,15 / 0,34 / 0,48 ms | 0,17 / 0,34 / 0,49 ms |
+| L1 + L2 (v3b) | 5,2 / 13,7 / 24,1 ms | 5,7 / 14,3 / 17,6 ms |
+| **L1 + L2 + L3 (v3b, mặc định khi có model)** | 7,2 / 20,0 / 25,1 ms | 9,5 / 24,0 / 30,2 ms |
+| L1 + L2 + L3 (v3b), cascade | 5,4 / 16,1 / 19,6 ms | 6,7 / 20,0 / 24,0 ms |
+
+Một lần chạy model cho mỗi request (`cmd/onnxbench`, 200 request mỗi dòng,
+một request tuần tự):
+
+| Lớp | Token | amd64 p50 / p99 | arm64 p50 / p99 |
+|---|---:|---|---|
+| L2 classifier (v3b) | 64 | 8,6 / 21,8 ms | 8,8 / 9,4 ms |
+| | 512 | 85 / 92 ms | 85 / 100 ms |
+| | 2.048 | 323 / 368 ms | 305 / 326 ms |
+| L3 embedder (e5-small) | 64 | 7,9 / 9,8 ms | 9,8 / 11,3 ms |
+| | 512 | 74 / 85 ms | 74 / 85 ms |
+| | 2.048 | 456 / 494 ms | 364 / 388 ms |
+
+Bảng đầy đủ (p95, 4 request đồng thời, thông lượng, `lscpu`) có trong README
+tiếng Anh và trong job summary của run. Chạy lại bằng `gh workflow run bench.yml`.
 
 ## Mô hình bảo mật và giới hạn
 
