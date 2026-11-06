@@ -242,6 +242,12 @@ controlPlane:
     # Audit rows older than this are deleted; 0 keeps them forever. Safe with
     # several replicas (advisory lock).
     AUDIT_RETENTION_DAYS: "90"
+    # The same job deletes activity log rows older than this (0 keeps them
+    # forever) ...
+    ACTIVITY_LOG_RETENTION_DAYS: "365"
+    # ... and sessions revoked or expired more than this many days ago.
+    # Active sessions are never deleted; 0 keeps them forever.
+    SESSION_RETENTION_DAYS: "30"
     # Origin of the admin UI (https://guard.example.com): SSO callbacks, and
     # links in notifications and confirmation emails.
     PUBLIC_BASE_URL: ""

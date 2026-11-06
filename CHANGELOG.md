@@ -9,6 +9,25 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ## [Unreleased]
 
+### Upgrade notes
+
+- Migration 018 adds the function `purge_activity_rows` and two indexes
+  (`activity_log (at)`, `sessions (revoked_at)`). Run the migrations before
+  starting the new control plane. Its first retention run deletes activity
+  log rows older than 365 days and sessions that ended more than 30 days
+  ago; set `ACTIVITY_LOG_RETENTION_DAYS=0` or `SESSION_RETENTION_DAYS=0`
+  first to keep them.
+
+### Added
+
+- Control plane: retention of the activity log and of sessions.
+  `ACTIVITY_LOG_RETENTION_DAYS` (default 365) deletes older activity log
+  rows; `SESSION_RETENTION_DAYS` (default 30) deletes sessions revoked or
+  expired more than that many days ago, never an active one. `0` keeps them
+  forever. Both run in the audit retention job: same interval, batches and
+  advisory lock. New metric `guardspec_retention_deleted_rows_total{table}`.
+  Passed through by the Helm chart and both compose files.
+
 ## [0.2.0] - 2026-11-06
 
 ### Upgrade notes
