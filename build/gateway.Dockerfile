@@ -6,7 +6,7 @@
 # libonnxruntime.so is shipped in the image and loaded at run time
 # (ONNXRUNTIME_LIB). Versions and SHA-256 values live in build/onnx-deps.sh.
 
-FROM golang:1.26.10-bookworm@sha256:23ce71337b726608afb1bc00986e630a05034a87a87ea1fc2cd1ae5cf33387eb AS builder
+FROM golang:1.27.2-bookworm@sha256:5cf287a799e6b94384bad13d16b14904c531f51ba65792237e122ce42b392f61 AS builder
 ARG TARGETOS=linux
 ARG TARGETARCH
 # Release version, linked into the binaries (gateway --version).
