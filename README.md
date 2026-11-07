@@ -1102,6 +1102,15 @@ Guard settings, API keys (the secret is shown once, at creation), projects,
 exemplars and the audit log (with the route target of each request) have
 pages of their own.
 
+**Report** on a request log row (or in its details) turns a missed attack or a
+wrongly blocked text into a prefilled GitHub issue for the project's "Bypass"
+or "False positive" form: decision, scores, label, rule, model, gateway
+version and detector layers. The stored text is added only when the
+organization stores content and you tick "include the text" after a warning,
+and you can edit it first. The issue opens in your browser; the control plane
+sends nothing. Viewers can report. What happens to a report is described in
+[docs/red-team.md](docs/red-team.md).
+
 | Dark theme, Vietnamese | Audit log |
 |---|---|
 | ![Flow in Vietnamese, dark theme](docs/images/admin-flow-dark-vi.png) | ![Audit log](docs/images/admin-audit.png) |
@@ -1425,6 +1434,10 @@ long, verifying signatures, SBOMs and provenance), see
 [docs/security/](docs/security/README.md).
 
 Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
+Texts that get through the guard, or benign texts it blocks, are reported as
+public issues and become training or hold-out data after triage
+([docs/red-team.md](docs/red-team.md)); severe bypasses go to private
+reporting.
 
 ## Operations
 
@@ -1955,6 +1968,8 @@ important one: **`eval/` is never used for tuning**. Design notes are in
 [DESIGN.md](DESIGN.md), [docs/arch-flow.html](docs/arch-flow.html) and
 [docs/adr/](docs/adr/). Alerts and notifications (Telegram, Slack, Teams,
 webhooks, A2A, email, in-app) are described in [docs/alerts.md](docs/alerts.md).
+Bypass and false-positive reports, and how they reach the training data, are
+described in [docs/red-team.md](docs/red-team.md).
 Planned work is in [ROADMAP.md](ROADMAP.md).
 
 ## License

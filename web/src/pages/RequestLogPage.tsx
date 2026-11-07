@@ -9,6 +9,7 @@ import { CopyButton, Dialog, formatTime, PageHeader, useDebounced, useLoad } fro
 import { useApp, useOrg } from '../context';
 import { ACTIONS, type AuditRow } from '../types';
 import { normLabel, ruleNames } from './dashboard';
+import { ReportDialog } from './ReportDialog';
 
 export function RequestLogPage() {
   const { api, t } = useApp();
@@ -17,6 +18,7 @@ export function RequestLogPage() {
   const [q, setQ] = useState('');
   const query = useDebounced(q);
   const [open, setOpen] = useState<AuditRow | null>(null);
+  const [reporting, setReporting] = useState<AuditRow | null>(null);
   const actionId = useId();
 
   const fetchPage = useCallback(
@@ -87,9 +89,14 @@ export function RequestLogPage() {
       hiddenHeader: true,
       className: 'row-actions',
       cell: (r) => (
-        <button type="button" className="btn btn-small" aria-label={t('audit.detailsOf', { time: formatTime(r.created_at) })} onClick={() => setOpen(r)}>
-          {t('audit.details')}
-        </button>
+        <span className="icon-actions">
+          <button type="button" className="btn btn-small" aria-label={t('audit.detailsOf', { time: formatTime(r.created_at) })} onClick={() => setOpen(r)}>
+            {t('audit.details')}
+          </button>
+          <button type="button" className="btn btn-small" aria-label={t('report.actionOf', { time: formatTime(r.created_at) })} onClick={() => setReporting(r)}>
+            {t('report.action')}
+          </button>
+        </span>
       ),
     },
   ];
@@ -129,7 +136,26 @@ export function RequestLogPage() {
         }
         empty={<EmptyState icon={ScrollText} title={action || needle ? t('table.noMatch') : t('audit.emptyTitle')} body={action || needle ? undefined : t('audit.emptyBody')} />}
       />
-      <Dialog open={open !== null} wide title={t('audit.details')} onClose={() => setOpen(null)}>
+      <Dialog
+        open={open !== null}
+        wide
+        title={t('audit.details')}
+        onClose={() => setOpen(null)}
+        footer={
+          open ? (
+            <button
+              type="button"
+              className="btn"
+              onClick={() => {
+                setReporting(open);
+                setOpen(null);
+              }}
+            >
+              {t('report.action')}
+            </button>
+          ) : undefined
+        }
+      >
         {open ? (
           <dl className="kv kv-wide">
             <dt>{t('audit.time')}</dt>
@@ -188,6 +214,14 @@ export function RequestLogPage() {
           </dl>
         ) : null}
       </Dialog>
+      {reporting ? (
+        <ReportDialog
+          key={reporting.id}
+          row={reporting}
+          ruleName={reporting.rule_id && rules.has(reporting.rule_id) ? ruleLabel(reporting.rule_id) : null}
+          onClose={() => setReporting(null)}
+        />
+      ) : null}
     </div>
   );
 }

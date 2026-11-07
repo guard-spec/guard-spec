@@ -5,9 +5,9 @@ body:
   - type: markdown
     attributes:
       value: |
-        **Security problems (a guardrail bypass, cross-tenant access, a leak) must not be reported here.**
+        **Security problems (a severe guardrail bypass, cross-tenant access, a leak) must not be reported here.**
         Use private reporting instead: see SECURITY.md.
-        A text that is wrongly blocked or allowed goes in the "False positive / false negative" template.
+        A text that is wrongly allowed or blocked goes in the "Bypass" or "False positive" template (docs/red-team.md).
   - type: textarea
     id: what
     attributes:

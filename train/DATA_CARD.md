@@ -369,6 +369,19 @@ the second figure is the more honest one.
 `val_hard` has only 36 attacks, the attack halves of the minimal pairs, so
 it measures false positives much better than it measures recall.
 
+## Community rows (red-team reports)
+
+Bypass and false-positive reports from GitHub issues are staged by
+`import_issues.py` ([docs/red-team.md](../docs/red-team.md)): source
+`community:issue#<N>`, license Apache-2.0 (the reporter's consent line), group
+`community.<lowest issue number of the minimal pair>`, so a pair stays in one
+split. Triage decides between training (group hash, 12% to validation) and a
+community hold-out that is never used for training, selection or calibration.
+Rows that duplicate `train/data` or `eval/` (exact, normalised, fingerprint or
+5-gram Jaccard above 0.8) or look like personal data are refused. No
+community row is in the data yet; the reporters of each batch will be listed
+here.
+
 ## Known issues
 
 - **Machine-written Vietnamese.** The Vietnamese rows are machine-written and

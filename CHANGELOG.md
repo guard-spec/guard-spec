@@ -25,6 +25,38 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   The manual-only **Benchmark** workflow runs it on `ubuntu-24.04`.
 - `cmd/eval -scores <file>`: per-row scores, gateway decisions and latencies
   as JSON lines.
+- Red-team feedback loop ([docs/red-team.md](docs/red-team.md)): reports of
+  bypasses and false positives become controlled training or hold-out data.
+  - Issue forms "Bypass (prompt got through)" and "False positive (benign
+    blocked)": the prompt (synthetic or anonymised only), language, where it
+    appeared (user prompt, RAG document, tool result, MCP tool description),
+    version and detector layers, the audit fields, the expected outcome, a
+    related report for minimal pairs, and a consent line for the Apache-2.0
+    dataset. Severe bypasses point to private vulnerability reporting.
+  - Admin UI: **Report** on request log rows and in the row details builds
+    the issue from the row (decision, scores, label, rule, model, gateway
+    version, layers) and opens the prefilled form in the browser; the control
+    plane sends nothing. The stored text is included only when the
+    organization stores content and the user ticks "include the text" after
+    a warning, and it can be edited first. Reports too long for a link are
+    copied to the clipboard and the empty form opens. Viewers can report.
+    English and Vietnamese.
+  - `train/import_issues.py` (standard library, `uv run --no-project`):
+    imports issues labelled `triage:train` or `triage:holdout` from the GitHub
+    API (optional token from `GITHUB_TOKEN`/`GH_TOKEN`, never stored) or a
+    local JSON export into staging files in the `train/data` schema, with
+    source `community:issue#N`; drops duplicates of `train/data` and `eval/`
+    (exact, normalised, fingerprint, 5-gram Jaccard), refuses texts that look
+    like personal data or secrets, and keeps minimal pairs in one split. Unit
+    tests with fixtures run in CI.
+- Control plane: `GET /v1/gateway/models` passes on the gateway's version
+  (`gateway_version`, from its `/readyz`).
+
+### Changed
+
+- The "False positive / false negative" issue form is replaced by the two
+  forms above.
+- SECURITY.md says which bypasses are reported publicly and which privately.
 
 ## [0.2.1] - 2026-11-07
 

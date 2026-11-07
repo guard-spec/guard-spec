@@ -15,18 +15,19 @@ import (
 
 // GET /gateway/models passes on the detector's layers, fusion and L1 floor
 // from the gateway's /readyz, and leaves the floor null when an older
-// gateway does not report it.
+// gateway does not report it. The gateway's version is passed on when given.
 func TestGatewayModelsDetector(t *testing.T) {
 	for _, tc := range []struct {
 		name, readyz string
 		layers       []any
 		floor        any
+		version      any
 	}{
-		{"with floor", `{"detector":{"layers":["l1","l2","l3"],"fusion":"logreg","l1_floor":0.985,
+		{"with floor", `{"version":"0.2.1","detector":{"layers":["l1","l2","l3"],"fusion":"logreg","l1_floor":0.985,
 			"models":{"l2_model":"guardspec-classifier@v3b","l2_verified":true,"installed":["v3b"]}}}`,
-			[]any{"l1", "l2", "l3"}, 0.985},
-		{"floor off", `{"detector":{"layers":["l1"],"fusion":"logreg","l1_floor":0,"models":{}}}`, []any{"l1"}, 0.0},
-		{"older gateway", `{"detector":{"models":{"l2_model":"x@1"}}}`, nil, nil},
+			[]any{"l1", "l2", "l3"}, 0.985, "0.2.1"},
+		{"floor off", `{"detector":{"layers":["l1"],"fusion":"logreg","l1_floor":0,"models":{}}}`, []any{"l1"}, 0.0, nil},
+		{"older gateway", `{"detector":{"models":{"l2_model":"x@1"}}}`, nil, nil, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			gw := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -54,6 +55,9 @@ func TestGatewayModelsDetector(t *testing.T) {
 			layers, _ := body["layers"].([]any)
 			if len(layers) != len(tc.layers) {
 				t.Errorf("layers = %v, want %v", body["layers"], tc.layers)
+			}
+			if body["gateway_version"] != tc.version {
+				t.Errorf("gateway_version = %v, want %v", body["gateway_version"], tc.version)
 			}
 			if body["l1_floor"] != tc.floor {
 				t.Errorf("l1_floor = %v, want %v", body["l1_floor"], tc.floor)
