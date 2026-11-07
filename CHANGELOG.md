@@ -9,52 +9,7 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ## [Unreleased]
 
-### Changed
-
-- The output guard is much cheaper on streams and holds back less. A stream
-  no longer keeps a fixed 256-character window and rescans it every 32 new
-  characters: it holds back only the end of the text that could still turn
-  into something to redact (an unfinished word, number, URL or reference
-  definition, the start of the canary, an open image or link) and scans every
-  64 new characters. The patterns run only where a match can be (around "@",
-  at "](", over runs of digits, when the text holds what each needs), and the
-  held text reuses its buffer. What is redacted, removed or blocked does not
-  change: the output of a stream equals the output of the whole-answer guard
-  on the same text for every split, which property and fuzz tests now check
-  for all three stream kinds. On the Go benchmarks (2 KB answer in 16-byte
-  deltas, Apple M3 Max) a guarded stream drops from 3.8 to 0.013 ms (clean)
-  and from 4.6 to 0.37 ms (with findings), 1.6× and 1.3× the whole-answer
-  guard instead of 7.5×; the whole-answer guard itself drops from 0.50 to
-  0.008 ms and from 0.63 to 0.30 ms. Chat, Messages and Responses event
-  streams, JSON included, take 0.26 to 0.85 ms instead of 4.1 to 5.1 ms. See
-  README, "Go benchmarks".
-
-### Fixed
-
-- Two card numbers in one run of digits (`4111 1111 1111 1111 4111-1111-1111-1111`)
-  could let the second one through unredacted in a stream when a cut fell
-  between them. A stream now never sends part of a run of digits before the
-  run has ended.
-- A markdown link or image with a title in parentheses and a long URL
-  (`[t](https://evil.example/?d=<300 characters> (title))`) could be sent
-  before its closing parenthesis arrived, and so keep its URL in a stream.
-- Personal data split by a link the guard removes (`a@ex[]()ample.com`,
-  `0912[](https://x) 345 678`) came out joined and unredacted, in whole
-  answers and in streams. It is now redacted as if the link had not been
-  there (see Security for the canary). A part that is a value on its own
-  (`joh[]()n.doe@mail.co.uk`) is redacted alone, as with a space instead.
-
-### Documentation
-
-- Vietnamese translations of the main docs pages, next to the English files
-  as `<name>.vi.md`: integrations, examples, deployment guides (index),
-  production compose, managed PostgreSQL, air-gapped installs, sizing,
-  upgrade and backups, models, benchmark (prose; tables unchanged), security
-  teams and red-team reports. Each English page links to its translation;
-  the English page stays the reference when they differ. The AWS, GCP and
-  on-premise guides remain English only.
-- `scripts/check-md-links.py` checks relative links and anchors in the
-  Markdown files; CI runs it on every `.md` file (job "Docs links").
+## [0.3.1] - 2026-11-07
 
 ### Security
 
@@ -149,6 +104,66 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   TypeScript examples.
 - [docs/openssf-best-practices.md](docs/openssf-best-practices.md): the
   OpenSSF Best Practices (passing) answers, prepared for registration.
+
+### Changed
+
+- The output guard is much cheaper on streams and holds back less. A stream
+  no longer keeps a fixed 256-character window and rescans it every 32 new
+  characters: it holds back only the end of the text that could still turn
+  into something to redact (an unfinished word, number, URL or reference
+  definition, the start of the canary, an open image or link) and scans every
+  64 new characters. The patterns run only where a match can be (around "@",
+  at "](", over runs of digits, when the text holds what each needs), and the
+  held text reuses its buffer. What is redacted, removed or blocked does not
+  change: the output of a stream equals the output of the whole-answer guard
+  on the same text for every split, which property and fuzz tests now check
+  for all three stream kinds. On the Go benchmarks (2 KB answer in 16-byte
+  deltas, Apple M3 Max) a guarded stream drops from 3.8 to 0.013 ms (clean)
+  and from 4.6 to 0.37 ms (with findings), 1.6× and 1.3× the whole-answer
+  guard instead of 7.5×; the whole-answer guard itself drops from 0.50 to
+  0.008 ms and from 0.63 to 0.30 ms. Chat, Messages and Responses event
+  streams, JSON included, take 0.26 to 0.85 ms instead of 4.1 to 5.1 ms. See
+  README, "Go benchmarks".
+
+### Fixed
+
+- Two card numbers in one run of digits (`4111 1111 1111 1111 4111-1111-1111-1111`)
+  could let the second one through unredacted in a stream when a cut fell
+  between them. A stream now never sends part of a run of digits before the
+  run has ended.
+- A markdown link or image with a title in parentheses and a long URL
+  (`[t](https://evil.example/?d=<300 characters> (title))`) could be sent
+  before its closing parenthesis arrived, and so keep its URL in a stream.
+- Personal data split by a link the guard removes (`a@ex[]()ample.com`,
+  `0912[](https://x) 345 678`) came out joined and unredacted, in whole
+  answers and in streams. It is now redacted as if the link had not been
+  there (see Security for the canary). A part that is a value on its own
+  (`joh[]()n.doe@mail.co.uk`) is redacted alone, as with a space instead.
+
+### Documentation
+
+- Vietnamese translations of the main docs pages, next to the English files
+  as `<name>.vi.md`: integrations, examples, deployment guides (index),
+  production compose, managed PostgreSQL, air-gapped installs, sizing,
+  upgrade and backups, models, benchmark (prose; tables unchanged), security
+  teams and red-team reports. Each English page links to its translation;
+  the English page stays the reference when they differ. The AWS, GCP and
+  on-premise guides remain English only.
+- `scripts/check-md-links.py` checks relative links and anchors in the
+  Markdown files; CI runs it on every `.md` file (job "Docs links").
+
+### Upgrade notes
+
+- No migrations. The output guard now removes more from answers: an HTML
+  tag that links to or loads a URL off the allowlist (`<a href>`, `<iframe
+  src>`, `style` with `url()` and the others under Security), and markup
+  that a removal joined into a new image or link. Where an HTML tag that
+  loads by itself was, `[REDACTED:image]` may now appear. Streams hold back
+  an open tag until its `>`, so text after `<` may arrive a little later.
+  Hosts on your allowlist are unaffected: their links and images stay.
+- `build/gateway-full.Dockerfile` now builds on the signed v0.3.0 gateway
+  image by default; pass `--build-arg GATEWAY_IMAGE=guard-spec-gateway:latest`
+  to build on a local image as before.
 
 ## [0.3.0] - 2026-11-07
 
@@ -758,7 +773,8 @@ First release.
 - List endpoints still answer the older `{"data": [...]}` shape when called
   without `limit` and `cursor`; use the paginated form.
 
-[Unreleased]: https://github.com/guard-spec/guard-spec/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/guard-spec/guard-spec/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/guard-spec/guard-spec/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/guard-spec/guard-spec/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/guard-spec/guard-spec/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/guard-spec/guard-spec/compare/v0.1.1...v0.2.0

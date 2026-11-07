@@ -30,7 +30,7 @@ câu trả lời của model (link rò rỉ dữ liệu, dữ liệu cá nhân, 
 trước khi đến người dùng. Viết bằng Go, chạy thành hai service cạnh Postgres,
 được xây dựng và đánh giá cho **tiếng Anh và tiếng Việt**.
 
-Trạng thái: **v0.3.0, trước 1.0.** API và schema cơ sở dữ liệu còn có thể
+Trạng thái: **v0.3.1, trước 1.0.** API và schema cơ sở dữ liệu còn có thể
 thay đổi. Hãy đọc phần [Mô hình bảo mật và giới hạn](#mô-hình-bảo-mật-và-giới-hạn)
 trước khi dùng.
 

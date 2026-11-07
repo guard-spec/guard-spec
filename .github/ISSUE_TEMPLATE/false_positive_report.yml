@@ -55,7 +55,7 @@ body:
     attributes:
       label: Guard Spec version
       description: The gateway version (`gateway --version`, or the Models page of the admin UI).
-      placeholder: v0.3.0
+      placeholder: v0.3.1
     validations:
       required: true
   - type: input
