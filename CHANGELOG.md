@@ -9,6 +9,8 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-07
+
 ### Added
 
 - Public, reproducible benchmark against other prompt-injection detectors
@@ -153,6 +155,11 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   and SHA-256 pins in `train/hf/<version>/`.
 
 ### Upgrade notes
+
+- The conversation window is on by default (4 user turns, 8192 bytes): a
+  request can now be blocked on the joined recent turns even when each turn
+  alone is allowed. Set `CONVERSATION_WINDOW_TURNS=0` (or turn it off per
+  organization in Guard settings) to keep the old behaviour.
 
 - Migration 020 adds the `scan_cache` table and the function
   `purge_scan_cache`. Run the migrations before starting the new control
@@ -610,7 +617,8 @@ First release.
 - List endpoints still answer the older `{"data": [...]}` shape when called
   without `limit` and `cursor`; use the paginated form.
 
-[Unreleased]: https://github.com/guard-spec/guard-spec/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/guard-spec/guard-spec/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/guard-spec/guard-spec/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/guard-spec/guard-spec/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/guard-spec/guard-spec/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/guard-spec/guard-spec/compare/v0.1.0...v0.1.1

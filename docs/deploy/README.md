@@ -50,8 +50,8 @@ These guides do not repeat the README. They assume you know:
 | PostgreSQL | 17 is what compose and CI use. Two roles: an owner role that runs the migrations (`ps` in compose) and `guardspec_app`, which migration 004 creates without a password. Roles are cluster-wide, so 004 fails on a server where `guardspec_app` already exists (another database or installation): give each installation a server of its own |
 | Migrations | `migrations/` of the release tag, applied with `migrate` as the owner role, before the services start. The services never run them; the Helm chart does when `migrations.enabled=true` (a pre-install / pre-upgrade hook), otherwise you do |
 | App password | `GUARDSPEC_APP_PASSWORD` applied to `guardspec_app` after every migration run: `deploy/postgres/set-app-password.sh` or the chart's `dbRoles` job |
-| Gateway | `ghcr.io/guard-spec/guard-spec-gateway:0.2.1` (models mounted at `/models`) or `-gateway-full:0.2.1` (models inside). Port 8080 for clients, 9090 for metrics |
-| Control plane | `ghcr.io/guard-spec/guard-spec-control-plane:0.2.1`. Port 8081 for the API and the admin UI at `/ui/`, 9091 for metrics |
+| Gateway | `ghcr.io/guard-spec/guard-spec-gateway:0.3.0` (models mounted at `/models`) or `-gateway-full:0.3.0` (models inside). Port 8080 for clients, 9090 for metrics |
+| Control plane | `ghcr.io/guard-spec/guard-spec-control-plane:0.3.0`. Port 8081 for the API and the admin UI at `/ui/`, 9091 for metrics |
 | Secrets | `GUARDSPEC_APP_PASSWORD` (both services, as `PGPASSWORD`), `JWT_SECRET`, `MFA_ENC_KEY` and `ADMIN_PASSWORD` (control plane), the owner password (migrations only), `UPSTREAM_LLM_KEY` / `UPSTREAM_KEY_*` (gateway) |
 | TLS | The services speak plain HTTP. Terminate TLS in a load balancer or reverse proxy in front of them |
 
@@ -81,7 +81,7 @@ These guides do not repeat the README. They assume you know:
 
 ## The Helm chart on `main`
 
-Chart 0.2.1 (see Unreleased in the [CHANGELOG](../../CHANGELOG.md)) adds,
+Chart 0.3.0 (see Unreleased in the [CHANGELOG](../../CHANGELOG.md)) adds,
 each off by default: a **migration hook** (`migrations.enabled`), a **model
 pull init container** (`models.pull`, into the claim or a per-pod
 `emptyDir`, so several replicas no longer need a ReadWriteMany volume),
