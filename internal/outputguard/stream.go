@@ -42,7 +42,8 @@ type Stream struct {
 // dropper discards the rest of a construct that was removed before it ended.
 type dropper struct {
 	until dropUntil
-	depth int // parenthesis depth while dropping a markdown URL
+	depth int      // parenthesis depth while dropping a markdown URL
+	tag   tagState // where the tokenizer is while dropping a start tag
 }
 
 type dropUntil int
@@ -116,7 +117,7 @@ func (d *dropper) skip(text string) string {
 					done = true
 				}
 			case dropTag:
-				if c == '>' {
+				if d.tag = d.tag.next(c); d.tag == tagDone {
 					done, i = true, i+1
 				}
 			case dropLine:
@@ -199,7 +200,7 @@ func (st *Stream) emit(final bool) string {
 		// and drop the rest of it as it arrives.
 		st.edits = append(st.edits, st.force(&b, open, buf[cut:]))
 		st.text, st.sent = st.text[:0], 0
-		st.drop = dropper{until: open.until}
+		st.drop = dropper{until: open.until, tag: open.tag}
 	}
 	return b.String()
 }
@@ -460,7 +461,7 @@ func (st *Stream) recheck(sg *stage, piece string, edits []edit, final bool, up 
 	if forced {
 		sg.newEdits = append(sg.newEdits, st.force(&b, open, buf[cut:]))
 		sg.out, sg.outSent, sg.edits = sg.out[:0], 0, sg.edits[:0]
-		sg.drop = dropper{until: open.until}
+		sg.drop = dropper{until: open.until, tag: open.tag}
 	}
 	return b.String(), sg.newEdits
 }
@@ -529,8 +530,8 @@ func structHold(ctx, buf string) int {
 		return 0
 	}
 	hold := n
-	// The beginning of a URL or an <img> tag, in any case.
-	for _, p := range [...]string{"https://", "http://", "www.", "<img"} {
+	// The beginning of a URL, in any case.
+	for _, p := range [...]string{"https://", "http://", "www."} {
 		for k := min(len(p), n); k > 0; k-- {
 			if hasPrefixFold(buf[n-k:], p[:k]) {
 				hold = min(hold, n-k)
@@ -538,8 +539,8 @@ func structHold(ctx, buf string) int {
 			}
 		}
 	}
-	// "!" may start an image, and "]" the "](" of a link.
-	if c := buf[n-1]; c == '!' || c == ']' {
+	// "!" may start an image, "]" the "](" of a link, and "<" a tag.
+	if c := buf[n-1]; c == '!' || c == ']' || c == '<' {
 		hold = min(hold, n-1)
 	}
 	// A line that may still become a reference definition: blanks and
@@ -558,9 +559,9 @@ func structHold(ctx, buf string) int {
 // when the value it may start holds a join already, or may still grow up to
 // one (a removal ends buf), and while the passes before hold text (up) that
 // goes on with the same word or number, or that starts with what a removed
-// link starts with ("[" or "]", or blanks at a line start). The word is
-// bounded by Window together with how it goes on in the held text, as in the
-// first pass.
+// link starts with ("[" or "]", "<" for a tag, or blanks at a line start).
+// The word is bounded by Window together with how it goes on in the held
+// text, as in the first pass.
 func (st *Stream) joinHold(sg *stage, buf string, up []byte) int {
 	hold := len(buf)
 	for i := len(sg.edits) - 1; i >= 0; i-- {
@@ -574,7 +575,7 @@ func (st *Stream) joinHold(sg *stage, buf string, up []byte) int {
 	if len(up) == 0 {
 		return hold
 	}
-	if c := up[0]; !wordByte(c) && c != '[' && c != ']' && c != ' ' && c != '\t' {
+	if c := up[0]; !wordByte(c) && c != '[' && c != ']' && c != '<' && c != ' ' && c != '\t' {
 		return hold
 	}
 	run := 0
@@ -682,6 +683,7 @@ type openSpan struct {
 	force bool
 	kind  string
 	until dropUntil
+	tag   tagState // for a start tag, the tokenizer's state at the end
 }
 
 // openConstruct finds the earliest construct in buf that is still open and that
@@ -698,7 +700,7 @@ func (st *Stream) openConstruct(ctx, buf string, final bool) openSpan {
 	}
 	consider(st.openMarkdownURL(buf, final))
 	consider(openLinkText(buf))
-	consider(st.openTag(buf, final))
+	consider(st.openTag(buf))
 	consider(openRefDef(ctx, buf))
 	consider(st.openBareURL(buf))
 	return best
@@ -771,18 +773,19 @@ func openLinkText(buf string) openSpan {
 	return openSpan{start: j}
 }
 
-// openTag finds "<img" without its closing ">": the first one after the last
-// ">", since a tag runs from "<img" to the next ">" whatever it holds, another
-// "<img" too.
-func (st *Stream) openTag(buf string, final bool) openSpan {
-	from := strings.LastIndexByte(buf, '>') + 1
-	i := indexFold(buf[from:], "<img")
-	if i < 0 {
-		// A short "<im" at the very end is held by holdFrom.
+// openTag finds the first start tag that has not closed (scanTags): it may
+// still get an attribute the guard removes it for. One open longer than
+// maxOpen is removed, and the rest of it dropped as it comes.
+func (st *Stream) openTag(buf string) openSpan {
+	if strings.IndexByte(buf, '<') < 0 {
 		return openSpan{start: -1}
 	}
-	i += from
-	return openSpan{start: i, force: final || len(buf)-i > maxOpen, kind: KindImage, until: dropTag}
+	_, t := st.s.g.scanTags(buf)
+	if t.start < 0 {
+		// A "<" at the very end is held by holdFrom.
+		return openSpan{start: -1}
+	}
+	return openSpan{start: t.start, force: len(buf)-t.start > maxOpen, kind: KindImage, until: dropTag, tag: t.state}
 }
 
 // openRefDef finds a "[label]: url" line that has not ended yet.
