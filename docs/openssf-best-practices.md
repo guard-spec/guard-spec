@@ -29,19 +29,19 @@ Prepared on 2026-11-07 from `main` at v0.3.0. Re-check anything marked
    `[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/<id>/badge)](https://www.bestpractices.dev/projects/<id>)`.
    Scorecard picks it up on its next run (weekly, or the next push to `main`).
 
-`E` below abbreviates `https://github.com/guard-spec/guard-spec/blob/main`.
+Links are full URLs so they can be pasted into the form as they are.
 
 ## Basics
 
 | Criterion | Answer | Justification / evidence |
 |---|---|---|
-| `description_good` | Met | README, first paragraph: a self-hosted gateway between an application and an LLM API that blocks prompt injection and checks the answers. E/README.md |
-| `interact` | Met | How to get (README "Quick start", "Install from a release"), give feedback (issue forms), contribute (CONTRIBUTING.md). E/README.md |
-| `contribution` | Met | E/CONTRIBUTING.md (setup, tests, pull requests, DCO) |
-| `contribution_requirements` | Met | Requirements in E/CONTRIBUTING.md "Pull requests": Conventional Commits, DCO sign-off, CI green, tests, licenses |
-| `floss_license` | Met | Apache-2.0. E/LICENSE |
+| `description_good` | Met | README, first paragraph: a self-hosted gateway between an application and an LLM API that blocks prompt injection and checks the answers. https://github.com/guard-spec/guard-spec/blob/main/README.md |
+| `interact` | Met | How to get (README "Quick start", "Install from a release"), give feedback (issue forms), contribute (CONTRIBUTING.md). https://github.com/guard-spec/guard-spec/blob/main/README.md |
+| `contribution` | Met | https://github.com/guard-spec/guard-spec/blob/main/CONTRIBUTING.md (setup, tests, pull requests, DCO) |
+| `contribution_requirements` | Met | Requirements in the "Pull requests" section, https://github.com/guard-spec/guard-spec/blob/main/CONTRIBUTING.md#pull-requests : Conventional Commits, DCO sign-off, CI green, tests, licenses |
+| `floss_license` | Met | Apache-2.0. https://github.com/guard-spec/guard-spec/blob/main/LICENSE |
 | `floss_license_osi` | Met | Apache-2.0 is OSI-approved |
-| `license_location` | Met | E/LICENSE at the repository root |
+| `license_location` | Met | https://github.com/guard-spec/guard-spec/blob/main/LICENSE at the repository root |
 | `documentation_basics` | Met | README (install, configuration, operations), docs/, the site https://guardspec.io/docs/ |
 | `documentation_interface` | Met | README "APIs" (gateway and control-plane endpoints) and "Configuration" (every variable) |
 | `sites_https` | Met | https://github.com/guard-spec/guard-spec, https://guardspec.io (HTTPS), releases and ghcr.io over HTTPS |
@@ -58,9 +58,9 @@ Prepared on 2026-11-07 from `main` at v0.3.0. Re-check anything marked
 | `repo_interim` | Met | Every change lands through a pull request on `main`, between releases |
 | `repo_distributed` | Met | git |
 | `version_unique` | Met | Each release has a unique version (`v0.3.0`) |
-| `version_semver` | Met | Semantic Versioning, stated in E/CHANGELOG.md |
+| `version_semver` | Met | Semantic Versioning, stated in https://github.com/guard-spec/guard-spec/blob/main/CHANGELOG.md |
 | `version_tags` | Met | git tags `v*`, release workflow runs on them |
-| `release_notes` | Met | E/CHANGELOG.md (Keep a Changelog) and the GitHub release notes |
+| `release_notes` | Met | https://github.com/guard-spec/guard-spec/blob/main/CHANGELOG.md (Keep a Changelog) and the GitHub release notes |
 | `release_notes_vulns` | N/A | No release has fixed a publicly known vulnerability with a CVE yet. **owner**: switch to Met with the first advisory |
 
 ## Reporting
@@ -72,24 +72,24 @@ Prepared on 2026-11-07 from `main` at v0.3.0. Re-check anything marked
 | `report_responses` | Met | **owner**: confirm a majority of bug reports in the last 2 to 12 months were acknowledged |
 | `enhancement_responses` | Met | **owner**: confirm a majority of enhancement requests were answered |
 | `report_archive` | Met | Issues and pull requests are public and searchable |
-| `vulnerability_report_process` | Met | E/SECURITY.md "Reporting a vulnerability" |
+| `vulnerability_report_process` | Met | https://github.com/guard-spec/guard-spec/blob/main/SECURITY.md "Reporting a vulnerability" |
 | `vulnerability_report_private` | Met | GitHub private vulnerability reporting (https://github.com/guard-spec/guard-spec/security/advisories/new) or security@guardspec.io. **owner**: confirm private reporting is enabled in Settings > Code security |
-| `vulnerability_report_response` | Met | Target: acknowledgement within 3 business days (E/SECURITY.md "Response targets"). **owner**: if no report came in the last 6 months, say so |
+| `vulnerability_report_response` | Met | Target: acknowledgement within 3 business days (https://github.com/guard-spec/guard-spec/blob/main/SECURITY.md "Response targets"). **owner**: if no report came in the last 6 months, say so |
 
 ## Quality
 
 | Criterion | Answer | Justification / evidence |
 |---|---|---|
-| `build` | Met | `go build ./...`; `make`; GoReleaser for releases (E/.goreleaser.yaml) |
+| `build` | Met | `go build ./...`; `make`; GoReleaser for releases (https://github.com/guard-spec/guard-spec/blob/main/.goreleaser.yaml) |
 | `build_common_tools` | Met | Go toolchain, make, Docker, npm |
 | `build_floss_tools` | Met | All build tools are FLOSS |
-| `test` | Met | `go test -race ./...`, integration tests with Postgres, admin UI unit and Playwright tests (E/CONTRIBUTING.md "Tests") |
+| `test` | Met | `go test -race ./...`, integration tests with Postgres, admin UI unit and Playwright tests (https://github.com/guard-spec/guard-spec/blob/main/CONTRIBUTING.md "Tests") |
 | `test_invocation` | Met | `go test ./...` (standard for Go); `make test` |
 | `test_most` | Met | Unit tests across internal/ and cmd/; integration tests for the database paths; detector eval against a baseline |
-| `test_continuous_integration` | Met | E/.github/workflows/ci.yml on every pull request and push to `main` |
-| `test_policy` | Met | E/CONTRIBUTING.md "Pull requests": new functionality comes with tests, bug fixes with a regression test |
-| `tests_are_added` | Met | Recent feature pull requests add tests (for example the v0.3.0 changes in E/CHANGELOG.md). **owner**: confirm |
-| `tests_documented_added` | Met | The test policy is in CONTRIBUTING.md and the pull request template asks "How it was tested" (E/.github/PULL_REQUEST_TEMPLATE.md) |
+| `test_continuous_integration` | Met | https://github.com/guard-spec/guard-spec/blob/main/.github/workflows/ci.yml on every pull request and push to `main` |
+| `test_policy` | Met | https://github.com/guard-spec/guard-spec/blob/main/CONTRIBUTING.md "Pull requests": new functionality comes with tests, bug fixes with a regression test |
+| `tests_are_added` | Met | Recent feature pull requests add tests (for example the v0.3.0 changes in https://github.com/guard-spec/guard-spec/blob/main/CHANGELOG.md). **owner**: confirm |
+| `tests_documented_added` | Met | The test policy is in CONTRIBUTING.md and the pull request template asks "How it was tested" (https://github.com/guard-spec/guard-spec/blob/main/.github/PULL_REQUEST_TEMPLATE.md) |
 | `warnings` | Met | `go vet` and golangci-lint in CI; `npm run lint` and `typecheck` for the admin UI |
 | `warnings_fixed` | Met | CI fails on new vet and lint findings (golangci-lint `only-new-issues`) |
 | `warnings_strict` | Met | golangci-lint runs on every pull request; `helm lint --strict` for the chart |
@@ -98,9 +98,9 @@ Prepared on 2026-11-07 from `main` at v0.3.0. Re-check anything marked
 
 | Criterion | Answer | Justification / evidence |
 |---|---|---|
-| `know_secure_design` | Met | **owner** self-assessment. Evidence of practice: E/docs/security/README.md (architecture, threat model), E/docs/security-risks.md |
-| `know_common_errors` | Met | **owner** self-assessment. E/docs/security-risks.md lists the risks and mitigations |
-| `crypto_published` | Met | Only published algorithms: bcrypt, AES-256-GCM, SHA-256, HMAC, TLS, Sigstore (E/docs/security/README.md "Encryption") |
+| `know_secure_design` | Met | **owner** self-assessment. Evidence of practice: https://github.com/guard-spec/guard-spec/blob/main/docs/security/README.md (architecture, threat model), https://github.com/guard-spec/guard-spec/blob/main/docs/security-risks.md |
+| `know_common_errors` | Met | **owner** self-assessment. https://github.com/guard-spec/guard-spec/blob/main/docs/security-risks.md lists the risks and mitigations |
+| `crypto_published` | Met | Only published algorithms: bcrypt, AES-256-GCM, SHA-256, HMAC, TLS, Sigstore (https://github.com/guard-spec/guard-spec/blob/main/docs/security/README.md "Encryption") |
 | `crypto_call` | Met | Go standard library `crypto/*` and `golang.org/x/crypto/bcrypt`; no own implementations |
 | `crypto_floss` | Met | All of the above are FLOSS |
 | `crypto_keylength` | Met | AES-256; `JWT_SECRET` at least 32 bytes and `MFA_ENC_KEY` 32 bytes, enforced at start outside dev mode |
@@ -109,17 +109,17 @@ Prepared on 2026-11-07 from `main` at v0.3.0. Re-check anything marked
 | `crypto_pfs` | Met | TLS is terminated in front of the services by the deployment; outgoing TLS uses Go's crypto/tls (TLS 1.2+, ECDHE suites) |
 | `crypto_password_storage` | Met | bcrypt for passwords and recovery codes; API keys and one-time tokens stored as SHA-256 |
 | `crypto_random` | Met | `crypto/rand` for keys, tokens and codes |
-| `delivery_mitm` | Met | Releases over HTTPS; images and checksum files signed with cosign keyless; SLSA provenance (E/docs/security/verifying-releases.md) |
+| `delivery_mitm` | Met | Releases over HTTPS; images and checksum files signed with cosign keyless; SLSA provenance (https://github.com/guard-spec/guard-spec/blob/main/docs/security/verifying-releases.md) |
 | `delivery_unsigned` | Met | No hash is fetched over HTTP; checksums are signed |
 | `vulnerabilities_fixed_60_days` | Met | No known unpatched vulnerability of medium or higher severity older than 60 days: OSV (Scorecard's Vulnerabilities check) finds none once the LlamaIndex example locks Pillow 13; Dependabot and govulncheck run continuously |
-| `vulnerabilities_critical_fixed` | Met | Same, plus the targets in E/SECURITY.md "Response targets" |
+| `vulnerabilities_critical_fixed` | Met | Same, plus the targets in https://github.com/guard-spec/guard-spec/blob/main/SECURITY.md "Response targets" |
 | `no_leaked_credentials` | Met | No credentials in the repository; dev-only defaults are refused outside `GUARD_ENV=dev`; GitHub secret scanning. **owner**: confirm secret scanning is on |
 
 ## Analysis
 
 | Criterion | Answer | Justification / evidence |
 |---|---|---|
-| `static_analysis` | Met | CodeQL (Go, Python) on every push and pull request (E/.github/workflows/codeql.yml), golangci-lint, govulncheck |
+| `static_analysis` | Met | CodeQL (Go, Python) on every push and pull request (https://github.com/guard-spec/guard-spec/blob/main/.github/workflows/codeql.yml), golangci-lint, govulncheck |
 | `static_analysis_common_vulnerabilities` | Met | CodeQL security queries; govulncheck |
 | `static_analysis_fixed` | Met | Findings are triaged in the Security tab; none of medium or higher severity is open. **owner**: confirm in Security > Code scanning |
 | `static_analysis_often` | Met | On every commit |
