@@ -5,6 +5,7 @@
 [![CI](https://github.com/guard-spec/guard-spec/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/guard-spec/guard-spec/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/guard-spec/guard-spec/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/guard-spec/guard-spec/actions/workflows/codeql.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/guard-spec/guard-spec/badge)](https://scorecard.dev/viewer/?uri=github.com/guard-spec/guard-spec)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/16421/badge)](https://www.bestpractices.dev/projects/16421)
 
 [![Go](https://img.shields.io/github/go-mod/go-version/guard-spec/guard-spec?logo=go&logoColor=white)](go.mod)
 [![PostgreSQL 17](https://img.shields.io/badge/PostgreSQL-17-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
