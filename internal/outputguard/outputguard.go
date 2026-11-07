@@ -1,5 +1,6 @@
 // Package outputguard rewrites model output before it reaches the client. It
-// removes markdown images and links that could carry data to a third-party host,
+// removes markdown images and links, and HTML tags that link to or load a URL,
+// that could carry data to a third-party host,
 // redacts personal data, and catches a leaked canary token. It works on whole
 // responses and on event streams, where it holds back a short window of text so
 // that a pattern split across chunks is still caught.
@@ -17,8 +18,8 @@ import (
 
 // Kinds of findings, as counted in Counts and written in redaction markers.
 const (
-	KindImage  = "image"  // markdown or HTML image to a host not on the allowlist
-	KindLink   = "link"   // link to a host not on the allowlist; its text is kept
+	KindImage  = "image"  // markdown image, or HTML that loads, from a host not on the allowlist
+	KindLink   = "link"   // link (markdown, <a href>) to a host not on the allowlist; its text is kept
 	KindURL    = "url"    // bare image URL carrying a query string
 	KindCanary = "canary" // the request's canary token
 	KindEmail  = "email"
@@ -154,9 +155,6 @@ var (
 	// "<" in angle brackets, and anything but a blank without them.
 	refDefRe = regexp.MustCompile(`(?m)^[ \t]{0,3}(?:>[ \t]?)*[ \t]{0,3}\[[^\]\n]{1,1000}\]:[ \t]*` +
 		`(?:\n[ \t]*(?:>[ \t]?)*[ \t]*)?(<[^>\n]*>|\S+)[^\n]*$`)
-	htmlImgRe = regexp.MustCompile(`(?i)<img\b[^>]*>`)
-	// src and srcset, but not data-src: the name must follow a space.
-	imgSrcRe = regexp.MustCompile(`(?i)\s(src|srcset)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))`)
 	// Where a bare URL starts (bareURLs).
 	urlStartRe = regexp.MustCompile(`(?i)\b(?:https?://|www\.)`)
 
@@ -192,32 +190,6 @@ func (g *Guard) allowed(raw string) bool {
 		}
 	}
 	return false
-}
-
-// imgAllowed reports whether an <img> tag loads only from allowlisted hosts:
-// it needs at least one src or srcset, and every URL in them must be allowed.
-func (g *Guard) imgAllowed(tag string) bool {
-	found := false
-	for _, m := range imgSrcRe.FindAllStringSubmatch(tag, -1) {
-		value := m[2] + m[3] + m[4] // only one of the three forms matched
-		var urls []string
-		if strings.EqualFold(m[1], "srcset") {
-			for _, candidate := range strings.Split(value, ",") {
-				if fields := strings.Fields(candidate); len(fields) > 0 {
-					urls = append(urls, fields[0])
-				}
-			}
-		} else {
-			urls = []string{value}
-		}
-		for _, u := range urls {
-			found = true
-			if !g.allowed(u) {
-				return false
-			}
-		}
-	}
-	return found
 }
 
 func parseURL(raw string) *url.URL {
@@ -297,10 +269,13 @@ func (s *Scanner) spansIn(text string, from int, joins []int) (accepted []span, 
 			}
 		}
 	}
-	if indexFold(text, "<img") >= 0 {
-		for _, m := range htmlImgRe.FindAllStringIndex(text, -1) {
-			if !g.imgAllowed(text[m[0]:m[1]]) {
-				add(m[0], m[1], marker(KindImage), KindImage, nil)
+	if strings.IndexByte(text, '<') >= 0 {
+		finds, _ := g.scanTags(text)
+		for _, f := range finds {
+			if f.kind == KindLink {
+				add(f.start, f.end, "", KindLink, nil) // the text up to </a> stays
+			} else {
+				add(f.start, f.end, marker(f.kind), f.kind, nil)
 			}
 		}
 	}
@@ -642,7 +617,8 @@ func isURLStop(c byte) bool {
 	// Renderers end a URL earlier (goldmark at "*", "|", "\" and the like)
 	// or later, but a URL that runs on further only grows its query once it
 	// has one, so reading it longer never misses an image URL with a query.
-	return c <= ' ' || c == 0x7f || c == '<' // blanks, control characters
+	// DEL does not end one: goldmark keeps it in an autolink, <https://...>.
+	return c <= ' ' || c == '<' // blanks, control characters
 }
 
 // hasURLStart reports whether s may hold a bare URL, which starts with
@@ -768,7 +744,8 @@ func mdMatches(text string, full bool) [][]int {
 // of them shows must be found: "<...>" on one line, which may hold "<"; or a
 // run without blanks, in which parentheses nest to any depth and "(" need
 // not be closed, and a backslash escapes the next punctuation character. A
-// title is "...", '...' or (...) on one line, after a blank. ok is set when
+// title is "...", '...' or (...) after a blank; it may run over lines but
+// not over a blank one, and a backslash escapes in it too. ok is set when
 // text[i:end] completes a link, with its URL at text[urlStart:urlEnd]; open
 // when the text ends before the link could be complete, so that what follows
 // may still make one.
@@ -836,7 +813,24 @@ func mdLinkTail(text string, i int) (urlStart, urlEnd, end int, ok, open bool) {
 	default:
 		return 0, 0, 0, false, false
 	}
-	for j++; j < len(text) && text[j] != closer && text[j] != '\n' && (opener != '(' || text[j] != '('); j++ {
+	for j++; j < len(text) && text[j] != closer && (opener != '(' || text[j] != '('); j++ {
+		switch {
+		case text[j] == '\\' && j+1 < len(text) && isPunct(text[j+1]):
+			j++ // an escaped quote does not end the title
+		case text[j] == '\n':
+			// A title may run over lines, but not over a blank one, which
+			// ends the paragraph.
+			k := j + 1
+			for k < len(text) && (text[k] == ' ' || text[k] == '\t' || text[k] == '\r') {
+				k++
+			}
+			if k == len(text) {
+				return 0, 0, 0, false, true
+			}
+			if text[k] == '\n' {
+				return 0, 0, 0, false, false
+			}
+		}
 	}
 	if j == len(text) {
 		return 0, 0, 0, false, true

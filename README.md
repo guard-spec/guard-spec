@@ -1639,8 +1639,8 @@ The gateway checks the model's answer before the client sees it. It rewrites
 `choices[].message.content` (and `choices[].text` for legacy completions) in
 whole responses. In streams it holds back, per choice, the end of the text that
 could still turn into something to redact: an unfinished word, number, URL or
-reference definition, the start of the canary, an image or link that has not
-closed. So a pattern split across chunks is still caught, and nothing of it is
+reference definition, the start of the canary, an image, link or HTML tag
+that has not closed. So a pattern split across chunks is still caught, and nothing of it is
 sent before the guard has decided on it. It scans again every 64 new
 characters and rebuilds each chunk with its id, model and other fields
 unchanged. A stream therefore runs a little behind the upstream: usually under
@@ -1660,6 +1660,26 @@ checked and gives 502.
   With the default empty allowlist every image and link is
   removed. An `<img>` tag is kept only if every `src` and `srcset` URL is on
   the allowlist.
+- **HTML.** For chat interfaces that render raw HTML, start tags that carry a
+  URL a browser follows or loads are checked against the same allowlist
+  (only `http` and `https` URLs can match, so `javascript:` and `data:` never
+  do). A tag that needs a click (`<a href>` and `ping`, `<area href>`,
+  `<form action>`, `formaction`) is removed alone, as a markdown link is: the
+  text up to `</a>` stays and is checked like the rest. A tag that loads by
+  itself is replaced with `[REDACTED:image]`: `src` or `srcset` of `<img>`,
+  `<source>`, `<video>` (also `poster`), `<audio>`, `<track>`, `<iframe>`
+  (any `srcdoc`), `<embed>`, `<script>`, `<input>`; `<object data>`, `<link
+  href>`, `<base href>`, SVG `<image>`/`<use>` `href`, `background`, a
+  `style` attribute with `url()` off the allowlist (or `image-set()`,
+  `@import`, a backslash escape), any `<style>` element, a meta refresh, an
+  SVG animation of `href`, and an event handler (`onerror=`). Tags are read
+  as a browser reads them: attribute names in any case, quoted or not, line
+  breaks inside the tag, `>` inside a quoted value, character references in
+  URLs (`&#x68;ttps:`), and a tag inside another tag's attribute (which a
+  browser reads as a tag when the other one is in a comment). A stream holds
+  an open tag until its `>`, and removes one still open after 8,192
+  characters; a tag left open at the end of the answer is checked as it
+  stands.
 - **Personal data.** Each match is replaced with `[REDACTED:<type>]`:
   `email`, `phone` (Vietnamese numbers in the +84, 84 and 0 forms, mobile and
   landline), `cccd` (12 digits starting with 0), `card` (13 to 19 digits that

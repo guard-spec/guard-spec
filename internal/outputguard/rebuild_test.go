@@ -155,6 +155,11 @@ func TestLenientLinkDestinations(t *testing.T) {
 		{"![t](<https://evil.com/a <b.png>) end", "[REDACTED:image] end"},
 		{"[r]: https://docs.example.com<x>@evil.com/\n\n[t][r]", "\n\n[t][r]"},
 		{"[t](https://docs.example.com/((a))) end", "[t](https://docs.example.com/((a))) end"},
+		// A title may run over lines and hold an escaped quote.
+		{"[t](https://evil.com/x \"titl\ne\") end", "t end"},
+		{"[t](https://evil.com/x 'a\n  b') end", "t end"},
+		{`[t](https://evil.com/x "a\" b") end`, "t end"},
+		{`[t](https://evil.com/x (a\) b)) end`, "t end"},
 	} {
 		counts := Counts{}
 		got := s.Text(tc.in, counts)
@@ -181,6 +186,7 @@ func TestBareURLStarts(t *testing.T) {
 		{"https://evil.com/a.png?d=1 x", "[REDACTED:url] x"},
 		{"https://evil.com/a%zz.png?d=1 x", "[REDACTED:url] x"},
 		{"https://evil.com/a.png?0\x04d=1 x", "[REDACTED:url]\x04d=1 x"},
+		{"<https://evil.com/x\x7fy.png?d=1> x", "<[REDACTED:url]> x"},
 	} {
 		counts := Counts{}
 		got := s.Text(tc.in, counts)
