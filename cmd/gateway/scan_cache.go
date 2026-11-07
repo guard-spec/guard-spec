@@ -22,10 +22,23 @@ import (
 // live detector's generation), and entries expire after scanCacheTTL, which
 // bounds how long a cached score ignores a new org exemplar (L3). It holds
 // scores and hashes, never text.
+//
+// With SCAN_CACHE_BACKEND=redis or postgres it is the first layer in front of
+// a cache that every replica shares (scan_cache_shared.go): lookup reads
+// through it and store writes through it.
 type scanCache struct {
 	max int
 	ttl time.Duration
 	now func() time.Time
+
+	// shared is the second layer; nil: this process only.
+	shared sharedStore
+	// timeout bounds each call to shared; a slower call counts as an error.
+	timeout time.Duration
+	// identity is the stable identity of the running models and detector
+	// configuration that the shared layer keys on; false while it is not
+	// known yet, which skips the shared layer.
+	identity func() (string, bool)
 
 	mu    sync.Mutex
 	gen   int64

@@ -26,13 +26,16 @@ statement depends on a setting, the setting is named.
 - [Secrets](#secrets)
 - [Encryption](#encryption)
 - [Tenant isolation](#tenant-isolation)
+- [Shared scan cache](#shared-scan-cache)
 - [What leaves your network](#what-leaves-your-network)
 - [Threat model](#threat-model)
 - [Verifying a release](#verifying-a-release)
 
 ## Architecture
 
-Two Go services and one PostgreSQL database. Nothing else is required.
+Two Go services and one PostgreSQL database. Nothing else is required; a
+Redis (or Valkey) is optional, as the [shared scan cache](#shared-scan-cache)
+of several gateway replicas.
 
 ```mermaid
 flowchart LR
@@ -94,7 +97,9 @@ only: ids, categories, scores).
 ## What is stored, where and for how long
 
 Everything is in PostgreSQL. The services keep no state on disk; the
-gateway's rate-limit counters and caches are in memory.
+gateway's rate-limit counters and caches are in memory, except the scan cache
+when `SCAN_CACHE_BACKEND` shares it (below and
+[Shared scan cache](#shared-scan-cache)).
 
 | Data | Table(s) | Contents | Kept for |
 |---|---|---|---|
@@ -108,6 +113,7 @@ gateway's rate-limit counters and caches are in memory.
 | **API keys** | `api_keys` | SHA-256 of the key, a short prefix for display (`gs_` and 8 characters), alias, limits | Until deleted |
 | **Configuration** | `organizations`, `projects`, `policies`, `upstreams`, `org_security`, `identity_providers`, `notification_channels`, `alert_rules`, `user_groups` | Policies (CEL), upstream URLs and the **name** of their key variable, SSO client ids and the **name** of their secret variable, channel settings and the **name** of their secret variable | Until changed or deleted |
 | **Org exemplars (L3)** | `org_exemplars` | Example attack texts an admin adds for that org's similarity layer | Until deleted |
+| **Scan cache** (`SCAN_CACHE_BACKEND=postgres`) | `scan_cache` | Per text the gateway classified (system prompt, tool definition, tool result, document): a SHA-256 key, the org, detector scores and verdict metadata (fused and layer scores, categories, rule ids, PII types and offsets) and the model identity. **No text**, no tool name | 6 hours: an expired row is never read, and the retention job deletes expired rows whatever the retention periods are. With `SCAN_CACHE_BACKEND=redis` the same values are in Redis with `EXPIRE` 6 h |
 | **Alerts** | `events`, `alert_rule_hits`, `alerts`, `notification_outbox`, `notifications` | Event type, severity, ids, categories, scores; delivery state | Processed events 30 days, finished deliveries 30 days, read in-app notifications 90 days, rule hits 24 hours; `alerts` are kept |
 
 Outside the database:
@@ -155,6 +161,44 @@ Every org-scoped table has PostgreSQL row-level security on
 cannot bypass it. Tables keyed by user (sessions, identities, 2FA) are not
 org-scoped and are read by user id. A failure to evaluate policies or org
 settings fails the request closed (503).
+
+## Shared scan cache
+
+With more than one gateway replica, `SCAN_CACHE_BACKEND=redis` or `postgres`
+shares the scan cache (README, [Scan cache](../../README.md#scan-cache)), so a
+long `/v1/messages` or `/v1/responses` session does not have to classify its whole history again
+on another replica or after a restart.
+
+**What it stores.** For each text: the detector's scores and verdict metadata,
+and the identity of the models that computed them. The key is a SHA-256 of the
+org, the kind of text, its full content and the model identity. No text, no
+tool name, nothing an attacker who reads the cache could turn back into the
+content, except by guessing a text and hashing it (the key is unsalted, so a
+reader can confirm that a known text was sent by that org within 6 hours).
+
+**Threats.**
+
+- *Cache poisoning.* An attacker who can **write** to the backend can store a
+  low score under the key of a malicious text and so have it pass as clean,
+  for the org the key was made for. Keep Redis on a private network (no
+  published port; in Kubernetes, a NetworkPolicy that admits the gateway pods
+  only), require authentication (`requirepass` or an ACL user limited to
+  `guardspec:scan:*`), and use `rediss://` across hosts. Do not share that
+  Redis with other applications. The compose `scan-cache` service has no
+  published port and refuses to start without a password of 16 characters
+  or more. With Postgres, the table is written by the gateway's role only and
+  row level security binds every row to its org: a replica or a stolen
+  connection scoped to one org cannot plant entries for another.
+- *Stale scores.* An entry keys on the exact model identity (gateway binary,
+  model files, calibration, detector configuration), so a model change can
+  never reuse an old score; per-org exemplars added later apply once an entry
+  expires (6 h), as with the in-process cache.
+- *Availability.* A slow or failing backend is skipped after
+  `SCAN_CACHE_TIMEOUT` (50 ms): the text is scanned. The cache never decides
+  that something is not scanned, and its failure never fails a request.
+- *Memory.* Bound Redis with `maxmemory` and a `volatile-*` eviction policy
+  (the compose service uses 256 MB, `volatile-lru`); an evicted entry only
+  costs a rescan.
 
 ## What leaves your network
 

@@ -147,6 +147,12 @@ func main() {
 	audit := newAuditLog(dbAuditStore(db, cfg.AuditStoreContent, emitter, flagAt).write)
 	// Retried refusals add to the first one's row (audit_dedupe.go).
 	audit.dedupe = newRefusalDedupe(cfg.AuditDedupeWindow)
+	cache, closeCache, err := buildScanCache(cfg, db, live)
+	if err != nil {
+		slog.Error("scan cache", "err", err)
+		os.Exit(1)
+	}
+	defer closeCache()
 	slog.Info("scan config", "roles", cfg.Scan.Roles.String(), "spotlight", cfg.Scan.Spotlight,
 		"indirect_threshold", cfg.Scan.IndirectThreshold, "tool_prefixes", cfg.Scan.ToolPrefixes)
 	app := newApp(gateway{
@@ -168,7 +174,7 @@ func main() {
 		scan:     &cfg.Scan,
 		settings: dbSettingsLoader(db),
 		limits:   newRateLimiter(ops.RateLimit, dbKeyLimits(db)),
-		cache:    newScanCache(cfg.ScanCacheSize, scanCacheTTL),
+		cache:    cache,
 
 		waitOnHalfClose: cfg.WaitOnHalfClose,
 	}, dbKeyLookup(db))
@@ -1417,6 +1423,9 @@ type config struct {
 	Scan scanConfig
 	// ScanCacheSize is SCAN_CACHE_SIZE: entries of the scan cache; 0 is off.
 	ScanCacheSize int
+	// ScanCache is SCAN_CACHE_BACKEND and its settings: the shared layer of
+	// the scan cache (scan_cache_shared.go).
+	ScanCache scanCacheConfig
 	// AdminToken is GATEWAY_ADMIN_TOKEN: the bearer token of /admin/models
 	// (reload.go). Empty: those routes are off.
 	AdminToken string
@@ -1469,6 +1478,10 @@ func loadConfig() (config, error) {
 	if err != nil || cacheSize < 0 || cacheSize > 1_000_000 {
 		return config{}, errors.New("SCAN_CACHE_SIZE must be a number from 0 to 1000000")
 	}
+	scanCache, err := loadScanCacheConfig(os.Getenv)
+	if err != nil {
+		return config{}, err
+	}
 	dedupeWindow, err := parseDedupeWindow(strings.TrimSpace(os.Getenv("AUDIT_DEDUPE_WINDOW")))
 	if err != nil {
 		return config{}, err
@@ -1480,6 +1493,7 @@ func loadConfig() (config, error) {
 	cfg := config{
 		UpstreamProvider:     provider,
 		ScanCacheSize:        cacheSize,
+		ScanCache:            scanCache,
 		ListenAddr:           getenv("LISTEN_ADDR", ":8080"),
 		Detector:             detector,
 		DatabaseURL:          getenv("DATABASE_URL", ""),

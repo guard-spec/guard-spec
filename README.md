@@ -619,7 +619,10 @@ in a second table.
 | `SCAN_HISTORY` | `latest` | `/v1/messages` and `/v1/responses`: `latest` classifies the trailing turn (after the last assistant message, or the last item the model produced), takes earlier tool results from the scan cache, and does not classify earlier user text again; `full` classifies every turn. Chat completions always classify every turn |
 | `RESPONSES_SERVER_STATE` | `refuse` | `/v1/responses` requests that refer to conversation state the upstream keeps (`previous_response_id`, `conversation`, `item_reference` input items) carry turns the gateway never sees in the request and cannot scan again: `refuse` answers them with 400 (`server_state_refused`); `allow` passes them and tags the audit row `input:server_state=1`. See [Security model](#security-model-and-limitations) |
 | `EMBEDDINGS_SCAN` | `off` | `on` classifies each `/v1/embeddings` input as an untrusted document (not rewritten) and refuses the request over `INDIRECT_BLOCK_THRESHOLD`; token-array inputs are then refused (400). Off: embeddings are forwarded unscanned, since they produce no text a model acts on; scan retrieved text when it is used, as a document or tool result |
-| `SCAN_CACHE_SIZE` | `4096` | Entries of the per-process scan cache of `/v1/messages` and `/v1/responses` (scores of the system prompt, tool definitions and tool results by SHA-256 of their content, per org; cleared on model reload, 6 h lifetime); `0` turns it off |
+| `SCAN_CACHE_SIZE` | `4096` | Entries of the per-process scan cache of `/v1/messages` and `/v1/responses` (scores of the system prompt, tool definitions and tool results by SHA-256 of their content, per org; cleared on model reload, 6 h lifetime); `0` turns it off, shared backend included. See [Scan cache](#scan-cache) |
+| `SCAN_CACHE_BACKEND` | `memory` | Where the scan cache is shared: `memory` (each replica alone), `postgres` (the `scan_cache` table of the gateway's database) or `redis`. The in-process cache stays in front of either |
+| `SCAN_CACHE_REDIS_URL` | — | `redis://` or `rediss://` URL with the password, for `SCAN_CACHE_BACKEND=redis`. Keep that Redis private and authenticated |
+| `SCAN_CACHE_TIMEOUT` | `50ms` | Bound on each call to the shared backend; an error or a timeout means the content is scanned, never a failed request |
 | `OUTPUT_GUARD` | `on` | `off` passes responses through unchanged |
 | `OUTPUT_LINK_ALLOWLIST` | empty | Comma-separated hosts (and their subdomains) whose images and links are kept |
 | `OUTPUT_PII_REDACT` | `true` | Redact e-mail, phone, CCCD and card numbers |
@@ -1739,6 +1742,8 @@ Keep that port on the internal network.
 | `policy_eval_errors_total` | `stage` (`load`, `eval`, `route`) |
 | `output_guard_actions_total` | `kind` (`image`, `link`, `url`, `canary`, `email`, `phone`, `cccd`, `card`, `ipv4`) |
 | `ratelimit_rejections_total` | `limit` (`requests`, `tokens`) |
+| `scan_cache_lookups_total` | `layer` (`memory`, `redis`, `postgres`), `result` (`hit`, `miss`, `error`), per key |
+| `scan_cache_errors_total` | `layer` (`redis`, `postgres`), `op` (`get`, `set`): failed or timed-out shared cache calls |
 | `tenant_requests_total` (with `METRICS_TENANT_LABELS=true`) | `org_id`, `decision` |
 
 The control plane exports `guardspec_control_plane_requests_total`,
@@ -1747,7 +1752,7 @@ The control plane exports `guardspec_control_plane_requests_total`,
 the activity log and sessions),
 `guardspec_audit_retention_deleted_rows_total` and
 `guardspec_retention_deleted_rows_total{table}` (`activity_log`,
-`sessions`). Labels take values from fixed
+`sessions`, `scan_cache`). Labels take values from fixed
 sets only; API key IDs are never a label.
 
 ### Tracing
@@ -1882,7 +1887,63 @@ deletes activity log rows older than `ACTIVITY_LOG_RETENTION_DAYS` (default
 either one. The activity log is row-level secured like the audit table, so
 its rows are deleted through a function with the table owner's rights (as
 for audit rows); the application role still cannot read or delete across
-orgs.
+orgs. Expired entries of the shared scan cache (`SCAN_CACHE_BACKEND=postgres`)
+go in the same run, whatever the retention periods are.
+
+### Scan cache
+
+Claude Code (`/v1/messages`) and Responses API clients (`/v1/responses`)
+resend the whole session every turn: system prompt or instructions, tool
+definitions and every earlier tool result. With `SCAN_HISTORY=latest` the
+gateway classifies each of those texts once and keeps its scores in a scan
+cache keyed by the org, the kind of text and the SHA-256 of its full content,
+for 6 hours. A request may classify at most 128 KiB of new untrusted text,
+plus 1 MiB of earlier turns that the cache does not have.
+
+That cache is in each gateway process (`SCAN_CACHE_SIZE`). With more than one
+replica, a turn that lands on another replica, or any turn after a restart,
+finds the earlier tool results missing and classifies them again; past 1 MiB
+of tool output the session gets 413. `SCAN_CACHE_BACKEND` shares the cache:
+
+| Backend | Where | Notes |
+| --- | --- | --- |
+| `memory` (default) | each process | as before |
+| `postgres` | `scan_cache` table (migration 020) of the gateway's database | row-level secured by org like every tenant table; expired rows are never read and the control plane's retention job deletes them |
+| `redis` | `SCAN_CACHE_REDIS_URL` (Redis or Valkey; one endpoint, not Cluster) | keys `guardspec:scan:<sha256>` with `EXPIRE`; compose has an optional `scan-cache` service (`--profile scan-cache`), the Helm chart reads the URL from a secret (`gateway.scanCache`) |
+
+The in-process cache stays the first layer: a request looks up every text it
+carries there, then the keys it lacks in the shared backend in one call, and
+writes what it scored to both in one call when it is done. Each call is
+bounded by `SCAN_CACHE_TIMEOUT` (50 ms). A backend that is down, slow or
+returns something unreadable only costs a scan: the content is classified as
+without the cache, and `guardspec_gateway_scan_cache_errors_total` counts it.
+Nothing is ever skipped because the cache is unavailable.
+
+**What is stored.** Per text: the detector's scores (fused score, layer
+scores, category, rule ids, PII types and offsets) and the verdict of a tool
+result or tool definition, plus the model identity they were computed with.
+Never the text, a tool name or anything else from the request; the key is a
+SHA-256.
+
+**Model identity.** The shared key also covers the identity of the running
+detector: a SHA-256 of the gateway binary, of every file of the L2 classifier
+and L3 embedder, of the calibration in use and of the configuration that
+changes a score (`DETECTOR_LAYERS`, `DETECTOR_FUSION`, `FUSION_L1_FLOOR`,
+`DETECTOR_CASCADE*`). Replicas that run different models or versions, say
+during a rolling upgrade or a canary, never read each other's entries. A model
+reload (`SIGHUP`, `/admin/models/reload`) gives the new models a new identity
+and so new keys: nothing needs flushing, the old entries expire. Hashing the
+model files takes a moment after start or a reload; until it is done the
+shared layer is skipped. Per-org exemplars (L3) are not part of the identity:
+as with the in-process cache, a new exemplar applies to cached texts when
+their entry expires.
+
+**Security.** Whoever can write to the shared backend can mark any content
+as clean for that org. Redis must be private (no public port, a network
+policy) and authenticated (`requirepass` or ACLs; `rediss://` across
+networks); the compose service refuses to start without a password. Postgres
+uses the gateway's own role and row level security. See
+[docs/security](docs/security/README.md#shared-scan-cache).
 
 ### Kubernetes
 

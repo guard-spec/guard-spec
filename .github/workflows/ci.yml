@@ -82,7 +82,18 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 10
+      # The shared scan cache's Redis backend (cmd/gateway/scan_cache_integration_test.go).
+      valkey:
+        image: valkey/valkey:8.1.4-alpine@sha256:e706d1213aaba6896c162bb6a3a9e1894e1a435f28f8f856d14fab2e10aa098b
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "valkey-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     env:
+      TEST_REDIS_URL: redis://localhost:6379/0
       PGHOST: localhost
       PGUSER: ps
       PGDATABASE: guardspec

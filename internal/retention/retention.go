@@ -1,5 +1,6 @@
 // Package retention deletes rows older than their retention period: audit
-// rows (the requests table), the activity log and ended sessions.
+// rows (the requests table), the activity log and ended sessions, and
+// expired entries of the shared scan cache.
 //
 // Every control plane replica runs the job; a Postgres advisory lock lets one
 // of them work at a time and the others skip that round. Rows go in batches,
@@ -9,7 +10,9 @@
 // so their batches go through SECURITY DEFINER functions (purge_audit_rows,
 // purge_activity_rows) that the application role may execute; the role
 // itself keeps no way around RLS. sessions is keyed by user and not
-// row-level secured, so it is deleted directly.
+// row-level secured, so it is deleted directly. scan_cache is row-level
+// secured too (purge_scan_cache); its rows expire on their own schedule, so
+// they are purged even when every retention period is 0.
 package retention
 
 import (
@@ -31,24 +34,30 @@ type Config struct {
 	Days         int           // audit rows (requests)
 	ActivityDays int           // activity_log rows
 	SessionDays  int           // sessions revoked or expired this long ago
+	ScanCache    bool          // expired scan_cache rows (SCAN_CACHE_BACKEND=postgres)
 	Interval     time.Duration // time between runs
 	Batch        int           // rows per delete
 }
 
-func (c Config) enabled() bool { return c.Days > 0 || c.ActivityDays > 0 || c.SessionDays > 0 }
+func (c Config) enabled() bool {
+	return c.Days > 0 || c.ActivityDays > 0 || c.SessionDays > 0 || c.ScanCache
+}
 
 // Result of one run.
 type Result struct {
-	Deleted         int64 // audit rows
-	ActivityDeleted int64
-	SessionsDeleted int64
-	Skipped         bool // another replica held the lock
+	Deleted          int64 // audit rows
+	ActivityDeleted  int64
+	SessionsDeleted  int64
+	ScanCacheDeleted int64 // expired scan cache entries
+	Skipped          bool  // another replica held the lock
 }
 
 // The batched deletes. Each returns how many rows it removed.
 const (
 	purgeAudit    = `SELECT purge_audit_rows($1, $2)`
 	purgeActivity = `SELECT purge_activity_rows($1, $2)`
+	// Expired scan cache entries; the cutoff is the database's now().
+	purgeScanCache = `SELECT purge_scan_cache($1)`
 	// An active session has revoked_at NULL and expires_at in the future,
 	// so it matches neither condition while the cutoff is in the past.
 	purgeSessions = `DELETE FROM sessions WHERE id IN (
@@ -133,6 +142,16 @@ func Once(ctx context.Context, db *pgxpool.Pool, cfg Config, now time.Time) (res
 		tableDeleted("sessions")); err != nil {
 		return res, err
 	}
+	if cfg.ScanCache {
+		// purge's cutoff is not used: an entry carries its own expiry.
+		expired := func(time.Time) (n int64, err error) {
+			err = conn.QueryRow(ctx, purgeScanCache, cfg.Batch).Scan(&n)
+			return n, err
+		}
+		if err := purge("scan_cache", 1, expired, &res.ScanCacheDeleted, tableDeleted("scan_cache")); err != nil {
+			return res, err
+		}
+	}
 	return res, nil
 }
 
@@ -143,7 +162,7 @@ func Run(ctx context.Context, db *pgxpool.Pool, cfg Config) {
 		return
 	}
 	slog.Info("retention", "audit_days", cfg.Days, "activity_days", cfg.ActivityDays,
-		"session_days", cfg.SessionDays, "interval", cfg.Interval.String(), "batch", cfg.Batch)
+		"session_days", cfg.SessionDays, "scan_cache", cfg.ScanCache, "interval", cfg.Interval.String(), "batch", cfg.Batch)
 	ticker := time.NewTicker(cfg.Interval)
 	defer ticker.Stop()
 	for {
@@ -160,9 +179,10 @@ func Run(ctx context.Context, db *pgxpool.Pool, cfg Config) {
 			slog.Debug("retention skipped: another replica is running it")
 		default:
 			metrics.RetentionRuns.WithLabelValues("ok").Inc()
-			if res.Deleted+res.ActivityDeleted+res.SessionsDeleted > 0 {
+			if res.Deleted+res.ActivityDeleted+res.SessionsDeleted+res.ScanCacheDeleted > 0 {
 				slog.Info("retention", "deleted", res.Deleted,
-					"activity_deleted", res.ActivityDeleted, "sessions_deleted", res.SessionsDeleted)
+					"activity_deleted", res.ActivityDeleted, "sessions_deleted", res.SessionsDeleted,
+					"scan_cache_deleted", res.ScanCacheDeleted)
 			}
 		}
 		select {
