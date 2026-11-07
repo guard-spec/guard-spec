@@ -3,6 +3,8 @@
 
 # Deployment guides
 
+> Tiếng Việt: [README.vi.md](README.vi.md).
+
 Reference guides for running Guard Spec outside a laptop.
 
 > **Status: reference templates, not yet verified by the maintainers.**

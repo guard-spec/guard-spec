@@ -3,6 +3,8 @@
 
 # Guard Spec for security teams
 
+> Tiếng Việt: [README.vi.md](README.vi.md).
+
 What a security review of a Guard Spec deployment needs in one place: the
 components and their trust boundaries, which data goes where, what is
 stored, for how long and how it is protected, and how to check that the

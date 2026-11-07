@@ -9,6 +9,18 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ## [Unreleased]
 
+### Documentation
+
+- Vietnamese translations of the main docs pages, next to the English files
+  as `<name>.vi.md`: integrations, examples, deployment guides (index),
+  production compose, managed PostgreSQL, air-gapped installs, sizing,
+  upgrade and backups, models, benchmark (prose; tables unchanged), security
+  teams and red-team reports. Each English page links to its translation;
+  the English page stays the reference when they differ. The AWS, GCP and
+  on-premise guides remain English only.
+- `scripts/check-md-links.py` checks relative links and anchors in the
+  Markdown files; CI runs it on every `.md` file (job "Docs links").
+
 ## [0.3.0] - 2026-11-07
 
 ### Added

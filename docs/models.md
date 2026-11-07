@@ -3,6 +3,8 @@
 
 # Models: versions, pulling, pinning and rollback
 
+> Tiếng Việt: [models.vi.md](models.vi.md).
+
 The gateway's detector has three layers. L1 (rules) is built into the
 binary. L2 (our classifier, `guardspec-classifier`) and L3 (the
 `multilingual-e5-small` embedder) are ONNX models that are never baked into

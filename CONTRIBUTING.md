@@ -107,6 +107,12 @@ them yourself, with the command, the hardware and the date.
   Do not add Llama, Gemma or other restricted model licenses.
 - Update the README (and `README.vi.md` where it applies), `CHANGELOG.md` and
   `.env.example` when behaviour or configuration changes.
+- Many docs pages have a Vietnamese translation next to them (`<name>.vi.md`,
+  same sections in the same order). The English page is the reference: when
+  you change one, update the translation too, or say in the pull request
+  that it needs updating.
+- `python3 scripts/check-md-links.py <files>` checks relative links and
+  anchors (CI runs it on every `.md` file).
 - Fill in the pull request template, including how you tested.
 - The documentation site (<https://guardspec.io/docs/>) renders this
   repository's Markdown at a pinned commit. A new page needs an entry in

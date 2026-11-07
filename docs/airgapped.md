@@ -3,6 +3,8 @@
 
 # Air-gapped and mirrored installs (Kubernetes)
 
+> Tiếng Việt: [airgapped.vi.md](airgapped.vi.md).
+
 How to run the Helm chart (`deploy/helm/guard-spec`) on a cluster that cannot
 reach ghcr.io, Docker Hub or Hugging Face: mirror the images with their
 signatures and attestations, mirror the models, verify everything offline,

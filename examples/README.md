@@ -3,6 +3,8 @@
 
 # Examples
 
+> Tiếng Việt: [README.vi.md](README.vi.md).
+
 Runnable examples of applications that send their model calls through the
 Guard Spec gateway. Each one shows an allowed request, a streamed one, and a
 request the gateway blocks, and exits 1 when the gateway does not do what the

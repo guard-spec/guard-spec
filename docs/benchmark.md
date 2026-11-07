@@ -1,5 +1,7 @@
 # Benchmark: Guard Spec and other prompt-injection detectors
 
+> Tiếng Việt: [benchmark.vi.md](benchmark.vi.md).
+
 This page compares Guard Spec's detector with other open prompt-injection
 detectors on Guard Spec's own eval set and on public datasets. Everything on it
 comes from one command, with every dataset and model pinned, so anyone can

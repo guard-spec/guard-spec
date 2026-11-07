@@ -3,6 +3,8 @@
 
 # Upgrade, rollback and backups
 
+> Tiếng Việt: [upgrade.vi.md](upgrade.vi.md).
+
 For the compose stacks: the quick start (`docker-compose.yml` at the
 repository root) and the
 [production compose](../deploy/compose/production/README.md). Kubernetes:

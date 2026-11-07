@@ -1,5 +1,7 @@
 # Red-team reports: bypasses and false positives
 
+> Tiếng Việt: [red-team.vi.md](red-team.vi.md).
+
 Guard Spec improves from texts it gets wrong. This page describes how to
 report one, what maintainers do with a report, how a reported text becomes
 training or hold-out data, and how the fix reaches a release.

@@ -3,6 +3,8 @@
 
 # Sizing
 
+> Tiếng Việt: [sizing.vi.md](sizing.vi.md).
+
 How much CPU, memory and disk Guard Spec needs, by detection layer. The
 gateway dominates: its memory is set by which models it loads, and its CPU by
 how many prompts per second the model layers score. The control plane and
