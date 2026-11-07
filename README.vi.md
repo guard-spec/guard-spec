@@ -43,8 +43,9 @@ trước khi dùng.
   MCP được chấm từng cái, có dấu hiệu "tool poisoning" của MCP.
 - Output guard: link và ảnh rò rỉ dữ liệu, dữ liệu cá nhân (kể cả số điện
   thoại, CCCD, số thẻ Việt Nam), canary bị lộ, kể cả khi stream.
-- Tương thích OpenAI, và Messages API của Anthropic (`/v1/messages`, cho
-  Claude Code): chỉ đổi base URL, giữ nguyên SDK. Định tuyến tới nhiều
+- Tương thích OpenAI (chat completions, Responses API và embeddings), và
+  Messages API của Anthropic (`/v1/messages`, cho Claude Code): chỉ đổi base
+  URL, giữ nguyên SDK. Định tuyến tới nhiều
   upstream (OpenAI, Azure OpenAI, Anthropic, Gemini, vLLM, Ollama).
 - Policy theo tổ chức và theo project, viết bằng chữ hoặc trình soạn trực
   quan, biên dịch sang CEL: cho qua, chặn, ghi log hoặc định tuyến.
@@ -358,7 +359,9 @@ dùng nhất:
 | `SPOTLIGHT` | `off` | Đánh dấu kết quả tool: `delimit`, `datamark` |
 | `OUTPUT_LINK_ALLOWLIST` | rỗng | Host được giữ ảnh/link trong câu trả lời |
 | `OUTPUT_CANARY` | `off` | `block` hoặc `redact` khi canary bị lộ |
-| `OUTPUT_UNKNOWN_BLOCKS` | `refuse` | `/v1/messages`: block nội dung có kiểu output guard không biết bị từ chối; `pass` cho qua không kiểm tra |
+| `OUTPUT_UNKNOWN_BLOCKS` | `refuse` | `/v1/messages` và `/v1/responses`: block, output item hoặc sự kiện stream có kiểu output guard không biết bị từ chối; `pass` cho qua không kiểm tra |
+| `RESPONSES_SERVER_STATE` | `refuse` | `/v1/responses`: request dùng trạng thái hội thoại lưu ở upstream (`previous_response_id`, `conversation`, `item_reference`) bị từ chối (400) vì gateway không quét được các lượt trước; `allow` cho qua và gắn `input:server_state=1` vào audit |
+| `EMBEDDINGS_SCAN` | `off` | `on`: chấm từng input của `/v1/embeddings` như tài liệu không tin cậy |
 | `AUDIT_STORE_CONTENT` | `false` | Lưu nội dung prompt/response vào audit |
 | `AUDIT_DEDUPE_WINDOW` | `10s` | Request bị từ chối lặp lại (client gửi lại) trong khoảng này được cộng vào `repeat_count` của dòng audit đầu tiên, không ghi dòng và sự kiện mới; `0` là tắt |
 | `RATE_LIMIT_RPM` / `RATE_LIMIT_TPM` | `0` | Giới hạn mỗi key (0 = không giới hạn) |
@@ -369,7 +372,9 @@ Gateway (cổng 8080, cần API key trừ `/health` và `/readyz`; `/readyz` li�
 các lớp phát hiện đang chạy): `POST /v1/chat/completions`,
 `POST /v1/completions`, `POST /v1/messages` (Anthropic Messages API cho
 Claude Code, chỉ tới upstream có provider `anthropic`),
-`POST /v1/messages/count_tokens`, `GET /v1/models`,
+`POST /v1/messages/count_tokens`, `POST /v1/responses` (OpenAI Responses API,
+chỉ tới upstream có provider `openai`, `azure_openai` hoặc
+`openai_compatible`), `POST /v1/embeddings`, `GET /v1/models`,
 `POST /guardrail/scan` (chấm `text` và `documents`
 không gọi model), `POST /guardrail/scan/tools` (chấm định nghĩa tool MCP),
 `POST /guardrail/sanitize`.

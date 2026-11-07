@@ -22,7 +22,8 @@ const model = guardspec.chat(process.env.MODEL ?? "llama3.2");
 ```
 
 Use `guardspec.chat(...)`: the provider's default, `guardspec(model)`, calls
-the Responses API, which the gateway does not serve (404).
+the Responses API, which the gateway serves only to an upstream that has it
+(OpenAI, Azure OpenAI; otherwise 400 `unsupported_upstream`).
 
 Errors:
 

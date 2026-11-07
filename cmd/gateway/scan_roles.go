@@ -41,6 +41,14 @@ type scanConfig struct {
 	// takes earlier tool results from the scan cache; full classifies every
 	// turn. Chat completions always classify every turn.
 	History string
+	// ServerState is RESPONSES_SERVER_STATE: refuse (the default) refuses a
+	// /v1/responses request that refers to conversation state the upstream
+	// keeps (previous_response_id, conversation, item_reference), which the
+	// gateway cannot scan; allow passes it and flags its audit row.
+	ServerState string
+	// EmbeddingsScan is EMBEDDINGS_SCAN=on: the input of /v1/embeddings is
+	// classified as untrusted content. Off by default.
+	EmbeddingsScan bool
 }
 
 // Values of SCAN_HISTORY.
@@ -59,11 +67,13 @@ func (c scanConfig) toolPrefixes() []string {
 
 func defaultScanConfig() scanConfig {
 	return scanConfig{Roles: indirect.DefaultRoles, Spotlight: indirect.ModeOff,
-		IndirectThreshold: indirect.BlockThreshold, IndirectAction: indirect.ActionBlock, History: historyLatest}
+		IndirectThreshold: indirect.BlockThreshold, IndirectAction: indirect.ActionBlock, History: historyLatest,
+		ServerState: serverStateRefuse}
 }
 
 // loadScanConfig reads SCAN_ROLES, SPOTLIGHT, INDIRECT_BLOCK_THRESHOLD,
-// INDIRECT_ACTION, SCAN_TOOL_PREFIXES and SCAN_HISTORY.
+// INDIRECT_ACTION, SCAN_TOOL_PREFIXES, SCAN_HISTORY, RESPONSES_SERVER_STATE and
+// EMBEDDINGS_SCAN.
 func loadScanConfig(env func(string) string) (scanConfig, error) {
 	cfg := defaultScanConfig()
 	var err error
@@ -100,6 +110,20 @@ func loadScanConfig(env func(string) string) (scanConfig, error) {
 		cfg.History = h
 	default:
 		return scanConfig{}, errors.New("SCAN_HISTORY must be latest or full")
+	}
+	switch v := strings.ToLower(strings.TrimSpace(env("RESPONSES_SERVER_STATE"))); v {
+	case "":
+	case serverStateRefuse, serverStateAllow:
+		cfg.ServerState = v
+	default:
+		return scanConfig{}, errors.New("RESPONSES_SERVER_STATE must be refuse or allow")
+	}
+	switch v := strings.ToLower(strings.TrimSpace(env("EMBEDDINGS_SCAN"))); v {
+	case "", "off":
+	case "on":
+		cfg.EmbeddingsScan = true
+	default:
+		return scanConfig{}, errors.New("EMBEDDINGS_SCAN must be on or off")
 	}
 	return cfg, nil
 }

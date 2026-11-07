@@ -20,7 +20,8 @@ model name against OpenAI's list, so other models fail before any request.
 because `OpenAILike` cannot look it up. A block raises the OpenAI SDK's
 `openai.BadRequestError` with `e.code == "content_filter"`.
 
-Embeddings (`OpenAIEmbedding`) do not go through the gateway. In a RAG
+Embeddings (`OpenAIEmbedding`) can go through `/v1/embeddings`, forwarded
+without scanning unless the gateway sets `EMBEDDINGS_SCAN=on`. In a RAG
 pipeline, put retrieved chunks in the chat request as tool results, or scan
 them before indexing with `POST /guardrail/scan`: [the RAG example](../rag/)
 shows both.

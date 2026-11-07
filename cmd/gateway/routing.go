@@ -375,9 +375,10 @@ func (r route) applyModel(requested string) (string, error) {
 }
 
 // errBadTokenLimit refuses a max_tokens that is not a finite, non-negative number.
-var errBadTokenLimit = errors.New("max_tokens and max_completion_tokens must be non-negative numbers")
+var errBadTokenLimit = errors.New("max_tokens, max_completion_tokens and max_output_tokens must be non-negative numbers")
 
-// capTokens lowers max_tokens and max_completion_tokens above the upstream's
+// capTokens lowers max_tokens, max_completion_tokens and max_output_tokens
+// (the Responses API) above the upstream's
 // cap. Every number form counts (5000.0, 1e6): the value is read as a float
 // and floored before the comparison. It reports whether it changed the body,
 // and refuses non-finite or negative values when a cap is set.
@@ -386,7 +387,7 @@ func (r route) capTokens(body map[string]any) (bool, error) {
 		return false, nil
 	}
 	changed := false
-	for _, k := range []string{"max_tokens", "max_completion_tokens"} {
+	for _, k := range []string{"max_tokens", "max_completion_tokens", "max_output_tokens"} {
 		v, ok := body[k]
 		if !ok || v == nil {
 			continue

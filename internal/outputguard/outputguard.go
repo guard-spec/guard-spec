@@ -49,8 +49,9 @@ type Config struct {
 	// DropReasoning removes the reasoning fields some upstreams (Ollama, vLLM)
 	// send next to the content, instead of guarding them like the content.
 	DropReasoning bool
-	// PassUnknownBlocks passes content blocks of a Messages API response whose
-	// type the guard does not know on unchanged and unchecked
+	// PassUnknownBlocks passes content blocks of a Messages API response, and
+	// output items, content parts and stream events of a Responses API
+	// response, whose type the guard does not know on unchanged and unchecked
 	// (OUTPUT_UNKNOWN_BLOCKS=pass). Off, the default: such a response is
 	// refused (ErrUncheckable).
 	PassUnknownBlocks bool

@@ -23,11 +23,13 @@ func TestLoadScanConfig(t *testing.T) {
 		wantErr bool
 	}{
 		{"defaults", nil, scanConfig{Roles: indirect.DefaultRoles, Spotlight: indirect.ModeOff, IndirectThreshold: 0.85,
-			IndirectAction: indirect.ActionBlock, History: historyLatest}, false},
+			IndirectAction: indirect.ActionBlock, History: historyLatest, ServerState: serverStateRefuse}, false},
 		{"all set", map[string]string{"SCAN_ROLES": "user,system", "SPOTLIGHT": "delimit", "INDIRECT_BLOCK_THRESHOLD": "0.7",
-			"INDIRECT_ACTION": "Redact", "SCAN_HISTORY": "full"},
+			"INDIRECT_ACTION": "Redact", "SCAN_HISTORY": "full", "RESPONSES_SERVER_STATE": "Allow", "EMBEDDINGS_SCAN": "on"},
 			scanConfig{Roles: indirect.Roles{User: true, System: true}, Spotlight: indirect.ModeDelimit, IndirectThreshold: 0.7,
-				IndirectAction: indirect.ActionRedact, History: historyFull}, false},
+				IndirectAction: indirect.ActionRedact, History: historyFull, ServerState: serverStateAllow, EmbeddingsScan: true}, false},
+		{"bad server state", map[string]string{"RESPONSES_SERVER_STATE": "warn"}, scanConfig{}, true},
+		{"bad embeddings scan", map[string]string{"EMBEDDINGS_SCAN": "yes"}, scanConfig{}, true},
 		{"bad action", map[string]string{"INDIRECT_ACTION": "drop"}, scanConfig{}, true},
 		{"bad history", map[string]string{"SCAN_HISTORY": "all"}, scanConfig{}, true},
 		{"bad role", map[string]string{"SCAN_ROLES": "everyone"}, scanConfig{}, true},

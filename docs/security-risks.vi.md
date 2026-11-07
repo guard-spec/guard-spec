@@ -32,7 +32,8 @@ dụng LLM trở nên an toàn.
 | D2 | Chặn nhầm request vô hại | Người dùng bị từ chối | Đo trên lưu lượng thật, allow exemplar, `DETECTOR_LAYERS` |
 | D3 | Lớp model thiếu mà không ai biết | Chỉ chạy L1, tỷ lệ bắt giảm | `DETECTOR_REQUIRE_ML=true`, cảnh báo khi `/readyz` báo `degraded` |
 | D4 | Injection gián tiếp trong phần không quét | Kết quả tool hoặc system prompt không được kiểm | `SCAN_ROLES`, `scan_roles` theo org, `SPOTLIGHT` |
-| D5 | Lịch sử hội thoại bị giả mạo trên `/v1/messages` | Văn bản chưa quét đặt vào các lượt trước tới được model | Chỉ cấp key cho client tin cậy, hoặc `SCAN_HISTORY=full` |
+| D5 | Lịch sử hội thoại bị giả mạo trên `/v1/messages` và `/v1/responses` | Văn bản chưa quét đặt vào các lượt trước tới được model | Chỉ cấp key cho client tin cậy, hoặc `SCAN_HISTORY=full` |
+| D6 | Trạng thái hội thoại lưu ở upstream (`/v1/responses`) | Các lượt trước mà gateway không thấy tới được model | `RESPONSES_SERVER_STATE=refuse` (mặc định); mỗi org một key upstream riêng |
 | A1 | Agent dùng tool sai mục đích | Mất dữ liệu, hành động ngoài ý muốn | Phân quyền trong ứng dụng, kiểm soát egress, xác nhận |
 | A2 | Rò dữ liệu qua link được giữ lại | Dữ liệu ra ngoài qua câu trả lời | Allowlist host ngắn, tắt tự tạo link trong UI |
 | P1 | Dịch vụ chạy không có TLS | Lộ thông tin đăng nhập và prompt trên mạng | TLS ở reverse proxy hoặc load balancer |
@@ -126,6 +127,27 @@ Nên làm:
   lập trình viên là một ví dụ).
 - Đặt `SCAN_HISTORY=full` khi client không đáng tin; phiên dài sẽ chạm giới
   hạn 128 KiB sớm hơn.
+
+Điều này cũng áp dụng cho các input item của `/v1/responses`: các lượt tới
+item cuối cùng do model tạo là lịch sử.
+
+### D6. Trạng thái hội thoại lưu ở upstream trên `/v1/responses`
+
+Với `previous_response_id`, `conversation` hoặc `item_reference`, Responses
+API thêm các lượt trước mà upstream đã lưu. Gateway không thấy chúng trong
+request nên không quét lại được. Chúng chỉ đi qua gateway khi được tạo nếu
+mọi lượt đều đi qua; và response id tạo bằng một key upstream dùng chung cho
+nhiều org hay ứng dụng có thể bị bất kỳ ai biết id tham chiếu. Mặc định
+(`RESPONSES_SERVER_STATE=refuse`) các request này nhận 400.
+
+Nên làm:
+
+- Giữ mặc định và để client gửi toàn bộ hội thoại trong `input` (model
+  reasoning giữ trạng thái bằng `include: ["reasoning.encrypted_content"]` và
+  `store: false`).
+- Nếu đặt `RESPONSES_SERVER_STATE=allow` để tương thích, cấp cho mỗi org một
+  key upstream riêng (upstream có tên với `UPSTREAM_KEY_*`) và theo dõi các
+  dòng audit có tag `input:server_state=1`.
 
 ## Rủi ro ở ứng dụng và agent
 
