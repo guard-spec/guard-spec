@@ -3,6 +3,8 @@
 
 # Integrations: pointing your tools at the gateway
 
+> Tiếng Việt: [integrations.vi.md](integrations.vi.md).
+
 The gateway speaks a subset of the OpenAI HTTP API and the Anthropic Messages
 API. A client that lets you set the OpenAI base URL and sends chat
 completions, Responses API requests or embeddings, or the Anthropic base URL

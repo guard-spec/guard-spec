@@ -226,6 +226,16 @@ jobs:
       # Standard library only, fixtures only: no install, no network.
       - run: python3 -m unittest discover -s train/tests -v
 
+  docs-links:
+    name: Docs links (relative links and anchors)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Standard library only, no network: external links are not checked.
+      - run: git ls-files -z '*.md' ':!:web/node_modules' | xargs -0 python3 scripts/check-md-links.py
+
   release-config:
     name: GoReleaser config
     runs-on: ubuntu-latest

@@ -3,6 +3,8 @@
 
 # Managed PostgreSQL: RDS, Cloud SQL, Neon, Supabase
 
+> Tiếng Việt: [managed-postgres.vi.md](managed-postgres.vi.md).
+
 > **Status: reference, not yet verified by the maintainers on these
 > providers.** Community-tested: not yet. If you run Guard Spec on one of
 > them, please open an
