@@ -25,6 +25,20 @@ updates:
       - dependency-name: postgres
         update-types: ["version-update:semver-major"]
 
+  # The admin UI and the TypeScript examples. Minor and patch updates come as
+  # one grouped pull request per directory; majors one by one.
+  - package-ecosystem: npm
+    directories:
+      - /web
+      - /examples/typescript/openai-sdk
+      - /examples/typescript/vercel-ai-sdk
+    schedule:
+      interval: weekly
+    groups:
+      npm-minor-patch:
+        update-types: ["minor", "patch"]
+    open-pull-requests-limit: 5
+
   - package-ecosystem: github-actions
     directory: /
     schedule:

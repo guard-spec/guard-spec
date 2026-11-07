@@ -227,6 +227,8 @@ shortest path to a reviewed deployment.
 ## Verifying a release
 
 Images are signed with cosign (keyless, GitHub Actions OIDC) and carry SPDX
-SBOMs and SLSA provenance; archives are covered by signed checksum files.
+SBOMs and SLSA provenance; archives are covered by signed checksum files
+and, from the release after v0.3.0, by SLSA build provenance
+(`guard-spec_<version>.intoto.jsonl`).
 The commands, what each check proves and their output for v0.2.0 are in
 [Verifying a release](verifying-releases.md).

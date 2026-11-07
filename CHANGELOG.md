@@ -21,6 +21,29 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 - `scripts/check-md-links.py` checks relative links and anchors in the
   Markdown files; CI runs it on every `.md` file (job "Docs links").
 
+### Security
+
+- Release archives get SLSA v1 build provenance: the release workflow's new
+  `provenance` job attests every file of `checksums.txt` and
+  `checksums-onnx.txt` (GitHub artifact attestation, Sigstore) and attaches
+  it as `guard-spec_<version>.intoto.jsonl`. Verify with `gh attestation
+  verify` ([docs/security/verifying-releases.md](docs/security/verifying-releases.md#archive-provenance)).
+- New manual workflow **Sign model release**: checks a model release's files
+  against `models/manifest.yaml` and attaches a cosign-signed `SHA256SUMS`.
+- The Publish model workflow installs `huggingface_hub` and its dependencies
+  pinned by SHA-256 (`train/hf/requirements-publish.txt`, `pip
+  --require-hashes`).
+- `build/gateway-full.Dockerfile` defaults `GATEWAY_IMAGE` to the signed
+  v0.3.0 gateway image by digest instead of the local tag
+  `guard-spec-gateway:latest`; pass `--build-arg
+  GATEWAY_IMAGE=guard-spec-gateway:latest` to build on a local image.
+- The LlamaIndex example needs Python 3.11 or newer and locks Pillow 13.0.0,
+  which fixes the Pillow 12.x advisories reported by OpenSSF Scorecard.
+- Dependabot also updates the npm dependencies of the admin UI and the
+  TypeScript examples.
+- [docs/openssf-best-practices.md](docs/openssf-best-practices.md): the
+  OpenSSF Best Practices (passing) answers, prepared for registration.
+
 ## [0.3.0] - 2026-11-07
 
 ### Added

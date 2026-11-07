@@ -53,7 +53,8 @@ jobs:
           STAGE: ${{ runner.temp }}/stage
         run: |
           [ -n "$HF_TOKEN" ] || { echo "::error::the repository secret HF_TOKEN is not set"; exit 1; }
-          python3 -m pip install --quiet huggingface_hub==0.36.0
+          # Every package pinned by version and SHA-256 (train/hf/requirements-publish.in).
+          python3 -m pip install --quiet --require-hashes -r train/hf/requirements-publish.txt
           python3 - <<'EOF'
           import os
           from huggingface_hub import HfApi

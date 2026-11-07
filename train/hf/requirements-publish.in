@@ -1,0 +1,10 @@
+# Copyright 2026 The Guard Spec Authors
+# SPDX-License-Identifier: Apache-2.0
+#
+# What .github/workflows/publish-model.yml installs to upload a model to
+# Hugging Face. requirements-publish.txt is generated from this file, with the
+# SHA-256 of every distribution, and installed with pip --require-hashes:
+#
+#   uv pip compile --universal --python-version 3.12 --generate-hashes \
+#     train/hf/requirements-publish.in -o train/hf/requirements-publish.txt
+huggingface_hub==0.36.0

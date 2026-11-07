@@ -115,3 +115,13 @@ cosign verify-blob checksums-onnx.txt --bundle checksums-onnx.txt.sigstore.json 
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 sha256sum --ignore-missing -c checksums-onnx.txt
 ```
+
+From the release after v0.3.0, every file those checksums list also has SLSA
+build provenance (a GitHub artifact attestation), attached to the release as
+`guard-spec_<version>.intoto.jsonl`:
+
+```bash
+gh attestation verify guard-spec_<version>_linux_amd64.tar.gz -R guard-spec/guard-spec \
+  --bundle guard-spec_<version>.intoto.jsonl \
+  --signer-workflow guard-spec/guard-spec/.github/workflows/release.yml
+```

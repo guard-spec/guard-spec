@@ -228,6 +228,8 @@ kèm cách giảm, nằm trong
 ## Xác minh một bản phát hành
 
 Image được ký bằng cosign (keyless, OIDC của GitHub Actions) và kèm SBOM SPDX
-và SLSA provenance; archive được bảo đảm bằng các file checksum có chữ ký.
+và SLSA provenance; archive được bảo đảm bằng các file checksum có chữ ký
+và, từ bản phát hành sau v0.3.0, bằng SLSA build provenance
+(`guard-spec_<version>.intoto.jsonl`).
 Các lệnh, mỗi bước kiểm tra chứng minh điều gì và kết quả của chúng cho v0.2.0
 nằm trong [Xác minh một bản phát hành](verifying-releases.md).

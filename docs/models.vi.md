@@ -275,5 +275,10 @@ Dành cho maintainer. Ví dụ dưới đây phát hành `guardspec-classifier` 
    để chứng minh cả hai nguồn đều phục vụ đúng các file đã ghim.
 8. **CHANGELOG**: thêm mục "Model" dưới Unreleased với phiên bản, những thay
    đổi về dữ liệu, và số liệu eval so với phiên bản trước.
+9. **Ký** GitHub Release khi thay đổi manifest đã vào `main`: chạy workflow
+   *Sign model release* (`gh workflow run sign-model-release.yml -f version=v4`).
+   Workflow kiểm tra mọi file với các giá trị ghim mới rồi đính kèm
+   `SHA256SUMS` cùng bundle cosign của nó
+   ([cách xác minh](security/verifying-releases.md#5-models), tiếng Anh).
 
 Release phần mềm kế tiếp sau đó sẽ mang manifest khuyến nghị v4.

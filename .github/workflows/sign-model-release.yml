@@ -1,0 +1,73 @@
+name: Sign model release
+
+# Manual, from main. Signs the files of a model release (tag
+# model-guardspec-classifier-<version>, attached by hand, docs/models.md):
+# downloads them, checks every file against the size and SHA-256 pinned for
+# that version in models/manifest.yaml (go run ./cmd/models verify), writes
+# SHA256SUMS for the files that matched, signs it with cosign keyless (GitHub
+# OIDC, no long-lived key) and attaches SHA256SUMS and
+# SHA256SUMS.sigstore.json to the release. A file that does not match its pin
+# fails the run and nothing is signed. Run it again after replacing a file.
+#
+# This is a signature, not build provenance: the model is trained outside
+# GitHub Actions, so no workflow can honestly claim to have built it. Verify:
+# docs/security/verifying-releases.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Model version (release tag model-guardspec-classifier-<version>)
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  sign:
+    # The signing identity names the ref; verification pins refs/heads/main.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # attach the signature to the release
+      id-token: write   # cosign keyless signing through GitHub OIDC
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Download and check against models/manifest.yaml
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -o pipefail
+          case "$VERSION" in ""|*[!a-z0-9.-]*) echo "::error::bad version: $VERSION"; exit 1 ;; esac
+          dir="$RUNNER_TEMP/m/guardspec-classifier/$VERSION"
+          gh release download "model-guardspec-classifier-$VERSION" -R "$GITHUB_REPOSITORY" -D "$dir"
+          go run ./cmd/models verify -dir "$RUNNER_TEMP/m" "guardspec-classifier@$VERSION" | tee "$RUNNER_TEMP/verify.txt"
+          # Only the files the manifest pins and that matched ("<path>: ok").
+          sed -n 's|^.*/\([^/]*\): ok$|\1|p' "$RUNNER_TEMP/verify.txt" | LC_ALL=C sort > "$RUNNER_TEMP/files.txt"
+          [ -s "$RUNNER_TEMP/files.txt" ] || { echo "::error::no verified files"; exit 1; }
+          mkdir -p "$RUNNER_TEMP/out"
+          (cd "$dir" && xargs sha256sum -- < "$RUNNER_TEMP/files.txt") > "$RUNNER_TEMP/out/SHA256SUMS"
+          cat "$RUNNER_TEMP/out/SHA256SUMS"
+      - name: Sign and attach
+        working-directory: ${{ runner.temp }}/out
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          cosign sign-blob --yes --bundle SHA256SUMS.sigstore.json SHA256SUMS
+          gh release upload "model-guardspec-classifier-$VERSION" -R "$GITHUB_REPOSITORY" --clobber -- SHA256SUMS SHA256SUMS.sigstore.json
+          {
+            echo "Signed model-guardspec-classifier-$VERSION:"
+            echo
+            echo '```'
+            cat SHA256SUMS
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

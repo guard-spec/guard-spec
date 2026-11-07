@@ -278,5 +278,10 @@ For maintainers. The example releases `guardspec-classifier` `v4`.
 8. **CHANGELOG**: add a "Model" section under Unreleased with the version,
    what changed in the data, and the eval numbers against the previous
    version.
+9. **Sign** the GitHub Release once the manifest bump is on `main`: run the
+   *Sign model release* workflow (`gh workflow run sign-model-release.yml -f version=v4`).
+   It checks every file against the new pins and attaches `SHA256SUMS` and
+   its cosign bundle
+   ([verifying](security/verifying-releases.md#5-models)).
 
 The next software release then ships the manifest that recommends v4.
