@@ -110,6 +110,10 @@ services:
       METRICS_ADDR: ":9090"   # internal only; scrape it from the edge network
       RATE_LIMIT_RPM: ${RATE_LIMIT_RPM:-0}
       RATE_LIMIT_TPM: ${RATE_LIMIT_TPM:-0}
+      # Scan cache: memory, postgres or redis (the scan-cache service below,
+      # --profile scan-cache; SCAN_CACHE_REDIS_URL in .env). README, Scan cache.
+      SCAN_CACHE_BACKEND: ${SCAN_CACHE_BACKEND:-memory}
+      SCAN_CACHE_REDIS_URL: ${SCAN_CACHE_REDIS_URL:-}
       ALERTS_FLAG_THRESHOLD: ${ALERTS_FLAG_THRESHOLD:-0.5}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       OTEL_PROPAGATE_UPSTREAM: ${OTEL_PROPAGATE_UPSTREAM:-false}
@@ -294,6 +298,40 @@ services:
       - models:/models
     networks: [edge]
     restart: "no"
+
+  # Shared scan cache for SCAN_CACHE_BACKEND=redis, on the internal network
+  # only and with a required password (whoever can write to it can mark
+  # content as clean). Valkey: Redis-compatible, BSD licensed. In memory only.
+  #   docker compose --profile scan-cache up -d
+  #   SCAN_CACHE_REDIS_URL=redis://:<SCAN_CACHE_REDIS_PASSWORD>@scan-cache:6379/0
+  scan-cache:
+    profiles: [scan-cache]
+    image: valkey/valkey:8.1.4-alpine@sha256:e706d1213aaba6896c162bb6a3a9e1894e1a435f28f8f856d14fab2e10aa098b
+    restart: unless-stopped
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        if [ "$${#SCAN_CACHE_REDIS_PASSWORD}" -lt 16 ]; then
+          echo "scan-cache: set SCAN_CACHE_REDIS_PASSWORD (16 characters or more) in .env" >&2; exit 1
+        fi
+        exec valkey-server --requirepass "$$SCAN_CACHE_REDIS_PASSWORD" --save "" --appendonly no \
+          --maxmemory "$${SCAN_CACHE_REDIS_MAXMEMORY:-256mb}" --maxmemory-policy volatile-lru
+    environment:
+      SCAN_CACHE_REDIS_PASSWORD: ${SCAN_CACHE_REDIS_PASSWORD:-}
+      SCAN_CACHE_REDIS_MAXMEMORY: ${SCAN_CACHE_REDIS_MAXMEMORY:-256mb}
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "valkey-cli --no-auth-warning -a \"$$SCAN_CACHE_REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: ${SCAN_CACHE_MEMORY:-320m}
+    logging: *logging
 
 networks:
   # Caddy, the services and egress (upstream LLMs, SMTP, model downloads).

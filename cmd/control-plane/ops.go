@@ -49,6 +49,9 @@ func loadOpsConfig(env func(string) string) (opsConfig, error) {
 	cfg.Retention = retention.Config{
 		Days: days, ActivityDays: activityDays, SessionDays: sessionDays,
 		Interval: interval, Batch: batch,
+		// The shared scan cache (migration 020) has its own expiry; its
+		// expired rows go whatever the retention periods are.
+		ScanCache: true,
 	}
 	return cfg, nil
 }

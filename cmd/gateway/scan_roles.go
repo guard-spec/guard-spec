@@ -509,12 +509,36 @@ func (gw gateway) scoreRequest(g *textGuard) (requestVerdict, error) {
 		gen = gw.generation()
 	}
 
+	// One lookup of every key the request may need: the in-process layer,
+	// then the shared one (scan_cache_shared.go) for what it lacks. What is
+	// scored below is written through to both when the request is done.
+	var reqs []cacheReq
+	sourceKeys := make([]string, len(g.parts))
+	toolKeys := make([]string, len(g.tools))
+	if cache != nil {
+		for i, p := range g.parts {
+			switch {
+			case p.source.Untrusted():
+				sourceKeys[i] = cacheKey(g.org, cacheSource, string(p.source), p.text)
+				reqs = append(reqs, cacheReq{cacheSource, sourceKeys[i]})
+			case p.alone:
+				reqs = append(reqs, cacheReq{cacheDirect, cacheKey(g.org, cacheDirect, string(p.source), p.text)})
+			}
+		}
+		for i, t := range g.tools {
+			toolKeys[i] = toolCacheKey(g, t)
+			reqs = append(reqs, cacheReq{cacheTool, toolKeys[i]})
+		}
+	}
+	view := cache.view(gw.base, gen, g.org, reqs)
+	defer view.flush(gw.base)
+
 	var direct, alone []scanPart
 	untrustedBytes, historyBytes := 0, 0
 	for i, p := range g.parts {
 		switch {
 		case p.source.Untrusted():
-			if _, hit := cache.get(gen, cacheKey(g.org, cacheSource, string(p.source), p.text)); hit {
+			if _, hit := view.get(sourceKeys[i]); hit {
 				break
 			}
 			if p.history {
@@ -528,8 +552,8 @@ func (gw gateway) scoreRequest(g *textGuard) (requestVerdict, error) {
 			direct = append(direct, p)
 		}
 	}
-	for _, t := range g.tools {
-		if _, hit := cache.get(gen, toolCacheKey(g, t)); !hit {
+	for i, t := range g.tools {
+		if _, hit := view.get(toolKeys[i]); !hit {
 			untrustedBytes += len(t.Description)
 		}
 	}
@@ -540,14 +564,14 @@ func (gw gateway) scoreRequest(g *textGuard) (requestVerdict, error) {
 	for _, p := range alone {
 		key := cacheKey(g.org, cacheDirect, string(p.source), p.text)
 		var scores inference.Scores
-		if hit, ok := cache.get(gen, key); ok {
+		if hit, ok := view.get(key); ok {
 			scores = hit.(inference.Scores)
 		} else {
 			var err error
 			if scores, err = gw.runner.Scan(gw.base, p.text); err != nil {
 				return v, err
 			}
-			cache.put(gen, key, scores)
+			view.put(cacheDirect, key, scores)
 		}
 		if c := float64(scores.Injection.Confidence); v.SourceRole == "" || c > v.Direct {
 			v.Scores, v.Direct, v.SourceRole = scores, c, string(p.source)
@@ -579,7 +603,7 @@ func (gw gateway) scoreRequest(g *textGuard) (requestVerdict, error) {
 			continue
 		}
 		key := cacheKey(g.org, cacheSource, string(p.source), p.text)
-		if hit, ok := cache.get(gen, key); ok {
+		if hit, ok := view.get(key); ok {
 			p.verdict = hit.(indirect.Verdict)
 		} else {
 			pv, err := scoreSegments(gw.base, scanner, p.text, p.source)
@@ -587,7 +611,7 @@ func (gw gateway) scoreRequest(g *textGuard) (requestVerdict, error) {
 				return v, err
 			}
 			p.verdict = pv
-			cache.put(gen, key, pv)
+			view.put(cacheSource, key, pv)
 		}
 		if v.Indirect.Source == "" || p.verdict.Score > v.Indirect.Score {
 			v.Indirect = p.verdict
@@ -597,8 +621,9 @@ func (gw gateway) scoreRequest(g *textGuard) (requestVerdict, error) {
 	for _, t := range g.tools {
 		key := toolCacheKey(g, t)
 		var tv indirect.ToolVerdict
-		if hit, ok := cache.get(gen, key); ok {
+		if hit, ok := view.get(key); ok {
 			tv = hit.(indirect.ToolVerdict)
+			tv.Name = t.Name // the shared layer does not keep it
 		} else {
 			var err error
 			if tv, err = scanner.ScoreTool(gw.base, t, g.toolSchemaKey(), false); err != nil {
@@ -607,7 +632,7 @@ func (gw gateway) scoreRequest(g *textGuard) (requestVerdict, error) {
 				}
 				return v, err
 			}
-			cache.put(gen, key, tv)
+			view.put(cacheTool, key, tv)
 		}
 		v.Tools = max(v.Tools, tv.Score)
 		if v.Indirect.Source == "" || tv.Score > v.Indirect.Score {

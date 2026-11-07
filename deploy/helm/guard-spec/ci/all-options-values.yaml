@@ -24,6 +24,11 @@ gateway:
   modelsManifest: /models/manifest.yaml
   adminToken:
     enabled: true
+  scanCache:
+    backend: redis
+    timeout: "30ms"
+    redis:
+      existingSecret: guard-spec-redis
   nodeSelector: {kubernetes.io/arch: amd64}
   tolerations:
     - {key: dedicated, operator: Equal, value: guard-spec, effect: NoSchedule}
@@ -102,6 +107,9 @@ networkPolicy:
       - to:
           - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: observability}}
         ports: [{port: 4318, protocol: TCP}]
+      - to:
+          - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: redis}}
+        ports: [{port: 6379, protocol: TCP}]
 serviceMonitor:
   enabled: true
   labels: {release: prometheus}

@@ -170,8 +170,23 @@ var (
 	// retention job, by table (activity_log, sessions).
 	RetentionTableDeleted = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: namespace, Subsystem: "retention", Name: "deleted_rows_total",
-		Help: "Rows deleted by retention by table: activity_log (ACTIVITY_LOG_RETENTION_DAYS) or sessions (SESSION_RETENTION_DAYS).",
+		Help: "Rows deleted by retention by table: activity_log (ACTIVITY_LOG_RETENTION_DAYS), sessions (SESSION_RETENTION_DAYS) or scan_cache (expired entries).",
 	}, []string{"table"})
+
+	// ScanCacheLookups counts scan cache lookups per key, by layer (memory,
+	// redis, postgres) and result (hit, miss, error). A key the memory layer
+	// misses is looked up in the shared layer, when there is one.
+	ScanCacheLookups = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: namespace, Subsystem: "gateway", Name: "scan_cache_lookups_total",
+		Help: "Scan cache lookups per key by layer (memory, redis, postgres) and result (hit, miss, error).",
+	}, []string{"layer", "result"})
+
+	// ScanCacheErrors counts failed or timed-out calls to the shared scan
+	// cache by layer and operation (get, set). The request is scanned anyway.
+	ScanCacheErrors = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: namespace, Subsystem: "gateway", Name: "scan_cache_errors_total",
+		Help: "Failed or timed-out shared scan cache calls by layer (redis, postgres) and operation (get, set); the request is scanned anyway.",
+	}, []string{"layer", "op"})
 )
 
 func init() {
@@ -182,6 +197,7 @@ func init() {
 		UpstreamDuration, UpstreamErrors, PolicyErrors, RouteSelections, OutputActions, RateLimited,
 		HTTPRequests, HTTPDuration, RetentionRuns, RetentionDeleted, RetentionTableDeleted,
 		EventsDropped, EventsWritten, AlertsFired, Deliveries, DeliveryLatency,
+		ScanCacheLookups, ScanCacheErrors,
 	)
 }
 

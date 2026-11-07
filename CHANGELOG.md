@@ -91,12 +91,36 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 - An upstream's `max_tokens_cap` also caps `max_output_tokens`.
 - docs/integrations.md: an OpenAI SDK example for the Responses API and
   embeddings, and the steps to verify Cursor (still not verified).
+- Shared scan cache for several gateway replicas: `SCAN_CACHE_BACKEND=redis`
+  (`SCAN_CACHE_REDIS_URL`) or `postgres` (migration 020, `scan_cache` table,
+  row level security by org) behind the in-process cache, read-through and
+  write-through. A long `/v1/messages` or `/v1/responses` session keeps working when its turns
+  alternate between replicas or a replica restarts, instead of classifying
+  its whole history again (413 past 1 MiB). Entries hold scores and verdict
+  metadata only, never text, for 6 hours, keyed on the org, the content's
+  SHA-256 and the model identity (gateway binary, model files, calibration,
+  detector configuration), so replicas with different models never share
+  entries and a model reload needs no flush. Each backend call is bounded by
+  `SCAN_CACHE_TIMEOUT` (50 ms); a failure means a scan, never a failed
+  request. Metrics `guardspec_gateway_scan_cache_lookups_total{layer,result}`
+  and `guardspec_gateway_scan_cache_errors_total{layer,op}`. Helm
+  `gateway.scanCache` (Redis URL from a secret), an optional compose
+  `scan-cache` service (Valkey, `--profile scan-cache`, password required).
+  The control plane's retention job deletes expired `scan_cache` rows.
 
 ### Changed
 
 - The "False positive / false negative" issue form is replaced by the two
   forms above.
 - SECURITY.md says which bypasses are reported publicly and which privately.
+
+### Upgrade notes
+
+- Migration 020 adds the `scan_cache` table and the function
+  `purge_scan_cache`. Run the migrations before starting the new control
+  plane (its retention job calls the function) and before setting
+  `SCAN_CACHE_BACKEND=postgres` on the gateway. Nothing changes with the
+  default `memory`.
 
 ## [0.2.1] - 2026-11-07
 

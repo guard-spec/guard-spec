@@ -242,6 +242,9 @@ type Stack struct {
 
 	cfg     Config
 	threads int // ONNX intra-op threads per session; 0: ORT's choice
+	l3Dir   string
+	l3Once  sync.Once // l3Hash, for the model identity (identity.go)
+	l3Hash  string
 	l2      *L2Model
 	closers []io.Closer // everything but l2
 }
@@ -438,7 +441,7 @@ func (s *Stack) loadL3(ctx context.Context, cfg Config, tenants TenantStore, thr
 		return err
 	}
 	s.Active[fusion.L3] = true
-	s.L3 = layer
+	s.L3, s.l3Dir = layer, dir
 	s.closers = append(s.closers, e)
 	a, b := ix.Len()
 	slog.Info("L3 embeddings loaded", "dir", dir, "attack_exemplars", a, "benign_exemplars", b, "per_org", tc != nil)

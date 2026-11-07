@@ -128,6 +128,26 @@ spec:
                   name: {{ .Values.existingSecret }}
                   key: {{ .Values.gateway.adminToken.key }}
             {{- end }}
+            {{- with .Values.gateway.scanCache }}
+            {{- if not (has .backend (list "memory" "redis" "postgres")) }}
+            {{- fail "gateway.scanCache.backend must be memory, redis or postgres" }}
+            {{- end }}
+            - name: SCAN_CACHE_SIZE
+              value: {{ .size | toString | quote }}
+            - name: SCAN_CACHE_BACKEND
+              value: {{ .backend | quote }}
+            {{- if ne .backend "memory" }}
+            - name: SCAN_CACHE_TIMEOUT
+              value: {{ .timeout | quote }}
+            {{- end }}
+            {{- if eq .backend "redis" }}
+            - name: SCAN_CACHE_REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .redis.existingSecret | default $.Values.existingSecret }}
+                  key: {{ .redis.key }}
+            {{- end }}
+            {{- end }}
             {{- range $k, $v := .Values.gateway.env }}
             - name: {{ $k }}
               value: {{ $v | quote }}

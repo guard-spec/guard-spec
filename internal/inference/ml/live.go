@@ -64,6 +64,7 @@ type generation struct {
 	l2       *L2Model     // nil: no L2
 	shadow   *shadowModel // nil: shadow off
 	inflight sync.WaitGroup
+	identity modelIdentity // identity.go
 }
 
 // close frees the generation's models once nothing holds it.

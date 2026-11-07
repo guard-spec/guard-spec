@@ -188,6 +188,30 @@ gateway:
   adminToken:
     enabled: false
     key: GATEWAY_ADMIN_TOKEN
+  # Scan cache (README, "Scan cache"): detector results of texts a session
+  # sends again (system prompt, tools, earlier tool results), kept for 6 hours
+  # as scores and hashes, never text. Each replica has its own in-memory
+  # cache (size entries; 0 turns every layer off). With more than one replica,
+  # a shared backend lets a session go on when its next turn lands on another
+  # replica or after a restart, instead of classifying its whole history
+  # again (and getting 413 past 1 MiB):
+  #   memory:   this replica only (the default)
+  #   postgres: the scan_cache table of the gateway's database (migration 020)
+  #   redis:    a Redis the chart does not install; its URL
+  #             (rediss://:<password>@host:6379/0) comes from a secret. Keep it
+  #             private and authenticated: whoever can write to it can mark
+  #             content as clean (docs/security/README.md).
+  # A slow or failing backend is skipped after timeout: the request is
+  # scanned as without it. With networkPolicy.egress.restrict, allow the Redis
+  # port in networkPolicy.egress.gateway.
+  scanCache:
+    size: "4096"
+    backend: memory
+    timeout: "50ms"
+    redis:
+      # Secret holding the URL; empty: existingSecret.
+      existingSecret: ""
+      key: SCAN_CACHE_REDIS_URL
   # With L1 + L2 + L3 loaded the gateway uses about 900 MiB right after
   # start; the limit leaves headroom for requests. L1 only needs much less.
   resources:
