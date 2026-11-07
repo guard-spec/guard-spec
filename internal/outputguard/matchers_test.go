@@ -12,10 +12,39 @@ import (
 // text, as the guard did before; both must find exactly the same matches.
 
 var (
-	mdFullRef = regexp.MustCompile(mdFull)
-	mdTailRef = regexp.MustCompile(mdTail)
+	mdTextRef = regexp.MustCompile(`^(!?)\[([^\[\]\n]{0,1000})\]\(`)
 	digitRef  = regexp.MustCompile(`\d(?:[ \-]?\d)*`)
 )
+
+// mdMatchesRef tries every place in text, left to right, as an unanchored
+// expression would: the link text there, then the tail (mdLinkTail).
+func mdMatchesRef(text string, full bool) [][]int {
+	var out [][]int
+	for s := 0; s < len(text); {
+		var m []int
+		if full {
+			m = mdTextRef.FindStringSubmatchIndex(text[s:])
+		} else if strings.HasPrefix(text[s:], "](") {
+			m = []int{0, 2}
+		}
+		if m == nil {
+			s++
+			continue
+		}
+		urlStart, urlEnd, end, ok, _ := mdLinkTail(text, s+m[1])
+		if !ok {
+			s++
+			continue
+		}
+		if full {
+			out = append(out, []int{s, end, s + m[2], s + m[3], s + m[4], s + m[5], urlStart, urlEnd})
+		} else {
+			out = append(out, []int{s, end, urlStart, urlEnd})
+		}
+		s = end
+	}
+	return out
+}
 
 func allBoundedRef(re *regexp.Regexp, text string, inToken func(string, int) bool) [][]int {
 	var out [][]int
@@ -62,8 +91,8 @@ func checkMatchers(t *testing.T, text string) {
 		}
 	}
 	same("email", emailMatches(text), emailRe.FindAllStringIndex(text, -1))
-	same("mdFull", mdMatches(text, true), mdFullRef.FindAllStringSubmatchIndex(text, -1))
-	same("mdTail", mdMatches(text, false), mdTailRef.FindAllStringSubmatchIndex(text, -1))
+	same("mdFull", mdMatches(text, true), mdMatchesRef(text, true))
+	same("mdTail", mdMatches(text, false), mdMatchesRef(text, false))
 	same("digits", digitRuns(text), digitRef.FindAllStringIndex(text, -1))
 	same("cccd", allBounded(cccdRe, text, digitAt), allBoundedRef(cccdRe, text, digitAt))
 	same("phone", allBounded(phoneRe, text, phoneToken), allBoundedRef(phoneRe, text, phoneToken))
@@ -78,6 +107,7 @@ var matcherSeeds = []string{
 	"[t](https://evil.com/x) ![i](<https://e.com/a b.png> \"t\") [a [b](c) ](d) [x]](y)",
 	"[" + strings.Repeat("t", 1000) + "](u) [" + strings.Repeat("t", 1001) + "](u)",
 	"![a](b](c)) [w](https://en.wikipedia.org/wiki/F_(b)) [x](\n y) [x](y 'z')",
+	"[t](https://e.com/(x \"t\") [u](a((b))c) [v](a\\)b) [w](<a<b>) [x](a<b>c) [y](<a\\>b>) [z](a (t))",
 	"0912 345 678 +84 912 345 678 84-28-3822-1234 0912.345.678 1+84912345678 ++84 912345678",
 	"4111 1111 1111 1111 4111-1111-1111-1111 001203004567 0012030045678 1-2 3  4 5- 6",
 	"192.168.1.10 10.0.0.255. 1.2.3.4.5 256.1.1.1 1.1.1.1x .1.2.3.4",

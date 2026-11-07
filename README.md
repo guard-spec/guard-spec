@@ -1654,7 +1654,10 @@ checked and gives 502.
   definitions whose host is not on the allowlist are removed
   (`[REDACTED:image]`). Links to other hosts keep their text and lose the URL.
   Bare image URLs that carry a query string are replaced with
-  `[REDACTED:url]`. With the default empty allowlist every image and link is
+  `[REDACTED:url]`; a bare URL runs, as GitHub's markdown reads it, to the
+  next blank or `<`, brackets, parentheses and quotes included, and is
+  checked from every place one starts.
+  With the default empty allowlist every image and link is
   removed. An `<img>` tag is kept only if every `src` and `srcset` URL is on
   the allowlist.
 - **Personal data.** Each match is replaced with `[REDACTED:<type>]`:
@@ -1673,6 +1676,16 @@ checked and gives 502.
   joined text, after rewriting, and in a stream holds back the text before a
   link that may be removed until it knows what follows. The joined value is
   redacted, or blocks the response, as if the markup had not been there.
+- **Markup rebuilt by a removal.** What is left around removed markup, or a
+  marker next to `(…)`, can form a new image, link, reference definition or
+  URL: `![x][]()(https://evil.com/a.png)` would become
+  `![x](https://evil.com/a.png)`. The guard checks what it produced again
+  with the same rules, up to three times, and removes what it finds as if it
+  had been in the answer: here `[REDACTED:image]`, and
+  `[REDACTED:email](https://…)` keeps only its text, `REDACTED:email`.
+  Markup nested deeper than that ends the answer with a marker. Streams hold
+  back what a removal may still join and send what the whole answer would
+  be.
 - **Reasoning.** The `reasoning` and `reasoning_content` fields that Ollama
   and vLLM send are guarded like the answer, or dropped.
 - **Refusals and tool calls.** `refusal` is guarded like the answer. Tool-call

