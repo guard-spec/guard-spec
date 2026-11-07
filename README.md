@@ -1666,6 +1666,12 @@ checked and gives 502.
   refused with 400 `content_filter` (in a stream, an error event that ends
   it), or the token is redacted. Either way the row's action is
   `output_leak`.
+- **Values split by markup.** Removing a link can join the text on either side
+  of it: `PS-CANARY-0123[]()4567…` comes out as the whole token. The guard
+  therefore looks for the canary and personal data again where a removal
+  joined text, after rewriting, and in a stream holds back the text before a
+  link that may be removed until it knows what follows. The joined value is
+  redacted, or blocks the response, as if the markup had not been there.
 - **Reasoning.** The `reasoning` and `reasoning_content` fields that Ollama
   and vLLM send are guarded like the answer, or dropped.
 - **Refusals and tool calls.** `refusal` is guarded like the answer. Tool-call

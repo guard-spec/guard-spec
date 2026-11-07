@@ -369,9 +369,17 @@ func (s *Scanner) inline(text string, counts Counts) string {
 // inlineMatches returns non-overlapping canary and personal-data spans, sorted.
 // Matches starting before from are ignored.
 func (s *Scanner) inlineMatches(text string, from int) []span {
+	return s.inlineMatchesAcross(text, from, nil)
+}
+
+// inlineMatchesAcross is inlineMatches restricted, when joins is not nil, to
+// matches that hold one of the positions in joins (sorted) strictly inside
+// them: values that a removal put together. Others are left out before
+// overlaps are settled, so they cannot hide a joined value.
+func (s *Scanner) inlineMatchesAcross(text string, from int, joins []int) []span {
 	var cands []span
 	add := func(start, end int, kind string) {
-		if start >= from {
+		if start >= from && (joins == nil || crosses(joins, start, end)) {
 			cands = append(cands, span{start: start, end: end, repl: marker(kind), kind: kind})
 		}
 	}
@@ -435,6 +443,13 @@ func (s *Scanner) inlineMatches(text string, from int) []span {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].start < out[j].start })
 	return out
+}
+
+// crosses reports whether one of the sorted positions in joins lies strictly
+// inside start..end.
+func crosses(joins []int, start, end int) bool {
+	i := sort.SearchInts(joins, start+1)
+	return i < len(joins) && joins[i] < end
 }
 
 // maxEmail is the longest text emailRe can match: a 64-byte local part, "@",

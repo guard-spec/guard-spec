@@ -32,7 +32,17 @@ type Stream struct {
 	pending int // bytes added since the last scan
 	drop    dropUntil
 	depth   int // parenthesis depth while dropping a markdown URL
-	Counts  Counts
+	// The second pass (settle) works on what the first pass produced: out is
+	// the end of what was sent (out[:outSent], context), then what the first
+	// pass produced and the second holds. joins are the positions in out where
+	// the first pass removed something, or kept only the text of a link, so
+	// that text which was apart in the answer now touches. newJoins are those
+	// of the piece emit just produced.
+	out      []byte
+	outSent  int
+	joins    []int
+	newJoins []int
+	Counts   Counts
 }
 
 type dropUntil int
@@ -64,7 +74,7 @@ func (st *Stream) Write(text string) string {
 		return ""
 	}
 	st.pending = 0
-	return st.emit(false)
+	return st.settle(st.emit(false), false)
 }
 
 // scanEvery is how many new bytes a stream collects before it scans again.
@@ -75,12 +85,14 @@ func (st *Stream) Flush() string {
 	var b strings.Builder
 	for st.sent < len(st.text) {
 		before := len(st.text) - st.sent
-		b.WriteString(st.emit(true))
+		b.WriteString(st.settle(st.emit(true), false))
 		if len(st.text)-st.sent == before {
 			break // cannot place a cut safely: the rest is dropped
 		}
 	}
+	b.WriteString(st.settle("", true))
 	st.text, st.sent, st.pending, st.drop, st.depth = st.text[:0], 0, 0, dropNone, 0
+	st.out, st.outSent, st.joins = st.out[:0], 0, st.joins[:0]
 	return b.String()
 }
 
@@ -125,6 +137,7 @@ func (st *Stream) skipDropped(text string) string {
 // emit renders and removes the safe prefix of what is held, or all of it at
 // the end.
 func (st *Stream) emit(final bool) string {
+	st.newJoins = st.newJoins[:0]
 	text := string(st.text)
 	ctx, buf := text[:st.sent], text[st.sent:]
 	// The text already sent is scanned too, as context; findings that start in
@@ -169,7 +182,17 @@ func (st *Stream) emit(final bool) string {
 			break
 		}
 		b.WriteString(buf[last:a.start])
+		// A removed link (only its text is kept, if any) joins what was
+		// around it. Markers cannot join anything: their brackets and colon
+		// are part of no value the guard looks for.
+		join := a.kind == KindLink
+		if join {
+			st.newJoins = append(st.newJoins, b.Len())
+		}
 		b.WriteString(a.repl)
+		if join && a.repl != "" {
+			st.newJoins = append(st.newJoins, b.Len())
+		}
 		st.Counts.addSpan(a)
 		last = a.end
 	}
@@ -200,6 +223,109 @@ func (st *Stream) emit(final bool) string {
 // contextLen is how much sent text is kept as context for the next scan.
 const contextLen = 16
 
+// settle is the second pass, over what the first pass (emit) produced: piece,
+// with its joins in newJoins. A removal can join the parts of a value that the
+// first pass saw apart, such as the canary split by "[]()", so the second pass
+// looks again for the canary and personal data, but only for matches that
+// hold a join: everything else the first pass has decided on already. Like
+// the first pass, it holds back the end of what it got that could still be
+// the first part of such a value, until what follows is known.
+func (st *Stream) settle(piece string, final bool) string {
+	if st.s.canary == "" && !st.s.g.cfg.RedactPII {
+		return piece // nothing a join could form is looked for
+	}
+	if len(st.joins) == 0 && len(st.newJoins) == 0 && st.outSent == len(st.out) {
+		// Nothing held and nothing joined, as is most often the case: only
+		// the end of piece may still be the first part of a value.
+		cut := len(piece)
+		if !final {
+			cut = st.joinHold(piece)
+		}
+		if cut < contextLen {
+			st.out = append(st.out, piece...)
+			st.keepOut(len(st.out) - len(piece) + cut)
+			return piece[:cut]
+		}
+		keep := cut - contextLen
+		for keep < cut && !utf8.RuneStart(piece[keep]) {
+			keep++
+		}
+		st.out, st.outSent = append(st.out[:0], piece[keep:]...), cut-keep
+		return piece[:cut]
+	}
+	base := len(st.out)
+	st.out = append(st.out, piece...)
+	for _, j := range st.newJoins {
+		st.joins = append(st.joins, base+j)
+	}
+	st.newJoins = st.newJoins[:0]
+	text := string(st.out)
+	buf := text[st.outSent:]
+	cut := len(buf)
+	if !final {
+		cut = st.joinHold(buf)
+	}
+	var found []span
+	if len(st.joins) > 0 {
+		found = st.s.inlineMatchesAcross(text, st.outSent, st.joins)
+		shift(found, st.outSent)
+		// Never cut through a joined value, nor through a run of digits.
+		for moved := true; moved; {
+			moved = false
+			for _, f := range found {
+				if f.start < cut && cut < f.end {
+					cut, moved = f.start, true
+				}
+			}
+			if cut < len(buf) {
+				if r := numericRunStart(buf, cut); r < cut && len(buf)-r <= maxOpen {
+					cut, moved = r, true
+				}
+			}
+		}
+	}
+	for cut > 0 && cut < len(buf) && !utf8.RuneStart(buf[cut]) {
+		cut--
+	}
+	st.keepOut(st.outSent + cut)
+	if len(found) == 0 || found[0].end > cut {
+		return buf[:cut]
+	}
+	var b strings.Builder
+	last := 0
+	for _, f := range found {
+		if f.end > cut {
+			break
+		}
+		b.WriteString(buf[last:f.start])
+		b.WriteString(f.repl)
+		st.Counts.addSpan(f)
+		last = f.end
+	}
+	b.WriteString(buf[last:cut])
+	return b.String()
+}
+
+// keepOut drops what the second pass sent, up to end in out, but for the last
+// contextLen bytes, whole characters only, and the joins that nothing still
+// held can hold.
+func (st *Stream) keepOut(end int) {
+	keep := max(0, end-contextLen)
+	for keep < end && !utf8.RuneStart(st.out[keep]) {
+		keep++
+	}
+	st.out, st.outSent = st.out[:copy(st.out, st.out[keep:])], end-keep
+	k := 0
+	for _, j := range st.joins {
+		// A value held from end on cannot hold a join at or before end.
+		if j > end {
+			st.joins[k] = j - keep
+			k++
+		}
+	}
+	st.joins = st.joins[:k]
+}
+
 // shift moves spans found in ctx+buf to buf's coordinates, in place. Spans
 // that start in ctx were left out by spans already.
 func shift(spans []span, off int) {
@@ -219,29 +345,7 @@ func (st *Stream) holdFrom(ctx, buf string) int {
 	if n == 0 {
 		return 0
 	}
-	hold := n
-	// A word that may still become an e-mail address, the canary, a number,
-	// or the "http"/"www" of a URL. Bounded by Window.
-	i := n
-	for i > 0 && wordByte(buf[i-1]) {
-		i--
-	}
-	if i < n {
-		hold = max(i, n-Window)
-	}
-	// A run of digits that may still grow into a card or phone number.
-	if r := numericRunStart(buf, n); r < n && n-r <= maxOpen {
-		hold = min(hold, r)
-	}
-	// The beginning of the canary, whatever its characters.
-	if c := st.s.canary; c != "" {
-		for j := max(0, n-len(c)+1); j < n; j++ {
-			if buf[j] == c[0] && strings.HasPrefix(c, buf[j:]) {
-				hold = min(hold, j)
-				break
-			}
-		}
-	}
+	hold := st.tokenHold(buf, Window)
 	// The beginning of a URL or an <img> tag, in any case.
 	for _, p := range [...]string{"https://", "http://", "www.", "<img"} {
 		for k := min(len(p), n); k > 0; k-- {
@@ -261,6 +365,66 @@ func (st *Stream) holdFrom(ctx, buf string) int {
 		line := strings.TrimLeft(buf[ls:], " \t>")
 		if (line == "" && ls < n) || (line != "" && line[0] == '[' && refLabelOpen(line)) {
 			hold = min(hold, max(ls, n-Window))
+		}
+	}
+	return hold
+}
+
+// joinHold returns where the end of buf, the end of what the first pass
+// produced, must be held back by the second pass because a removal may join
+// it to what follows. That is so when the value it may start holds a join
+// already, or may still grow up to one (a removal ends buf), and while the
+// first pass holds text that goes on with the same word or number, or that
+// starts with what a removed link starts with ("[" or "]", or blanks at a
+// line start). The word is bounded by Window together with how it goes on in
+// the held text, as in the first pass.
+func (st *Stream) joinHold(buf string) int {
+	hold := len(buf)
+	if n := len(st.joins); n > 0 {
+		if h := st.tokenHold(buf, Window); st.joins[n-1] >= st.outSent+h {
+			hold = h
+		}
+	}
+	held := st.text[st.sent:]
+	if len(held) == 0 {
+		return hold
+	}
+	if c := held[0]; !wordByte(c) && c != '[' && c != ']' && c != ' ' && c != '\t' {
+		return hold
+	}
+	run := 0
+	for run < len(held) && wordByte(held[run]) {
+		run++
+	}
+	return min(hold, st.tokenHold(buf, Window-run))
+}
+
+// tokenHold returns where the end of buf that may still be the first part of
+// the canary or of personal data starts (len(buf) when there is none). A word
+// is held up to window bytes.
+func (st *Stream) tokenHold(buf string, window int) int {
+	n := len(buf)
+	hold := n
+	// A word that may still become an e-mail address, the canary, a number,
+	// or the "http"/"www" of a URL.
+	i := n
+	for i > 0 && wordByte(buf[i-1]) {
+		i--
+	}
+	if i < n && window > 0 {
+		hold = max(i, n-window)
+	}
+	// A run of digits that may still grow into a card or phone number.
+	if r := numericRunStart(buf, n); r < n && n-r <= maxOpen {
+		hold = min(hold, r)
+	}
+	// The beginning of the canary, whatever its characters.
+	if c := st.s.canary; c != "" {
+		for j := max(0, n-len(c)+1); j < n; j++ {
+			if buf[j] == c[0] && strings.HasPrefix(c, buf[j:]) {
+				hold = min(hold, j)
+				break
+			}
 		}
 	}
 	return hold
