@@ -170,11 +170,14 @@ func (s *Scanner) guardValue(v any, counts Counts) any {
 func decodeObject(data []byte) (map[string]any, error) {
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.UseNumber()
-	var doc map[string]any
-	if err := dec.Decode(&doc); err != nil {
+	// Into an interface, not a map: encoding/json then builds the values
+	// without reflection, which is much cheaper for every streamed event.
+	var v any
+	if err := dec.Decode(&v); err != nil {
 		return nil, err
 	}
-	if doc == nil {
+	doc, ok := v.(map[string]any)
+	if !ok || doc == nil {
 		return nil, ErrNotJSON
 	}
 	return doc, nil

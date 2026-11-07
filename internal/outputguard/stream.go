@@ -6,24 +6,30 @@ import (
 )
 
 const (
-	// Window is how much text a stream holds back. It is longer than any
-	// personal-data pattern or canary, so none can straddle what was sent and
-	// what is still held.
+	// Window bounds how long a word a stream holds back while it may still
+	// grow into something to redact: an e-mail address, the canary, the start
+	// of a URL. It is longer than any of them. Most of the time a stream holds
+	// much less: only the end of the text that could still change (holdFrom).
 	Window = 256
 	// maxLinkText is the longest link text the markdown detector accepts.
 	maxLinkText = 1000
-	// maxOpen bounds how long a stream waits for an image, link or URL to close.
-	// Past it the construct is removed and the rest of it is dropped as it comes.
+	// maxOpen bounds how long a stream waits for an image, link or URL to close,
+	// or for a run of digits to end. Past it the construct is removed and the
+	// rest of it is dropped as it comes.
 	maxOpen = 8192
 )
 
 // Stream guards text that arrives in pieces. Write returns the part that is
 // safe to send; Flush returns the rest at the end.
 type Stream struct {
-	s       *Scanner
-	buf     string // received, not yet sent
-	ctx     string // the end of what was sent
-	pending int    // bytes added since the last scan
+	s *Scanner
+	// text is the end of what was sent (text[:sent], kept as context so that
+	// line starts, word boundaries and digit runs read as they do in the whole
+	// text), then what was received and not sent yet (text[sent:]). Its
+	// storage is reused from one delta to the next.
+	text    []byte
+	sent    int
+	pending int // bytes added since the last scan
 	drop    dropUntil
 	depth   int // parenthesis depth while dropping a markdown URL
 	Counts  Counts
@@ -50,13 +56,10 @@ func (st *Stream) Write(text string) string {
 	if text == "" {
 		return ""
 	}
-	st.buf += text
+	st.text = append(st.text, text...)
 	st.pending += len(text)
-	if len(st.buf) <= Window {
-		return "" // all of it is inside the window: nothing can be sent yet
-	}
-	// Rescanning the buffer for every token would be wasteful; sending a few
-	// bytes later is always safe, as the cut then has more context.
+	// Scanning for every token would be wasteful: tiny deltas are collected
+	// first. Sending a few bytes later is always safe.
 	if st.pending < scanEvery {
 		return ""
 	}
@@ -65,19 +68,19 @@ func (st *Stream) Write(text string) string {
 }
 
 // scanEvery is how many new bytes a stream collects before it scans again.
-const scanEvery = 32
+const scanEvery = 64
 
 // Flush returns everything still held, with unfinished images and links removed.
 func (st *Stream) Flush() string {
 	var b strings.Builder
-	for st.buf != "" {
-		before := len(st.buf)
+	for st.sent < len(st.text) {
+		before := len(st.text) - st.sent
 		b.WriteString(st.emit(true))
-		if len(st.buf) == before {
+		if len(st.text)-st.sent == before {
 			break // cannot place a cut safely: the rest is dropped
 		}
 	}
-	st.buf, st.ctx, st.drop, st.depth = "", "", dropNone, 0
+	st.text, st.sent, st.pending, st.drop, st.depth = st.text[:0], 0, 0, dropNone, 0
 	return b.String()
 }
 
@@ -119,24 +122,28 @@ func (st *Stream) skipDropped(text string) string {
 	return text
 }
 
-// emit renders and removes the safe prefix of buf, or all of it at the end.
+// emit renders and removes the safe prefix of what is held, or all of it at
+// the end.
 func (st *Stream) emit(final bool) string {
-	buf := st.buf
-	// The text already sent before buf is scanned too, as context, so that line
-	// starts, word boundaries and digit runs read as they do in the whole text.
-	accepted, all := st.s.spans(st.ctx+buf, len(st.ctx))
-	accepted, all = shift(accepted, len(st.ctx)), shift(all, len(st.ctx))
-	open := st.openConstruct(buf, final)
+	text := string(st.text)
+	ctx, buf := text[:st.sent], text[st.sent:]
+	// The text already sent is scanned too, as context; findings that start in
+	// it were dealt with before.
+	accepted, all := st.s.spans(text, st.sent)
+	shift(accepted, st.sent)
+	shift(all, st.sent)
+	open := st.openConstruct(ctx, buf, final)
 
-	cut := len(buf) - Window
-	if final {
-		cut = len(buf)
+	cut := len(buf)
+	if !final {
+		cut = st.holdFrom(ctx, buf)
 	}
 	if open.start >= 0 && open.start < cut {
 		cut = open.start
 	}
 	// Never cut through a finding, accepted or not: it may change once the
-	// rest of the text arrives.
+	// rest of the text arrives. Nor through a run of digits: card numbers are
+	// found by grouping the whole run, and phone numbers by its edges.
 	for moved := true; moved; {
 		moved = false
 		for _, c := range all {
@@ -144,12 +151,15 @@ func (st *Stream) emit(final bool) string {
 				cut, moved = c.start, true
 			}
 		}
+		if cut >= len(buf) {
+			continue // the end: holdFrom decided on an open run
+		}
+		if r := numericRunStart(buf, cut); r < cut && len(buf)-r <= maxOpen {
+			cut, moved = r, true
+		}
 	}
 	for cut > 0 && cut < len(buf) && !utf8.RuneStart(buf[cut]) {
 		cut--
-	}
-	if cut < 0 {
-		cut = 0
 	}
 
 	var b strings.Builder
@@ -160,22 +170,27 @@ func (st *Stream) emit(final bool) string {
 		}
 		b.WriteString(buf[last:a.start])
 		b.WriteString(a.repl)
-		st.Counts.add(a.counts)
+		st.Counts.addSpan(a)
 		last = a.end
 	}
 	b.WriteString(buf[last:cut])
-	st.buf = buf[cut:]
-	st.ctx = tail(st.ctx+buf[:cut], contextLen)
+	// Keep the last contextLen bytes of what was sent, whole characters only.
+	end := st.sent + cut
+	keep := max(0, end-contextLen)
+	for keep < end && !utf8.RuneStart(text[keep]) {
+		keep++
+	}
+	st.text, st.sent = st.text[:copy(st.text, text[keep:])], end-keep
 
 	if open.force && open.start == cut {
 		// The construct ran too long or the text ended inside it: remove it
 		// and drop the rest of it as it arrives.
 		b.WriteString(marker(open.kind))
 		st.Counts[open.kind]++
-		if n := strings.Count(st.buf, st.s.canary); st.s.canary != "" && n > 0 {
+		if n := strings.Count(buf[cut:], st.s.canary); st.s.canary != "" && n > 0 {
 			st.Counts[KindCanary] += n
 		}
-		st.buf, st.ctx = "", ""
+		st.text, st.sent = st.text[:0], 0
 		st.drop = open.until
 		st.depth = 0
 	}
@@ -185,29 +200,131 @@ func (st *Stream) emit(final bool) string {
 // contextLen is how much sent text is kept as context for the next scan.
 const contextLen = 16
 
-// shift moves spans found in ctx+buf to buf's coordinates and drops those that
-// start in ctx: that text was already sent.
-func shift(spans []span, off int) []span {
-	out := spans[:0:0]
-	for _, s := range spans {
-		if s.start >= off {
-			s.start -= off
-			s.end -= off
-			out = append(out, s)
-		}
+// shift moves spans found in ctx+buf to buf's coordinates, in place. Spans
+// that start in ctx were left out by spans already.
+func shift(spans []span, off int) {
+	for i := range spans {
+		spans[i].start -= off
+		spans[i].end -= off
 	}
-	return out
 }
 
-func tail(s string, n int) string {
-	if len(s) <= n {
-		return s
+// holdFrom returns where the end of buf that must be held back starts: the
+// part that, depending on what comes next, could still become (or extend) a
+// finding that starts there. Constructs that have opened (images, links, tags,
+// URLs, reference definitions) are held by openConstruct, and findings that
+// already match by emit; this covers what does not match anything yet.
+func (st *Stream) holdFrom(ctx, buf string) int {
+	n := len(buf)
+	if n == 0 {
+		return 0
 	}
-	i := len(s) - n
-	for i < len(s) && !utf8.RuneStart(s[i]) {
-		i++
+	hold := n
+	// A word that may still become an e-mail address, the canary, a number,
+	// or the "http"/"www" of a URL. Bounded by Window.
+	i := n
+	for i > 0 && wordByte(buf[i-1]) {
+		i--
 	}
-	return s[i:]
+	if i < n {
+		hold = max(i, n-Window)
+	}
+	// A run of digits that may still grow into a card or phone number.
+	if r := numericRunStart(buf, n); r < n && n-r <= maxOpen {
+		hold = min(hold, r)
+	}
+	// The beginning of the canary, whatever its characters.
+	if c := st.s.canary; c != "" {
+		for j := max(0, n-len(c)+1); j < n; j++ {
+			if buf[j] == c[0] && strings.HasPrefix(c, buf[j:]) {
+				hold = min(hold, j)
+				break
+			}
+		}
+	}
+	// The beginning of a URL or an <img> tag, in any case.
+	for _, p := range [...]string{"https://", "http://", "www.", "<img"} {
+		for k := min(len(p), n); k > 0; k-- {
+			if hasPrefixFold(buf[n-k:], p[:k]) {
+				hold = min(hold, n-k)
+				break
+			}
+		}
+	}
+	// "!" may start an image, and "]" the "](" of a link.
+	if c := buf[n-1]; c == '!' || c == ']' {
+		hold = min(hold, n-1)
+	}
+	// A line that may still become a reference definition: blanks and
+	// blockquote markers, then possibly "[label" or "[label]".
+	if ls := strings.LastIndexByte(buf, '\n') + 1; ls > 0 || ctx == "" || strings.HasSuffix(ctx, "\n") {
+		line := strings.TrimLeft(buf[ls:], " \t>")
+		if (line == "" && ls < n) || (line != "" && line[0] == '[' && refLabelOpen(line)) {
+			hold = min(hold, max(ls, n-Window))
+		}
+	}
+	return hold
+}
+
+// wordByte reports whether c can be part of an e-mail address or the canary.
+func wordByte(c byte) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' ||
+		c == '.' || c == '_' || c == '%' || c == '+' || c == '-' || c == '@'
+}
+
+// refLabelOpen reports whether line, which starts with "[", may still be the
+// "[label]:" of a reference definition.
+func refLabelOpen(line string) bool {
+	k := strings.IndexByte(line, ']')
+	return k < 0 || k == len(line)-1 || line[k+1] == ':'
+}
+
+func numSep(c byte) bool { return c == ' ' || c == '.' || c == '-' }
+
+// numericRunStart returns the start of the run of digits that position i of s
+// lies inside, or i when it is not inside one. A run is what card, phone,
+// citizen ID and IPv4 numbers are made of: an optional "+", then digits with
+// single spaces, dots or dashes between them. At the end of s (i == len(s)) a
+// run is open when s ends in a digit, in a digit and a separator, or in "+".
+func numericRunStart(s string, i int) int {
+	n := len(s)
+	if i <= 0 || i > n {
+		return i
+	}
+	j := i // s[j-1] is a digit of the run
+	switch {
+	case i == n:
+		switch {
+		case s[n-1] == '+':
+			return n - 1
+		case numSep(s[n-1]) && n >= 2 && isDigit(s[n-2]):
+			j = n - 1
+		case !isDigit(s[n-1]):
+			return i
+		}
+	case isDigit(s[i-1]) && (isDigit(s[i]) || numSep(s[i]) && (i+1 == n || isDigit(s[i+1]))):
+	case numSep(s[i-1]) && isDigit(s[i]) && i >= 2 && isDigit(s[i-2]):
+		j = i - 1
+	case s[i-1] == '+' && isDigit(s[i]):
+		return i - 1
+	default:
+		return i
+	}
+	k := j - 1
+	for {
+		for k > 0 && isDigit(s[k-1]) {
+			k--
+		}
+		if k >= 2 && numSep(s[k-1]) && isDigit(s[k-2]) {
+			k -= 2
+			continue
+		}
+		break
+	}
+	if k > 0 && s[k-1] == '+' {
+		k--
+	}
+	return k
 }
 
 // openSpan is an image, link or URL that has started but not finished.
@@ -220,7 +337,7 @@ type openSpan struct {
 
 // openConstruct finds the earliest construct in buf that is still open and that
 // could turn into something the guard removes once it is complete.
-func (st *Stream) openConstruct(buf string, final bool) openSpan {
+func (st *Stream) openConstruct(ctx, buf string, final bool) openSpan {
 	best := openSpan{start: -1}
 	consider := func(o openSpan) {
 		if final && !o.force {
@@ -233,7 +350,7 @@ func (st *Stream) openConstruct(buf string, final bool) openSpan {
 	consider(st.openMarkdownURL(buf, final))
 	consider(openLinkText(buf))
 	consider(st.openTag(buf, final))
-	consider(st.openRefDef(buf))
+	consider(openRefDef(ctx, buf))
 	consider(st.openBareURL(buf))
 	return best
 }
@@ -276,7 +393,7 @@ func (st *Stream) openMarkdownURL(buf string, final bool) openSpan {
 // buf without its closing parenthesis. It also returns where the URL starts.
 func mdURLOpen(buf string, i int) (int, bool) {
 	start := i
-	for i < len(buf) && (buf[i] == ' ' || buf[i] == '\t') {
+	for i < len(buf) && isSpace(buf[i]) {
 		i++
 	}
 	if i < len(buf) && buf[i] == '<' {
@@ -300,9 +417,9 @@ func mdURLOpen(buf string, i int) (int, bool) {
 			depth--
 		case c == ')':
 			return start, false
-		case c == ' ' || c == '\t' || c == '\n':
+		case isSpace(c):
 			// The URL ended. Only a title or the closing parenthesis may follow.
-			for i < len(buf) && (buf[i] == ' ' || buf[i] == '\t' || buf[i] == '\n') {
+			for i < len(buf) && isSpace(buf[i]) {
 				i++
 			}
 			if i == len(buf) {
@@ -310,16 +427,42 @@ func mdURLOpen(buf string, i int) (int, bool) {
 			}
 			switch buf[i] {
 			case '"', '\'', '(':
-				return start, !strings.ContainsRune(buf[i+1:], ')')
-			case ')':
-				return start, false
+				return start, mdTitleOpen(buf, i)
 			default:
-				return start, false // not a link after all
+				return start, false // closed by ")", or not a link after all
 			}
 		}
 	}
 	return start, true
 }
+
+// mdTitleOpen reports whether the link title starting at buf[i] ("..." or
+// '...' or (...), on one line) and the ")" that must follow it may still
+// complete.
+func mdTitleOpen(buf string, i int) bool {
+	closer := buf[i]
+	if closer == '(' {
+		closer = ')'
+	}
+	j := i + 1
+	for j < len(buf) && buf[j] != closer && buf[j] != '\n' && (buf[i] != '(' || buf[j] != '(') {
+		j++
+	}
+	if j == len(buf) {
+		return true // the title is still open
+	}
+	if buf[j] != closer {
+		return false // not a title: not a link
+	}
+	j++
+	for j < len(buf) && isSpace(buf[j]) {
+		j++
+	}
+	return j == len(buf) // else ")" closed it, or it is not a link
+}
+
+// isSpace is \s of the regular expressions.
+func isSpace(c byte) bool { return c == ' ' || c == '\t' || c == '\n' || c == '\f' || c == '\r' }
 
 // openLinkText finds "[" (or "![") with no "]" yet, or whose "]" ends buf, so
 // that "(" may still follow. Long link text is let go: the tail of the link is
@@ -345,20 +488,19 @@ func openLinkText(buf string) openSpan {
 
 // openTag finds "<img" without its closing ">".
 func (st *Stream) openTag(buf string, final bool) openSpan {
-	lower := strings.ToLower(buf)
-	i := strings.LastIndex(lower, "<img")
+	i := lastIndexFold(buf, "<img")
 	if i < 0 || strings.IndexByte(buf[i:], '>') >= 0 {
-		// A short "<im" at the very end is covered by the window.
+		// A short "<im" at the very end is held by holdFrom.
 		return openSpan{start: -1}
 	}
 	return openSpan{start: i, force: final || len(buf)-i > maxOpen, kind: KindImage, until: dropTag}
 }
 
 // openRefDef finds a "[label]: url" line that has not ended yet.
-func (st *Stream) openRefDef(buf string) openSpan {
+func openRefDef(ctx, buf string) openSpan {
 	lineStart := strings.LastIndexByte(buf, '\n') + 1
 	atLineStart := func(i int) bool {
-		return i > 0 || st.ctx == "" || strings.HasSuffix(st.ctx, "\n")
+		return i > 0 || ctx == "" || strings.HasSuffix(ctx, "\n")
 	}
 	start := -1
 	if atLineStart(lineStart) && isRefLabel(buf[lineStart:]) {
@@ -389,6 +531,9 @@ func isRefLabel(line string) bool {
 // openBareURL finds a URL that runs to the end of buf: it may still turn out
 // to be an image URL with a query.
 func (st *Stream) openBareURL(buf string) openSpan {
+	if !hasURLStart(buf) {
+		return openSpan{start: -1}
+	}
 	locs := bareURLRe.FindAllStringIndex(buf, -1)
 	if len(locs) == 0 {
 		return openSpan{start: -1}
