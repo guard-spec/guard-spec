@@ -1,0 +1,4 @@
+# Installed dependencies and the throwaway gateway of dev/start.sh
+node_modules/
+.venv/
+dev/.state/

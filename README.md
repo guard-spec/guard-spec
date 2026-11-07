@@ -343,7 +343,9 @@ DETECTOR_LAYERS=l1,l2 scripts/quickstart.sh
 Measured CPU, memory and throughput per layer set, and how to size a host:
 [docs/sizing.md](docs/sizing.md). Pointing the OpenAI SDKs, LangChain,
 LlamaIndex, Claude Code or Cursor at the gateway, and what does not work:
-[docs/integrations.md](docs/integrations.md).
+[docs/integrations.md](docs/integrations.md). Runnable examples (Python, TypeScript,
+a RAG pipeline with a poisoned document, n8n), checked in CI against the gateway:
+[examples/](examples/README.md).
 
 **Contributors** build from source instead:
 
@@ -438,7 +440,8 @@ Running it:
   or Supabase instead of the `postgres` service (reference, not yet verified
   on those providers);
 - [docs/integrations.md](docs/integrations.md): OpenAI SDKs, LangChain,
-  LlamaIndex, Claude Code and Cursor.
+  LlamaIndex, Claude Code and Cursor; runnable versions in
+  [examples/](examples/README.md).
 
 The root `docker-compose.yml` also runs in production mode:
 

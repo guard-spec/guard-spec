@@ -279,6 +279,9 @@ mặc định hoặc quá ngắn. Chi tiết và Helm: xem README tiếng Anh.
   tham khảo, chưa kiểm chứng trên các nhà cung cấp đó).
 - **Kết nối ứng dụng** (OpenAI SDK, LangChain, LlamaIndex, Claude Code,
   Cursor): [docs/integrations.md](docs/integrations.md) (tiếng Anh).
+- **Ví dụ chạy được** (Python, TypeScript, RAG có tài liệu bị cài lệnh ẩn,
+  n8n), kiểm tra trong CI với gateway: [examples/](examples/README.md)
+  (tiếng Anh).
 
 **Hướng dẫn triển khai** (tiếng Anh): [docs/deploy/](docs/deploy/README.md)
 có hướng dẫn tham khảo cho [AWS](docs/deploy/aws.md) (ECS Fargate hoặc EKS,
