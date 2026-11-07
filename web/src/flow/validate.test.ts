@@ -57,6 +57,20 @@ describe('condition validation', () => {
     expect(hasErrors(v(leaf('injection.score', '>', '1.5')))).toBe(false);
   });
 
+  it('checks the personal-data fields as the server does', () => {
+    expect(v(leaf('input.pii.count', '>', '0'))).toEqual([]);
+    expect(v(leaf('input.pii.kinds', 'contains', 'card'))).toEqual([]);
+    expect(v(leaf('input.pii.kinds', 'in', 'email'))).toEqual([]);
+    expect(keys(v(leaf('input.pii.count', '>', '0.5')))).toEqual(['error:cond.notInt']);
+    expect(keys(v(leaf('input.pii.count', '>=', '-1')))).toEqual(['warning:cond.range']);
+    expect(keys(v(leaf('input.pii.kinds', '=', 'email')))).toEqual(['error:cond.badOperator']);
+    // One value: the server refuses a list of them.
+    expect(keys(v(leaf('input.pii.kinds', 'in', ['email', 'card'])))).toEqual(['error:cond.emptyValue']);
+    expect(keys(v(leaf('input.pii.kinds', 'contains', '')))).toEqual(['error:cond.emptyValue']);
+    expect(keys(v(leaf('input.pii.kinds', 'contains', 'name')))).toEqual(['warning:cond.unknownValue']);
+    expect(conditionText(leaf('input.pii.kinds', 'in', 'cccd'), fieldTypesOf(FALLBACK_SCHEMA))).toBe('"cccd" in input.pii.kinds');
+  });
+
   it('keeps the builder ids, so the builder can mark the row', () => {
     const tree = { combinator: 'and', id: 'g1', rules: [{ id: 'r1', field: 'injection.score', operator: '>=', value: 'x' }] } as unknown as ConditionNode;
     expect(v(tree)[0]?.id).toBe('r1');
