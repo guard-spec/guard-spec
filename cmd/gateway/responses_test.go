@@ -33,7 +33,7 @@ func guardResponses(t *testing.T, raw string, mut func(*textGuard)) (*textGuard,
 }
 
 func TestResponsesRequestShapes(t *testing.T) {
-	const zw = "​"
+	const zw = "\u200b"
 	g, body, err := guardResponses(t, `{"model":"gpt-x","instructions":"You are terse.",
 		"input":[
 		  {"role":"developer","content":"Answer in English."},
@@ -82,7 +82,7 @@ func TestResponsesRequestShapes(t *testing.T) {
 }
 
 func TestResponsesInputString(t *testing.T) {
-	g, body, err := guardResponses(t, `{"model":"m","input":"hi`+"​"+`"}`, nil)
+	g, body, err := guardResponses(t, `{"model":"m","input":"hi`+"\u200b"+`"}`, nil)
 	if err != nil || body["input"] != "hi" || len(partSources(g)[indirect.SourceUser]) != 1 {
 		t.Errorf("%v %v %v", err, body["input"], g.parts)
 	}
