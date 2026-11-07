@@ -185,6 +185,8 @@ func VarsFromMap(m map[string]any) (*Vars, error) {
 			v.IndirectSource = s
 		case "injection.source_role":
 			v.SourceRole = s
+		case "conversation.score":
+			v.ConversationScore = f
 		case "anomaly.score":
 			v.AnomalyScore = float32(f)
 		case "anomaly.has_tag_chars":

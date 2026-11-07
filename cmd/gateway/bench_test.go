@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/guard-spec/guard-spec/internal/indirect"
 	"github.com/guard-spec/guard-spec/internal/inference"
 	"github.com/guard-spec/guard-spec/internal/policy"
 )
@@ -166,4 +167,64 @@ func reportPercentiles(b *testing.B, lat []time.Duration) {
 // the default build without models.
 func BenchmarkGatewayHTTP(b *testing.B) {
 	runHTTPBench(b, nil)
+}
+
+// runWindowBench posts a nine-turn benign conversation (the tutoring chat of
+// testdata/multiturn.json) to /v1/messages with SCAN_HISTORY=latest: without
+// the conversation window, with it and no scan cache (the window is scored on
+// every request, as on a new user turn), and with it and the cache (an agent
+// loop that resends unchanged user turns).
+func runWindowBench(b *testing.B, runner *inference.Runner) {
+	var conv multiTurnCase
+	for _, c := range loadMultiTurn(b) {
+		if c.ID == "ben-en-tutor" {
+			conv = c
+		}
+	}
+	body := messagesConversation(conv)
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.DiscardHandler))
+	b.Cleanup(func() { slog.SetDefault(prev) })
+	up := newFakeUpstream(b, func(w http.ResponseWriter, _ *http.Request) {
+		anthropicJSON(w, messageResponse(`{"type":"text","text":"ok"}`))
+	})
+	for _, mode := range []struct {
+		name  string
+		turns int
+		cache bool
+	}{{"window_off", 0, false}, {"window_on_uncached", indirect.DefaultWindowTurns, false},
+		{"window_on_cached", indirect.DefaultWindowTurns, true}} {
+		b.Run(mode.name, func(b *testing.B) {
+			h := startGateway(b, "", func(gw *gateway) {
+				withAnthropic(up.URL)(gw)
+				if runner != nil {
+					gw.runner = runner
+				}
+				gw.scan = windowScan(historyLatest, mode.turns)
+				if mode.cache {
+					gw.cache = newScanCache(defaultScanCacheSize, scanCacheTTL)
+				}
+				gw.audit = newAuditLog(func(requestEntry) {})
+			})
+			tr := http.DefaultTransport.(*http.Transport).Clone()
+			client := &http.Client{Transport: tr}
+			b.Cleanup(tr.CloseIdleConnections)
+			url := h.url + "/v1/messages"
+			benchDo(b, client, url, body, 200)
+			var lat []time.Duration
+			b.ReportAllocs()
+			for b.Loop() {
+				start := time.Now()
+				benchDo(b, client, url, body, 200)
+				lat = append(lat, time.Since(start))
+			}
+			reportPercentiles(b, lat)
+		})
+	}
+}
+
+// BenchmarkConversationWindow is the cost of the conversation window with
+// the L1 detector only.
+func BenchmarkConversationWindow(b *testing.B) {
+	runWindowBench(b, nil)
 }

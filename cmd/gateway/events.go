@@ -164,6 +164,9 @@ func eventsFor(e *requestEntry, flagAt float64) []events.Event {
 		if e.RuleID != uuid.Nil {
 			attrs["policy_id"] = e.RuleID.String()
 		}
+		if e.SourceRole == sourceConversation {
+			attrs["signal"] = sourceConversation // the conversation window scored highest
+		}
 		return events.Event{OrgID: e.OrgID, ProjectID: project, Type: typ, Severity: severity, OccurredAt: e.Start,
 			Attrs: attrs}
 	}

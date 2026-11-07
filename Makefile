@@ -94,7 +94,7 @@ calibrate: onnx-deps
 
 # BenchmarkGatewayHTTPML: needs models/ (or MODEL_DIR); skips without them.
 bench-onnx: onnx-deps
-	$(ONNX_ENV) $(GO) test -tags onnx -run '^$$' -bench GatewayHTTPML -benchmem -benchtime $(BENCHTIME) ./cmd/gateway
+	$(ONNX_ENV) $(GO) test -tags onnx -run '^$$' -bench 'GatewayHTTPML|ConversationWindowML' -benchmem -benchtime $(BENCHTIME) ./cmd/gateway
 
 # Public benchmark against other detectors (docs/benchmark.md, bench/run.py):
 # public datasets at pinned revisions and models into BENCH_CACHE, results into

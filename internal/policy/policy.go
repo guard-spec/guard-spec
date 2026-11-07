@@ -83,7 +83,11 @@ type Vars struct {
 	// Indirect injection: content from tools, documents and tool descriptions.
 	IndirectScore  float64 // largest score over untrusted parts; 0 when there were none
 	IndirectSource string  // tool, document or tool_description; "" when there were none
-	SourceRole     string  // source of the strongest finding: user, system, assistant, tool, tool_description
+	SourceRole     string  // source of the strongest finding: user, system, assistant, tool, tool_description, conversation
+
+	// ConversationScore is the conversation window's score: the most recent
+	// user turns joined and scored together; 0 when there was no window.
+	ConversationScore float64
 }
 
 // toActivation converts Vars to the map cel.Program.ContextEval expects.
@@ -103,6 +107,7 @@ func (v *Vars) toActivation() map[string]any {
 		"indirect.score":        v.IndirectScore,
 		"indirect.source":       v.IndirectSource,
 		"injection.source_role": v.SourceRole,
+		"conversation.score":    v.ConversationScore,
 		"anomaly.score":         float64(v.AnomalyScore),
 		"anomaly.has_tag_chars": v.AnomalyHasTagChars,
 		"anomaly.has_bidi":      v.AnomalyHasBidi,
@@ -149,6 +154,7 @@ var fieldTypes = map[string]*cel.Type{
 	"indirect.score":        cel.DoubleType,
 	"indirect.source":       cel.StringType,
 	"injection.source_role": cel.StringType,
+	"conversation.score":    cel.DoubleType,
 	"anomaly.score":         cel.DoubleType,
 	"anomaly.has_tag_chars": cel.BoolType,
 	"anomaly.has_bidi":      cel.BoolType,

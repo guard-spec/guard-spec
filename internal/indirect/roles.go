@@ -119,6 +119,61 @@ type Settings struct {
 	// org's value and its own (see Thresholds).
 	InjectionThreshold *float64 `json:"injection_threshold,omitempty"`
 	IndirectThreshold  *float64 `json:"indirect_threshold,omitempty"`
+	// ConversationWindow turns the conversation window on or off for the
+	// org (CONVERSATION_WINDOW_TURNS, CONVERSATION_WINDOW_BYTES); on uses
+	// the default size when the gateway has it off. The two sizes override
+	// the gateway's: how many recent user turns are joined and the most
+	// bytes of the joined text.
+	ConversationWindow      *bool `json:"conversation_window,omitempty"`
+	ConversationWindowTurns *int  `json:"conversation_window_turns,omitempty"`
+	ConversationWindowBytes *int  `json:"conversation_window_bytes,omitempty"`
+}
+
+// Bounds and defaults of the conversation window. A window of one turn is
+// the turn itself, so at least two; the bytes stay within one detector call.
+const (
+	DefaultWindowTurns = 4
+	DefaultWindowBytes = 8 << 10
+	MinWindowTurns     = 2
+	MaxWindowTurns     = 32
+	MinWindowBytes     = 256
+	MaxWindowBytes     = 24 << 10
+)
+
+// Window returns the conversation window size with the org's overrides:
+// turns 0 means off.
+func (s Settings) Window(turns, bytes int) (int, int) {
+	if s.ConversationWindow != nil {
+		if !*s.ConversationWindow {
+			return 0, bytes
+		}
+		if turns == 0 || bytes == 0 {
+			turns, bytes = DefaultWindowTurns, DefaultWindowBytes
+		}
+	}
+	if turns == 0 || bytes == 0 {
+		return 0, bytes // off at the gateway and not turned on by the org
+	}
+	if s.ConversationWindowTurns != nil {
+		turns = *s.ConversationWindowTurns
+	}
+	if s.ConversationWindowBytes != nil {
+		bytes = *s.ConversationWindowBytes
+	}
+	return turns, bytes
+}
+
+// ValidWindow checks a conversation window size: 0 (off) or turns in
+// [MinWindowTurns, MaxWindowTurns] and bytes in [MinWindowBytes,
+// MaxWindowBytes].
+func ValidWindow(turns, bytes int) error {
+	if turns != 0 && (turns < MinWindowTurns || turns > MaxWindowTurns) {
+		return fmt.Errorf("conversation window turns must be 0 (off) or %d to %d", MinWindowTurns, MaxWindowTurns)
+	}
+	if bytes != 0 && (bytes < MinWindowBytes || bytes > MaxWindowBytes) {
+		return fmt.Errorf("conversation window bytes must be 0 (off) or %d to %d", MinWindowBytes, MaxWindowBytes)
+	}
+	return nil
 }
 
 // Thresholds returns the direct and indirect block thresholds with the org's
@@ -187,6 +242,13 @@ func ParseSettings(raw []byte) (Settings, error) {
 	}
 	if err := validThreshold("indirect_threshold", s.IndirectThreshold); err != nil {
 		return Settings{}, err
+	}
+	// The org sets a size; turning the window off is conversation_window.
+	if t := s.ConversationWindowTurns; t != nil && (*t < MinWindowTurns || *t > MaxWindowTurns) {
+		return Settings{}, fmt.Errorf("guard settings: conversation_window_turns must be %d to %d", MinWindowTurns, MaxWindowTurns)
+	}
+	if b := s.ConversationWindowBytes; b != nil && (*b < MinWindowBytes || *b > MaxWindowBytes) {
+		return Settings{}, fmt.Errorf("guard settings: conversation_window_bytes must be %d to %d", MinWindowBytes, MaxWindowBytes)
 	}
 	return s, nil
 }

@@ -5,8 +5,8 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../api';
-import type { GuardSettings } from '../types';
-import { guardBody, guardChanged, parseThreshold, saveAll, type SaveAllApi } from './guardDraft';
+import { WINDOW_BYTES, WINDOW_TURNS, type GuardSettings } from '../types';
+import { guardBody, guardChanged, parseThreshold, parseWindowSize, saveAll, type SaveAllApi } from './guardDraft';
 import { toEditable } from './model';
 import { baseline } from './testdata';
 
@@ -56,6 +56,25 @@ describe('staged guard settings', () => {
     expect(parseThreshold('.5')).toBe(0.5);
     expect(parseThreshold('0.85')).toBe(0.85);
     for (const bad of ['0', '0.86', '1', '-0.5', 'abc', '0.7.1', '1e-1']) expect(parseThreshold(bad), bad).toBe('invalid');
+  });
+
+  it('keeps the conversation window toggle and sizes, off included', () => {
+    expect(guardBody({ conversation_window: false })).toEqual({ conversation_window: false });
+    expect(guardBody({ conversation_window: true, conversation_window_turns: 6, conversation_window_bytes: 4096 })).toEqual({
+      conversation_window: true,
+      conversation_window_turns: 6,
+      conversation_window_bytes: 4096,
+    });
+    expect(guardChanged({}, { conversation_window: false })).toBe(true);
+  });
+
+  it('reads window sizes: empty is the default, whole numbers within the bounds', () => {
+    expect(parseWindowSize('', WINDOW_TURNS)).toBeUndefined();
+    expect(parseWindowSize(' 6 ', WINDOW_TURNS)).toBe(6);
+    expect(parseWindowSize('2', WINDOW_TURNS)).toBe(2);
+    expect(parseWindowSize('24576', WINDOW_BYTES)).toBe(24576);
+    for (const bad of ['1', '33', '0', '4.5', '-4', 'four']) expect(parseWindowSize(bad, WINDOW_TURNS), bad).toBe('invalid');
+    for (const bad of ['255', '24577', '8k']) expect(parseWindowSize(bad, WINDOW_BYTES), bad).toBe('invalid');
   });
 });
 

@@ -270,6 +270,12 @@ export const vi: Messages = {
   'guard.indirectAction.redact': 'Bỏ nội dung đó và tiếp tục',
   'guard.indirectAction.help':
     'Bỏ nội dung thay kết quả tool hoặc tài liệu bằng một dòng thông báo, để phiên agent (Claude Code) tiếp tục được. Mô tả tool luôn bị chặn.',
+  'guard.window': 'Cửa sổ hội thoại',
+  'guard.window.help':
+    'Chấm thêm điểm cho các lượt người dùng gần nhất ghép thành một đoạn, để bắt chỉ dẫn bị chia nhỏ qua nhiều tin nhắn. Gateway dùng CONVERSATION_WINDOW_TURNS và CONVERSATION_WINDOW_BYTES (4 lượt, 8192 byte nếu không đặt).',
+  'guard.window.turns': 'Số lượt người dùng trong cửa sổ',
+  'guard.window.bytes': 'Số byte trong cửa sổ',
+  'guard.window.sizeError': 'Số nguyên từ {min} đến {max}.',
 
   'keys.title': 'Khóa API',
   'keys.new': 'Khóa API mới',
@@ -1203,8 +1209,11 @@ export const vi: Messages = {
   'help.var.injection.category.range': 'Trống, direct_injection, indirect_injection, jailbreak, prompt_extraction, data_exfiltration, tool_poisoning hoặc obfuscation.',
   'help.var.injection.category.when': 'Xử lý riêng từng kiểu tấn công, ví dụ chặn prompt_extraction ở mức điểm thấp hơn.',
   'help.var.injection.source_role.desc': 'Phần nào của request chứa dấu hiệu injection mạnh nhất.',
-  'help.var.injection.source_role.range': 'user, system, assistant (tham số gọi công cụ trong lịch sử), tool hoặc tool_description; trống khi không có gì được quét.',
+  'help.var.injection.source_role.range': 'user, system, assistant (tham số gọi công cụ trong lịch sử), tool, tool_description, hoặc conversation khi các lượt người dùng gần nhất ghép lại có điểm cao nhất (conversation.score); trống khi không có gì được quét.',
   'help.var.injection.source_role.when': 'Khắt khe hơn với văn bản không do bạn viết, hoặc bỏ qua cảnh báo trong system prompt của chính bạn.',
+  'help.var.conversation.score.desc': 'Điểm injection của các lượt người dùng gần nhất ghép thành một đoạn (cửa sổ hội thoại). Bắt được chỉ dẫn bị chia nhỏ qua nhiều tin nhắn, mỗi tin nhắn riêng lẻ trông vô hại.',
+  'help.var.conversation.score.range': 'Số từ 0 đến 1; bằng 0 khi request có ít hơn hai lượt người dùng hoặc cửa sổ đang tắt (Cài đặt bảo vệ). Gateway chặn khi điểm đạt ngưỡng injection, như injection.score.',
+  'help.var.conversation.score.when': 'Ghi log hoặc chặn cuộc hội thoại dựng dần một cuộc tấn công qua từng lượt, khi điểm còn dưới ngưỡng của gateway.',
   'help.var.scores.l1.desc': 'Điểm đã hiệu chuẩn của L1, bộ luật mẫu chạy nhanh.',
   'help.var.scores.l1.range': 'Số từ 0 đến 1. Bằng injection.score khi bộ phát hiện không trả về điểm riêng từng lớp.',
   'help.var.scores.l1.when': 'Xử lý các mẫu tấn công rõ ràng kể cả khi các lớp khác không đồng ý.',

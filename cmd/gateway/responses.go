@@ -183,8 +183,9 @@ func (g *textGuard) guardInputItems(items []any) error {
 			return err
 		}
 		g.history = g.latest && i <= last
+		g.msg = i + 1 // each input message is a turn of the conversation window
 		err := g.guardInputItem(m)
-		g.history = false
+		g.history, g.msg = false, 0
 		if err != nil {
 			return err
 		}

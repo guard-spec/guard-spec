@@ -207,7 +207,7 @@ func decodeShared(model, kind string, b []byte) (any, error) {
 		return nil, errors.New("scan cache: entry of another model or kind")
 	}
 	switch kind {
-	case cacheDirect:
+	case cacheDirect, cacheWindow:
 		var s inference.Scores
 		err := json.Unmarshal(e.Value, &s)
 		return s, err

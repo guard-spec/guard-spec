@@ -16,7 +16,7 @@ import (
 // benchStack loads the model layers like the gateway does. Models come from
 // MODEL_DIR or ./models at the repository root, libonnxruntime from
 // ONNXRUNTIME_LIB or .onnx/lib; the benchmark skips without them.
-func benchStack(b *testing.B, layers [3]bool) *inference.Runner {
+func benchStack(b testing.TB, layers [3]bool) *inference.Runner {
 	b.Helper()
 	root, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
@@ -60,4 +60,10 @@ func fileExists(p string) bool {
 func BenchmarkGatewayHTTPML(b *testing.B) {
 	b.Run("l1_l2_l3", func(b *testing.B) { runHTTPBench(b, benchStack(b, [3]bool{true, true, true})) })
 	b.Run("l1_l2", func(b *testing.B) { runHTTPBench(b, benchStack(b, [3]bool{true, true, false})) })
+}
+
+// BenchmarkConversationWindowML is BenchmarkConversationWindow with
+// L1+L2+L3.
+func BenchmarkConversationWindowML(b *testing.B) {
+	runWindowBench(b, benchStack(b, [3]bool{true, true, true}))
 }

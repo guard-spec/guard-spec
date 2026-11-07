@@ -137,7 +137,17 @@ export interface GuardSettings {
   injection_threshold?: number;
   /** Blocks or redacts untrusted content at this score; the smaller of this and INDIRECT_BLOCK_THRESHOLD wins. */
   indirect_threshold?: number;
+  /** Turns the conversation window on or off; unset: the gateway's CONVERSATION_WINDOW_TURNS. */
+  conversation_window?: boolean;
+  /** How many recent user turns the window joins (WINDOW_TURNS bounds). */
+  conversation_window_turns?: number;
+  /** The most bytes of the joined text (WINDOW_BYTES bounds). */
+  conversation_window_bytes?: number;
 }
+
+/** Bounds of the conversation window sizes (internal/indirect MinWindowTurns...). */
+export const WINDOW_TURNS = { min: 2, max: 32, default: 4 } as const;
+export const WINDOW_BYTES = { min: 256, max: 24576, default: 8192 } as const;
 
 /** The highest org block threshold the control plane accepts (indirect.BlockThreshold). */
 export const MAX_ORG_THRESHOLD = 0.85;

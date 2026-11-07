@@ -44,7 +44,8 @@ var fieldDescriptions = map[string]string{
 	"scores.l3":             "Calibrated L3 (similarity) injection score; -1 when the layer did not run.",
 	"indirect.score":        "Largest injection score over tool results, documents and tool descriptions; 0 when there were none.",
 	"indirect.source":       "Source of the strongest untrusted part; empty when there were none.",
-	"injection.source_role": "Role of the text with the strongest injection finding.",
+	"injection.source_role": "Role of the text with the strongest injection finding; conversation for the conversation window.",
+	"conversation.score":    "Injection score of the most recent user turns joined (the conversation window), 0 to 1; 0 when there was none.",
 	"anomaly.score":         "Encoding-anomaly score of the sanitizer, 0 to 1.",
 	"anomaly.has_tag_chars": "The text contained Unicode tag characters.",
 	"anomaly.has_bidi":      "The text contained bidirectional control characters.",
@@ -58,7 +59,7 @@ var fieldValues = map[string][]string{
 	"injection.category":    categoryValues,
 	"injection.label":       append([]string{"BENIGN"}, categoryValues...),
 	"indirect.source":       {"tool", "document", "tool_description"},
-	"injection.source_role": {"user", "system", "assistant", "tool", "tool_description"},
+	"injection.source_role": {"user", "system", "assistant", "tool", "tool_description", "conversation"},
 }
 
 // typeName maps a CEL type to the schema's type name.

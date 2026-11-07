@@ -347,8 +347,11 @@ type requestEntry struct {
 
 	Indirect indirect.Verdict // strongest untrusted part (tool result, tool description)
 	// SourceRole is where the strongest injection finding came from: user,
-	// system, assistant, tool or tool_description.
+	// system, assistant, tool, tool_description or conversation (the
+	// conversation window).
 	SourceRole string
+	// Conversation is the conversation window's score, 0 without one.
+	Conversation float64
 	// RouteTarget is the named upstream the request went to, or was meant to
 	// go to when it failed closed; "" for UPSTREAM_LLM_URL and the stub.
 	RouteTarget string
@@ -474,7 +477,9 @@ func outputTags(counts outputguard.Counts) []string {
 // auditTags is the pii_entities column: the output guard's counts, then
 // "input:redacted=<n>" when untrusted content was redacted, and
 // "input:server_state=1" when a /v1/responses request referred to
-// conversation state the upstream keeps.
+// conversation state the upstream keeps, and
+// "input:signal=conversation" when a request refused by the detector or a
+// policy had its strongest finding in the conversation window.
 func auditTags(e requestEntry) []string {
 	tags := outputTags(e.Output)
 	if e.Redacted > 0 {
@@ -482,6 +487,10 @@ func auditTags(e requestEntry) []string {
 	}
 	if e.ServerState {
 		tags = append(tags, "input:server_state=1")
+	}
+	if e.Action == actionBlock && e.Detected != "" && e.SourceRole == sourceConversation {
+		// The conversation window decided; the row's label and score are its.
+		tags = append(tags, "input:signal="+sourceConversation)
 	}
 	return tags
 }
@@ -594,6 +603,12 @@ type textGuard struct {
 	// allowServerState is RESPONSES_SERVER_STATE=allow; serverState is set
 	// when a /v1/responses request refers to state the upstream keeps.
 	allowServerState, serverState bool
+	// The conversation window (conversation.go): its size (windowTurns 0:
+	// off), the 1-based index of the message being cleaned (0 outside the
+	// messages) and the user text of each message seen, in order.
+	windowTurns, windowBytes int
+	msg                      int
+	turns                    []userTurn
 }
 
 func (g *textGuard) toolSchemaKey() string {
@@ -712,7 +727,8 @@ func (g *textGuard) guardMessages(raw any) error {
 	if !ok {
 		return errUnsupportedContent
 	}
-	for _, msg := range messages {
+	defer func() { g.msg = 0 }()
+	for i, msg := range messages {
 		m, ok := msg.(map[string]any)
 		if !ok {
 			return errUnsupportedContent
@@ -720,6 +736,7 @@ func (g *textGuard) guardMessages(raw any) error {
 		if err := rejectShadowKeys(m, "role", "content"); err != nil {
 			return err
 		}
+		g.msg = i + 1
 		if err := g.guardMessage(m); err != nil {
 			return err
 		}
@@ -857,7 +874,8 @@ func proxyHandler(gw gateway, f apiFormat) fiber.Handler {
 		// Extract + sanitize untrusted text
 		guard := textGuard{roles: &scanCfg.Roles, toolPrefixes: scanCfg.toolPrefixes(), org: entry.OrgID,
 			latest: f.history && scanCfg.History == historyLatest, useCache: f.history,
-			allowServerState: scanCfg.ServerState == serverStateAllow}
+			allowServerState: scanCfg.ServerState == serverStateAllow,
+			windowTurns:      scanCfg.WindowTurns, windowBytes: scanCfg.WindowBytes}
 		_, endSpan := tracing.Start(tctx, "sanitize")
 		err = f.guardBody(&guard, body)
 		endSpan(err)
@@ -882,8 +900,12 @@ func proxyHandler(gw gateway, f apiFormat) fiber.Handler {
 			return scanError(c, err)
 		}
 		entry.Scores, entry.Indirect, entry.SourceRole = verdict.Scores, verdict.Indirect, verdict.SourceRole
+		entry.Conversation = verdict.Window
+		// Direct is the larger of the per-turn and the conversation window's
+		// score; source_role conversation says the window decided.
 		if verdict.Direct >= scanCfg.injectionThreshold() {
-			slog.Info("blocked injection", "score", verdict.Direct, "source_role", verdict.SourceRole)
+			slog.Info("blocked injection", "score", verdict.Direct, "source_role", verdict.SourceRole,
+				"layer", modelLayer(verdict.Scores), "label", verdict.Scores.Injection.Label)
 			entry.Detected = modelLayer(verdict.Scores)
 			entry.Trigger = verdict.DirectTrigger
 			return blockResponse(c, "Request blocked: prompt injection detected.")
@@ -1323,6 +1345,7 @@ func policyVars(entry requestEntry, body map[string]any, bodyBytes int) *policy.
 		IndirectScore:      entry.Indirect.Score,
 		IndirectSource:     string(entry.Indirect.Source),
 		SourceRole:         entry.SourceRole,
+		ConversationScore:  entry.Conversation,
 	}
 	vars.ScoreL1, vars.ScoreL2, vars.ScoreL3 = vars.InjectionScore, -1, -1
 	if d := entry.Scores.Injection.Detail; d != nil {
