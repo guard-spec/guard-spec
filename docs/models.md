@@ -159,8 +159,8 @@ v3b is below ([v3b vs v4](#v3b-vs-v4)) and in
 
 ```bash
 # 1. Install it next to v3b (files checked against the manifest's SHA-256).
-#    Its revision is unpinned until it is on Hugging Face, so `pull` uses the
-#    GitHub release mirror model-guardspec-classifier-v4.
+#    It comes from the Hugging Face branch v4 at the pinned commit, with the
+#    GitHub release model-guardspec-classifier-v4 as the mirror.
 docker compose --profile models run --rm models-pull guardspec-classifier@v4
 # 2. .env: keep v3b deciding, let v4 score the same traffic.
 L2_MODEL=guardspec-classifier@v3b
