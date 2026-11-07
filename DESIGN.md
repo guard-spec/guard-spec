@@ -194,7 +194,11 @@ compose file and README). **None of them exists in v0.1.0.** Some are on the
 - Fallback chains and cost caps for routing.
 - Input-side PII NER, toxicity and topic classifiers (the `pii.entities`,
   `toxicity.score` and `topic.categories` policy fields were removed). Decided
-  against for now in [ADR 0002](docs/adr/0002-no-input-pii-toxicity-topic.md).
+  against in [ADR 0002](docs/adr/0002-no-input-pii-toxicity-topic.md).
+  Personal data in requests is a policy signal instead (`input.pii.kinds`,
+  `input.pii.count`, per-org switch, off by default), counted with the output
+  guard's pattern checks, not NER: see
+  [ADR 0003](docs/adr/0003-input-pii-policy-signal.md).
 - ClickHouse audit storage, hash-chained tamper-evident logs.
 - GPU serving through Triton; Granite Guardian, Qwen3Guard and other LLM judges.
 - hugot as the ONNX library (ADR 0001 chose onnxruntime_go instead).

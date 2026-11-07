@@ -738,7 +738,7 @@
         <span class="step-title">Audit Row</span>
         <span class="layer-chip" style="--lc:var(--c-storage)">PostgreSQL · requests</span>
       </div>
-      <div class="step-desc">One row per request, whatever the outcome. Request and response bodies are stored as SHA-256 and byte length only, unless content storage is enabled (<code>AUDIT_STORE_CONTENT</code> or the org setting). <code>pii_entities</code> holds output guard counts as <code>output:&lt;type&gt;=&lt;n&gt;</code>, never the content. The control plane lists these rows and deletes old ones with its retention job.</div>
+      <div class="step-desc">One row per request, whatever the outcome. Request and response bodies are stored as SHA-256 and byte length only, unless content storage is enabled (<code>AUDIT_STORE_CONTENT</code> or the org setting). <code>pii_entities</code> holds output guard counts as <code>output:&lt;type&gt;=&lt;n&gt;</code> (and, when the org turned on personal data in requests, <code>input:pii_&lt;type&gt;=&lt;n&gt;</code>), never the content. The control plane lists these rows and deletes old ones with its retention job.</div>
       <div class="signals">
         <span class="sig">action: allow · block · error · output_leak</span>
         <span class="sig">rule_id</span>
@@ -879,6 +879,7 @@
         <div class="attr-row"><div class="attr-k">indirect.*</div><div class="attr-v"><code>score</code>, <code>source</code> (tool, document, tool_description)</div></div>
         <div class="attr-row"><div class="attr-k">anomaly.*</div><div class="attr-v"><code>score</code>, <code>has_tag_chars</code>, <code>has_bidi</code></div></div>
         <div class="attr-row"><div class="attr-k">mcp.*</div><div class="attr-v"><code>is_tool_response</code></div></div>
+        <div class="attr-row"><div class="attr-k">input.pii.*</div><div class="attr-v"><code>kinds</code> (email, phone, card, cccd, ipv4), <code>count</code>: personal data in user turns, tool results and documents; empty unless the org turned it on (ADR 0003)</div></div>
         <div class="attr-row"><div class="attr-k">removed</div><div class="attr-v"><code>toxicity.score</code>, <code>pii.entities</code>, <code>topic.categories</code>: no detector produces them. New rules naming them are refused; stored ones see zero or empty</div></div>
       </div>
     </div>
@@ -982,9 +983,9 @@
           <td style="font-size:0.8rem;">Routing to named upstreams is built (step 8); a failed target is not retried elsewhere.</td>
         </tr>
         <tr>
-          <td><div class="comp-name">Input-side toxicity, PII, topic detectors</div></td>
+          <td><div class="comp-name">Input-side toxicity, topic detectors, PII NER</div></td>
           <td><span class="is is-planned">○ Not built</span></td>
-          <td style="font-size:0.8rem;">Their runner slots return neutral stubs and they are not policy inputs. PII redaction exists only on the output side (step 8).</td>
+          <td style="font-size:0.8rem;">Their runner slots return neutral stubs and they are not policy inputs. Personal data in requests is counted with the output guard's pattern checks (<code>input.pii.*</code>, per-org, off by default) and never redacted; PII redaction exists only on the output side (step 8).</td>
         </tr>
         <tr>
           <td><div class="comp-name">Separate inference service</div></td>

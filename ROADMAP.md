@@ -43,12 +43,11 @@ Release and operations
 - Per-organization output guard settings.
 - A shared rate limiter (Redis or Postgres) so limits hold across replicas.
 - More languages, starting with the ones users ask for.
-- Input-side PII as a policy signal, only when a user brings a concrete
-  need: a new rule field (not the removed `pii.entities`) listing the kinds
-  of personal data found in request text, `log` first, using the output
-  guard's detectors, off by default per organization. Until then personal data
-  is redacted in answers only. See
-  [ADR 0002](docs/adr/0002-no-input-pii-toxicity-topic.md).
+- Redaction of personal data in requests (the `redact` rule action, with
+  reversible placeholders). Personal data in requests is a policy signal
+  (`input.pii.kinds`, `input.pii.count`) that rules can log or block on; it
+  is never rewritten. See
+  [ADR 0003](docs/adr/0003-input-pii-policy-signal.md).
 
 ## Not planned
 

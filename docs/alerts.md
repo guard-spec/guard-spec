@@ -67,7 +67,7 @@ Every event has:
 
 | type | source | severity | attrs |
 |---|---|---|---|
-| `detection.blocked` | gateway | warning | request_id, categories[], score, layer, decision, api_key_id, model (+ policy_id when a policy rule matched, signal when the conversation window scored highest) |
+| `detection.blocked` | gateway | warning | request_id, categories[], score, layer, decision, api_key_id, model (+ policy_id when a policy rule matched, signal when the conversation window scored highest, pii_kinds[] and pii_count when the request held personal data) |
 | `detection.flagged` | gateway | info | same as above (score ≥ flag threshold, not blocked); warning with `decision: redact` and `redacted` (count) when untrusted content was replaced (`INDIRECT_ACTION=redact`) |
 | `upstream.error` | gateway | warning | upstream_id, status, error_kind (timeout\|5xx\|model_not_allowed\|connect), request_id |
 | `security.login_failed` | cp | warning | user_id\|null, email_hash, ip, reason |
@@ -87,6 +87,10 @@ Notes:
 - `signal` is `conversation` when the conversation window (the most recent
   user turns joined) scored higher than the per-turn text; absent otherwise.
   `layer` is then the layer that scored highest on the window.
+- `pii_kinds` and `pii_count` are set when the org turned on personal data
+  in requests (`input_pii`) and the request text held some: the kinds
+  (`email`, `phone`, `card`, `cccd`, `ipv4`) and how many values, as the
+  policy fields `input.pii.kinds` and `input.pii.count`. Never the values.
 - `api_key_id` is the shown key prefix (`gs_` and 8 characters), never the key.
 - `email_hash` is the first 16 bytes of SHA-256 of the lower-cased address, hex.
 - `detection.flagged` fires for allowed requests whose injection score is at
@@ -134,8 +138,9 @@ event has a list), `attrs.score`, `attrs.layer`, `attrs.decision`,
 `attrs.api_key_id`, `attrs.model`, `attrs.upstream_id`, `attrs.status`
 (number), `attrs.error_kind`, `attrs.user_id`, `attrs.email_hash`, `attrs.ip`,
 `attrs.reason`, `attrs.actor_id`, `attrs.from`, `attrs.to`,
-`attrs.provider_id`, `attrs.policy_id`, `attrs.action`. An attribute an event
-lacks reads as `""`, `0` or `[]`. Examples:
+`attrs.provider_id`, `attrs.policy_id`, `attrs.action`, `attrs.pii_kinds`
+(list), `attrs.pii_count` (number). An attribute an event lacks reads as
+`""`, `0` or `[]`. Examples:
 
 ```
 attrs.score >= 0.95 && "jailbreak" in attrs.categories
