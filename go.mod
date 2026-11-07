@@ -19,6 +19,7 @@ require (
 	github.com/redis/go-redis/v9 v9.23.0
 	github.com/valyala/fasthttp v1.77.0
 	github.com/yalue/onnxruntime_go v1.38.0
+	github.com/yuin/goldmark v1.8.6
 	go.opentelemetry.io/otel v1.47.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.47.0
 	go.opentelemetry.io/otel/sdk v1.47.0
