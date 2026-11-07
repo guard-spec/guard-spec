@@ -104,6 +104,9 @@ def main():
     ap.add_argument("--data-dir", help="read the validation files (and, in train.py, the training file) from this "
                     "directory instead of data/, e.g. a GUARD_BUILD_OUT build with external rows")
     ap.add_argument("--train", help="override data.train (relative to train/), e.g. a GUARD_V3_REALISTIC=0 build")
+    ap.add_argument("--oversample", action="append", default=[], metavar="SOURCE/LANG/VARIANT=FACTOR",
+                    help="v4: add or override a train.oversample entry (repeatable), e.g. "
+                         "guard-spec:owner-supplied/vi/teencode=2")
     a = ap.parse_args()
     cfg = load_config()
     tc = cfg["train"]
@@ -119,6 +122,9 @@ def main():
         cfg["data"]["train"] = f"{a.data_dir}/{Path(cfg['data']['train']).name}"
     if a.train:
         cfg["data"]["train"] = a.train
+    for spec in a.oversample:
+        key, factor = spec.rsplit("=", 1)
+        tc.setdefault("oversample", {})[key] = int(factor)
     seed_everything(cfg["seed"])
     labels = cfg["labels"]
     device = torch.device(tc["device"] if (tc["device"] != "mps" or torch.backends.mps.is_available()) else "cpu")

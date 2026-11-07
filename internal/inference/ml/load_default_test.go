@@ -115,33 +115,44 @@ func TestResolveOrder(t *testing.T) {
 	}
 }
 
-// TestShippedCalibrationFile: the calibration.json published with
-// guardspec-classifier@v3b is the built-in v3b calibration, marshalled as
-// `cmd/calibrate fit -write` does (two-space indent, trailing newline). To
-// recreate it: json.MarshalIndent(BuiltinCalibrations["guardspec-classifier-v3b"], "", "  ") + "\n".
+// TestShippedCalibrationFile: the calibration.json published with each
+// guardspec-classifier version of the manifest (v3b, v4) is the built-in
+// calibration of that version, marshalled as `cmd/calibrate fit -write` does
+// (two-space indent, trailing newline). To recreate it:
+// json.MarshalIndent(BuiltinCalibrations["guardspec-classifier-<version>"], "", "  ") + "\n".
 func TestShippedCalibrationFile(t *testing.T) {
 	m, err := builtinManifest()
 	if err != nil {
 		t.Fatal(err)
 	}
-	mod, err := m.Lookup("guardspec-classifier@v3b")
-	if err != nil {
-		t.Fatal(err)
-	}
-	data, err := json.MarshalIndent(BuiltinCalibrations["guardspec-classifier-v3b"], "", "  ")
-	if err != nil {
-		t.Fatal(err)
-	}
-	data = append(data, '\n')
-	sum := sha256.Sum256(data)
-	for _, f := range mod.Files {
-		if f.Dest != calibrationFile {
-			continue
+	for _, version := range []string{"v3b", "v4"} {
+		mod, err := m.Lookup("guardspec-classifier@" + version)
+		if err != nil {
+			t.Fatal(err)
 		}
-		if got := hex.EncodeToString(sum[:]); got != f.SHA256 || int64(len(data)) != f.Size {
-			t.Fatalf("calibration.json in the manifest (%s, %d bytes) is not the built-in v3b calibration (%s, %d bytes)", f.SHA256, f.Size, got, len(data))
+		cal, ok := BuiltinCalibrations["guardspec-classifier-"+version]
+		if !ok {
+			t.Fatalf("no built-in calibration for %s", version)
 		}
-		return
+		data, err := json.MarshalIndent(cal, "", "  ")
+		if err != nil {
+			t.Fatal(err)
+		}
+		data = append(data, '\n')
+		sum := sha256.Sum256(data)
+		found := false
+		for _, f := range mod.Files {
+			if f.Dest != calibrationFile {
+				continue
+			}
+			found = true
+			if got := hex.EncodeToString(sum[:]); got != f.SHA256 || int64(len(data)) != f.Size {
+				t.Errorf("%s: calibration.json in the manifest (%s, %d bytes) is not the built-in calibration (%s, %d bytes)",
+					version, f.SHA256, f.Size, got, len(data))
+			}
+		}
+		if !found {
+			t.Errorf("guardspec-classifier@%s ships no calibration.json", version)
+		}
 	}
-	t.Fatal("guardspec-classifier@v3b ships no calibration.json")
 }

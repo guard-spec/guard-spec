@@ -1,0 +1,76 @@
+{
+  "A": {
+    "n_train_rows_per_epoch": 34353,
+    "n_val": 8342,
+    "best_epoch": 5,
+    "train_minutes": 55.6,
+    "val_loss": [
+      0.0838,
+      0.0533,
+      0.0347,
+      0.0351,
+      0.0333
+    ],
+    "oversample": {
+      "guard-spec:realistic-fable/vi/orig": 2
+    }
+  },
+  "B": {
+    "n_train_rows_per_epoch": 35369,
+    "n_val": 8342,
+    "best_epoch": 5,
+    "train_minutes": 55.1,
+    "val_loss": [
+      0.081,
+      0.0423,
+      0.0292,
+      0.0259,
+      0.0255
+    ],
+    "oversample": {
+      "guard-spec:realistic-fable/vi/orig": 2,
+      "guard-spec:owner-supplied/vi/orig": 2,
+      "guard-spec:owner-supplied/vi/teencode": 2,
+      "guard-spec:owner-supplied/vi/no_diacritics": 2,
+      "guard-spec:owner-supplied/vi/leet": 2,
+      "guard-spec:owner-supplied/en/orig": 2
+    }
+  },
+  "C": {
+    "n_train_rows_per_epoch": 34033,
+    "n_val": 8342,
+    "best_epoch": 5,
+    "train_minutes": 66.2,
+    "val_loss": [
+      0.0825,
+      0.0444,
+      0.0343,
+      0.0302,
+      0.0284
+    ],
+    "oversample": {
+      "guard-spec:realistic-fable/vi/orig": 2
+    }
+  },
+  "D": {
+    "n_train_rows_per_epoch": 34913,
+    "n_val": 8342,
+    "best_epoch": 5,
+    "train_minutes": 58.7,
+    "val_loss": [
+      0.0819,
+      0.044,
+      0.0319,
+      0.0276,
+      0.0265
+    ],
+    "oversample": {
+      "guard-spec:realistic-fable/vi/orig": 2,
+      "guard-spec:owner-supplied/vi/orig": 2,
+      "guard-spec:owner-supplied/vi/teencode": 2,
+      "guard-spec:owner-supplied/vi/no_diacritics": 2,
+      "guard-spec:owner-supplied/vi/leet": 2,
+      "guard-spec:owner-supplied/en/orig": 2
+    }
+  }
+}

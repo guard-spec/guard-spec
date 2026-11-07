@@ -123,6 +123,21 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   `conversation_window_bytes`; admin UI: Guard settings). A multi-turn test
   set (24 attacks, 12 benign conversations, English and Vietnamese) is in
   `cmd/gateway/testdata/multiturn.json`. See README, "Conversation window".
+- Classifier **v4 candidate** (`guardspec-classifier@v4` in
+  `models/manifest.yaml`, not recommended; v3b stays the default). Same
+  architecture and recipe as v3b, trained with the owner's second batch of
+  Vietnamese teencode, no-diacritics and banking rows and new Vietnamese hard
+  negatives (`train/data/gen_vi_v4.py`: "bỏ qua bước …", "kệ", "giờ bạn là
+  <role>" with an ordinary task, native teencode). Results, the pre-registered
+  decision rule and the eval-set run are in `train/MODEL_CARD.md` ("v4");
+  `docs/models.md` explains how to compare it with v3b in shadow mode before
+  switching.
+- Training: `probe_v4`, `val_v4` and `val_v4_holdout` splits; the leakage
+  guard now also runs the new rows against every hold-out and probe;
+  owner-file test placeholders (`[TEST_CUSTOMER]`, `[TEST_OTP]`, …) are
+  replaced with varied fake values at build time; `train.py --oversample`;
+  `select_report.py` and `holdout_evalset.py` score hold-outs through the
+  gateway path (`cmd/eval`) and tabulate per-group FPR/TPR.
 
 ### Changed
 
@@ -133,6 +148,9 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   with at least two user turns that has a new window runs the detector once
   more (README, "Go benchmarks"). Set `CONVERSATION_WINDOW_TURNS=0` for the
   previous behaviour.
+- The **Publish model** workflow and `train/hf/stage.sh` take a model
+  version (default `v3b`); other versions keep their model card, calibration
+  and SHA-256 pins in `train/hf/<version>/`.
 
 ### Upgrade notes
 

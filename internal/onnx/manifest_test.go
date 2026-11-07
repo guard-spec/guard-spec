@@ -50,6 +50,24 @@ func TestRepoManifestIsValid(t *testing.T) {
 	if len(c.Mirrors) == 0 || !strings.Contains(c.Mirrors[0], "/releases/download/model-guardspec-classifier-v3b/") {
 		t.Errorf("guardspec-classifier mirrors: %v", c.Mirrors)
 	}
+	// v4: a candidate next to v3b (shadow mode first), with the same files.
+	v4, err := m.Lookup("guardspec-classifier@v4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v4.Recommended {
+		t.Error("guardspec-classifier@v4 must not be recommended before the owner switches the default")
+	}
+	dests = dests[:0]
+	for _, f := range v4.Files {
+		dests = append(dests, f.Dest)
+	}
+	if got := strings.Join(dests, ","); got != "model_int8.onnx,tokenizer.json,config.json,thresholds.json,calibration.json" {
+		t.Errorf("guardspec-classifier@v4 files: %s", got)
+	}
+	if len(v4.Mirrors) == 0 || !strings.Contains(v4.Mirrors[0], "/releases/download/model-guardspec-classifier-v4/") {
+		t.Errorf("guardspec-classifier@v4 mirrors: %v", v4.Mirrors)
+	}
 }
 
 func digests(b []byte) (s256, gitSHA string) {

@@ -16,6 +16,7 @@ tool, so the binary always knows its recommended models.
 | Model | Version | Layer | Recommended | Source |
 |---|---|---|---|---|
 | `guardspec-classifier` | `v3b` | L2 | yes | Hugging Face (not published yet), then the GitHub Release `model-guardspec-classifier-v3b` |
+| `guardspec-classifier` | `v4` | L2 | no: candidate, [compare in shadow mode](#guardspec-classifier-v4-candidate) | the GitHub Release `model-guardspec-classifier-v4` (once the owner publishes it) |
 | `multilingual-e5-small` | `614241f` | L3 | yes | Hugging Face `intfloat/multilingual-e5-small` |
 | `protectai-deberta-v3-small-pi-v2` | `d7c8842` | baseline | optional, gated | Hugging Face |
 | `protectai-deberta-v3-base-pi-v2` | `90c9989` | baseline | optional | Hugging Face |
@@ -145,6 +146,61 @@ path. The admin UI's **Models** page shows the agreement rate, the requests
 where the candidate would block or allow differently, and the score
 distributions. README, [Shadow mode and model reload](../README.md#shadow-mode-and-model-reload),
 has the details.
+
+### guardspec-classifier v4 (candidate)
+
+`guardspec-classifier@v4` is listed in the manifest but is **not** the
+recommended version: v3b stays the default until v4 has been compared in
+shadow mode. v4 is v3b's architecture and recipe trained on more Vietnamese
+data (owner-written teencode, no-diacritics and banking rows, and new hard
+negatives); it blocks fewer benign Vietnamese messages. The comparison with
+v3b is below ([v3b vs v4](#v3b-vs-v4)) and in
+[train/MODEL_CARD.md](../train/MODEL_CARD.md) ("v4").
+
+```bash
+# 1. Install it next to v3b (files checked against the manifest's SHA-256).
+#    Its revision is unpinned until it is on Hugging Face, so `pull` uses the
+#    GitHub release mirror model-guardspec-classifier-v4.
+docker compose --profile models run --rm models-pull guardspec-classifier@v4
+# 2. .env: keep v3b deciding, let v4 score the same traffic.
+L2_MODEL=guardspec-classifier@v3b
+SHADOW_L2_MODEL=guardspec-classifier@v4
+SHADOW_SAMPLE=1
+# 3. Restart the gateway (or POST /admin/models/reload), then watch the
+#    Models page: agreement, requests v4 would block that v3b allows (and the
+#    reverse), score distributions.
+```
+
+With a local copy of the files instead (for example before the release
+exists), set `SHADOW_L2_MODEL_DIR=/path/to/guardspec-classifier-v4`; the
+directory must hold `model_int8.onnx`, `tokenizer.json`, `config.json`,
+`thresholds.json` and `calibration.json` (v4's fusion calibration travels in
+that file). Once the comparison is satisfactory, switching is
+`L2_MODEL=guardspec-classifier@v4` and a reload; rolling back is the reverse.
+
+#### v3b vs v4
+
+Gateway scores (fused L1+L2+L3, block at 0.85). The eval set was measured
+once for v4; the owner hold-out is owner-written data that neither model
+trained on.
+
+| | v3b | v4 |
+|---|---|---|
+| eval ROC AUC | 0.9865 | 0.9853 |
+| eval TPR / FPR at 0.85 | 0.939 / 1.39% (14 of 1,005) | 0.932 / 1.19% (12) |
+| eval EN FPR / VI FPR | 1.65% / 1.25% | 1.10% / 1.25% |
+| eval VI teencode / no-diacritics FPR | 3.5% (5 of 143) / 0.4% (1 of 236) | 1.4% (2) / 1.7% (4) |
+| owner hold-out FPR / TPR | 1.6% (3 of 184) / 0.714 | 0.5% (1) / 0.688 |
+| owner teencode/no-diacritics: FPR / TPR / ROC AUC | 4.2% (2 of 48) / 0.417 / 0.763 | 2.1% (1) / 0.472 / 0.878 |
+| Vietnamese benign false positives (owner hold-out, `val_v4_holdout`, the 4 reported sentences) | 11 of 275 | 4 of 275 |
+| the 4 reported sentences blocked | 4 | 1 |
+
+v4 blocks fewer benign Vietnamese messages but catches slightly fewer
+attacks (eval: 7 fewer of 1,171; lower on Vietnamese data exfiltration and
+tool poisoning and on English leet). It did not pass the pre-registered
+decision rule, which is why it is a candidate for shadow mode and not the
+default. [train/MODEL_CARD.md](../train/MODEL_CARD.md) ("v4") has every
+table.
 
 ## Reloading without a restart
 

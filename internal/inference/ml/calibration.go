@@ -28,6 +28,19 @@ type CalibrationFile struct {
 
 // BuiltinCalibrations are the calibrations of the classifiers we ship.
 var BuiltinCalibrations = map[string]CalibrationFile{
+	// v4 (a candidate; v3b stays the default): fitted on the v4 validation
+	// splits (val + val_hard + val_vi_variants + val_v3 + val_v4) plus the
+	// owner-supplied and OTP/KYC rows that the group hash sends to validation
+	// (8,342 rows; those external rows are not in this repository).
+	"guardspec-classifier-v4": {
+		Model:    "guardspec-classifier-v4",
+		FittedOn: "train/data/val.jsonl + val_hard.jsonl + val_vi_variants.jsonl + val_v3.jsonl + val_v4.jsonl, with the owner-supplied and OTP/KYC validation rows (8342 rows), 5-fold CV for the method choice",
+		Platt:    fusion.Calibration{A: 0.8444, B: -0.6348},
+		LogReg: map[string]fusion.LogReg{
+			"l1,l2":    {W: [3]float64{0.6185, 0.9375, 0}, B: 0.4156},
+			"l1,l2,l3": {W: [3]float64{0.5746, 0.8915, 0.5591}, B: 0.6783},
+		},
+	},
 	// v3b (the default): fitted on val + val_hard + val_vi_variants + val_v3
 	// plus the owner-supplied and OTP/KYC rows that the group hash sends to
 	// validation (7,572 rows; those external rows are not in this repository).

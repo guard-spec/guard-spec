@@ -1,0 +1,245 @@
+{
+  "machine": {
+    "date_utc": "2026-11-07 07:08",
+    "commit": "e8dcedd10810e3c8c4f4665616340685651d5b66",
+    "os": "macOS 15.4.1 (arm64)",
+    "cpu": "Apple M3 Max",
+    "logical_cpus": 14,
+    "ram_gb": 36,
+    "runner": "local",
+    "go": "go1.26.10",
+    "onnxruntime_go": "1.31.1",
+    "python": "3.12.0",
+    "packages": {
+      "onnxruntime": "1.31.1",
+      "tokenizers": "0.22.2",
+      "huggingface_hub": "1.33.0",
+      "numpy": "2.1.3",
+      "pyarrow": "23.0.1"
+    }
+  },
+  "l1_l2_l3": {
+    "guardspec-eval": {
+      "v3b": {
+        "n_attack": 1171,
+        "n_benign": 1005,
+        "roc_auc": 0.9865386984802715,
+        "roc_auc_ci95": [
+          0.9814047397512863,
+          0.9912736063491254
+        ],
+        "tpr_default": 0.9496157130657558,
+        "fpr_default": 0.013930348258706468,
+        "tpr_at_fpr1": 0.9342442356959864,
+        "fpr_at_fpr1": 0.009950248756218905,
+        "latency_p50_ms": 7.012875,
+        "latency_p95_ms": 22.950459
+      },
+      "v4": {
+        "n_attack": 1171,
+        "n_benign": 1005,
+        "roc_auc": 0.9853448385739959,
+        "roc_auc_ci95": [
+          0.9797287898679107,
+          0.9904282600660235
+        ],
+        "tpr_default": 0.9436379163108455,
+        "fpr_default": 0.011940298507462687,
+        "tpr_at_fpr1": 0.9265584970111016,
+        "fpr_at_fpr1": 0.009950248756218905,
+        "latency_p50_ms": 6.50725,
+        "latency_p95_ms": 22.0585
+      },
+      "overlap": null
+    },
+    "deepset": {
+      "v3b": {
+        "n_attack": 60,
+        "n_benign": 56,
+        "roc_auc": 0.9627976190476191,
+        "roc_auc_ci95": [
+          0.9213988095238095,
+          0.9910788690476191
+        ],
+        "tpr_default": 0.3333333333333333,
+        "fpr_default": 0.0,
+        "tpr_at_fpr1": 0.8333333333333334,
+        "fpr_at_fpr1": 0.0,
+        "latency_p50_ms": 5.78625,
+        "latency_p95_ms": 18.683583
+      },
+      "v4": {
+        "n_attack": 60,
+        "n_benign": 56,
+        "roc_auc": 0.9479166666666666,
+        "roc_auc_ci95": [
+          0.9014880952380953,
+          0.9809523809523809
+        ],
+        "tpr_default": 0.2833333333333333,
+        "fpr_default": 0.0,
+        "tpr_at_fpr1": 0.75,
+        "fpr_at_fpr1": 0.0,
+        "latency_p50_ms": 5.089417,
+        "latency_p95_ms": 18.07375
+      },
+      "overlap": {
+        "rows": 116,
+        "exact_fingerprint_in_train_or_val": 0,
+        "jaccard_gt_0_8": 0,
+        "max_jaccard": 0.724
+      }
+    },
+    "jailbreak-classification": {
+      "v3b": {
+        "n_attack": 139,
+        "n_benign": 123,
+        "roc_auc": 0.993917061472773,
+        "roc_auc_ci95": [
+          0.986487395449494,
+          0.9990071357548108
+        ],
+        "tpr_default": 0.920863309352518,
+        "fpr_default": 0.0,
+        "tpr_at_fpr1": 0.935251798561151,
+        "fpr_at_fpr1": 0.008130081300813009,
+        "latency_p50_ms": 42.508459,
+        "latency_p95_ms": 521.213
+      },
+      "v4": {
+        "n_attack": 139,
+        "n_benign": 123,
+        "roc_auc": 0.9942095104404282,
+        "roc_auc_ci95": [
+          0.9874729484704919,
+          0.9986547347487863
+        ],
+        "tpr_default": 0.920863309352518,
+        "fpr_default": 0.0,
+        "tpr_at_fpr1": 0.9568345323741008,
+        "fpr_at_fpr1": 0.008130081300813009,
+        "latency_p50_ms": 42.2175,
+        "latency_p95_ms": 517.467625
+      },
+      "overlap": {
+        "rows": 262,
+        "exact_fingerprint_in_train_or_val": 7,
+        "jaccard_gt_0_8": 49,
+        "max_jaccard": 1.0
+      }
+    },
+    "gandalf": {
+      "v3b": {
+        "n_attack": 112,
+        "n_benign": 0,
+        "roc_auc": null,
+        "roc_auc_ci95": null,
+        "tpr_default": 1.0,
+        "fpr_default": null,
+        "tpr_at_fpr1": null,
+        "fpr_at_fpr1": null,
+        "latency_p50_ms": 5.05475,
+        "latency_p95_ms": 8.448125
+      },
+      "v4": {
+        "n_attack": 112,
+        "n_benign": 0,
+        "roc_auc": null,
+        "roc_auc_ci95": null,
+        "tpr_default": 0.9732142857142857,
+        "fpr_default": null,
+        "tpr_at_fpr1": null,
+        "fpr_at_fpr1": null,
+        "latency_p50_ms": 4.705958,
+        "latency_p95_ms": 7.887
+      },
+      "overlap": {
+        "rows": 112,
+        "exact_fingerprint_in_train_or_val": 0,
+        "jaccard_gt_0_8": 0,
+        "max_jaccard": 0.655
+      }
+    },
+    "spml": {
+      "v3b": {
+        "n_attack": 1000,
+        "n_benign": 1000,
+        "roc_auc": 0.974265,
+        "roc_auc_ci95": [
+          0.967237775,
+          0.9803614749999999
+        ],
+        "tpr_default": 0.364,
+        "fpr_default": 0.0,
+        "tpr_at_fpr1": 0.845,
+        "fpr_at_fpr1": 0.01,
+        "latency_p50_ms": 8.160125,
+        "latency_p95_ms": 130.385083
+      },
+      "v4": {
+        "n_attack": 1000,
+        "n_benign": 1000,
+        "roc_auc": 0.96333,
+        "roc_auc_ci95": [
+          0.955067075,
+          0.970456125
+        ],
+        "tpr_default": 0.366,
+        "fpr_default": 0.0,
+        "tpr_at_fpr1": 0.778,
+        "fpr_at_fpr1": 0.01,
+        "latency_p50_ms": 7.676167,
+        "latency_p95_ms": 129.88454099999998
+      },
+      "overlap": {
+        "rows": 2000,
+        "exact_fingerprint_in_train_or_val": 0,
+        "jaccard_gt_0_8": 0,
+        "max_jaccard": 0.65
+      }
+    },
+    "l1_l2": {
+      "guardspec-eval": {
+        "v3b_auc": 0.9869372182639322,
+        "v4_auc": 0.9859540895012555,
+        "v3b_tpr": 0.9487617421007686,
+        "v4_tpr": 0.9427839453458582,
+        "v3b_fpr": 0.013930348258706468,
+        "v4_fpr": 0.008955223880597015
+      },
+      "deepset": {
+        "v3b_auc": 0.9553571428571429,
+        "v4_auc": 0.9425595238095238,
+        "v3b_tpr": 0.35,
+        "v4_tpr": 0.26666666666666666,
+        "v3b_fpr": 0.0,
+        "v4_fpr": 0.0
+      },
+      "jailbreak-classification": {
+        "v3b_auc": 0.9930982043633386,
+        "v4_auc": 0.9935076329180558,
+        "v3b_tpr": 0.920863309352518,
+        "v4_tpr": 0.9280575539568345,
+        "v3b_fpr": 0.0,
+        "v4_fpr": 0.0
+      },
+      "gandalf": {
+        "v3b_auc": null,
+        "v4_auc": null,
+        "v3b_tpr": 1.0,
+        "v4_tpr": 0.9642857142857143,
+        "v3b_fpr": null,
+        "v4_fpr": null
+      },
+      "spml": {
+        "v3b_auc": 0.9794325,
+        "v4_auc": 0.975765,
+        "v3b_tpr": 0.37,
+        "v4_tpr": 0.399,
+        "v3b_fpr": 0.0,
+        "v4_fpr": 0.0
+      }
+    }
+  },
+  "note": "bench/run.py, Guard Spec L1+L2+L3 rows; v4 = guardspec-classifier-v4 via L2_MODEL_DIR"
+}
