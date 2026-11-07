@@ -1,0 +1,15 @@
+[project]
+name = "guardspec-example-rag"
+version = "0.1.0"
+description = "Guard Spec example: a poisoned document in a RAG pipeline"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+dependencies = [
+    "openai==3.37.0",
+    "httpx==0.28.1",
+]
+
+[tool.uv]
+package = false
+# Resolve dependencies as of this date so the lock is reproducible.
+exclude-newer = "2026-10-24T00:00:00Z"

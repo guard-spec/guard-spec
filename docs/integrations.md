@@ -42,6 +42,15 @@ blocked injection each. Versions: Python 3.13, `openai` 2.54.0,
 `langchain-openai` 1.7.4, `llama-index-llms-openai-like` 0.8.1
 (`llama-index-core` 0.14.25), Node.js 20 with `openai` 7.52.0.
 
+**Runnable examples.** [examples/](../examples/README.md) has complete,
+dependency-pinned versions of the OpenAI SDK (Python and TypeScript),
+LangChain and LlamaIndex snippets below, plus the Vercel AI SDK, a RAG
+pipeline with a poisoned document (blocked, redacted, or dropped at ingest
+with `/guardrail/scan`) and an importable n8n workflow. They read
+`GUARDSPEC_BASE_URL` (the same value as `GUARDSPEC_URL` here, no `/v1`) and
+`GUARDSPEC_API_KEY`, and the **Examples** CI workflow runs them against a
+gateway built from source.
+
 The examples read two variables:
 
 ```bash
@@ -145,9 +154,12 @@ try {
 blocked: content_filter - 400 Request blocked: prompt injection detected.
 ```
 
-The Vercel AI SDK's OpenAI provider and other wrappers around this SDK work
-the same way when they call chat completions (not checked); the Responses
-API (`openai.responses(...)` in the AI SDK) does not.
+Other wrappers around this SDK work the same way when they call chat
+completions. The Vercel AI SDK's OpenAI provider does with
+`createOpenAI({ baseURL, apiKey }).chat(model)`
+([examples/typescript/vercel-ai-sdk](../examples/typescript/vercel-ai-sdk/)):
+its default model, `openai(model)`, and `openai.responses(...)` call the
+Responses API, which the gateway does not serve.
 
 ## LangChain (checked)
 
@@ -215,6 +227,9 @@ RAG pipeline the retrieved chunks reach the model inside the chat request, so
 they are scanned with the user text; to score documents one by one before
 indexing or before they are put in the prompt, call `POST /guardrail/scan`
 with `documents[]` ([README](../README.md#indirect-injection-and-tool-poisoning)).
+[examples/python/rag](../examples/python/rag/) does both: it sends retrieved
+documents as tool results, which the gateway scores one by one and blocks or
+redacts (`INDIRECT_ACTION`), and scans them at ingest time.
 
 ## Claude Code (checked through the gateway)
 
@@ -479,6 +494,17 @@ machines. If you try it, please report what worked in an issue. For coding agent
 the scan endpoints are a more dependable route: MCP tool definitions through
 `POST /guardrail/scan/tools`, tool results and documents through
 `POST /guardrail/scan`.
+
+## n8n (checked)
+
+Import [examples/n8n/guardspec-workflow.json](../examples/n8n/guardspec-workflow.json)
+(checked with n8n 2.46.6). It calls the gateway with the HTTP Request node
+(a Header Auth credential `Authorization: Bearer gs_...`, *Never Error* on so
+a block reaches the next node) and with the OpenAI Chat Model node (an OpenAI
+credential whose Base URL is the gateway plus `/v1`, *Use Responses API*
+off). n8n's OpenAI node reports a block as "Bad request - please check your
+parameters" without the gateway's reason; the HTTP Request node keeps it.
+Steps: [examples/n8n](../examples/n8n/README.md).
 
 ## Other tools
 

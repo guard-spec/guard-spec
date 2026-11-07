@@ -51,6 +51,17 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
     tests with fixtures run in CI.
 - Control plane: `GET /v1/gateway/models` passes on the gateway's version
   (`gateway_version`, from its `/readyz`).
+- Runnable examples in [examples/](examples/README.md), each with a README,
+  pinned dependencies and expected output: the OpenAI Python SDK (chat,
+  streaming, the HTTP 400 `content_filter` block), LangChain `ChatOpenAI`,
+  LlamaIndex `OpenAILike`, a RAG pipeline whose poisoned document is blocked
+  (`INDIRECT_ACTION=block`), redacted (`redact`) or dropped at ingest with
+  `POST /guardrail/scan`, the OpenAI TypeScript SDK and the Vercel AI SDK
+  (streaming and error handling), and an importable n8n workflow (HTTP
+  Request and OpenAI Chat Model nodes). `examples/dev/start.sh` starts a
+  throwaway gateway from source with a fake OpenAI-compatible model; the
+  **Examples** workflow (not required) runs every example against it and
+  checks the allowed and blocked paths.
 
 ### Changed
 

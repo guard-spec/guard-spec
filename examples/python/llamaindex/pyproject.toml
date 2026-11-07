@@ -1,0 +1,15 @@
+[project]
+name = "guardspec-example-llamaindex"
+version = "0.1.0"
+description = "Guard Spec example: LlamaIndex OpenAILike through the gateway"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+dependencies = [
+    "llama-index-llms-openai-like==0.8.1",
+    "llama-index-core==0.14.25",
+]
+
+[tool.uv]
+package = false
+# Resolve dependencies as of this date so the lock is reproducible.
+exclude-newer = "2026-10-24T00:00:00Z"

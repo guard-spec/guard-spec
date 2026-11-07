@@ -1,0 +1,76 @@
+name: Examples
+
+# Runs every example of examples/ against a gateway built from this commit
+# (examples/dev/start.sh: Postgres from docker compose, a fake
+# OpenAI-compatible model, the gateway with the rule layer, INDIRECT_ACTION
+# block and redact) and checks the allowed and blocked paths
+# (examples/dev/run-all.sh). Not a required check.
+
+on:
+  pull_request:
+    paths:
+      - "examples/**"
+      - "cmd/gateway/**"
+      - "internal/**"
+      - "migrations/**"
+      - "docker-compose*.yml"
+      - "go.mod"
+      - "go.sum"
+      - ".github/workflows/examples.yml"
+  push:
+    branches: [main]
+    paths:
+      - "examples/**"
+      - "cmd/gateway/**"
+      - "internal/**"
+      - "migrations/**"
+      - "docker-compose*.yml"
+      - "go.mod"
+      - "go.sum"
+      - ".github/workflows/examples.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: examples-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  examples:
+    name: Run the examples (Python, TypeScript, n8n shape)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      UV_PYTHON: "3.13"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.10.10"
+          enable-cache: true
+          cache-dependency-glob: examples/python/*/uv.lock
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22.15.0"
+          cache: npm
+          cache-dependency-path: examples/typescript/*/package-lock.json
+      - name: Start Postgres, the fake model and the gateway
+        run: |
+          examples/dev/start.sh
+          # The key is random for this run; keep it out of the log anyway.
+          echo "::add-mask::$(sed -n 's/^GUARDSPEC_API_KEY=//p' examples/dev/.state/env)"
+      - name: Run the examples
+        run: examples/dev/run-all.sh
+      - name: Gateway and fake model logs
+        if: failure()
+        run: tail -n 100 examples/dev/.state/*.log
+      - name: Stop
+        if: always()
+        run: examples/dev/stop.sh
