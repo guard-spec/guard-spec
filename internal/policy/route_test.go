@@ -54,14 +54,14 @@ func TestSchemaMatchesLeafToCEL(t *testing.T) {
 		t.Fatalf("fields = %d, want %d", len(s.Fields), len(fieldTypes))
 	}
 	e := newEngine(t)
-	values := map[string]any{"double": 0.5, "int": 3.0, "string": "a", "bool": true}
+	values := map[string]any{"double": 0.5, "int": 3.0, "string": "a", "bool": true, "list": "email"}
 	for _, f := range s.Fields {
 		if f.Description == "" {
 			t.Errorf("%s has no description", f.Name)
 		}
 		for _, op := range s.Operators[f.Type] {
 			v := values[f.Type]
-			if op == "in" {
+			if op == "in" && f.Type != "list" {
 				v = []any{"a"}
 			}
 			raw, _ := json.Marshal(map[string]any{"field": f.Name, "operator": op, "value": v})

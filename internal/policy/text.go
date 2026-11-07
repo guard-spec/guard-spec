@@ -471,6 +471,11 @@ func (w *walker) outer(e ast.Expr) tokenSpan {
 	}
 	if a, b := w.own(e); a >= 0 {
 		add(a, b)
+		if e.Kind() == ast.SelectKind && b+1 < len(w.toks) {
+			// A select's own token is its dot: the field name after it ends
+			// the span, as in "x" in input.pii.kinds.
+			add(b, b+1)
+		}
 		for _, i := range []int{a, b} {
 			if m, ok := w.match[i]; ok && m > i {
 				add(i, m) // a call's or list's closing bracket
