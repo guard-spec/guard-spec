@@ -62,7 +62,7 @@ func TestResponsesRequestShapes(t *testing.T) {
 		indirect.SourceSystem:    {"You are terse.", "Answer in English.", "Be kind."},
 		indirect.SourceUser:      {"Hà Nội", "from a form", "hello", "what now?"},
 		indirect.SourceAssistant: {"Hanoi", "ls -la"},
-		indirect.SourceTool:      {"31C sunny", "file list", "shell says hi", "docs\nsearch\n{}\nmcp result"},
+		indirect.SourceTool:      {"31C sunny", "file list", "shell says hi", "{}\nsearch\nmcp result\ndocs"},
 	}
 	for src, texts := range want {
 		if strings.Join(got[src], "|") != strings.Join(texts, "|") {

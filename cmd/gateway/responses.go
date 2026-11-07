@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 
@@ -305,9 +307,11 @@ func readableLeaves(v any) []string {
 				out = append(out, v)
 			}
 		case map[string]any:
-			for k, x := range v {
+			// Sorted keys: the joined text, and so its score and cache key,
+			// must not depend on map order.
+			for _, k := range slices.Sorted(maps.Keys(v)) {
 				if !opaqueItemKeys[k] {
-					walk(x, depth+1)
+					walk(v[k], depth+1)
 				}
 			}
 		case []any:
