@@ -100,6 +100,9 @@ them yourself, with the command, the hardware and the date.
 - Branch from `main`; keep a pull request to one topic.
 - Commit messages follow Conventional Commits (`feat(gateway): ...`,
   `fix(outputguard): ...`, `docs: ...`).
+- New functionality comes with tests of it, and a bug fix with a test that
+  fails without the fix (a regression test). Say which in "How it was
+  tested" of the pull request template.
 - CI must pass: build, vet, tests (with `-race`), the onnx job, integration
   tests, golangci-lint, govulncheck, the license check and the GoReleaser
   config check.

@@ -14,13 +14,15 @@ exists. What you can check:
 | `ghcr.io/guard-spec/guard-spec-gateway` | cosign, the index and each platform image | SPDX 2.3 per platform (BuildKit attestation) | SLSA v1 per platform (BuildKit, `mode=max`) |
 | `ghcr.io/guard-spec/guard-spec-gateway-full` | cosign, the index and each platform image | SPDX 2.3 per platform | SLSA v1 per platform (`mode=max`) |
 | `ghcr.io/guard-spec/guard-spec-control-plane` | cosign (GoReleaser) | SPDX 2.3 per platform | SLSA v1 per platform (`mode=max`) from the release after v0.2.0; minimal (no builder id) up to v0.2.0 |
-| Release archives (`guard-spec_<version>_<os>_<arch>.tar.gz`) | `checksums.txt` + `checksums.txt.sigstore.json` | `<archive>.sbom.json` (SPDX, syft) | — |
-| Linux `_onnx` archives | `checksums-onnx.txt` + `checksums-onnx.txt.sigstore.json` | `<archive>.sbom.json` | — |
-| Models | SHA-256 pinned in `models/manifest.yaml` (and `build/gateway-full.l2.sha256` for the image) | — | — |
+| Release archives (`guard-spec_<version>_<os>_<arch>.tar.gz`) | `checksums.txt` + `checksums.txt.sigstore.json` | `<archive>.sbom.json` (SPDX, syft) | SLSA v1, `guard-spec_<version>.intoto.jsonl` (GitHub artifact attestation), from the release after v0.3.0 |
+| Linux `_onnx` archives | `checksums-onnx.txt` + `checksums-onnx.txt.sigstore.json` | `<archive>.sbom.json` | the same attestation |
+| Models | SHA-256 pinned in `models/manifest.yaml` (and `build/gateway-full.l2.sha256` for the image); a model release signed by the Sign model release workflow carries `SHA256SUMS` + `SHA256SUMS.sigstore.json` | — | — (trained outside CI) |
 
 You need [cosign](https://docs.sigstore.dev/cosign/system_config/installation/)
 2.4 or newer (the outputs below are from cosign v3.1.4), `docker buildx`
-for the attestations, `jq`, and `sha256sum` (`shasum -a 256` on macOS).
+for the attestations, `jq`, `sha256sum` (`shasum -a 256` on macOS) and, for
+the archive provenance, the [GitHub CLI](https://cli.github.com/) 2.49 or
+newer (`gh attestation`).
 
 ## 1. Image signatures
 
@@ -170,6 +172,33 @@ guard-spec_0.2.0_linux_amd64_onnx.tar.gz.sbom.json: OK
 archive; `checksums-onnx.txt` covers the linux `_onnx` archives and their
 SBOMs.
 
+### Archive provenance
+
+From the release after v0.3.0, the `provenance` job of the release workflow
+makes one SLSA v1 build provenance attestation whose subjects are every file
+of `checksums.txt` and `checksums-onnx.txt` (it verifies their signatures
+first). The attestation is signed through Sigstore, stored in the
+repository's [attestations](https://github.com/guard-spec/guard-spec/attestations)
+and attached to the release as `guard-spec_<version>.intoto.jsonl`, a
+Sigstore bundle on one JSON line. v0.3.0 and earlier have none.
+
+```bash
+VERSION=0.4.0
+gh release download "v$VERSION" -R guard-spec/guard-spec \
+  -p "guard-spec_${VERSION}.intoto.jsonl" -p "guard-spec_${VERSION}_linux_amd64.tar.gz"
+gh attestation verify "guard-spec_${VERSION}_linux_amd64.tar.gz" -R guard-spec/guard-spec \
+  --bundle "guard-spec_${VERSION}.intoto.jsonl" \
+  --signer-workflow guard-spec/guard-spec/.github/workflows/release.yml \
+  --source-ref "refs/tags/v$VERSION"
+```
+
+Without `--bundle`, `gh attestation verify` fetches the same attestation from
+the repository. `--signer-workflow` and `--source-ref` pin it to the release
+workflow at the tag, as the cosign identity does above; the predicate
+(`--format json`) names the commit (`resolvedDependencies`) and the workflow
+run (`runDetails.metadata.invocationId`). An archive that is not one of the
+subjects, or a bundle from another workflow or ref, fails.
+
 ## 5. Models
 
 `models pull` checks every file against the SHA-256 in
@@ -177,6 +206,25 @@ SBOMs.
 [docs/models.md](../models.md). The `gateway-full` image checks the L2 files
 against `build/gateway-full.l2.sha256` while it is built, and its signature
 covers the result.
+
+A model release (`model-guardspec-classifier-<version>`) that the
+maintainers have run through `.github/workflows/sign-model-release.yml`
+also carries `SHA256SUMS` and its cosign bundle. That workflow, run from
+`main`, signs only files that match the manifest's pins:
+
+```bash
+TAG=model-guardspec-classifier-v4
+gh release download "$TAG" -R guard-spec/guard-spec -D "$TAG"
+cd "$TAG"
+cosign verify-blob SHA256SUMS --bundle SHA256SUMS.sigstore.json \
+  --certificate-identity https://github.com/guard-spec/guard-spec/.github/workflows/sign-model-release.yml@refs/heads/main \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+sha256sum -c SHA256SUMS
+```
+
+The models are trained outside GitHub Actions, so they have no build
+provenance; the signature says only that the files are the ones the
+manifest pins.
 
 ## What this does not prove
 
