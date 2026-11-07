@@ -131,11 +131,21 @@ func (s *Scanner) Text(text string, counts Counts) string {
 
 func marker(kind string) string { return "[REDACTED:" + kind + "]" }
 
-// span is one change: text[start:end] becomes repl.
+// span is one change: text[start:end] becomes repl. It counts one finding of
+// kind (none when empty) plus counts, the findings inside a removed link.
 type span struct {
 	start, end int
 	repl       string
+	kind       string
 	counts     Counts
+}
+
+// addSpan counts what a span acts on.
+func (c Counts) addSpan(sp span) {
+	if sp.kind != "" {
+		c[sp.kind]++
+	}
+	c.add(sp.counts)
 }
 
 var (
@@ -143,9 +153,13 @@ var (
 	// parentheses, as Wikipedia URLs do, and may be followed by a title. In
 	// angle brackets it may hold spaces. The captured URL keeps its brackets;
 	// allowed strips them.
-	mdURL    = `(<[^<>\n]*>|(?:[^\s()<>]|\([^\s()<>]*\))*)(?:\s+(?:"[^"\n]*"|'[^'\n]*'|\([^()\n]*\)))?\s*\)`
-	mdFullRe = regexp.MustCompile(`(!?)\[([^\[\]\n]{0,1000})\]\(\s*` + mdURL)
-	mdTailRe = regexp.MustCompile(`\]\(\s*` + mdURL)
+	mdURL  = `(<[^<>\n]*>|(?:[^\s()<>]|\([^\s()<>]*\))*)(?:\s+(?:"[^"\n]*"|'[^'\n]*'|\([^()\n]*\)))?\s*\)`
+	mdFull = `(!?)\[([^\[\]\n]{0,1000})\]\(\s*` + mdURL
+	mdTail = `\]\(\s*` + mdURL
+	// The two run anchored, at the "](" each of their matches holds
+	// (mdMatches); the groups are those of mdFull and mdTail.
+	mdFullAt = regexp.MustCompile(`^(?:` + mdFull + `)`)
+	mdTailAt = regexp.MustCompile(`^(?:` + mdTail + `)`)
 	// A reference definition, also inside a blockquote, with the URL on the
 	// same line or the next one.
 	refDefRe = regexp.MustCompile(`(?m)^[ \t]{0,3}(?:>[ \t]?)*[ \t]{0,3}\[[^\]\n]{1,1000}\]:[ \t]*` +
@@ -156,7 +170,6 @@ var (
 	bareURLRe = regexp.MustCompile(`(?i)\b(?:https?://|www\.)[^\s<>"'\x60\[\]()]+`)
 
 	emailRe = regexp.MustCompile(`[A-Za-z0-9._%+\-]{1,64}@[A-Za-z0-9\-]{1,63}(?:\.[A-Za-z0-9\-]{1,63}){0,8}\.[A-Za-z]{2,24}`)
-	digitRe = regexp.MustCompile(`\d(?:[ \-]?\d)*`)
 	cccdRe  = regexp.MustCompile(`0\d{11}`)
 	phoneRe = regexp.MustCompile(`(?:\+84|84|0)[ .\-]?(?:[35789]\d|2\d\d)(?:[ .\-]?\d){7}`)
 	ipv4Re  = regexp.MustCompile(`(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}`)
@@ -240,52 +253,55 @@ func (s *Scanner) spans(text string, from int) (accepted []span, all []span) {
 	g := s.g
 	var cands []span // in priority order
 	add := func(start, end int, repl, kind string, counts Counts) {
-		if start < from {
-			return
+		if start >= from {
+			cands = append(cands, span{start: start, end: end, repl: repl, kind: kind, counts: counts})
 		}
-		if counts == nil {
-			counts = Counts{}
-		}
-		if kind != "" {
-			counts[kind]++
-		}
-		cands = append(cands, span{start: start, end: end, repl: repl, counts: counts})
 	}
 
 	// Structure first: removing a whole image also removes whatever it carries.
-	for _, m := range mdFullRe.FindAllStringSubmatchIndex(text, -1) {
-		if g.allowed(text[m[6]:m[7]]) {
-			continue
+	// Each pattern runs only when text holds what every match of it must hold,
+	// which spares the regular expressions on most text.
+	if strings.Contains(text, "](") {
+		for _, m := range mdMatches(text, true) {
+			if g.allowed(text[m[6]:m[7]]) {
+				continue
+			}
+			if m[3] > m[2] { // the "!" of an image
+				add(m[0], m[1], marker(KindImage), KindImage, nil)
+				continue
+			}
+			inner := Counts{}
+			add(m[0], m[1], s.inline(text[m[4]:m[5]], inner), KindLink, inner)
 		}
-		if m[3] > m[2] { // the "!" of an image
-			add(m[0], m[1], marker(KindImage), KindImage, nil)
-			continue
-		}
-		inner := Counts{}
-		add(m[0], m[1], s.inline(text[m[4]:m[5]], inner), KindLink, inner)
-	}
-	for _, m := range mdTailRe.FindAllStringSubmatchIndex(text, -1) {
-		if !g.allowed(text[m[2]:m[3]]) {
-			add(m[0], m[1], "]", KindLink, nil)
-		}
-	}
-	for _, m := range refDefRe.FindAllStringSubmatchIndex(text, -1) {
-		if !g.allowed(text[m[2]:m[3]]) {
-			add(m[0], m[1], "", KindLink, nil)
-		}
-	}
-	for _, m := range htmlImgRe.FindAllStringIndex(text, -1) {
-		if !g.imgAllowed(text[m[0]:m[1]]) {
-			add(m[0], m[1], marker(KindImage), KindImage, nil)
+		for _, m := range mdMatches(text, false) {
+			if !g.allowed(text[m[2]:m[3]]) {
+				add(m[0], m[1], "]", KindLink, nil)
+			}
 		}
 	}
-	for _, m := range bareURLRe.FindAllStringIndex(text, -1) {
-		if raw := text[m[0]:m[1]]; isImageWithQuery(raw) && !g.allowed(raw) {
-			add(m[0], m[1], marker(KindURL), KindURL, nil)
+	if strings.Contains(text, "]:") {
+		for _, m := range refDefRe.FindAllStringSubmatchIndex(text, -1) {
+			if !g.allowed(text[m[2]:m[3]]) {
+				add(m[0], m[1], "", KindLink, nil)
+			}
+		}
+	}
+	if indexFold(text, "<img") >= 0 {
+		for _, m := range htmlImgRe.FindAllStringIndex(text, -1) {
+			if !g.imgAllowed(text[m[0]:m[1]]) {
+				add(m[0], m[1], marker(KindImage), KindImage, nil)
+			}
+		}
+	}
+	if hasURLStart(text) {
+		for _, m := range bareURLRe.FindAllStringIndex(text, -1) {
+			if raw := text[m[0]:m[1]]; isImageWithQuery(raw) && !g.allowed(raw) {
+				add(m[0], m[1], marker(KindURL), KindURL, nil)
+			}
 		}
 	}
 	for _, m := range s.inlineMatches(text, from) {
-		add(m.start, m.end, m.repl, "", m.counts)
+		add(m.start, m.end, m.repl, m.kind, m.counts)
 	}
 
 	all = cands
@@ -305,7 +321,7 @@ func (s *Scanner) spans(text string, from int) (accepted []span, all []span) {
 	if s.canary != "" {
 		for i := range accepted {
 			a := &accepted[i]
-			if a.counts[KindCanary] == 0 {
+			if a.kind != KindCanary && a.counts[KindCanary] == 0 {
 				if n := strings.Count(text[a.start:a.end], s.canary); n > 0 {
 					a.counts = copyCounts(a.counts)
 					a.counts[KindCanary] += n
@@ -343,7 +359,7 @@ func (s *Scanner) inline(text string, counts Counts) string {
 	for _, m := range matches {
 		b.WriteString(text[last:m.start])
 		b.WriteString(m.repl)
-		counts.add(m.counts)
+		counts.addSpan(m)
 		last = m.end
 	}
 	b.WriteString(text[last:])
@@ -355,10 +371,9 @@ func (s *Scanner) inline(text string, counts Counts) string {
 func (s *Scanner) inlineMatches(text string, from int) []span {
 	var cands []span
 	add := func(start, end int, kind string) {
-		if start < from {
-			return
+		if start >= from {
+			cands = append(cands, span{start: start, end: end, repl: marker(kind), kind: kind})
 		}
-		cands = append(cands, span{start: start, end: end, repl: marker(kind), counts: Counts{kind: 1}})
 	}
 	if s.canary != "" {
 		for off := 0; ; {
@@ -371,30 +386,37 @@ func (s *Scanner) inlineMatches(text string, from int) []span {
 		}
 	}
 	if s.g.cfg.RedactPII {
-		for _, m := range emailRe.FindAllStringIndex(text, -1) {
+		for _, m := range emailMatches(text) {
 			if !emailCharAt(text, m[0]-1) {
 				add(m[0], m[1], KindEmail)
 			}
 		}
-		for _, m := range digitRe.FindAllStringIndex(text, -1) {
-			for _, card := range findCards(text, m[0], m[1]) {
-				add(card[0], card[1], KindCard)
+		if hasDigit(text) {
+			for start := 0; ; {
+				run, end := nextDigitRun(text, start)
+				if run < 0 {
+					break
+				}
+				for _, card := range findCards(text, run, end) {
+					add(card[0], card[1], KindCard)
+				}
+				start = end
 			}
-		}
-		for _, m := range allBounded(cccdRe, text, digitAt) {
-			add(m[0], m[1], KindCCCD)
-		}
-		for _, m := range allBounded(phoneRe, text, func(t string, i int) bool {
-			return digitAt(t, i) || (i >= 0 && i < len(t) && t[i] == '+')
-		}) {
-			add(m[0], m[1], KindPhone)
-		}
-		if s.g.cfg.RedactIPv4 {
-			for _, m := range allBounded(ipv4Re, text, func(t string, i int) bool {
-				return digitAt(t, i) || (i >= 0 && i < len(t) && t[i] == '.' &&
-					(digitAt(t, i-1) || digitAt(t, i+1)))
+			for _, m := range allBounded(cccdRe, text, digitAt) {
+				add(m[0], m[1], KindCCCD)
+			}
+			for _, m := range allBounded(phoneRe, text, func(t string, i int) bool {
+				return digitAt(t, i) || (i >= 0 && i < len(t) && t[i] == '+')
 			}) {
-				add(m[0], m[1], KindIPv4)
+				add(m[0], m[1], KindPhone)
+			}
+			if s.g.cfg.RedactIPv4 {
+				for _, m := range allBounded(ipv4Re, text, func(t string, i int) bool {
+					return digitAt(t, i) || (i >= 0 && i < len(t) && t[i] == '.' &&
+						(digitAt(t, i-1) || digitAt(t, i+1)))
+				}) {
+					add(m[0], m[1], KindIPv4)
+				}
 			}
 		}
 	}
@@ -415,6 +437,114 @@ func (s *Scanner) inlineMatches(text string, from int) []span {
 	return out
 }
 
+// maxEmail is the longest text emailRe can match: a 64-byte local part, "@",
+// up to nine labels of 63 bytes with their dots, a dot and a 24-letter TLD.
+const maxEmail = 64 + 1 + 63 + 8*64 + 1 + 24
+
+// emailMatches returns what emailRe.FindAllStringIndex(text, -1) returns, but
+// runs the expression only around each "@": a match holds exactly one "@",
+// starts at most 64 bytes before it and is at most maxEmail bytes long, so
+// the leftmost match from any position either holds the next "@" and lies in
+// that window, or starts after that "@".
+func emailMatches(text string) [][]int {
+	var out [][]int
+	for off := 0; ; {
+		at := strings.IndexByte(text[off:], '@')
+		if at < 0 {
+			return out
+		}
+		at += off
+		lo, hi := max(off, at-64), min(len(text), at+maxEmail)
+		m := emailRe.FindStringIndex(text[lo:hi])
+		if m == nil || lo+m[0] > at {
+			off = at + 1 // no address holds this "@"
+			continue
+		}
+		out = append(out, []int{lo + m[0], lo + m[1]})
+		off = lo + m[1]
+	}
+}
+
+// nextDigitRun finds the first run of digits from start on, with single spaces
+// or dashes between them, as the expression \d(?:[ \-]?\d)* would; -1 when
+// there is none.
+func nextDigitRun(text string, start int) (int, int) {
+	i := start
+	for i < len(text) && !isDigit(text[i]) {
+		i++
+	}
+	if i == len(text) {
+		return -1, -1
+	}
+	run := i
+	for i++; i < len(text); {
+		switch {
+		case isDigit(text[i]):
+			i++
+		case (text[i] == ' ' || text[i] == '-') && i+1 < len(text) && isDigit(text[i+1]):
+			i += 2
+		default:
+			return run, i
+		}
+	}
+	return run, i
+}
+
+func isDigit(c byte) bool { return c >= '0' && c <= '9' }
+
+func hasDigit(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if isDigit(s[i]) {
+			return true
+		}
+	}
+	return false
+}
+
+// indexFold is strings.Index for an ASCII, lower-case sub, ignoring the case
+// of s. sub must start with a lower-case letter or another byte that has bit
+// 0x20 set (such as "<"): s[i]|0x20 is then a quick test of its first byte.
+func indexFold(s, sub string) int {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i]|0x20 == sub[0] && hasPrefixFold(s[i:], sub) {
+			return i
+		}
+	}
+	return -1
+}
+
+// lastIndexFold is strings.LastIndex for sub as in indexFold.
+func lastIndexFold(s, sub string) int {
+	for i := len(s) - len(sub); i >= 0; i-- {
+		if s[i]|0x20 == sub[0] && hasPrefixFold(s[i:], sub) {
+			return i
+		}
+	}
+	return -1
+}
+
+func hasPrefixFold(s, prefix string) bool {
+	if len(s) < len(prefix) {
+		return false
+	}
+	for j := 0; j < len(prefix); j++ {
+		c := s[j]
+		if c >= 'A' && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		if c != prefix[j] {
+			return false
+		}
+	}
+	return true
+}
+
+// hasURLStart reports whether s may hold a match of bareURLRe, which starts
+// with "http://", "https://" or "www.", in any case.
+func hasURLStart(s string) bool {
+	return strings.Contains(s, "://") || indexFold(s, "www.") >= 0
+}
+
 func digitAt(t string, i int) bool { return i >= 0 && i < len(t) && t[i] >= '0' && t[i] <= '9' }
 
 func emailCharAt(t string, i int) bool {
@@ -427,23 +557,100 @@ func emailCharAt(t string, i int) bool {
 
 // allBounded finds matches of re whose neighbours are not part of a longer
 // token. A rejected match is retried one byte later, so "123 0901234567" still
-// finds the phone number.
+// finds the phone number. re must only match within a numeric run (the citizen
+// ID, phone and IPv4 expressions do), so it runs on the runs alone.
 func allBounded(re *regexp.Regexp, text string, inToken func(string, int) bool) [][]int {
 	var out [][]int
-	for off := 0; off < len(text); {
-		m := re.FindStringIndex(text[off:])
-		if m == nil {
-			break
+	for from := 0; ; {
+		run, end := nextNumericRun(text, from)
+		if run < 0 {
+			return out
 		}
-		start, end := off+m[0], off+m[1]
-		if !inToken(text, start-1) && !inToken(text, end) {
-			out = append(out, []int{start, end})
-			off = end
+		for off := run; off < end; {
+			m := re.FindStringIndex(text[off:end])
+			if m == nil {
+				break
+			}
+			start, stop := off+m[0], off+m[1]
+			if !inToken(text, start-1) && !inToken(text, stop) {
+				out = append(out, []int{start, stop})
+				off = stop
+				continue
+			}
+			off = start + 1
+		}
+		from = end
+	}
+}
+
+// nextNumericRun finds the first numeric run from start on (numericRunStart
+// describes one); -1 when there is none.
+func nextNumericRun(text string, start int) (int, int) {
+	i := start
+	for i < len(text) && !isDigit(text[i]) && (text[i] != '+' || i+1 == len(text) || !isDigit(text[i+1])) {
+		i++
+	}
+	if i == len(text) {
+		return -1, -1
+	}
+	run := i
+	if text[i] == '+' {
+		i++
+	}
+	for i++; i < len(text); {
+		switch {
+		case isDigit(text[i]):
+			i++
+		case numSep(text[i]) && i+1 < len(text) && isDigit(text[i+1]):
+			i += 2
+		default:
+			return run, i
+		}
+	}
+	return run, i
+}
+
+// mdMatches returns what an unanchored mdFull (full) or mdTail expression's
+// FindAllStringSubmatchIndex(text, -1) returns, running the anchored one only
+// where a match can start. Every match holds "](": for mdTail it starts there;
+// for mdFull the first "](" ends the link text, which holds no brackets or
+// line breaks, so the match starts at the "[" before it (or the "!" before
+// that), at most maxLinkText+1 bytes back.
+func mdMatches(text string, full bool) [][]int {
+	var out [][]int
+	for off := 0; ; {
+		p := strings.Index(text[off:], "](")
+		if p < 0 {
+			return out
+		}
+		p += off
+		start, re := p, mdTailAt
+		if full {
+			re = mdFullAt
+			lo := max(off, p-maxLinkText-1)
+			q := strings.LastIndexAny(text[lo:p], "[]\n")
+			if q < 0 || text[lo+q] != '[' {
+				off = p + 1
+				continue
+			}
+			start = lo + q
+			if start > off && text[start-1] == '!' {
+				start--
+			}
+		}
+		m := re.FindStringSubmatchIndex(text[start:])
+		if m == nil {
+			off = p + 1
 			continue
 		}
-		off = start + 1
+		for i := range m {
+			if m[i] >= 0 {
+				m[i] += start
+			}
+		}
+		out = append(out, m)
+		off = m[1]
 	}
-	return out
 }
 
 // findCards looks in the digit run text[start:end] (digits with single spaces

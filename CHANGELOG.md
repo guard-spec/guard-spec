@@ -9,6 +9,36 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ## [Unreleased]
 
+### Changed
+
+- The output guard is much cheaper on streams and holds back less. A stream
+  no longer keeps a fixed 256-character window and rescans it every 32 new
+  characters: it holds back only the end of the text that could still turn
+  into something to redact (an unfinished word, number, URL or reference
+  definition, the start of the canary, an open image or link) and scans every
+  64 new characters. The patterns run only where a match can be (around "@",
+  at "](", over runs of digits, when the text holds what each needs), and the
+  held text reuses its buffer. What is redacted, removed or blocked does not
+  change: the output of a stream equals the output of the whole-answer guard
+  on the same text for every split, which property and fuzz tests now check
+  for all three stream kinds. On the Go benchmarks (2 KB answer in 16-byte
+  deltas, Apple M3 Max) a guarded stream drops from 3.8 to 0.013 ms (clean)
+  and from 4.6 to 0.37 ms (with findings), 1.6× and 1.3× the whole-answer
+  guard instead of 7.5×; the whole-answer guard itself drops from 0.50 to
+  0.008 ms and from 0.63 to 0.30 ms. Chat, Messages and Responses event
+  streams, JSON included, take 0.26 to 0.85 ms instead of 4.1 to 5.1 ms. See
+  README, "Go benchmarks".
+
+### Fixed
+
+- Two card numbers in one run of digits (`4111 1111 1111 1111 4111-1111-1111-1111`)
+  could let the second one through unredacted in a stream when a cut fell
+  between them. A stream now never sends part of a run of digits before the
+  run has ended.
+- A markdown link or image with a title in parentheses and a long URL
+  (`[t](https://evil.example/?d=<300 characters> (title))`) could be sent
+  before its closing parenthesis arrived, and so keep its URL in a stream.
+
 ### Documentation
 
 - Vietnamese translations of the main docs pages, next to the English files
