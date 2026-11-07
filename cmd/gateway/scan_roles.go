@@ -49,6 +49,11 @@ type scanConfig struct {
 	// EmbeddingsScan is EMBEDDINGS_SCAN=on: the input of /v1/embeddings is
 	// classified as untrusted content. Off by default.
 	EmbeddingsScan bool
+	// WindowTurns and WindowBytes are CONVERSATION_WINDOW_TURNS and
+	// CONVERSATION_WINDOW_BYTES: the conversation window joins the most
+	// recent user turns, at most this many and this many bytes, and scores
+	// them together (conversation.go). WindowTurns 0: off.
+	WindowTurns, WindowBytes int
 }
 
 // Values of SCAN_HISTORY.
@@ -68,12 +73,13 @@ func (c scanConfig) toolPrefixes() []string {
 func defaultScanConfig() scanConfig {
 	return scanConfig{Roles: indirect.DefaultRoles, Spotlight: indirect.ModeOff,
 		IndirectThreshold: indirect.BlockThreshold, IndirectAction: indirect.ActionBlock, History: historyLatest,
-		ServerState: serverStateRefuse}
+		ServerState: serverStateRefuse, WindowTurns: indirect.DefaultWindowTurns,
+		WindowBytes: indirect.DefaultWindowBytes}
 }
 
 // loadScanConfig reads SCAN_ROLES, SPOTLIGHT, INDIRECT_BLOCK_THRESHOLD,
-// INDIRECT_ACTION, SCAN_TOOL_PREFIXES, SCAN_HISTORY, RESPONSES_SERVER_STATE and
-// EMBEDDINGS_SCAN.
+// INDIRECT_ACTION, SCAN_TOOL_PREFIXES, SCAN_HISTORY, RESPONSES_SERVER_STATE,
+// EMBEDDINGS_SCAN, CONVERSATION_WINDOW_TURNS and CONVERSATION_WINDOW_BYTES.
 func loadScanConfig(env func(string) string) (scanConfig, error) {
 	cfg := defaultScanConfig()
 	var err error
@@ -124,6 +130,21 @@ func loadScanConfig(env func(string) string) (scanConfig, error) {
 		cfg.EmbeddingsScan = true
 	default:
 		return scanConfig{}, errors.New("EMBEDDINGS_SCAN must be on or off")
+	}
+	for _, w := range []struct {
+		name string
+		dst  *int
+	}{{"CONVERSATION_WINDOW_TURNS", &cfg.WindowTurns}, {"CONVERSATION_WINDOW_BYTES", &cfg.WindowBytes}} {
+		if v := strings.TrimSpace(env(w.name)); v != "" {
+			n, err := strconv.Atoi(v)
+			if err != nil {
+				return scanConfig{}, fmt.Errorf("%s must be a whole number", w.name)
+			}
+			*w.dst = n
+		}
+	}
+	if err := indirect.ValidWindow(cfg.WindowTurns, cfg.WindowBytes); err != nil {
+		return scanConfig{}, fmt.Errorf("CONVERSATION_WINDOW_TURNS, CONVERSATION_WINDOW_BYTES: %w", err)
 	}
 	return cfg, nil
 }
@@ -182,6 +203,7 @@ func (gw gateway) scanConfigFor(orgID uuid.UUID) (scanConfig, error) {
 	cfg.Roles, cfg.Spotlight = s.Apply(cfg.Roles, cfg.Spotlight)
 	cfg.IndirectAction = s.Action(cfg.IndirectAction)
 	cfg.InjectionThreshold, cfg.IndirectThreshold = s.Thresholds(cfg.injectionThreshold(), cfg.IndirectThreshold)
+	cfg.WindowTurns, cfg.WindowBytes = s.Window(cfg.WindowTurns, cfg.WindowBytes)
 	return cfg, nil
 }
 
@@ -233,6 +255,10 @@ func (g *textGuard) collect(text string) {
 		if !roles.Tool {
 			return
 		}
+	}
+	if src == indirect.SourceUser {
+		// Earlier turns too: the window joins them (conversation.go).
+		g.addTurn(text)
 	}
 	if g.history && !src.Untrusted() {
 		// An earlier turn's own text was classified when it was the trailing
@@ -473,6 +499,9 @@ type requestVerdict struct {
 	// DirectTrigger and IndirectTrigger hash the text behind Direct and
 	// Indirect: the key of a retried refusal (audit_dedupe.go).
 	DirectTrigger, IndirectTrigger string
+	// Window is the conversation window's score (conversation.go), 0 when
+	// there was none; Direct is at least this much.
+	Window float64
 }
 
 // triggerHash hashes the text that triggered a refusal.
@@ -530,6 +559,15 @@ func (gw gateway) scoreRequest(g *textGuard) (requestVerdict, error) {
 			reqs = append(reqs, cacheReq{cacheTool, toolKeys[i]})
 		}
 	}
+	// The conversation window (conversation.go), looked up with the rest.
+	window := conversationWindow(g.turns, g.windowTurns, g.windowBytes)
+	windowKey := ""
+	if window != "" {
+		windowKey = cacheKey(g.org, cacheWindow, window)
+		if cache != nil {
+			reqs = append(reqs, cacheReq{cacheWindow, windowKey})
+		}
+	}
 	view := cache.view(gw.base, gen, g.org, reqs)
 	defer view.flush(gw.base)
 
@@ -579,15 +617,19 @@ func (gw gateway) scoreRequest(g *textGuard) (requestVerdict, error) {
 		}
 	}
 
+	var joined string
+	var joinedScores inference.Scores
 	if len(direct) > 0 {
 		texts := make([]string, len(direct))
 		for i, p := range direct {
 			texts[i] = p.text
 		}
-		scores, err := gw.runner.Scan(gw.base, strings.Join(texts, " "))
+		joined = strings.Join(texts, " ")
+		scores, err := gw.runner.Scan(gw.base, joined)
 		if err != nil {
 			return v, err
 		}
+		joinedScores = scores
 		if c := float64(scores.Injection.Confidence); v.SourceRole == "" || c > v.Direct {
 			v.Scores, v.Direct = scores, c
 			v.DirectTrigger = triggerHash(append([]string{"direct"}, texts...)...)
@@ -595,6 +637,9 @@ func (gw gateway) scoreRequest(g *textGuard) (requestVerdict, error) {
 				return v, err
 			}
 		}
+	}
+	if err := gw.scoreWindow(&v, view, window, windowKey, joined, joinedScores); err != nil {
+		return v, err
 	}
 
 	for i := range g.parts {

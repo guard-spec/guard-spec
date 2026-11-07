@@ -11,7 +11,8 @@ import (
 // TestLayerScoreFields covers the per-layer fusion fields: scores.l1..l3
 // (-1 when a layer did not run) and injection.category.
 func TestLayerScoreFields(t *testing.T) {
-	vars := &Vars{InjectionScore: 0.9, ScoreL1: 0.9, ScoreL2: -1, ScoreL3: -1, InjectionCat: "jailbreak"}
+	vars := &Vars{InjectionScore: 0.9, ScoreL1: 0.9, ScoreL2: -1, ScoreL3: -1, InjectionCat: "jailbreak",
+		ConversationScore: 0.9, SourceRole: "conversation"}
 	tests := []struct {
 		condition string
 		want      bool
@@ -21,6 +22,8 @@ func TestLayerScoreFields(t *testing.T) {
 		{`{"field":"scores.l3","operator":"<","value":0}`, true},
 		{`{"field":"injection.category","operator":"=","value":"jailbreak"}`, true},
 		{`{"field":"injection.category","operator":"in","value":"prompt_extraction, data_exfiltration"}`, false},
+		{`{"field":"conversation.score","operator":">=","value":0.7}`, true},
+		{`{"field":"injection.source_role","operator":"=","value":"conversation"}`, true},
 	}
 	e := newEngine(t)
 	for _, tt := range tests {

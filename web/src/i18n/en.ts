@@ -269,6 +269,12 @@ export const en = {
   'guard.indirectAction.redact': 'Remove that content and continue',
   'guard.indirectAction.help':
     'Remove replaces the tool result or document with a placeholder, so an agent session (Claude Code) can go on. Tool descriptions always block.',
+  'guard.window': 'Conversation window',
+  'guard.window.help':
+    'Also scores the most recent user turns joined into one text, so an instruction split over several messages is caught. The gateway uses CONVERSATION_WINDOW_TURNS and CONVERSATION_WINDOW_BYTES (4 turns, 8192 bytes unless set).',
+  'guard.window.turns': 'User turns in the window',
+  'guard.window.bytes': 'Bytes in the window',
+  'guard.window.sizeError': 'A whole number from {min} to {max}.',
 
   'keys.title': 'API keys',
   'keys.new': 'New API key',
@@ -1203,8 +1209,11 @@ export const en = {
   'help.var.injection.category.range': 'Empty, direct_injection, indirect_injection, jailbreak, prompt_extraction, data_exfiltration, tool_poisoning or obfuscation.',
   'help.var.injection.category.when': 'Treat some kinds of attack differently, for example block prompt_extraction at a lower score.',
   'help.var.injection.source_role.desc': 'Which part of the request carried the strongest injection finding.',
-  'help.var.injection.source_role.range': 'user, system, assistant (tool-call arguments in the history), tool or tool_description; empty when nothing was scanned.',
+  'help.var.injection.source_role.range': 'user, system, assistant (tool-call arguments in the history), tool, tool_description, or conversation when the recent user turns joined scored highest (conversation.score); empty when nothing was scanned.',
   'help.var.injection.source_role.when': 'Be stricter with text you do not write yourself, or allow findings in your own system prompt.',
+  'help.var.conversation.score.desc': 'The injection score of the most recent user turns joined into one text (the conversation window). It catches an instruction split over several messages, each harmless on its own.',
+  'help.var.conversation.score.range': 'A number from 0 to 1; 0 when the request has fewer than two user turns or the window is off (Guard settings). The gateway blocks when it reaches the injection threshold, like injection.score.',
+  'help.var.conversation.score.when': 'Log or block a conversation that builds up an attack turn by turn, below the gateway\'s threshold.',
   'help.var.scores.l1.desc': 'The calibrated score of L1, the fast pattern rules.',
   'help.var.scores.l1.range': 'A number from 0 to 1. Equal to injection.score when the detector gives no per-layer detail.',
   'help.var.scores.l1.when': 'Act on clear pattern matches even when the other layers disagree.',

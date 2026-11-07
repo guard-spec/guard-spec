@@ -107,12 +107,32 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   `gateway.scanCache` (Redis URL from a secret), an optional compose
   `scan-cache` service (Valkey, `--profile scan-cache`, password required).
   The control plane's retention job deletes expired `scan_cache` rows.
+- Conversation window: the most recent user turns (`CONVERSATION_WINDOW_TURNS`,
+  default 4; at most `CONVERSATION_WINDOW_BYTES`, default 8192) are joined and
+  scored together, and the injection decision takes the larger of that score
+  and the per-turn one. It catches an instruction split over several user
+  messages that each stay under the threshold, which `SCAN_HISTORY=latest` on
+  `/v1/messages` and `/v1/responses` let through; chat completions get it too. The window's score goes through the scan cache
+  (by hash of the joined text, shared backend included), so an agent loop with unchanged user turns
+  pays a lookup; earlier turns are not scored on their own again. New policy
+  variable `conversation.score`; `injection.source_role` is `conversation`
+  when the window scored highest, a request it blocks gets the audit tag
+  `input:signal=conversation` and its detection event `signal: conversation`.
+  Orgs can turn it on or off and set its size in guard settings
+  (`conversation_window`, `conversation_window_turns`,
+  `conversation_window_bytes`; admin UI: Guard settings). A multi-turn test
+  set (24 attacks, 12 benign conversations, English and Vietnamese) is in
+  `cmd/gateway/testdata/multiturn.json`. See README, "Conversation window".
 
 ### Changed
 
 - The "False positive / false negative" issue form is replaced by the two
   forms above.
 - SECURITY.md says which bypasses are reported publicly and which privately.
+- The conversation window is on by default (4 turns, 8192 bytes): a request
+  with at least two user turns that has a new window runs the detector once
+  more (README, "Go benchmarks"). Set `CONVERSATION_WINDOW_TURNS=0` for the
+  previous behaviour.
 
 ### Upgrade notes
 

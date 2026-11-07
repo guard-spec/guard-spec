@@ -34,6 +34,7 @@ export const VARIABLES: Readonly<Record<string, VariableHelp>> = {
   'injection.label': { group: 'scores', example: 'injection.label != "BENIGN"' },
   'injection.category': { group: 'scores', example: 'injection.category in ["jailbreak", "prompt_extraction"]' },
   'injection.source_role': { group: 'scores', example: 'injection.source_role == "system"' },
+  'conversation.score': { group: 'scores', example: 'conversation.score >= 0.7', min: 0, max: 1 },
   'scores.l1': { group: 'scores', example: 'scores.l1 >= 0.7', min: 0, max: 1 },
   'scores.l2': { group: 'scores', example: 'scores.l2 > 0.9', min: -1, max: 1 },
   'scores.l3': { group: 'scores', example: 'scores.l3 >= 0.8', min: -1, max: 1 },

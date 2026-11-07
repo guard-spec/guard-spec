@@ -20,6 +20,9 @@ export function guardBody(s: GuardSettings): GuardSettings {
   if (s.indirect_action) out.indirect_action = s.indirect_action;
   if (s.injection_threshold !== undefined) out.injection_threshold = s.injection_threshold;
   if (s.indirect_threshold !== undefined) out.indirect_threshold = s.indirect_threshold;
+  if (s.conversation_window !== undefined) out.conversation_window = s.conversation_window;
+  if (s.conversation_window_turns !== undefined) out.conversation_window_turns = s.conversation_window_turns;
+  if (s.conversation_window_bytes !== undefined) out.conversation_window_bytes = s.conversation_window_bytes;
   return out;
 }
 
@@ -47,6 +50,18 @@ export function parseThreshold(text: string): number | undefined | 'invalid' {
   const n = Number(s);
   if (!(n > 0 && n <= MAX_ORG_THRESHOLD)) return 'invalid';
   return n;
+}
+
+/**
+ * Reads a conversation window size: undefined for empty (the gateway
+ * default), the whole number when it is in [min, max], or 'invalid'.
+ */
+export function parseWindowSize(text: string, bounds: { min: number; max: number }): number | undefined | 'invalid' {
+  const s = text.trim();
+  if (s === '') return undefined;
+  if (!/^\d+$/.test(s)) return 'invalid';
+  const n = Number(s);
+  return n >= bounds.min && n <= bounds.max ? n : 'invalid';
 }
 
 export type SaveAllApi = SaveApi & Pick<ApiClient, 'putGuardSettings'>;

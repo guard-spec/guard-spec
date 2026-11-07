@@ -67,7 +67,7 @@ Every event has:
 
 | type | source | severity | attrs |
 |---|---|---|---|
-| `detection.blocked` | gateway | warning | request_id, categories[], score, layer, decision, api_key_id, model (+ policy_id when a policy rule matched) |
+| `detection.blocked` | gateway | warning | request_id, categories[], score, layer, decision, api_key_id, model (+ policy_id when a policy rule matched, signal when the conversation window scored highest) |
 | `detection.flagged` | gateway | info | same as above (score ≥ flag threshold, not blocked); warning with `decision: redact` and `redacted` (count) when untrusted content was replaced (`INDIRECT_ACTION=redact`) |
 | `upstream.error` | gateway | warning | upstream_id, status, error_kind (timeout\|5xx\|model_not_allowed\|connect), request_id |
 | `security.login_failed` | cp | warning | user_id\|null, email_hash, ip, reason |
@@ -84,6 +84,9 @@ Notes:
 - `layer` is `l1`, `l2` or `l3` (the model layer with the highest score),
   `sanitizer` (hidden characters, anomaly score), `indirect` (tool results,
   documents, tool descriptions), `policy` or `scan` (`/guardrail/scan*`).
+- `signal` is `conversation` when the conversation window (the most recent
+  user turns joined) scored higher than the per-turn text; absent otherwise.
+  `layer` is then the layer that scored highest on the window.
 - `api_key_id` is the shown key prefix (`gs_` and 8 characters), never the key.
 - `email_hash` is the first 16 bytes of SHA-256 of the lower-cased address, hex.
 - `detection.flagged` fires for allowed requests whose injection score is at

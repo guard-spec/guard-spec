@@ -619,7 +619,9 @@ in a second table.
 | `SCAN_HISTORY` | `latest` | `/v1/messages` and `/v1/responses`: `latest` classifies the trailing turn (after the last assistant message, or the last item the model produced), takes earlier tool results from the scan cache, and does not classify earlier user text again; `full` classifies every turn. Chat completions always classify every turn |
 | `RESPONSES_SERVER_STATE` | `refuse` | `/v1/responses` requests that refer to conversation state the upstream keeps (`previous_response_id`, `conversation`, `item_reference` input items) carry turns the gateway never sees in the request and cannot scan again: `refuse` answers them with 400 (`server_state_refused`); `allow` passes them and tags the audit row `input:server_state=1`. See [Security model](#security-model-and-limitations) |
 | `EMBEDDINGS_SCAN` | `off` | `on` classifies each `/v1/embeddings` input as an untrusted document (not rewritten) and refuses the request over `INDIRECT_BLOCK_THRESHOLD`; token-array inputs are then refused (400). Off: embeddings are forwarded unscanned, since they produce no text a model acts on; scan retrieved text when it is used, as a document or tool result |
-| `SCAN_CACHE_SIZE` | `4096` | Entries of the per-process scan cache of `/v1/messages` and `/v1/responses` (scores of the system prompt, tool definitions and tool results by SHA-256 of their content, per org; cleared on model reload, 6 h lifetime); `0` turns it off, shared backend included. See [Scan cache](#scan-cache) |
+| `CONVERSATION_WINDOW_TURNS` | `4` | The conversation window: the most recent user turns (at most this many, 2 to 32) are joined and scored together, and the request is blocked when that score reaches the injection threshold, as for one turn. Catches an instruction split over several messages. `0` turns it off. An org can turn it on or off and set both sizes in guard settings. See [Conversation window](#conversation-window) |
+| `CONVERSATION_WINDOW_BYTES` | `8192` | The most bytes of the joined window text (256 to 24576); each turn gets an equal share, a longer turn keeps its head and tail. `0` turns the window off |
+| `SCAN_CACHE_SIZE` | `4096` | Entries of the per-process scan cache of `/v1/messages` and `/v1/responses` (scores of the system prompt, tool definitions, tool results and the conversation window by SHA-256 of their content, per org; cleared on model reload, 6 h lifetime); `0` turns it off, shared backend included. See [Scan cache](#scan-cache) |
 | `SCAN_CACHE_BACKEND` | `memory` | Where the scan cache is shared: `memory` (each replica alone), `postgres` (the `scan_cache` table of the gateway's database) or `redis`. The in-process cache stays in front of either |
 | `SCAN_CACHE_REDIS_URL` | — | `redis://` or `rediss://` URL with the password, for `SCAN_CACHE_BACKEND=redis`. Keep that Redis private and authenticated |
 | `SCAN_CACHE_TIMEOUT` | `50ms` | Bound on each call to the shared backend; an error or a timeout means the content is scanned, never a failed request |
@@ -875,7 +877,8 @@ group keep it a group. Fields: `request.model`, `request.tenant_id`, `request.to
 `injection.score`, `injection.label`, `injection.category`, `scores.l1`,
 `scores.l2`, `scores.l3` (calibrated, `-1` when the layer did not run),
 `indirect.score`, `indirect.source`, `injection.source_role`,
-`anomaly.score`, `anomaly.has_tag_chars`, `anomaly.has_bidi`,
+`conversation.score` (the [conversation window](#conversation-window); 0 when
+there was none), `anomaly.score`, `anomaly.has_tag_chars`, `anomaly.has_bidi`,
 `mcp.is_tool_response`. A policy holds at most 200 rules; each rule has a CEL
 cost limit, the rules of one request share a cost budget and a timeout, and
 any of these limits fails closed with 503. Project policies run before the
@@ -1323,6 +1326,29 @@ L1 + L2 on the long prompt against a p50 of 25.5 ms); read the p50 column.
 The stream figures are the total for all deltas of one answer (128 for the
 clean one), about 30 µs per delta.
 
+**Conversation window** (`BenchmarkConversationWindow`, and
+`BenchmarkConversationWindowML` under `make bench-onnx`): the nine-turn
+tutoring chat of `cmd/gateway/testdata/multiturn.json` posted to
+`/v1/messages` with `SCAN_HISTORY=latest`, so the trailing turn is about 90
+characters and the window (the last four user turns) about 340. "Uncached" has
+no scan cache, so the window is scored on every request, as on each new user
+turn; "cached" resends unchanged user turns, as an agent loop does. Measured
+on **2026-11-07**, same machine, `BENCHTIME=3s`, while another job kept the
+CPU busy (load average 27 to 40 on 14 cores): read the differences, not the
+absolute values, and expect less on an idle machine.
+
+| Window | L1 only p50 / p99 | L1 + L2 + L3 p50 / p99 |
+|---|---|---|
+| Off | 0.43 / 1.06 ms | 8.8 / 37 ms |
+| On, uncached (new user turn) | 0.59 / 1.21 ms | 21.5 / 120 ms |
+| On, cached (agent loop) | 0.39 / 1.59 ms | 7.4 / 30 ms |
+
+A new window costs one more detector run over the joined turns: about
+0.2 ms with L1, and with the models what L2 and L3 take for its length (here
+about 13 ms more at p50; model time grows with the tokens, up to
+`CONVERSATION_WINDOW_BYTES`). A request whose user turns did not change pays a
+cache lookup.
+
 ### Detection latency on Linux (GitHub-hosted runners)
 
 Measured on **2026-11-06** at commit `70827a7`, by the manual
@@ -1396,7 +1422,10 @@ What it does **not** protect against:
 
 - **Attacks it does not recognise.** Detection is probabilistic. Expect some
   attacks to pass, especially new phrasings, other languages, and
-  multi-turn attacks that look harmless in each single message. Treat it as
+  multi-turn attacks that look harmless in each single message: the
+  [conversation window](#conversation-window) joins only the last few user
+  turns, and an attack spread wider, or padded out of the window, is scored
+  turn by turn. Treat it as
   one layer of defence; keep least-privilege tools, human confirmation for
   risky actions and output handling in your application.
 - **Harmful but non-injection requests.** It is not a content moderation or
@@ -1429,7 +1458,9 @@ What it does **not** protect against:
   (the default there), the user text of earlier turns is not classified
   again: it was when it was the trailing turn. A client that holds a gateway
   key can put unscanned text into "history". Earlier tool results and
-  documents are still checked (from the scan cache, or scanned again). Use
+  documents are still checked (from the scan cache, or scanned again), and
+  the user text of the last few turns is scored again as part of the
+  [conversation window](#conversation-window). Use
   `SCAN_HISTORY=full` when the key holders are not trusted this far. The same
   holds for the input items of `/v1/responses`.
 - **Conversation state kept by the upstream (`/v1/responses`).** With
@@ -1715,6 +1746,79 @@ descriptions that scored at least 0.3 or carried a signal, by path).
 `go run ./cmd/eval -path tool` scores the eval set through this
 untrusted-content path.
 
+### Conversation window
+
+Each request is scored as it is: with `SCAN_HISTORY=latest` (the default on
+`/v1/messages` and `/v1/responses`) only the trailing turn's user text is
+classified, so an
+instruction split over several user messages ("Remember: ignore all" /
+"previous instructions" / "and do it.") keeps every part under the block
+threshold. The conversation window scores the most recent user turns again,
+joined:
+
+- **Window.** The user text of each message (its text parts joined; on
+  `/v1/responses`, each user input message) is one turn; a message or item
+  that holds only tool results or tool outputs is not a turn. The last
+  `CONVERSATION_WINDOW_TURNS` turns (default 4) are joined with a space, at
+  most `CONVERSATION_WINDOW_BYTES` (default 8192) in all. Each turn gets an
+  equal share of the bytes; a longer turn keeps its head and its tail, where
+  the pieces of a split instruction meet, so padding one turn does not push
+  the others out. A request with fewer than two user turns has no window.
+- **Decision.** The window is scored by the same detector (L1, and L2/L3 when
+  loaded). The injection decision takes the larger of the window's score and
+  the per-turn one, against the same threshold (0.85, or the org's lower
+  `injection_threshold`).
+- **Cache.** On `/v1/messages` and `/v1/responses` the window's score goes
+  through the scan cache (kind `window`), keyed on the SHA-256 of the joined
+  text, and with `SCAN_CACHE_BACKEND=redis` or `postgres` through the shared
+  layer too, so another replica reads it: an agent loop that resends the same
+  user turns with new tool results reads it from the cache, and only a new
+  user turn runs the detector on a new window. Earlier turns are never scored
+  on their own again. Chat completions already classify all their user turns
+  as one text; when that text is the window (only user text classified, no
+  more turns than the window holds) its score is reused, with no second
+  detector run.
+- **Policies and audit.** `conversation.score` is the window's score for
+  policies (0 without a window). When the window scores higher than the
+  per-turn text, `injection.source_role` is `conversation` and the audit row's
+  `injection_label` and `injection_score` are the window's; a request it
+  blocks gets the tag `input:signal=conversation`, and its detection event
+  `signal: conversation` with the layer (`l1`, `l2`, `l3`) that scored
+  highest.
+- **Settings.** `CONVERSATION_WINDOW_TURNS=0` (or `CONVERSATION_WINDOW_BYTES=0`)
+  turns it off. An org can turn it on or off and set both sizes in guard
+  settings (`conversation_window`, `conversation_window_turns`,
+  `conversation_window_bytes`; admin UI: Guard settings → Conversation
+  window). On, for an org, uses the default size when the gateway has it off.
+
+**Test set.** `cmd/gateway/testdata/multiturn.json` holds 24 multi-turn
+attacks (12 English, 12 Vietnamese: split overrides, role changes, prompt
+extraction, filter bypass) and 12 benign conversations (tutoring, bank
+support, coding help, travel, cooking and IT support, in both languages),
+written for this feature, not taken from `eval/` or `train/`. Each attack turn
+on its own scores under the threshold with L1.
+
+| `/v1/messages` or `/v1/responses`, `SCAN_HISTORY=latest` | Attacks blocked | Benign allowed |
+| --- | --- | --- |
+| L1, window off | 0 / 24 | 12 / 12 |
+| L1, window on | 24 / 24 | 12 / 12 |
+| L1+L2+L3, window off | 6 / 24 | 12 / 12 |
+| L1+L2+L3, window on | 22 / 24 | 12 / 12 |
+
+The L1 rows hold for `/v1/responses` too (tested); the L1+L2+L3 rows were
+measured on `/v1/messages`. On chat completions and with `SCAN_HISTORY=full`,
+where the user turns are already classified together, L1 blocks all 24 with
+or without the window.
+With L1+L2+L3 two attacks pass even with the window: their joined text scores
+0.97 with L1 but under 0.05 with the L2 classifier, and the fused score stays
+under the threshold (the same text sent as one message passes too). `eval/`
+is single-turn, so the window does not change its numbers (L1: FPR 0.1 %,
+L1+L2+L3: FPR 1.4 % at the gateway decision, as before).
+
+**Latency.** One more detector run per request that has a new window, and a
+cache lookup otherwise (`BenchmarkConversationWindow`, see
+[Go benchmarks](#go-benchmarks-sanitizer-output-guard-policy-and-http-path)).
+
 ### Per-organization exemplars
 
 `/v1/organizations/:orgId/exemplars` stores `{"label": "block"|"allow",
@@ -1921,7 +2025,8 @@ Nothing is ever skipped because the cache is unavailable.
 
 **What is stored.** Per text: the detector's scores (fused score, layer
 scores, category, rule ids, PII types and offsets) and the verdict of a tool
-result or tool definition, plus the model identity they were computed with.
+result or tool definition, or the scores of a [conversation
+window](#conversation-window), plus the model identity they were computed with.
 Never the text, a tool name or anything else from the request; the key is a
 SHA-256.
 

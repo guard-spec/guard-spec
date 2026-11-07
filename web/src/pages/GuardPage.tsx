@@ -5,10 +5,20 @@ import { useCallback, useState } from 'react';
 import { ErrorBanner, Loading, PageHeader, useLoad } from '../components/ui';
 import { errorText, useApp, useOrg } from '../context';
 import type { MessageKey } from '../i18n';
-import { guardBody, parseThreshold } from '../flow/guardDraft';
-import { DEFAULT_SCAN_ROLES, SCAN_ROLES, type GuardSettings, type IndirectAction, type ScanRole, type SpotlightMode } from '../types';
+import { guardBody, parseThreshold, parseWindowSize } from '../flow/guardDraft';
+import {
+  DEFAULT_SCAN_ROLES,
+  SCAN_ROLES,
+  WINDOW_BYTES,
+  WINDOW_TURNS,
+  type GuardSettings,
+  type IndirectAction,
+  type ScanRole,
+  type SpotlightMode,
+} from '../types';
 
 type ThresholdField = 'injection_threshold' | 'indirect_threshold';
+type WindowField = 'conversation_window_turns' | 'conversation_window_bytes';
 
 type Tri = 'default' | 'on' | 'off';
 
@@ -22,6 +32,8 @@ export function GuardPage() {
   const [busy, setBusy] = useState(false);
   // Threshold fields as typed; a value that is not a valid threshold is not saved.
   const [thresholdText, setThresholdText] = useState<Partial<Record<ThresholdField, string>>>({});
+  // Window sizes as typed; a value out of bounds is not saved.
+  const [windowText, setWindowText] = useState<Partial<Record<WindowField, string>>>({});
 
   if (loading && !data) return <Loading />;
   if (error) return <ErrorBanner error={error} />;
@@ -44,6 +56,7 @@ export function GuardPage() {
       // Every field, the thresholds the Flow page sets included.
       setDraft(await api.putGuardSettings(org.id, guardBody(draft)));
       setThresholdText({});
+      setWindowText({});
       notify(t('common.saved'));
     } catch (e) {
       setSaveError(errorText(e));
@@ -125,6 +138,57 @@ export function GuardPage() {
           <div className="small muted">{t('guard.indirectAction.help')}</div>
         </div>
         <fieldset>
+          <legend>{t('guard.window')}</legend>
+          <div className="field">
+            <select
+              id="conversation-window"
+              aria-label={t('guard.window')}
+              value={draft.conversation_window === undefined ? 'default' : draft.conversation_window ? 'on' : 'off'}
+              onChange={(e) => {
+                const v = e.target.value as Tri;
+                const { conversation_window: _old, ...rest } = draft;
+                setDraft(v === 'default' ? rest : { ...rest, conversation_window: v === 'on' });
+              }}
+            >
+              <option value="default">{t('guard.default', { value: t('flow.gatewayDefault') })}</option>
+              <option value="on">{t('guard.on')}</option>
+              <option value="off">{t('guard.off')}</option>
+            </select>
+            <div className="small muted">{t('guard.window.help')}</div>
+          </div>
+          {(
+            [
+              ['conversation_window_turns', 'guard.window.turns', WINDOW_TURNS],
+              ['conversation_window_bytes', 'guard.window.bytes', WINDOW_BYTES],
+            ] as const
+          ).map(([field, label, bounds]) => {
+            const text = windowText[field] ?? (draft[field] === undefined ? '' : String(draft[field]));
+            const invalid = parseWindowSize(text, bounds) === 'invalid';
+            return (
+              <div className="field" key={field}>
+                <label htmlFor={`guard-${field}`}>{t(label)}</label>
+                <input
+                  id={`guard-${field}`}
+                  inputMode="numeric"
+                  placeholder={t('panel.detectors.default', { value: String(bounds.default) })}
+                  value={text}
+                  aria-invalid={invalid}
+                  disabled={draft.conversation_window === false}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setWindowText({ ...windowText, [field]: v });
+                    const p = parseWindowSize(v, bounds);
+                    if (p === 'invalid') return;
+                    const { [field]: _old, ...rest } = draft;
+                    setDraft(p === undefined ? rest : { ...rest, [field]: p });
+                  }}
+                />
+                {invalid && <div className="field-error">{t('guard.window.sizeError', { min: String(bounds.min), max: String(bounds.max) })}</div>}
+              </div>
+            );
+          })}
+        </fieldset>
+        <fieldset>
           <legend>{t('panel.detectors.thresholds')}</legend>
           {(
             [
@@ -157,7 +221,13 @@ export function GuardPage() {
             );
           })}
         </fieldset>
-        <button type="submit" className="btn btn-primary" disabled={busy || !writable || Object.values(thresholdText).some((x) => parseThreshold(x) === 'invalid')} title={writable ? undefined : t('forbidden.readOnly')}>
+        <button type="submit" className="btn btn-primary" disabled={
+            busy ||
+            !writable ||
+            Object.values(thresholdText).some((x) => parseThreshold(x) === 'invalid') ||
+            parseWindowSize(windowText.conversation_window_turns ?? '', WINDOW_TURNS) === 'invalid' ||
+            parseWindowSize(windowText.conversation_window_bytes ?? '', WINDOW_BYTES) === 'invalid'
+          } title={writable ? undefined : t('forbidden.readOnly')}>
           {busy ? t('common.saving') : t('common.save')}
         </button>
       </form>

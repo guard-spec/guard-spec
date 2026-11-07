@@ -97,6 +97,50 @@ func TestSettingsThresholds(t *testing.T) {
 	}
 }
 
+func TestSettingsWindow(t *testing.T) {
+	tests := []struct {
+		settings          string
+		turns, bytes      int // the gateway's
+		wantTurns, wantBy int
+	}{
+		{`{}`, 4, 8192, 4, 8192},
+		{`{}`, 0, 8192, 0, 8192},
+		{`{"conversation_window":false}`, 4, 8192, 0, 8192},
+		{`{"conversation_window":true}`, 0, 0, DefaultWindowTurns, DefaultWindowBytes},
+		{`{"conversation_window":true}`, 6, 4096, 6, 4096},
+		{`{"conversation_window_turns":8,"conversation_window_bytes":16384}`, 4, 8192, 8, 16384},
+		{`{"conversation_window_turns":8}`, 0, 8192, 0, 8192}, // a size alone does not turn it on
+		{`{"conversation_window":true,"conversation_window_turns":2}`, 0, 0, 2, DefaultWindowBytes},
+	}
+	for _, tt := range tests {
+		s, err := ParseSettings([]byte(tt.settings))
+		if err != nil {
+			t.Fatalf("%s: %v", tt.settings, err)
+		}
+		if turns, bytes := s.Window(tt.turns, tt.bytes); turns != tt.wantTurns || bytes != tt.wantBy {
+			t.Errorf("%s over (%d, %d) = (%d, %d), want (%d, %d)", tt.settings, tt.turns, tt.bytes, turns, bytes,
+				tt.wantTurns, tt.wantBy)
+		}
+	}
+	for _, bad := range []string{`{"conversation_window_turns":1}`, `{"conversation_window_turns":0}`,
+		`{"conversation_window_turns":33}`, `{"conversation_window_bytes":100}`, `{"conversation_window_bytes":30000}`,
+		`{"conversation_window":"yes"}`} {
+		if _, err := ParseSettings([]byte(bad)); err == nil {
+			t.Errorf("ParseSettings(%s) accepted", bad)
+		}
+	}
+	for _, ok := range [][2]int{{0, 0}, {2, 256}, {32, MaxWindowBytes}, {0, 8192}} {
+		if err := ValidWindow(ok[0], ok[1]); err != nil {
+			t.Errorf("ValidWindow%v: %v", ok, err)
+		}
+	}
+	for _, bad := range [][2]int{{1, 8192}, {33, 8192}, {4, 255}, {4, MaxWindowBytes + 1}, {-1, 8192}} {
+		if ValidWindow(bad[0], bad[1]) == nil {
+			t.Errorf("ValidWindow%v accepted", bad)
+		}
+	}
+}
+
 func TestParseMode(t *testing.T) {
 	for in, want := range map[string]Mode{"": ModeOff, "off": ModeOff, "Delimit": ModeDelimit, " datamark ": ModeDatamark} {
 		if got, err := ParseMode(in); err != nil || got != want {

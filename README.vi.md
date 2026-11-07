@@ -357,6 +357,7 @@ dùng nhất:
 | `SCAN_ROLES` | `user,tool,tool_descriptions` | Phần nào của request được chấm điểm |
 | `INDIRECT_BLOCK_THRESHOLD` | `0.85` | Ngưỡng chặn cho nội dung tool/tài liệu |
 | `SPOTLIGHT` | `off` | Đánh dấu kết quả tool: `delimit`, `datamark` |
+| `CONVERSATION_WINDOW_TURNS` / `CONVERSATION_WINDOW_BYTES` | `4` / `8192` | Cửa sổ hội thoại: ghép các lượt người dùng gần nhất (tối đa bấy nhiêu lượt và byte) rồi chấm điểm chung, để bắt chỉ dẫn bị chia nhỏ qua nhiều tin nhắn; `0` là tắt |
 | `OUTPUT_LINK_ALLOWLIST` | rỗng | Host được giữ ảnh/link trong câu trả lời |
 | `OUTPUT_CANARY` | `off` | `block` hoặc `redact` khi canary bị lộ |
 | `OUTPUT_UNKNOWN_BLOCKS` | `refuse` | `/v1/messages` và `/v1/responses`: block, output item hoặc sự kiện stream có kiểu output guard không biết bị từ chối; `pass` cho qua không kiểm tra |

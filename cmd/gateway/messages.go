@@ -168,8 +168,9 @@ func (g *textGuard) guardMessagesBody(body map[string]any) error {
 				return err
 			}
 			g.history = g.latest && i <= last
+			g.msg = i + 1
 			err := g.guardAnthropicMessage(m)
-			g.history = false
+			g.history, g.msg = false, 0
 			if err != nil {
 				return err
 			}
