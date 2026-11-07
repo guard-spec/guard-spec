@@ -88,6 +88,12 @@ type Vars struct {
 	// ConversationScore is the conversation window's score: the most recent
 	// user turns joined and scored together; 0 when there was no window.
 	ConversationScore float64
+
+	// Personal data in the request text (input.pii.*): the kinds found, in
+	// the order email, phone, card, cccd, ipv4, and how many values of all
+	// kinds. Empty and 0 unless the org turned the check on; never values.
+	InputPIIKinds []string
+	InputPIICount int
 }
 
 // toActivation converts Vars to the map cel.Program.ContextEval expects.
@@ -112,10 +118,20 @@ func (v *Vars) toActivation() map[string]any {
 		"anomaly.has_tag_chars": v.AnomalyHasTagChars,
 		"anomaly.has_bidi":      v.AnomalyHasBidi,
 		"mcp.is_tool_response":  v.IsMCPResponse,
+		"input.pii.kinds":       stringList(v.InputPIIKinds),
+		"input.pii.count":       int64(v.InputPIICount),
 		"toxicity.score":        0.0,
 		"pii.entities":          []string{},
 		"topic.categories":      []string{},
 	}
+}
+
+// stringList is l, or an empty list for nil.
+func stringList(l []string) []string {
+	if l == nil {
+		return []string{}
+	}
+	return l
 }
 
 // costLimit bounds one rule's evaluation. A rule the builder can express costs
@@ -159,6 +175,8 @@ var fieldTypes = map[string]*cel.Type{
 	"anomaly.has_tag_chars": cel.BoolType,
 	"anomaly.has_bidi":      cel.BoolType,
 	"mcp.is_tool_response":  cel.BoolType,
+	"input.pii.kinds":       listOfStrings,
+	"input.pii.count":       cel.IntType,
 }
 
 // removedFields were offered to rules, but no detector ever produced them, so
