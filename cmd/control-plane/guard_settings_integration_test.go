@@ -72,13 +72,13 @@ func TestGuardSettingsThresholds(t *testing.T) {
 	}
 
 	for _, bad := range []string{`{"injection_threshold":0.9}`, `{"injection_threshold":0}`, `{"indirect_threshold":-1}`,
-		`{"indirect_threshold":"0.5"}`, `{"block_threshold":0.5}`} {
+		`{"indirect_threshold":"0.5"}`, `{"block_threshold":0.5}`, `{"input_pii":"on"}`} {
 		if code, body := do("PUT", bad); code != 400 {
 			t.Errorf("%s: status %d %s, want 400", bad, code, body)
 		}
 	}
 
-	in := `{"scan_roles":{"system":true},"spotlight":"delimit","indirect_action":"redact","injection_threshold":0.7,"indirect_threshold":0.6}`
+	in := `{"scan_roles":{"system":true},"spotlight":"delimit","indirect_action":"redact","injection_threshold":0.7,"indirect_threshold":0.6,"input_pii":true}`
 	if code, body := do("PUT", in); code != 200 {
 		t.Fatalf("put: %d %s", code, body)
 	}
@@ -101,7 +101,11 @@ func TestGuardSettingsThresholds(t *testing.T) {
 	if code, body := do("PUT", `{"spotlight":"off"}`); code != 200 {
 		t.Fatalf("put: %d %s", code, body)
 	}
-	if _, body := do("GET", ""); strings.Contains(body, "threshold") {
-		t.Errorf("thresholds kept: %s", body)
+	if _, body := do("GET", ""); strings.Contains(body, "threshold") || strings.Contains(body, "input_pii") {
+		t.Errorf("thresholds or input_pii kept: %s", body)
+	}
+	// Turned off explicitly, the setting reads false.
+	if code, body := do("PUT", `{"input_pii":false}`); code != 200 || body != `{"input_pii":false}` {
+		t.Errorf("put input_pii false: %d %s", code, body)
 	}
 }

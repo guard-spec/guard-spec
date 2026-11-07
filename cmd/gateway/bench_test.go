@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/guard-spec/guard-spec/internal/indirect"
@@ -227,4 +228,83 @@ func runWindowBench(b *testing.B, runner *inference.Runner) {
 // the L1 detector only.
 func BenchmarkConversationWindow(b *testing.B) {
 	runWindowBench(b, nil)
+}
+
+// piiBenchBody is a chat request of about size bytes of user text, a meeting
+// note in English and Vietnamese that ends with an e-mail address and a phone
+// number, so the personal-data check finds two values.
+func piiBenchBody(size int) string {
+	base := "Please summarise the following meeting notes and list the action items. " +
+		"Thời tiết Hà Nội hôm nay thế nào, gợi ý vài chỗ đi chơi cuối tuần. "
+	tail := " Send the summary to lan.nguyen@congty.vn or call 0912 345 678."
+	text := strings.Repeat(base, size/len(base)+1)[:size-len(tail)]
+	for !utf8.ValidString(text) {
+		text = text[:len(text)-1]
+	}
+	return userBody(text + tail)
+}
+
+// BenchmarkInputPII is the cost of the personal-data check of request text
+// (input_pii.go), with the org setting off and on, for a 2 KB and a 20 KB
+// request: guard runs the sanitize step alone (where the check runs), http
+// the whole HTTP path with L1 and a log rule on input.pii.count.
+func BenchmarkInputPII(b *testing.B) {
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.DiscardHandler))
+	b.Cleanup(func() { slog.SetDefault(prev) })
+	up := newFakeUpstream(b, benchUpstream)
+	logRule := policy.Rule{ID: uuid.New(), Name: "pii", Action: policy.ActionLog,
+		Condition: json.RawMessage(`{"field":"input.pii.count","operator":">","value":0}`)}
+	policies := append(benchPolicies(), policy.Policy{ID: uuid.New(), OrgID: devOrg, Version: 1,
+		Rules: []policy.Rule{logRule}})
+	for _, size := range []struct {
+		name  string
+		bytes int
+	}{{"2k", 2 << 10}, {"20k", 20 << 10}} {
+		body := piiBenchBody(size.bytes)
+		for _, on := range []bool{false, true} {
+			mode := "off"
+			if on {
+				mode = "on"
+			}
+			b.Run("guard_"+size.name+"_"+mode, func(b *testing.B) {
+				b.SetBytes(int64(len(body)))
+				b.ReportAllocs()
+				for b.Loop() {
+					parsed, err := decodeBody([]byte(body))
+					if err != nil {
+						b.Fatal(err)
+					}
+					g := textGuard{detectPII: on}
+					if err := g.guardBody(parsed); err != nil {
+						b.Fatal(err)
+					}
+					if on != (g.pii.Total() == 2) {
+						b.Fatalf("pii = %v", g.pii)
+					}
+				}
+			})
+			b.Run("http_"+size.name+"_"+mode, func(b *testing.B) {
+				settings := indirect.Settings{InputPII: &on}
+				h := startGateway(b, up.URL, func(gw *gateway) {
+					gw.policies = func(context.Context, uuid.UUID, uuid.UUID) ([]policy.Policy, error) { return policies, nil }
+					gw.settings = func(context.Context, uuid.UUID) (indirect.Settings, error) { return settings, nil }
+					gw.audit = newAuditLog(func(requestEntry) {})
+				})
+				tr := http.DefaultTransport.(*http.Transport).Clone()
+				client := &http.Client{Transport: tr}
+				b.Cleanup(tr.CloseIdleConnections)
+				url := h.url + "/v1/chat/completions"
+				benchDo(b, client, url, body, 200)
+				var lat []time.Duration
+				b.ReportAllocs()
+				for b.Loop() {
+					start := time.Now()
+					benchDo(b, client, url, body, 200)
+					lat = append(lat, time.Since(start))
+				}
+				reportPercentiles(b, lat)
+			})
+		}
+	}
 }
