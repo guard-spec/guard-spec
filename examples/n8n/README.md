@@ -36,7 +36,8 @@ Checked with n8n 2.46.6 (`n8nio/n8n:2.46.6`, CLI import and execute).
 4. **Execute workflow.**
 
 The OpenAI Chat Model node has *Use Responses API* off: the gateway serves
-chat completions, not the Responses API.
+the Responses API only to an upstream that has it (OpenAI, Azure OpenAI),
+while chat completions work with any upstream.
 
 ## Expected output
 

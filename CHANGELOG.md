@@ -62,6 +62,35 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   throwaway gateway from source with a fake OpenAI-compatible model; the
   **Examples** workflow (not required) runs every example against it and
   checks the allowed and blocked paths.
+- `POST /v1/responses`: the OpenAI Responses API (`client.responses.create`),
+  whole and streamed, through the same pipeline as chat (scan, thresholds,
+  policies, routing, rate limits, shadow mode, audit and its dedupe,
+  metrics). Input as a string or items: user text, `function_call_output`
+  and `custom_tool_call_output` (untrusted, `INDIRECT_ACTION=redact`
+  applies), other tool outputs, system and developer messages,
+  `instructions`, `prompt.variables`, and tool definitions
+  (`SCAN_TOOL_PREFIXES` applies); `SCAN_HISTORY` and the scan cache work as
+  on `/v1/messages`. The output guard covers output text, refusals,
+  function and custom tool arguments, reasoning summaries and text, web
+  search queries and annotations; encrypted reasoning passes as is; the
+  canary is taken out of the echoed `instructions`. Unknown output items,
+  parts and stream events follow `OUTPUT_UNKNOWN_BLOCKS`. Sent as is to
+  upstreams with provider `openai`, `azure_openai` or `openai_compatible`;
+  other providers get a 400 naming the upstream. Errors in the OpenAI shape;
+  a stream the gateway stops ends with an `error` event.
+- `RESPONSES_SERVER_STATE` (`refuse`, the default, or `allow`): requests
+  that refer to conversation state the upstream keeps (`previous_response_id`,
+  `conversation`, `item_reference`) are refused with 400
+  `server_state_refused`, since the gateway cannot scan those turns; `allow`
+  passes them and tags the audit row `input:server_state=1`. `background:
+  true` is refused.
+- `POST /v1/embeddings`: forwarded with the key, rate limit, policies,
+  routing and model allowlist, one audit row (no vectors stored). Not
+  scanned unless `EMBEDDINGS_SCAN=on`, which classifies each input as an
+  untrusted document.
+- An upstream's `max_tokens_cap` also caps `max_output_tokens`.
+- docs/integrations.md: an OpenAI SDK example for the Responses API and
+  embeddings, and the steps to verify Cursor (still not verified).
 
 ### Changed
 

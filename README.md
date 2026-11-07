@@ -67,8 +67,9 @@ before you rely on it.
 - Output guard: exfiltration links and images, personal data (including
   Vietnamese phone, ID and card numbers), a leaked canary, also when
   streaming.
-- OpenAI-compatible, and the Anthropic Messages API (`/v1/messages`, for
-  Claude Code): change the base URL, keep your SDK. Routing to several
+- OpenAI-compatible (chat completions, the Responses API and embeddings), and
+  the Anthropic Messages API (`/v1/messages`, for Claude Code): change the
+  base URL, keep your SDK. Routing to several
   upstreams (OpenAI, Azure OpenAI, Anthropic, Gemini, vLLM, Ollama).
 - Per-organization and per-project policies, written as text or in a visual
   editor and compiled to CEL: allow, block, log or route.
@@ -615,15 +616,17 @@ in a second table.
 | `SPOTLIGHT` | `off` | Mark tool results for the model: `off`, `delimit`, `datamark` |
 | `INDIRECT_BLOCK_THRESHOLD` | `0.85` | Block threshold for tool results, documents and tool descriptions, in (0, 0.85] |
 | `INDIRECT_ACTION` | `block` | What happens to a tool result or document over the threshold: `block` refuses the request; `redact` replaces that block with `[removed by Guard Spec: prompt injection detected in tool output]` (`is_error: true` on a `tool_result`) and lets the request go on, with `input:redacted=<n>` in the audit row and a `detection.flagged` event (`decision: redact`). Tool descriptions always block. An org can override it (`indirect_action` in guard settings) |
-| `SCAN_HISTORY` | `latest` | `/v1/messages` only: `latest` classifies the trailing turn (after the last assistant message), takes earlier tool results from the scan cache, and does not classify earlier user text again; `full` classifies every turn. Chat completions always classify every turn |
-| `SCAN_CACHE_SIZE` | `4096` | Entries of the per-process scan cache of `/v1/messages` (scores of the system prompt, tool definitions and tool results by SHA-256 of their content, per org; cleared on model reload, 6 h lifetime); `0` turns it off |
+| `SCAN_HISTORY` | `latest` | `/v1/messages` and `/v1/responses`: `latest` classifies the trailing turn (after the last assistant message, or the last item the model produced), takes earlier tool results from the scan cache, and does not classify earlier user text again; `full` classifies every turn. Chat completions always classify every turn |
+| `RESPONSES_SERVER_STATE` | `refuse` | `/v1/responses` requests that refer to conversation state the upstream keeps (`previous_response_id`, `conversation`, `item_reference` input items) carry turns the gateway never sees in the request and cannot scan again: `refuse` answers them with 400 (`server_state_refused`); `allow` passes them and tags the audit row `input:server_state=1`. See [Security model](#security-model-and-limitations) |
+| `EMBEDDINGS_SCAN` | `off` | `on` classifies each `/v1/embeddings` input as an untrusted document (not rewritten) and refuses the request over `INDIRECT_BLOCK_THRESHOLD`; token-array inputs are then refused (400). Off: embeddings are forwarded unscanned, since they produce no text a model acts on; scan retrieved text when it is used, as a document or tool result |
+| `SCAN_CACHE_SIZE` | `4096` | Entries of the per-process scan cache of `/v1/messages` and `/v1/responses` (scores of the system prompt, tool definitions and tool results by SHA-256 of their content, per org; cleared on model reload, 6 h lifetime); `0` turns it off |
 | `OUTPUT_GUARD` | `on` | `off` passes responses through unchanged |
 | `OUTPUT_LINK_ALLOWLIST` | empty | Comma-separated hosts (and their subdomains) whose images and links are kept |
 | `OUTPUT_PII_REDACT` | `true` | Redact e-mail, phone, CCCD and card numbers |
 | `OUTPUT_PII_IPV4` | `false` | Also redact IPv4 addresses |
 | `OUTPUT_CANARY` | `off` | `block` or `redact` injects a canary and acts when it leaks |
 | `OUTPUT_REASONING` | `guard` | `drop` removes `reasoning` / `reasoning_content` instead of guarding them |
-| `OUTPUT_UNKNOWN_BLOCKS` | `refuse` | `/v1/messages`: a response content block of a type the output guard does not know (a server tool other than web search and web fetch, say) is refused (502, or an error event in a stream); `pass` passes such blocks on unchanged and unchecked |
+| `OUTPUT_UNKNOWN_BLOCKS` | `refuse` | `/v1/messages`: a response content block of a type the output guard does not know (a server tool other than web search and web fetch, say) is refused (502, or an error event in a stream); `/v1/responses`: likewise an output item other than `message`, `function_call`, `custom_tool_call`, `reasoning` and `web_search_call` (image generation, code interpreter, MCP, shell, computer use...), a content part, or a stream event with content of a type it does not know; `pass` passes such blocks, items and events on unchanged and unchecked |
 | `MODEL_DIR` | `./models` (`/models` in the image) | Root of the model files. `MODELS_PATH` is the older name |
 | `L2_MODEL` | the manifest's recommended classifier (`guardspec-classifier@v3b`) | Classifier as `name@version` (a bare name: its recommended version), loaded from `$MODEL_DIR/cache/<name>/<version>`. Pin or roll back with it; see [docs/models.md](docs/models.md) |
 | `L2_MODEL_DIR` | empty | Classifier directory; wins over `L2_MODEL`. With neither set: the recommended version when installed, else `$MODEL_DIR/local/guardspec-classifier-v3b`, `-v2`, `-v1`, `-v0` |
@@ -710,6 +713,8 @@ or `x-api-key: gs_...`.
 | `POST /v1/completions` | Legacy completions, guarded the same way |
 | `POST /v1/messages` | Anthropic Messages API (Claude Code with `ANTHROPIC_BASE_URL`), guarded in and out the same way, streaming supported. Anthropic's web search and web fetch tools work: their results (`web_search_tool_result`, `web_fetch_tool_result`) pass with their encrypted content untouched, their readable text (titles, URLs, a fetched page) is classified as tool output in requests and guarded in answers; other block types in answers follow `OUTPUT_UNKNOWN_BLOCKS`. Sent as is to an upstream with provider `anthropic` (`{base_url}/messages`, the key as `x-api-key`, the client's `anthropic-version` or `2023-06-01`, and its `anthropic-beta`); any other upstream: 400, no translation. Errors in the Anthropic shape `{"type":"error","error":{"type":"...","message":"..."}}` with the same statuses |
 | `POST /v1/messages/count_tokens` | Forwarded to the same Anthropic upstream (default route); key and rate limit apply, the body is not scanned (no model runs on it) |
+| `POST /v1/responses` | OpenAI Responses API (`client.responses.create`), guarded in and out like chat, streaming supported (SSE events; the guard re-numbers `sequence_number`). Scanned: `input` as a string or items (user text rewritten and classified; `function_call_output` and `custom_tool_call_output` classified as tool results, redacted with `INDIRECT_ACTION=redact`; other items with text, such as shell or MCP output, classified as tool output; system and developer messages and `instructions` with `SCAN_ROLES` `system`; function-call arguments with `tool_calls`; images and files passed unscanned), `prompt.variables`, and `tools` (function and custom tools, remote MCP server descriptions; `SCAN_TOOL_PREFIXES` applies). Answers: output text, refusals, function and custom tool arguments, reasoning summaries and text, annotation URLs, titles and file names, guarded whole or as they stream; encrypted reasoning passed as is; annotations with offsets and log probabilities are dropped from a text the guard changed. The canary goes in `instructions` and is taken out of the `instructions` the response repeats. `previous_response_id`, `conversation` and `item_reference` follow `RESPONSES_SERVER_STATE`; `background: true` is refused (400), since its result would be fetched with `GET /v1/responses/{id}`, which the gateway does not serve. Sent as is to `{base_url}/responses` of an upstream with provider `openai`, `azure_openai` or `openai_compatible`; `anthropic`, `gemini`, `ollama` and `vllm` upstreams: 400 (`unsupported_upstream`, naming the upstream), no translation. Errors in the OpenAI shape, refusals 400 `content_filter` as on chat; a stream the gateway stops ends with an `error` event |
+| `POST /v1/embeddings` | Forwarded to `{base_url}/embeddings` of the route's upstream (not `anthropic`: 400), with the key, rate limit, policies, routing and model allowlist; one audit row (content only when the org stores content, the vectors never). Not scanned unless `EMBEDDINGS_SCAN=on`. Errors in the OpenAI shape |
 | `GET /v1/models` | Models of the key's default route: the upstream's allowed models, its forced model, or the upstream's own list. OpenAI list shape; Anthropic's when the request has `anthropic-version` |
 | `POST /guardrail/scan` | Score `text` and/or `documents[]` without calling a model |
 | `POST /guardrail/scan/tools` | Score MCP tool definitions (a `tools/list` result) |
@@ -1422,7 +1427,26 @@ What it does **not** protect against:
   again: it was when it was the trailing turn. A client that holds a gateway
   key can put unscanned text into "history". Earlier tool results and
   documents are still checked (from the scan cache, or scanned again). Use
-  `SCAN_HISTORY=full` when the key holders are not trusted this far.
+  `SCAN_HISTORY=full` when the key holders are not trusted this far. The same
+  holds for the input items of `/v1/responses`.
+- **Conversation state kept by the upstream (`/v1/responses`).** With
+  `previous_response_id`, `conversation` or `item_reference` the upstream adds
+  earlier turns the gateway does not see in the request. Those turns passed
+  through the gateway when they were made, if every turn went through it;
+  but the gateway cannot check that, and the state of an upstream key that
+  several orgs or other applications share could be referenced by anyone
+  who learns a response id. So such requests are refused by default
+  (`RESPONSES_SERVER_STATE=refuse`): send the whole conversation in `input`
+  (with `store: false` if you like, and `include: ["reasoning.encrypted_content"]`
+  for reasoning models). `allow` trades this for compatibility with clients
+  that rely on server state, and tags each such row `input:server_state=1`.
+- **Tools the upstream runs itself.** Hosted tools of the Responses API (web
+  and file search, code interpreter, remote MCP servers, image generation)
+  and Anthropic's server tools run inside the provider: what they fetch goes
+  to the model without passing the gateway. Only what comes back in the
+  answer is guarded (unknown item types are refused unless
+  `OUTPUT_UNKNOWN_BLOCKS=pass`), and remote MCP servers' tool lists are not
+  checked for poisoning (only the `server_description` the client sends).
 - **Volume attacks.** Rate limits are per gateway replica and in memory; put
   a proper rate limiter or WAF in front for abuse protection.
 - **2FA enrollment is trust on first use.** When an organization starts
@@ -1599,6 +1623,16 @@ characters behind the upstream. Held text is flushed at `finish_reason` and at
   dates and signatures pass unchanged. `redacted_thinking` passes. A block of
   any other type is refused like a non-text part, or passed unchecked with
   `OUTPUT_UNKNOWN_BLOCKS=pass`.
+- **Responses API items.** On `/v1/responses`, output text, refusals,
+  reasoning summaries and text, function-call arguments, custom tool input,
+  web search queries and annotation URLs, titles and file names are guarded;
+  encrypted reasoning and ids pass unchanged. When the guard changes a text,
+  that text's annotations with offsets and its log probabilities are
+  dropped, since they no longer match it. In a stream, the deltas, the
+  `.done` events, `output_item.done` and `response.completed` all carry the
+  same guarded text, and tool-call arguments arrive as one guarded delta
+  before their `.done` event. Other output item types, content parts and
+  stream events with content follow `OUTPUT_UNKNOWN_BLOCKS`.
 
 The audit row counts what was removed per type in `pii_entities`, as
 `output:email=2`. It never stores the content. These settings apply to every

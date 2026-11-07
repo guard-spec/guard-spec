@@ -18,9 +18,11 @@ A block reaches your code as the OpenAI SDK's `openai.BadRequestError`
 only keeps the example quick: the SDK does not retry a 400 anyway.
 
 Keep LangChain on chat completions (`use_responses_api=False`, the default
-unless you use built-in tools such as web search): the gateway does not serve
-the Responses API. `OpenAIEmbeddings` cannot go through the gateway; point
-embeddings at your provider directly. Agents and tool calling work, and the
+unless you use built-in tools such as web search): the gateway serves the
+Responses API only to an upstream that has it (OpenAI, Azure OpenAI), not to
+the example's Ollama-style model. `OpenAIEmbeddings` goes through
+`/v1/embeddings`, forwarded without scanning unless the gateway sets
+`EMBEDDINGS_SCAN=on`. Agents and tool calling work, and the
 gateway scans the tool results the agent sends back (see [the RAG
 example](../rag/)).
 

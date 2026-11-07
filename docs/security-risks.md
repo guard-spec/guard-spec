@@ -32,7 +32,8 @@ make an LLM application safe on its own.
 | D2 | A benign request is blocked | Users are refused | Measure on your traffic, allow exemplars, `DETECTOR_LAYERS` |
 | D3 | Model layers silently missing | Only L1 runs; recall drops | `DETECTOR_REQUIRE_ML=true`, alert on `/readyz` `degraded` |
 | D4 | Indirect injection in content you do not scan | Tool results or system prompts are not checked | `SCAN_ROLES`, per-org `scan_roles`, `SPOTLIGHT` |
-| D5 | Forged history on `/v1/messages` | Unscanned text placed in earlier turns reaches the model | Trust key holders, or `SCAN_HISTORY=full` |
+| D5 | Forged history on `/v1/messages` and `/v1/responses` | Unscanned text placed in earlier turns reaches the model | Trust key holders, or `SCAN_HISTORY=full` |
+| D6 | Conversation state kept by the upstream (`/v1/responses`) | Earlier turns the gateway cannot see reach the model | `RESPONSES_SERVER_STATE=refuse` (the default); separate upstream keys per org |
 | A1 | The agent misuses a tool | Data loss, unwanted actions | Authorisation in your app, egress control, confirmations |
 | A2 | Exfiltration through links the guard keeps | Data leaves through the answer | Short host allowlist, disable auto-linking in your UI |
 | P1 | Services exposed without TLS | Credentials and prompts readable on the network | TLS at a reverse proxy or load balancer |
@@ -130,6 +131,28 @@ What to do:
   Claude Code is one).
 - Set `SCAN_HISTORY=full` for keys used by untrusted clients; long sessions
   then reach the 128 KiB limit sooner.
+
+The same applies to the input items of `/v1/responses`: the turns up to the
+last item the model produced are history.
+
+### D6. Conversation state kept by the upstream on `/v1/responses`
+
+With `previous_response_id`, `conversation` or `item_reference`, the
+Responses API adds earlier turns that the upstream stored. The gateway does
+not see them in the request and cannot scan them again. They passed through
+the gateway when they were made only if every turn did; and a response id
+made with an upstream key that several orgs or applications share can be
+referenced by anyone who learns it. By default
+(`RESPONSES_SERVER_STATE=refuse`) such requests get a 400.
+
+What to do:
+
+- Keep the default and have clients send the whole conversation in `input`
+  (most SDK agent loops can; reasoning models keep their state with
+  `include: ["reasoning.encrypted_content"]` and `store: false`).
+- If you set `RESPONSES_SERVER_STATE=allow` for compatibility, give each org
+  its own upstream key (named upstreams with `UPSTREAM_KEY_*`), and watch for
+  audit rows tagged `input:server_state=1`.
 
 ## Application and agent risks
 
