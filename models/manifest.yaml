@@ -69,15 +69,14 @@ models:
 
   # v4 candidate (train/MODEL_CARD.md, "v4"): not recommended; v3b stays the
   # default until v4 has been compared in shadow mode
-  # (SHADOW_L2_MODEL=guardspec-classifier@v4, docs/models.md). Not on Hugging
-  # Face yet, so the revision is unpinned and `pull` uses the GitHub Release
-  # mirror model-guardspec-classifier-v4 (still checked against the SHA-256
-  # below). After the Publish model workflow, pin its Hugging Face commit here.
+  # (SHADOW_L2_MODEL=guardspec-classifier@v4, docs/models.md). Published on the
+  # Hugging Face branch v4 (main keeps v3b); the revision below is that
+  # commit. The GitHub Release model-guardspec-classifier-v4 is the mirror.
   - name: guardspec-classifier
     version: v4
     kind: classifier
     repo: guard-spec/guardspec-classifier
-    revision: "0000000000000000000000000000000000000000"
+    revision: db0a0f1c84607b263c0a0cf58cc2321a10ebf970
     mirrors:
       - https://github.com/guard-spec/guard-spec/releases/download/model-guardspec-classifier-v4/{file}
     license: Apache-2.0
