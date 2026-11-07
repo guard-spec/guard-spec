@@ -29,7 +29,7 @@ answer for exfiltration links, personal data and a leaked canary before the
 answer reaches your users. It is written in Go, runs as two services next to Postgres, and has
 been built and evaluated for **English and Vietnamese**.
 
-Status: **v0.2.1, pre-1.0.** The API and the database schema can still
+Status: **v0.3.0, pre-1.0.** The API and the database schema can still
 change. Read [Security model and limitations](#security-model-and-limitations)
 before you rely on it.
 
@@ -319,7 +319,7 @@ scripts/quickstart.sh
    existing `.env` is never overwritten;
 2. runs `docker compose -f docker-compose.yml up -d` with
    `ghcr.io/guard-spec/guard-spec-gateway` and `-control-plane` at
-   `GUARDSPEC_VERSION` (default `0.2.1`). Before the gateway starts, the
+   `GUARDSPEC_VERSION` (default `0.3.0`). Before the gateway starts, the
    `models-init` service pulls the recommended models (about 270 MB, SHA-256
    verified) into `./models/cache`; on later starts it finds them and does
    nothing;
@@ -699,7 +699,7 @@ URL tried before Hugging Face: `<mirror>/<name>/<version>/<file>`).
 | `GATEWAY_PORT`, `METRICS_PORT` | `8080`, `9090` | Host ports of the gateway |
 | `CONTROL_PLANE_PORT`, `CONTROL_PLANE_METRICS_PORT` | `18081`, `9091` | Host ports of the control plane |
 | `POSTGRES_PORT` | `5432` | Host port of Postgres (dev override only) |
-| `GUARDSPEC_VERSION` | `0.2.1` | Tag of the `ghcr.io/guard-spec/guard-spec-*` images in `docker-compose.yml` (the dev override builds from source instead) |
+| `GUARDSPEC_VERSION` | `0.3.0` | Tag of the `ghcr.io/guard-spec/guard-spec-*` images in `docker-compose.yml` (the dev override builds from source instead) |
 | `MODELS_UID`, `MODELS_GID` | `0` | Owner of files written by `models-init` and `models-pull` |
 | `QUICKSTART_TIMEOUT` | `600` | `scripts/quickstart.sh`: seconds to wait for `/readyz` |
 
