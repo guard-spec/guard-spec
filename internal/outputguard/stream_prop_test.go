@@ -95,6 +95,79 @@ func propAnswer(r *propRand) string {
 	return b.String()
 }
 
+// propRemoved is markup the guard removes whole: placed inside a value, it
+// joins the parts of the value again in the output.
+var propRemoved = []string{"[]()", "[](https://evil.com/x?d=1)", "[](<a b>)", `[](x "t")`, "[](x[]())",
+	"[](a)[](b)"}
+
+// propKept is markup that leaves something between the parts of a value: the
+// kept text of a link, a marker, an allowed link, or text that is no link.
+var propKept = []string{"[x](https://evil.com)", "![](x)", "[](https://docs.example.com/a)", "[]", "](y)",
+	"[[]()](z)", "<img src=x>", "[r]"}
+
+// propJoinable are values that markup placed inside them must not let through.
+var propJoinable = []string{testCanary, "someone@example.com", "john.doe+news@mail.co.uk", "0912 345 678",
+	"+84 912 345 678", "0912345678", "4111 1111 1111 1111", "371449635398431", "001203004567", "192.168.1.10"}
+
+// propSplitValue returns a joinable value with markup at one or two random
+// places inside it, between spaces.
+func propSplitValue(r *propRand, markup []string) string {
+	v := r.pick(propJoinable)
+	var b strings.Builder
+	last := 0
+	for _, at := range []int{1 + r.intn(len(v)-1), 1 + r.intn(len(v)-1)} {
+		if at < last || r.intn(2) == 0 {
+			continue
+		}
+		b.WriteString(v[last:at])
+		b.WriteString(r.pick(markup))
+		last = at
+	}
+	if last == 0 {
+		at := 1 + r.intn(len(v)-1)
+		b.WriteString(v[:at])
+		b.WriteString(r.pick(markup))
+		last = at
+	}
+	b.WriteString(v[last:])
+	return " " + b.String() + " "
+}
+
+// propJoinAnswer places one to three values split by markup at word
+// boundaries of text.
+func propJoinAnswer(r *propRand, text string) string {
+	var b strings.Builder
+	last := 0
+	for n := 1 + r.intn(3); n > 0; n-- {
+		at := last + r.intn(len(text)-last+1)
+		for at < len(text) && text[at] != ' ' {
+			at++
+		}
+		markup := propRemoved
+		if r.intn(3) == 0 {
+			markup = propKept
+		}
+		b.WriteString(text[last:at] + propSplitValue(r, markup))
+		last = at
+	}
+	b.WriteString(text[last:])
+	return b.String()
+}
+
+// checkNotJoined checks that no value split by markup came out whole: joined
+// again by the removal of the markup, it must be redacted as it would be
+// without the markup. (A part of a value that the guard redacts on its own,
+// such as the "n.doe@mail.co.uk" of "joh[]()n.doe@mail.co.uk", leaves the
+// rest as a space there would.)
+func checkNotJoined(t *testing.T, text, out string) {
+	t.Helper()
+	for _, v := range propJoinable {
+		if strings.Contains(out, " "+v+" ") {
+			t.Fatalf("%q got through in %q, from %q", v, out, text)
+		}
+	}
+}
+
 // propSplit cuts text into deltas of 1 to 64 bytes. Deltas may split a
 // multi-byte character, as raw upstream bytes would not, so splits respect
 // UTF-8: a delta always ends on a character boundary.
@@ -263,21 +336,32 @@ func TestStreamPropertyRandomAnswers(t *testing.T) {
 			if want := checkAnswer(t, r, text, 4); strings.Contains(want, testCanary) {
 				t.Fatalf("the canary got through: %q", want)
 			}
+			// The same answer with values split by markup the guard removes.
+			joined := propJoinAnswer(r, text)
+			want := checkAnswer(t, r, joined, 2)
+			if strings.Contains(want, testCanary) {
+				t.Fatalf("the joined canary got through: %q", want)
+			}
+			checkNotJoined(t, joined, want)
 		})
 	}
 }
 
 // FuzzStreamGuard fuzzes the seed of a random answer and of its splits, and a
-// short fragment placed at a random spot in it. The fragment can split the
-// canary or a value with a link that the guard then removes, joining the parts
-// again; the whole-answer guard does the same, so only the stream properties
-// are checked here.
+// short fragment placed at a random spot in it, or inside the canary or a
+// value with personal data added to it. The fragment can split the value with
+// a link that the guard then removes, joining the parts again: the canary must
+// still never get through, and the stream must send what the whole-answer
+// guard produces.
 func FuzzStreamGuard(f *testing.F) {
 	f.Add(uint64(1), "")
 	f.Add(uint64(7), "a@b.co")
 	f.Add(uint64(42), "0912 345 678")
 	f.Add(uint64(99), "![x](https://evil.com/a.png?q=1)")
 	f.Add(uint64(3), "\n[r]: https://evil.com/x\n")
+	f.Add(uint64(5), "[]()")
+	f.Add(uint64(6), "[](https://evil.com/x?d=1)")
+	f.Add(uint64(8), "[a](b)")
 	f.Fuzz(func(t *testing.T, seed uint64, extra string) {
 		if len(extra) > 48 || !utf8.ValidString(extra) {
 			return
@@ -288,7 +372,21 @@ func FuzzStreamGuard(f *testing.F) {
 		for at < len(text) && text[at]&0xC0 == 0x80 {
 			at++
 		}
-		checkAnswer(t, r, text[:at]+extra+text[at:], 2)
+		inside := r.intn(2) == 0
+		if inside {
+			v := r.pick(propJoinable)
+			k := 1 + r.intn(len(v)-1)
+			text = text[:at] + " " + v[:k] + extra + v[k:] + " " + text[at:]
+		} else {
+			text = text[:at] + extra + text[at:]
+		}
+		want := checkAnswer(t, r, text, 2)
+		if strings.Contains(want, testCanary) {
+			t.Fatalf("the canary got through: %q", want)
+		}
+		if inside {
+			checkNotJoined(t, text, want)
+		}
 	})
 }
 
