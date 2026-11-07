@@ -271,9 +271,10 @@ What each stage does:
 - **Admin UI** (`web/`). A single-page app served by the control plane at
   `/ui/`. See [Admin UI](#admin-ui).
 - **Output guard** (`internal/outputguard`). Rewrites whole responses and
-  streams (with a 256-character window): strips images and links to hosts off
-  an allowlist, redacts e-mail, Vietnamese phone numbers, CCCD numbers, card
-  numbers and optionally IPv4, and refuses or redacts a leaked canary.
+  streams (holding back only text that could still change): strips images
+  and links to hosts off an allowlist, redacts e-mail, Vietnamese phone
+  numbers, CCCD numbers, card numbers and optionally IPv4, and refuses or
+  redacts a leaked canary.
 - **Indirect and MCP scanning** (`internal/indirect`, `cmd/gateway/scan_*.go`).
   Tool messages, documents and tool definitions are scored apart from the
   user's text, and tool descriptions also go through MCP poisoning signals
@@ -1315,16 +1316,34 @@ L1 + L2 on the long prompt against a p50 of 25.5 ms); read the p50 column.
 | `BenchmarkSanitize` (input sanitizer) | 39-char English prompt | 3.8 µs | 24 |
 | | 2,025-char prompt | 133 µs | 24 |
 | | 1,560 chars with zero-width, bidi and full-width characters | 224 µs | 83 |
-| `BenchmarkOutputGuardText` (whole answer) | 2,048-char answer, nothing to change | 0.50 ms | 10 |
-| | 1,836-char answer with e-mails, phones, cards, links, images | 0.61 ms | 781 |
-| `BenchmarkOutputGuardStream` (16-byte deltas) | 2,048-char answer, nothing to change | 3.8 ms | 356 |
-| | 1,836-char answer with findings | 4.5 ms | 7,000 |
+| `BenchmarkOutputGuardText` (whole answer) | 2,048-char answer, nothing to change | 0.008 ms ¹ | 5 |
+| | 1,836-char answer with e-mails, phones, cards, links, images | 0.30 ms ¹ | 436 |
+| `BenchmarkOutputGuardStream` (16-byte deltas) | 2,048-char answer, nothing to change | 0.013 ms ¹ | 70 |
+| | 1,836-char answer with findings | 0.37 ms ¹ | 1,036 |
+| `BenchmarkOutputGuardSSE` (16-byte deltas, JSON included) | chat completion stream, clean / with findings | 0.49 / 0.85 ms ¹ | 8,889 / 9,105 |
+| | Messages API stream, clean / with findings | 0.26 / 0.65 ms ¹ | 5,065 / 5,682 |
+| | Responses API stream, clean / with findings | 0.39 / 0.76 ms ¹ | 5,781 / 6,262 |
 | `BenchmarkEvaluate` (CEL, compiled policy) | 1 rule | 2.6 µs | 70 |
 | | 10 rules | 15 µs | 393 |
 | | 50 rules | 82 µs | 1,905 |
 
 The stream figures are the total for all deltas of one answer (128 for the
-clean one), about 30 µs per delta.
+clean one): about 0.1 µs per delta for the clean answer and 3 µs with
+findings, 1.6× and 1.3× the whole-answer guard on the same text. In the
+event streams most of the time goes to decoding and encoding each event's
+JSON (2 to 4 µs per event).
+
+¹ Output guard rows: measured on **2026-11-07** on the same machine with the
+stream changes of RF-ea8d7c72, as the median of 8 runs (`benchstat`), each
+run alternating with v0.3.0 so that both saw the same load. The machine was
+shared (load average 5 to 20): the guard rows varied by under 7%, the event
+stream rows by up to ±160%. v0.3.0 in the same runs: whole answer 0.50 /
+0.63 ms, stream 3.8 / 4.6 ms (7.5× and 7.3× the whole answer, about 30 µs per
+delta), event streams 4.1 to 5.1 ms. To reproduce:
+
+```bash
+go test -run '^$' -bench 'OutputGuard' -benchmem -count 8 ./internal/outputguard
+```
 
 **Conversation window** (`BenchmarkConversationWindow`, and
 `BenchmarkConversationWindowML` under `make bench-onnx`): the nine-turn
@@ -1617,11 +1636,18 @@ then cancels only on a connection reset and otherwise relies on the timeout.
 
 The gateway checks the model's answer before the client sees it. It rewrites
 `choices[].message.content` (and `choices[].text` for legacy completions) in
-whole responses. In streams it keeps a 256-character window per choice, so a
-pattern split across chunks is still caught, and rebuilds each chunk with its
-id, model and other fields unchanged. A stream therefore runs about 256
-characters behind the upstream. Held text is flushed at `finish_reason` and at
-`[DONE]`. An upstream body that is not JSON cannot be checked and gives 502.
+whole responses. In streams it holds back, per choice, the end of the text that
+could still turn into something to redact: an unfinished word, number, URL or
+reference definition, the start of the canary, an image or link that has not
+closed. So a pattern split across chunks is still caught, and nothing of it is
+sent before the guard has decided on it. It scans again every 64 new
+characters and rebuilds each chunk with its id, model and other fields
+unchanged. A stream therefore runs a little behind the upstream: usually under
+64 characters plus the word being written, longer while an image, link or run
+of digits is still open (a word is held for at most 256 characters, an open
+construct or a run of digits for at most 8,192). Held text is flushed at
+`finish_reason` and at `[DONE]`. An upstream body that is not JSON cannot be
+checked and gives 502.
 
 - **Images and links.** Markdown images, HTML `<img>` tags and reference
   definitions whose host is not on the allowlist are removed
