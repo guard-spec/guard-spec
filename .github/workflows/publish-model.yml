@@ -61,10 +61,17 @@ jobs:
           api = HfApi(token=os.environ["HF_TOKEN"])
           repo = os.environ["HF_REPO"]
           api.create_repo(repo, repo_type="model", private=os.environ["PRIVATE"] == "true", exist_ok=True)
-          info = api.upload_folder(repo_id=repo, folder_path=os.environ["STAGE"],
-                                   commit_message="guardspec-classifier " + os.environ["VERSION"])
+          # v3b, the recommended model, lives on main. Other versions go to a
+          # branch named after the version, so the model page keeps showing
+          # the recommended one; the manifest pins the commit either way.
+          version = os.environ["VERSION"]
+          branch = "main" if version == "v3b" else version
+          if branch != "main":
+              api.create_branch(repo, repo_type="model", branch=branch, exist_ok=True)
+          info = api.upload_folder(repo_id=repo, folder_path=os.environ["STAGE"], revision=branch,
+                                   commit_message="guardspec-classifier " + version)
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
-              f.write(f"Uploaded to https://huggingface.co/{repo}\n\n")
+              f.write(f"Uploaded to https://huggingface.co/{repo}/tree/{branch}\n\n")
               f.write(f"revision: `{info.oid}`\n\nGATEWAY_FULL_L2_SOURCE: `{repo}@{info.oid}`\n")
           print(f"revision {info.oid}")
           EOF
