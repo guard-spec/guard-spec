@@ -3,6 +3,8 @@
 
 # OpenSSF Best Practices badge: prepared answers
 
+The project is registered as [project 16421](https://www.bestpractices.dev/projects/16421) (passing).
+
 For the maintainer who registers the project. The
 [OpenSSF Best Practices badge](https://www.bestpractices.dev/) is self-assessed
 and needs a GitHub login of a maintainer, so it cannot be done from the
