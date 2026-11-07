@@ -42,7 +42,7 @@ thứ ba không phải của chúng tôi: hãy ghim chúng theo digest như ở 
 ## 2. Ở phía có mạng
 
 ```bash
-V=0.3.0
+V=0.3.1
 ID='^https://github.com/guard-spec/guard-spec/'
 ISSUER=https://token.actions.githubusercontent.com
 
@@ -133,11 +133,11 @@ imagePullSecrets:
 gateway:
   image:
     repository: registry.internal/guard-spec/guard-spec-gateway
-    tag: "0.3.0"          # or "0.3.0@sha256:<index digest>" to pin the digest
+    tag: "0.3.1"          # or "0.3.1@sha256:<index digest>" to pin the digest
 controlPlane:
   image:
     repository: registry.internal/guard-spec/guard-spec-control-plane
-    tag: "0.3.0"
+    tag: "0.3.1"
 migrations:
   enabled: true
   image:
@@ -172,7 +172,7 @@ Nếu dùng gateway-full: `gateway.image.repository=.../guard-spec-gateway-full`
 Sau đó, như trong README (phần "Kubernetes"):
 
 ```bash
-helm install gs ./guard-spec-0.3.0.tgz -n guard-spec -f values-airgapped.yaml
+helm install gs ./guard-spec-0.3.1.tgz -n guard-spec -f values-airgapped.yaml
 kubectl -n guard-spec exec deploy/gs-guard-spec-gateway -c gateway -- ./doctor
 ```
 
