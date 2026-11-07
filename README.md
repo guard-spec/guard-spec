@@ -1228,6 +1228,25 @@ How to read them, and their limits:
   or between small groups such as `en/data_exfiltration` (29 rows), as
   signal.
 
+### Comparison with other detectors
+
+[docs/benchmark.md](docs/benchmark.md) (also on
+[guardspec.io/docs](https://guardspec.io/docs/)) compares Guard Spec L1,
+L1+L2 and L1+L2+L3 with ProtectAI `deberta-v3-base-prompt-injection-v2` and
+LLM Guard's default threshold for it, on `eval/` and four public datasets at
+pinned revisions (`deepset/prompt-injections`,
+`jackhhao/jailbreak-classification`, `Lakera/gandalf_ignore_instructions`,
+`reshabhs/SPML_Chatbot_Prompt_Injection`): ROC AUC, TPR/FPR at each
+detector's default, TPR at FPR ≤ 1%, latency and model size. `make benchmark`
+reproduces it. In short (2026-11-07, Apple M3 Max): Guard Spec L1+L2+L3 leads
+on `eval/` (AUC 0.987 against 0.784; ProtectAI is English-only and flags 51%
+of its benign rows) and ranks better on `deepset` and
+`jailbreak-classification`, whose training splits it saw. **On SPML, which no
+detector here trained on, ProtectAI is better**: AUC 0.997 against 0.974, and
+Guard Spec's default threshold blocks only 36% of its attacks (ProtectAI 99%,
+with 8% false positives). Meta Prompt Guard 2 is gated and not included; the
+page explains how to add it.
+
 ### Go benchmarks: sanitizer, output guard, policy and HTTP path
 
 Measured on **2026-11-06** with the benchmarks added on top of commit

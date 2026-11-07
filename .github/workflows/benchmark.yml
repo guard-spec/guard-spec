@@ -1,0 +1,76 @@
+name: Benchmark
+
+# Public benchmark against other prompt-injection detectors (docs/benchmark.md):
+# `make benchmark` on a GitHub-hosted ubuntu-24.04 runner. Guard Spec L1,
+# L1+L2 and L1+L2+L3 (cmd/eval, the gateway's input path) and ProtectAI
+# deberta-v3-base-prompt-injection-v2 (with LLM Guard's default threshold) on
+# eval/ and public datasets at pinned revisions; bench/run.py lists them.
+#
+# Manual only (Actions > Benchmark > Run workflow, or
+# `gh workflow run benchmark.yml`). Results: the job summary and the
+# "benchmark-results" artifact (bench/results/*, docs/benchmark.md). Commit
+# them through a pull request when they should replace the published numbers.
+#
+# Meta Prompt Guard 2 is gated on Hugging Face. To include it, accept the
+# Llama 4 Community License on both model pages with an account, add a
+# read-only token of that account as the repository secret HF_READ_TOKEN and
+# run with "promptguard" checked. Without it, those rows are skipped.
+#
+# GitHub-hosted runners are shared VMs: read the latency columns as indicative.
+
+on:
+  workflow_dispatch:
+    inputs:
+      promptguard:
+        description: Also run Meta Prompt Guard 2 (needs the HF_READ_TOKEN secret with access)
+        type: boolean
+        default: false
+
+permissions: read-all
+
+jobs:
+  benchmark:
+    name: Benchmark (ubuntu-24.04)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      RUNNER_LABEL: GitHub-hosted ubuntu-24.04
+      BENCH_CACHE: ${{ github.workspace }}/bench/.cache
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      # uv from PyPI at a pinned version; bench/uv.lock pins every Python
+      # package (uv fetches Python 3.12 when the runner has none).
+      - name: Install uv
+        run: pipx install uv==0.10.10
+      - name: Benchmark
+        env:
+          PROMPTGUARD: ${{ inputs.promptguard && '1' || '' }}
+          # Only read when PROMPTGUARD is set; huggingface_hub sends it to
+          # Hugging Face only.
+          HF_TOKEN: ${{ inputs.promptguard && secrets.HF_READ_TOKEN || '' }}
+        run: make benchmark
+      - name: Summary
+        if: always()
+        run: |
+          if [ -f bench/results/results.md ]; then
+            {
+              echo "## Benchmark: Guard Spec versus other detectors"
+              echo
+              echo "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+              echo
+              cat bench/results/results.md
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: benchmark-results
+          path: |
+            bench/results/
+            docs/benchmark.md
+          if-no-files-found: error

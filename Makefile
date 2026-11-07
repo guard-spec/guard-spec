@@ -96,5 +96,15 @@ calibrate: onnx-deps
 bench-onnx: onnx-deps
 	$(ONNX_ENV) $(GO) test -tags onnx -run '^$$' -bench GatewayHTTPML -benchmem -benchtime $(BENCHTIME) ./cmd/gateway
 
+# Public benchmark against other detectors (docs/benchmark.md, bench/run.py):
+# public datasets at pinned revisions and models into BENCH_CACHE, results into
+# bench/results and the generated block of docs/benchmark.md. Needs uv.
+# PROMPTGUARD=1 adds Meta Prompt Guard 2 (gated: your own HF_TOKEN).
+BENCH_CACHE ?= $(CURDIR)/bench/.cache
+.PHONY: benchmark
+benchmark: onnx-deps
+	$(ONNX_ENV) BENCH_CACHE=$(BENCH_CACHE) uv run --project bench --frozen $(if $(PROMPTGUARD),--extra promptguard) \
+	  python bench/run.py --update-doc docs/benchmark.md $(if $(PROMPTGUARD),--promptguard)
+
 onnxbench: onnx-deps
 	$(ONNX_ENV) $(GO) run -tags onnx ./cmd/onnxbench -model models/local/guardspec-classifier-v3b
