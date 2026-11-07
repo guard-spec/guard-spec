@@ -173,7 +173,8 @@ def main():
         label_thresholds={lb: v["threshold"] for lb, v in per_label.items()},
         label_threshold_method="max F1 on the validation split, one-vs-rest",
         label_validation=per_label,
-        calibrated_on="validation splits " + ", ".join(cfg["data"]["val"]) + ", INT8 model",
+        # v4: file names only (a --data-dir build lives outside the repository; its path says nothing useful).
+        calibrated_on="validation splits " + ", ".join(Path(v).name for v in cfg["data"]["val"]) + ", INT8 model",
     )
 
     # 5. Package ---------------------------------------------------------------------------

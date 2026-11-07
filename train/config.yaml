@@ -1,5 +1,6 @@
-# Guard Spec attack-risk classifier v3 (v1, v2: task N6). Read by train.py, export.py and evaluate.py.
-name: guardspec-classifier-v3b
+# Guard Spec attack-risk classifier v4 (v1, v2: task N6; v3, v3b: RF-5a3984fd; v4: RF-fab31bff).
+# Read by train.py, export.py and evaluate.py.
+name: guardspec-classifier-v4
 seed: 20261105
 
 base_model: intfloat/multilingual-e5-small
@@ -16,7 +17,9 @@ data:
   # Vietnamese variant split from template set B of data/gen_vi_v2.py with held-out teencode spellings.
   # (v3) adds val_v3, template set B of data/gen_v3.py (English hard negatives, Vietnamese admin/meta text).
   # data/val_v3_holdout.jsonl (template set C) is NOT listed here: it is never used for selection or calibration.
-  val: [data/val.jsonl, data/val_hard.jsonl, data/val_vi_variants.jsonl, data/val_v3.jsonl]
+  # (v4) adds val_v4, template set B of data/gen_vi_v4.py (Vietnamese hard negatives, teencode attacks);
+  # val_v4_holdout (set C) and probe_v4 are hold-outs, not listed.
+  val: [data/val.jsonl, data/val_hard.jsonl, data/val_vi_variants.jsonl, data/val_v3.jsonl, data/val_v4.jsonl]
 
 train:
   max_len: 256
@@ -42,8 +45,8 @@ calibration:
 
 export:
   opset: 17
-  out_dir: ../models/local/guardspec-classifier-v3b
-  run_dir: runs/guardspec-classifier-v3b
+  out_dir: ../models/local/guardspec-classifier-v4
+  run_dir: runs/guardspec-classifier-v4
 
 compare:
   # The requested protectai/deberta-v3-small-prompt-injection-v2 (rev d7c8842daf06) is gated on Hugging Face

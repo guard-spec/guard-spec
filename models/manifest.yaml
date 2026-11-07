@@ -67,6 +67,43 @@ models:
         size: 520
         sha256: 7b11797528ea0d474e0e7ddcdecca6b4df6689e8dea0ebc5b670223a47209153
 
+  # v4 candidate (train/MODEL_CARD.md, "v4"): not recommended; v3b stays the
+  # default until v4 has been compared in shadow mode
+  # (SHADOW_L2_MODEL=guardspec-classifier@v4, docs/models.md). Not on Hugging
+  # Face yet, so the revision is unpinned and `pull` uses the GitHub Release
+  # mirror model-guardspec-classifier-v4 (still checked against the SHA-256
+  # below). After the Publish model workflow, pin its Hugging Face commit here.
+  - name: guardspec-classifier
+    version: v4
+    kind: classifier
+    repo: guard-spec/guardspec-classifier
+    revision: "0000000000000000000000000000000000000000"
+    mirrors:
+      - https://github.com/guard-spec/guard-spec/releases/download/model-guardspec-classifier-v4/{file}
+    license: Apache-2.0
+    license_url: https://github.com/guard-spec/guard-spec/blob/main/train/MODEL_CARD.md
+    files:
+      - src: model_int8.onnx
+        dest: model_int8.onnx
+        size: 118466001
+        sha256: 70feb1810bb97a78b513e32890088b1d4df6507a0eb2f09103fbf24f49095aef
+      - src: tokenizer.json
+        dest: tokenizer.json
+        size: 17083053
+        sha256: 2b95ee17661f8dfbbceaba374f6d277a6b5d8e1898c070a16331622024f58c67
+      - src: config.json
+        dest: config.json
+        size: 1272
+        sha256: a74903e3d5f0f21799228d520b0b08aa2a2ac9c779bafd78c2d800f9e8a29d7a
+      - src: thresholds.json
+        dest: thresholds.json
+        size: 4337
+        sha256: 5b9d22f8bcff8892856b366d529824c2f9897867fec3c2fdf032f043bc642a54
+      - src: calibration.json
+        dest: calibration.json
+        size: 535
+        sha256: 0f21e68e6b0b7a109597c55ea0ca8020751f5d3e67085e10eb1ef7bef79b952c
+
   # ProtectAI small v2: gated, requires HF_TOKEN. Optional baseline.
   - name: protectai-deberta-v3-small-pi-v2
     version: d7c8842

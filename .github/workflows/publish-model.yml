@@ -1,8 +1,10 @@
 name: Publish model
 
-# Manual. Uploads guardspec-classifier v3b to Hugging Face from its GitHub
-# Release mirror (tag model-guardspec-classifier-v3b), after train/hf/stage.sh
-# checks every file against build/gateway-full.l2.sha256. Needs the repository
+# Manual. Uploads a guardspec-classifier version (default v3b) to Hugging Face
+# from its GitHub Release mirror (tag model-guardspec-classifier-<version>),
+# after train/hf/stage.sh checks every file against its pins
+# (build/gateway-full.l2.sha256 for v3b, train/hf/<version>/SHA256SUMS
+# otherwise). Needs the repository
 # secret HF_TOKEN with write access to the Hugging Face org. The job summary
 # shows the Hugging Face commit to pin as `revision` in models/manifest.yaml
 # and in the GATEWAY_FULL_L2_SOURCE variable.
@@ -10,6 +12,9 @@ name: Publish model
 on:
   workflow_dispatch:
     inputs:
+      version:
+        description: Model version (release tag model-guardspec-classifier-<version>)
+        default: v3b
       hf_repo:
         description: Hugging Face repository (org/name)
         default: guard-spec/guardspec-classifier
@@ -31,14 +36,20 @@ jobs:
       - name: Download the release assets
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release download model-guardspec-classifier-v3b -R "$GITHUB_REPOSITORY" -D "$RUNNER_TEMP/model"
+          VERSION: ${{ inputs.version }}
+        run: |
+          case "$VERSION" in ""|*[!a-z0-9.-]*) echo "::error::bad version: $VERSION"; exit 1 ;; esac
+          gh release download "model-guardspec-classifier-$VERSION" -R "$GITHUB_REPOSITORY" -D "$RUNNER_TEMP/model"
       - name: Stage and check
-        run: train/hf/stage.sh "$RUNNER_TEMP/stage" "$RUNNER_TEMP/model"
+        env:
+          VERSION: ${{ inputs.version }}
+        run: train/hf/stage.sh "$RUNNER_TEMP/stage" "$RUNNER_TEMP/model" "$VERSION"
       - name: Upload to Hugging Face
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           HF_REPO: ${{ inputs.hf_repo }}
           PRIVATE: ${{ inputs.private }}
+          VERSION: ${{ inputs.version }}
           STAGE: ${{ runner.temp }}/stage
         run: |
           [ -n "$HF_TOKEN" ] || { echo "::error::the repository secret HF_TOKEN is not set"; exit 1; }
@@ -51,7 +62,7 @@ jobs:
           repo = os.environ["HF_REPO"]
           api.create_repo(repo, repo_type="model", private=os.environ["PRIVATE"] == "true", exist_ok=True)
           info = api.upload_folder(repo_id=repo, folder_path=os.environ["STAGE"],
-                                   commit_message="guardspec-classifier v3b")
+                                   commit_message="guardspec-classifier " + os.environ["VERSION"])
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
               f.write(f"Uploaded to https://huggingface.co/{repo}\n\n")
               f.write(f"revision: `{info.oid}`\n\nGATEWAY_FULL_L2_SOURCE: `{repo}@{info.oid}`\n")

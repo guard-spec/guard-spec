@@ -45,7 +45,8 @@ import gen_holdout_v3  # noqa: E402
 import gen_v3  # noqa: E402
 import gen_vi  # noqa: E402
 import gen_vi_v2  # noqa: E402
-from common import (LABELS, fingerprint, leet, normalize_for_fingerprint, rng, shingles,  # noqa: E402
+import gen_vi_v4  # noqa: E402
+from common import (LABELS, fingerprint, leet, normalize_for_fingerprint, pick, rng, shingles,  # noqa: E402
                     strip_diacritics, teencode_v2, teencode_vi)
 
 DATA = Path(__file__).resolve().parent
@@ -101,6 +102,33 @@ EXTERNAL_HOLDOUT = [("GUARD_OWNER_HOLDOUT", "user_holdout", "guard-spec:owner-su
 DROP_ABLATE = os.environ.get("GUARD_OWNER_DROP_ABLATE", "0") == "1"
 EXTERNAL_SOURCES = {src for _, src in EXTERNAL_TRAIN}
 ABLATE_TEXTS: set[str] = set()
+# v4: Vietnamese hard negatives and abbreviated / teencode attacks (data/gen_vi_v4.py): set A in the pool,
+# set B as `val_v4` (selection and calibration), set C as `val_v4_holdout` and the four reported false
+# positives as `probe_v4` (both scored once at the end). GUARD_V4_DATA=0 builds the v3b data.
+USE_V4 = os.environ.get("GUARD_V4_DATA", "1") != "0"
+
+# v4: owner rule for external files. Test placeholders such as [TEST_CUSTOMER] or [TEST_OTP] occur only in
+# attack rows, so left as they are they would become an attack cue. Each one is replaced with a varied fake
+# value (seeded by the row's group, so both rows of a translation pair get the same value).
+PLACEHOLDER = re.compile(r"\[(TEST_CUSTOMER|TEST_OTP|TEST_A|TEST_B|SANDBOX_ACCOUNT|REDACTED_ID_DATA)\]")
+FAKE = {
+    "TEST_CUSTOMER": {"en": ["John Carter", "Mia Nguyen", "customer 4471", "Ms. Alvarez", "account holder R. Patel"],
+                      "vi": ["Nguyễn Văn An", "chị Trần Thu Hà", "khách hàng 4471", "anh Lê Minh", "bà Phạm Thị Lan"]},
+    "TEST_OTP": {"*": ["482913", "071256", "905318", "336140", "618724"]},
+    "TEST_A": {"*": ["0123456789", "9704 1234 5678", "190 2233 4455", "0451000123456"]},
+    "TEST_B": {"*": ["0987654321", "9704 8765 4321", "190 6677 8899", "0071000654321"]},
+    "SANDBOX_ACCOUNT": {"*": ["1903 5566 7788", "0451000998877", "6801 2345 6789", "STK 102938475"]},
+    "REDACTED_ID_DATA": {"en": ["ID 079201004512", "passport C1234567", "ID 001199023344"],
+                         "vi": ["CCCD 079201004512", "hộ chiếu C1234567", "CCCD 001199023344"]},
+}
+
+
+def fill_placeholders(text, lang, key, counts):
+    def one(m):
+        vals = FAKE[m.group(1)].get(lang) or FAKE[m.group(1)]["*"]
+        counts["external:placeholders_replaced"] += 1
+        return pick(rng(f"placeholder:{key}:{m.group(1)}"), vals)
+    return PLACEHOLDER.sub(one, text)
 
 
 def external_path(var):
@@ -131,9 +159,10 @@ def add_external(c, path, source, counts, tag):
             r = json.loads(ln)
             assert set(r) >= {"text", "labels", "lang", "variant", "source", "license", "group"}, r.keys()
             assert r["lang"] in ("en", "vi") and r["variant"] in VARIANTS and r["source"] == source, r
-            c.add(r["text"], r["labels"], r["lang"], r["variant"], r["source"], r["license"], r["group"])
+            text = fill_placeholders(r["text"], r["lang"], r["group"], counts)
+            c.add(text, r["labels"], r["lang"], r["variant"], r["source"], r["license"], r["group"])
             if r.get("ablate"):
-                ABLATE_TEXTS.add(unicodedata.normalize("NFC", r["text"]).strip())
+                ABLATE_TEXTS.add(unicodedata.normalize("NFC", text).strip())
             counts[f"external:{tag}"] += 1
 
 OASST_EN_N = 3800  # v1: 3200. v2 takes more so that English `orig` reaches TARGET_RATIO without dropping attacks.
@@ -394,6 +423,8 @@ def build(c: Collector, counts):
     add_vi_variants(c, gen_vi_v2.generate("train"), "v2.vi.train", source=PROJECT + ":v2")
     add_v3(c, gen_v3.generate("train"), "train", PROJECT + ":v3")
     add_realistic(c, REALISTIC_TRAIN, counts)
+    if USE_V4:
+        add_v4(c, gen_vi_v4.generate("train"), "train", PROJECT + ":v4")
     for var, src in EXTERNAL_TRAIN:
         path = external_path(var)
         if path:
@@ -439,6 +470,24 @@ def add_v3(c, rows, split, src):
         c.add(teencode_v2(b["text"], f"{g}.v3", "B"), b["labels"], "vi", "teencode", src, PROJECT_LICENSE, g)
 
 
+def add_v4(c, rows, split, src):
+    """v4 generator rows (gen_vi_v4 sets A/B/C). Rows written natively in teencode or without diacritics
+    are kept as written. `orig` rows: training gets the usual Vietnamese variants (add_vi_variants);
+    validation and hold-out splits get an orig, a no-diacritics and a teencode (table B) copy, as in add_v3."""
+    native = [b for b in rows if b["variant"] != "orig"]
+    orig = [b for b in rows if b["variant"] == "orig"]
+    for b in native:
+        c.add(b["text"], b["labels"], "vi", b["variant"], src, PROJECT_LICENSE, b["group"])
+    if split == "train":
+        add_vi_variants(c, orig, f"v4.vi.{split}", source=src)
+        return
+    for b in orig:
+        g = b["group"]
+        c.add(b["text"], b["labels"], "vi", "orig", src, PROJECT_LICENSE, g)
+        c.add(strip_diacritics(b["text"]), b["labels"], "vi", "no_diacritics", src, PROJECT_LICENSE, g)
+        c.add(teencode_v2(b["text"], f"{g}.v4", "B"), b["labels"], "vi", "teencode", src, PROJECT_LICENSE, g)
+
+
 RE_SENT = re.compile(r"(?<=[.!?])\s+")
 
 
@@ -457,7 +506,8 @@ def drop_priority(x):
     (oasst2, HelpSteer2, jailbreak-classification, deepset); 1: project template rows; hard negatives
     (v1 `hardneg`, v2, v3 generators) are never dropped."""
     src = x["source"]
-    if src in (PROJECT + ":hardneg", PROJECT + ":v2", PROJECT + ":v3", REALISTIC_SOURCE) or src in EXTERNAL_SOURCES:
+    if src in (PROJECT + ":hardneg", PROJECT + ":v2", PROJECT + ":v3", PROJECT + ":v4", REALISTIC_SOURCE) \
+            or src in EXTERNAL_SOURCES:
         return 2
     return 1 if src == PROJECT else 0
 
@@ -694,10 +744,15 @@ def main():
     # `val_v3_holdout` (gen_holdout_v3 template set C; scored once at the end, never used for
     # selection or calibration).
     seen = seen | {r["text"] for r in vrows}
-    for name, gen_rows, src in (("val_v3", gen_v3.generate("val"), PROJECT + ":v3-val"),
-                                ("val_v3_holdout", gen_holdout_v3.generate(), PROJECT + ":v3-holdout")):
+    # v4: `val_v4` (gen_vi_v4 set B; selection and calibration) and `val_v4_holdout` (set C; scored once).
+    extra = [("val_v3", gen_v3.generate("val"), PROJECT + ":v3-val", add_v3),
+             ("val_v3_holdout", gen_holdout_v3.generate(), PROJECT + ":v3-holdout", add_v3)]
+    if USE_V4:
+        extra += [("val_v4", gen_vi_v4.generate("val"), PROJECT + ":v4-val", add_v4),
+                  ("val_v4_holdout", gen_vi_v4.generate("holdout"), PROJECT + ":v4-holdout", add_v4)]
+    for name, gen_rows, src, adder in extra:
         xc = Collector()
-        add_v3(xc, gen_rows, "val", src)
+        adder(xc, gen_rows, "val", src)
         xcounts = collections.Counter()
         xrows = leakage_filter(dedupe(xc.rows, xcounts), xcounts, tag=name)
         xrows = [r for r in xrows if r["text"] not in seen]
@@ -720,6 +775,16 @@ def main():
     for r in xrows:
         r["id"] = f"{r['lang']}-{hashlib.sha256(r['text'].encode('utf-8')).hexdigest()[:12]}"
     split["val_realistic_holdout"] = xrows
+    # v4: the four benign sentences v3b blocked (gen_vi_v4.PROBE), as written; a probe, never trained on.
+    if USE_V4:
+        pc = Collector()
+        for i, t in enumerate(gen_vi_v4.PROBE):
+            pc.add(t, ["benign"], "vi", "orig", PROJECT + ":v4-probe", PROJECT_LICENSE, f"v4.vi.probe.{i}")
+        prow = leakage_filter(pc.rows, counts, tag="probe_v4")
+        assert len(prow) == len(gen_vi_v4.PROBE) and not {r["text"] for r in prow} & seen, "probe_v4 leaked"
+        for r in prow:
+            r["id"] = f"{r['lang']}-{hashlib.sha256(r['text'].encode('utf-8')).hexdigest()[:12]}"
+        split["probe_v4"] = prow
     # v3b: external hold-outs and probes (never committed; written only to GUARD_BUILD_OUT).
     for var, name, src in EXTERNAL_HOLDOUT:
         path = external_path(var)
@@ -738,12 +803,39 @@ def main():
         split[name] = xrows
     # Independence of the hold-outs from everything used for training, selection and calibration
     # (the realistic training file counts as used even when GUARD_V3_REALISTIC=0).
-    used = [r["text"] for name in ("train", "val", "val_hard", "val_vi_variants", "val_v3") for r in split[name]]
+    holdouts = [n for n in ("val_v3_holdout", "val_realistic_holdout", "val_v4_holdout", "user_holdout", "otpkyc_probe",
+                            "probe_v4") if n in split]
+    # v4: the leakage guard of the new generator rows also runs against every hold-out and probe (same
+    # rule as for eval/: Jaccard above JACCARD_MAX drops the row). A common question can coincide with a
+    # hold-out row written independently; it leaves training and validation, never the hold-out.
+    if USE_V4:
+        hold_texts = [r["text"] for n in holdouts for r in split[n]]
+        for name in ("train", "val", "val_v4"):
+            cand = [r for r in split[name] if r["source"] in (PROJECT + ":v4", PROJECT + ":v4-val")]
+            if not cand:
+                continue
+            hj = max_jaccard([r["text"] for r in cand], hold_texts)
+            drop = {id(r) for r, j in zip(cand, hj) if j > JACCARD_MAX}
+            split[name] = [r for r in split[name] if id(r) not in drop]
+            counts[f"v4_rows_dropped_near_holdout:{name}"] = len(drop)
+    used = [r["text"] for name in ("train", "val", "val_hard", "val_vi_variants", "val_v3", "val_v4") if name in split
+            for r in split[name]]
     used += [json.loads(ln)["text"] for ln in REALISTIC_TRAIN.read_text(encoding="utf-8").splitlines() if ln.strip()]
-    for name in [n for n in ("val_v3_holdout", "val_realistic_holdout", "user_holdout", "otpkyc_probe") if n in split]:
+    for name in holdouts:
         hj = max_jaccard([r["text"] for r in split[name]], used)
         MAX_JACCARD[f"{name}_vs_train_and_val"] = round(float(hj.max()), 4)
         counts[f"{name}_rows_jaccard_gt_0.8_vs_train_and_val"] = int((hj > JACCARD_MAX).sum())
+    # v4: the new rows (generator set A/B and the owner rows used for training or validation) against every
+    # hold-out and probe, per hold-out (the guard above is per hold-out against everything used).
+    new_srcs = {PROJECT + ":v4", PROJECT + ":v4-val"} | EXTERNAL_SOURCES
+    for src in sorted(new_srcs):
+        rows_src = [r["text"] for name in ("train", "val", "val_v4") if name in split for r in split[name]
+                    if r["source"] == src]
+        for name in holdouts:
+            if rows_src:
+                hj = max_jaccard(rows_src, [r["text"] for r in split[name]])
+                MAX_JACCARD[f"new:{src}_vs_{name}"] = round(float(hj.max()), 4)
+                counts[f"new:{src}_rows_jaccard_gt_0.8_vs_{name}"] = int((hj > JACCARD_MAX).sum())
     out = output_dir()
     out.mkdir(parents=True, exist_ok=True)
     for name, rs in split.items():

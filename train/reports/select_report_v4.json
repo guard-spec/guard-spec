@@ -1,0 +1,2801 @@
+{
+  "block_threshold": 0.85,
+  "models": {
+    "v3b": {
+      "summary": {
+        "val_rows": 8342,
+        "val_oof_auc": 0.9929100456612955,
+        "val_oof_logloss": 0.06746651912227598,
+        "holdout_rows": 2848,
+        "probe_v4_scores": [
+          0.9459,
+          0.8983,
+          0.9848,
+          0.9847
+        ]
+      },
+      "groups": {
+        "validation/all": {
+          "benign": 6513,
+          "fp": 34,
+          "attack": 1829,
+          "tp": 1639,
+          "fpr": 0.0052203285736219865,
+          "tpr": 0.8961180973209404,
+          "auc": 0.9929100456612955
+        },
+        "validation/en": {
+          "benign": 2142,
+          "fp": 3,
+          "attack": 712,
+          "tp": 649,
+          "fpr": 0.0014005602240896359,
+          "tpr": 0.9115168539325843,
+          "auc": 0.9946656096895687
+        },
+        "validation/split val": {
+          "benign": 3595,
+          "fp": 16,
+          "attack": 1669,
+          "tp": 1512,
+          "fpr": 0.004450625869262865,
+          "tpr": 0.9059316956261234,
+          "auc": 0.9944283010739069
+        },
+        "validation/owner+otpkyc rows": {
+          "benign": 56,
+          "fp": 3,
+          "attack": 83,
+          "tp": 51,
+          "fpr": 0.05357142857142857,
+          "tpr": 0.6144578313253012,
+          "auc": 0.9036144578313253
+        },
+        "validation/vi/no_diacritics": {
+          "benign": 1221,
+          "fp": 7,
+          "attack": 307,
+          "tp": 286,
+          "fpr": 0.005733005733005733,
+          "tpr": 0.9315960912052117,
+          "auc": 0.996838710193759
+        },
+        "validation/vi/teencode": {
+          "benign": 1695,
+          "fp": 10,
+          "attack": 364,
+          "tp": 304,
+          "fpr": 0.0058997050147492625,
+          "tpr": 0.8351648351648352,
+          "auc": 0.9851389023955396
+        },
+        "validation/vi/orig": {
+          "benign": 1311,
+          "fp": 14,
+          "attack": 381,
+          "tp": 354,
+          "fpr": 0.010678871090770405,
+          "tpr": 0.9291338582677166,
+          "auc": 0.9943122098296066
+        },
+        "validation/vi/leet": {
+          "benign": 137,
+          "fp": 0,
+          "attack": 52,
+          "tp": 33,
+          "fpr": 0.0,
+          "tpr": 0.6346153846153846,
+          "auc": 0.9938236945536215
+        },
+        "validation/vi/partial_diacritics": {
+          "benign": 7,
+          "fp": 0,
+          "attack": 13,
+          "tp": 13,
+          "fpr": 0.0,
+          "tpr": 1.0,
+          "auc": 1.0
+        },
+        "validation/split val_hard": {
+          "benign": 784,
+          "fp": 0,
+          "attack": 45,
+          "tp": 35,
+          "fpr": 0.0,
+          "tpr": 0.7777777777777778,
+          "auc": 0.9825680272108843
+        },
+        "validation/split val_vi_variants": {
+          "benign": 1337,
+          "fp": 4,
+          "attack": 71,
+          "tp": 52,
+          "fpr": 0.0029917726252804786,
+          "tpr": 0.7323943661971831,
+          "auc": 0.9727158764102942
+        },
+        "validation/split val_v3": {
+          "benign": 477,
+          "fp": 0,
+          "attack": 31,
+          "tp": 29,
+          "fpr": 0.0,
+          "tpr": 0.9354838709677419,
+          "auc": 0.999864746060729
+        },
+        "validation/split val_v4": {
+          "benign": 320,
+          "fp": 14,
+          "attack": 13,
+          "tp": 11,
+          "fpr": 0.04375,
+          "tpr": 0.8461538461538461,
+          "auc": 0.9752403846153845
+        },
+        "otpkyc_probe/all": {
+          "benign": 120,
+          "fp": 4,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 0.03333333333333333,
+          "tpr": null,
+          "auc": null
+        },
+        "otpkyc_probe/en": {
+          "benign": 47,
+          "fp": 1,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 0.02127659574468085,
+          "tpr": null,
+          "auc": null
+        },
+        "otpkyc_probe/vi": {
+          "benign": 73,
+          "fp": 3,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 0.0410958904109589,
+          "tpr": null,
+          "auc": null
+        },
+        "holdouts/vi/teencode (all hold-outs)": {
+          "benign": 300,
+          "fp": 3,
+          "attack": 111,
+          "tp": 84,
+          "fpr": 0.01,
+          "tpr": 0.7567567567567568,
+          "auc": 0.949039039039039
+        },
+        "holdouts/vi/no_diacritics (all hold-outs)": {
+          "benign": 303,
+          "fp": 6,
+          "attack": 128,
+          "tp": 104,
+          "fpr": 0.019801980198019802,
+          "tpr": 0.8125,
+          "auc": 0.9675639438943894
+        },
+        "probe_v4/all": {
+          "benign": 4,
+          "fp": 4,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 1.0,
+          "tpr": null,
+          "auc": null
+        },
+        "probe_v4/sentence 0": {
+          "benign": 1,
+          "fp": 1,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 1.0,
+          "tpr": null,
+          "auc": null
+        },
+        "R1 pool: VI benign (user_holdout + val_v4_holdout + probe_v4)": {
+          "benign": 275,
+          "fp": 11,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 0.04,
+          "tpr": null,
+          "auc": null
+        },
+        "probe_v4/sentence 1": {
+          "benign": 1,
+          "fp": 1,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 1.0,
+          "tpr": null,
+          "auc": null
+        },
+        "probe_v4/sentence 2": {
+          "benign": 1,
+          "fp": 1,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 1.0,
+          "tpr": null,
+          "auc": null
+        },
+        "probe_v4/sentence 3": {
+          "benign": 1,
+          "fp": 1,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 1.0,
+          "tpr": null,
+          "auc": null
+        },
+        "user_holdout/all": {
+          "benign": 184,
+          "fp": 3,
+          "attack": 276,
+          "tp": 197,
+          "fpr": 0.016304347826086956,
+          "tpr": 0.7137681159420289,
+          "auc": 0.9420289855072462
+        },
+        "user_holdout/en": {
+          "benign": 44,
+          "fp": 1,
+          "attack": 66,
+          "tp": 62,
+          "fpr": 0.022727272727272728,
+          "tpr": 0.9393939393939394,
+          "auc": 0.9851928374655647
+        },
+        "user_holdout/batch ud1": {
+          "benign": 88,
+          "fp": 1,
+          "attack": 132,
+          "tp": 114,
+          "fpr": 0.011363636363636364,
+          "tpr": 0.8636363636363636,
+          "auc": 0.9826101928374655
+        },
+        "user_holdout/ablate": {
+          "benign": 0,
+          "fp": 0,
+          "attack": 64,
+          "tp": 37,
+          "fpr": null,
+          "tpr": 0.578125,
+          "auc": null
+        },
+        "user_holdout/banking (udbank + ud2bank)": {
+          "benign": 72,
+          "fp": 0,
+          "attack": 108,
+          "tp": 84,
+          "fpr": 0.0,
+          "tpr": 0.7777777777777778,
+          "auc": 0.98559670781893
+        },
+        "user_holdout/vi": {
+          "benign": 140,
+          "fp": 2,
+          "attack": 210,
+          "tp": 135,
+          "fpr": 0.014285714285714285,
+          "tpr": 0.6428571428571429,
+          "auc": 0.9237414965986394
+        },
+        "user_holdout/batch ud2bank": {
+          "benign": 48,
+          "fp": 0,
+          "attack": 72,
+          "tp": 53,
+          "fpr": 0.0,
+          "tpr": 0.7361111111111112,
+          "auc": 0.9777199074074074
+        },
+        "user_holdout/batch ud2teen": {
+          "benign": 48,
+          "fp": 2,
+          "attack": 72,
+          "tp": 30,
+          "fpr": 0.041666666666666664,
+          "tpr": 0.4166666666666667,
+          "auc": 0.7630208333333334
+        },
+        "user_holdout/batch ud2teen/teencode": {
+          "benign": 29,
+          "fp": 0,
+          "attack": 32,
+          "tp": 12,
+          "fpr": 0.0,
+          "tpr": 0.375,
+          "auc": 0.730603448275862
+        },
+        "user_holdout/batch ud2teen/no_diacritics": {
+          "benign": 17,
+          "fp": 2,
+          "attack": 35,
+          "tp": 16,
+          "fpr": 0.11764705882352941,
+          "tpr": 0.45714285714285713,
+          "auc": 0.7831932773109244
+        },
+        "user_holdout/batch ud2teen/leet": {
+          "benign": 2,
+          "fp": 0,
+          "attack": 5,
+          "tp": 2,
+          "fpr": 0.0,
+          "tpr": 0.4,
+          "auc": 0.8
+        },
+        "val_realistic_holdout/all": {
+          "benign": 366,
+          "fp": 7,
+          "attack": 247,
+          "tp": 226,
+          "fpr": 0.01912568306010929,
+          "tpr": 0.9149797570850202,
+          "auc": 0.9877657573947479
+        },
+        "val_realistic_holdout/en": {
+          "benign": 162,
+          "fp": 4,
+          "attack": 120,
+          "tp": 102,
+          "fpr": 0.024691358024691357,
+          "tpr": 0.85,
+          "auc": 0.9784979423868312
+        },
+        "R5 pool: val_v3_holdout + val_realistic_holdout": {
+          "benign": 1539,
+          "fp": 13,
+          "attack": 584,
+          "tp": 547,
+          "fpr": 0.008447043534762833,
+          "tpr": 0.9366438356164384,
+          "auc": 0.9955216872724684
+        },
+        "val_realistic_holdout/vi/orig": {
+          "benign": 169,
+          "fp": 2,
+          "attack": 102,
+          "tp": 101,
+          "fpr": 0.011834319526627219,
+          "tpr": 0.9901960784313726,
+          "auc": 0.9975055110801717
+        },
+        "val_realistic_holdout/vi/no_diacritics": {
+          "benign": 26,
+          "fp": 1,
+          "attack": 21,
+          "tp": 19,
+          "fpr": 0.038461538461538464,
+          "tpr": 0.9047619047619048,
+          "auc": 0.9908424908424909
+        },
+        "val_realistic_holdout/vi/teencode": {
+          "benign": 9,
+          "fp": 0,
+          "attack": 4,
+          "tp": 4,
+          "fpr": 0.0,
+          "tpr": 1.0,
+          "auc": 1.0
+        },
+        "val_v3_holdout/all": {
+          "benign": 1173,
+          "fp": 6,
+          "attack": 337,
+          "tp": 321,
+          "fpr": 0.005115089514066497,
+          "tpr": 0.9525222551928784,
+          "auc": 0.9994662295314204
+        },
+        "val_v3_holdout/en": {
+          "benign": 544,
+          "fp": 2,
+          "attack": 128,
+          "tp": 124,
+          "fpr": 0.003676470588235294,
+          "tpr": 0.96875,
+          "auc": 0.999755859375
+        },
+        "val_v3_holdout/vi/no_diacritics": {
+          "benign": 210,
+          "fp": 2,
+          "attack": 70,
+          "tp": 67,
+          "fpr": 0.009523809523809525,
+          "tpr": 0.9571428571428572,
+          "auc": 0.9992517006802721
+        },
+        "val_v3_holdout/vi/orig": {
+          "benign": 210,
+          "fp": 2,
+          "attack": 70,
+          "tp": 66,
+          "fpr": 0.009523809523809525,
+          "tpr": 0.9428571428571428,
+          "auc": 0.9991836734693877
+        },
+        "val_v3_holdout/vi/teencode": {
+          "benign": 209,
+          "fp": 0,
+          "attack": 69,
+          "tp": 64,
+          "fpr": 0.0,
+          "tpr": 0.927536231884058,
+          "auc": 0.9995145967686013
+        },
+        "val_v4_holdout/all": {
+          "benign": 131,
+          "fp": 5,
+          "attack": 10,
+          "tp": 8,
+          "fpr": 0.03816793893129771,
+          "tpr": 0.8,
+          "auc": 0.934351145038168
+        },
+        "val_v4_holdout/vi/no_diacritics": {
+          "benign": 41,
+          "fp": 1,
+          "attack": 2,
+          "tp": 2,
+          "fpr": 0.024390243902439025,
+          "tpr": 1.0,
+          "auc": 1.0
+        },
+        "val_v4_holdout/vi/orig": {
+          "benign": 41,
+          "fp": 1,
+          "attack": 2,
+          "tp": 2,
+          "fpr": 0.024390243902439025,
+          "tpr": 1.0,
+          "auc": 1.0
+        },
+        "val_v4_holdout/vi/teencode": {
+          "benign": 49,
+          "fp": 3,
+          "attack": 6,
+          "tp": 4,
+          "fpr": 0.061224489795918366,
+          "tpr": 0.6666666666666666,
+          "auc": 0.8775510204081632
+        }
+      }
+    },
+    "A": {
+      "summary": {
+        "val_rows": 8342,
+        "val_oof_auc": 0.9944239459844664,
+        "val_oof_logloss": 0.05483831956358904,
+        "holdout_rows": 2848,
+        "probe_v4_scores": [
+          0.003,
+          0.874,
+          0.0066,
+          0.0213
+        ]
+      },
+      "groups": {
+        "validation/all": {
+          "benign": 6513,
+          "fp": 39,
+          "attack": 1829,
+          "tp": 1684,
+          "fpr": 0.005988023952095809,
+          "tpr": 0.9207217058501913,
+          "auc": 0.9944239459844664
+        },
+        "validation/en": {
+          "benign": 2142,
+          "fp": 10,
+          "attack": 712,
+          "tp": 658,
+          "fpr": 0.004668534080298786,
+          "tpr": 0.9241573033707865,
+          "auc": 0.9947856015065203
+        },
+        "validation/split val": {
+          "benign": 3595,
+          "fp": 10,
+          "attack": 1669,
+          "tp": 1556,
+          "fpr": 0.0027816411682892906,
+          "tpr": 0.9322947872977831,
+          "auc": 0.9972412752883099
+        },
+        "validation/owner+otpkyc rows": {
+          "benign": 56,
+          "fp": 4,
+          "attack": 83,
+          "tp": 63,
+          "fpr": 0.07142857142857142,
+          "tpr": 0.7590361445783133,
+          "auc": 0.9533132530120483
+        },
+        "validation/vi/no_diacritics": {
+          "benign": 1221,
+          "fp": 7,
+          "attack": 307,
+          "tp": 294,
+          "fpr": 0.005733005733005733,
+          "tpr": 0.9576547231270358,
+          "auc": 0.9971535052968278
+        },
+        "validation/vi/teencode": {
+          "benign": 1695,
+          "fp": 16,
+          "attack": 364,
+          "tp": 319,
+          "fpr": 0.00943952802359882,
+          "tpr": 0.8763736263736264,
+          "auc": 0.9883480825958703
+        },
+        "validation/vi/orig": {
+          "benign": 1311,
+          "fp": 6,
+          "attack": 381,
+          "tp": 365,
+          "fpr": 0.004576659038901602,
+          "tpr": 0.958005249343832,
+          "auc": 0.9982382064942111
+        },
+        "validation/vi/leet": {
+          "benign": 137,
+          "fp": 0,
+          "attack": 52,
+          "tp": 35,
+          "fpr": 0.0,
+          "tpr": 0.6730769230769231,
+          "auc": 0.9929814710836609
+        },
+        "validation/vi/partial_diacritics": {
+          "benign": 7,
+          "fp": 0,
+          "attack": 13,
+          "tp": 13,
+          "fpr": 0.0,
+          "tpr": 1.0,
+          "auc": 1.0
+        },
+        "validation/split val_hard": {
+          "benign": 784,
+          "fp": 2,
+          "attack": 45,
+          "tp": 33,
+          "fpr": 0.002551020408163265,
+          "tpr": 0.7333333333333333,
+          "auc": 0.9662698412698412
+        },
+        "validation/split val_vi_variants": {
+          "benign": 1337,
+          "fp": 11,
+          "attack": 71,
+          "tp": 51,
+          "fpr": 0.008227374719521317,
+          "tpr": 0.7183098591549296,
+          "auc": 0.9667112623384284
+        },
+        "validation/split val_v3": {
+          "benign": 477,
+          "fp": 5,
+          "attack": 31,
+          "tp": 31,
+          "fpr": 0.010482180293501049,
+          "tpr": 1.0,
+          "auc": 0.999864746060729
+        },
+        "validation/split val_v4": {
+          "benign": 320,
+          "fp": 11,
+          "attack": 13,
+          "tp": 13,
+          "fpr": 0.034375,
+          "tpr": 1.0,
+          "auc": 0.9942307692307693
+        },
+        "otpkyc_probe/all": {
+          "benign": 120,
+          "fp": 5,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 0.041666666666666664,
+          "tpr": null,
+          "auc": null
+        },
+        "otpkyc_probe/en": {
+          "benign": 47,
+          "fp": 1,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 0.02127659574468085,
+          "tpr": null,
+          "auc": null
+        },
+        "otpkyc_probe/vi": {
+          "benign": 73,
+          "fp": 4,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 0.0547945205479452,
+          "tpr": null,
+          "auc": null
+        },
+        "holdouts/vi/teencode (all hold-outs)": {
+          "benign": 300,
+          "fp": 1,
+          "attack": 111,
+          "tp": 81,
+          "fpr": 0.0033333333333333335,
+          "tpr": 0.7297297297297297,
+          "auc": 0.985075075075075
+        },
+        "holdouts/vi/no_diacritics (all hold-outs)": {
+          "benign": 303,
+          "fp": 5,
+          "attack": 128,
+          "tp": 101,
+          "fpr": 0.0165016501650165,
+          "tpr": 0.7890625,
+          "auc": 0.9838077557755776
+        },
+        "probe_v4/all": {
+          "benign": 4,
+          "fp": 1,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 0.25,
+          "tpr": null,
+          "auc": null
+        },
+        "probe_v4/sentence 0": {
+          "benign": 1,
+          "fp": 0,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 0.0,
+          "tpr": null,
+          "auc": null
+        },
+        "R1 pool: VI benign (user_holdout + val_v4_holdout + probe_v4)": {
+          "benign": 275,
+          "fp": 4,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 0.014545454545454545,
+          "tpr": null,
+          "auc": null
+        },
+        "probe_v4/sentence 1": {
+          "benign": 1,
+          "fp": 1,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 1.0,
+          "tpr": null,
+          "auc": null
+        },
+        "probe_v4/sentence 2": {
+          "benign": 1,
+          "fp": 0,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 0.0,
+          "tpr": null,
+          "auc": null
+        },
+        "probe_v4/sentence 3": {
+          "benign": 1,
+          "fp": 0,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 0.0,
+          "tpr": null,
+          "auc": null
+        },
+        "user_holdout/all": {
+          "benign": 184,
+          "fp": 1,
+          "attack": 276,
+          "tp": 190,
+          "fpr": 0.005434782608695652,
+          "tpr": 0.6884057971014492,
+          "auc": 0.9734758979206048
+        },
+        "user_holdout/en": {
+          "benign": 44,
+          "fp": 0,
+          "attack": 66,
+          "tp": 55,
+          "fpr": 0.0,
+          "tpr": 0.8333333333333334,
+          "auc": 0.9958677685950413
+        },
+        "user_holdout/batch ud1": {
+          "benign": 88,
+          "fp": 0,
+          "attack": 132,
+          "tp": 103,
+          "fpr": 0.0,
+          "tpr": 0.7803030303030303,
+          "auc": 0.9928546831955923
+        },
+        "user_holdout/ablate": {
+          "benign": 0,
+          "fp": 0,
+          "attack": 64,
+          "tp": 38,
+          "fpr": null,
+          "tpr": 0.59375,
+          "auc": null
+        },
+        "user_holdout/banking (udbank + ud2bank)": {
+          "benign": 72,
+          "fp": 0,
+          "attack": 108,
+          "tp": 81,
+          "fpr": 0.0,
+          "tpr": 0.75,
+          "auc": 0.9929269547325104
+        },
+        "user_holdout/vi": {
+          "benign": 140,
+          "fp": 1,
+          "attack": 210,
+          "tp": 135,
+          "fpr": 0.007142857142857143,
+          "tpr": 0.6428571428571429,
+          "auc": 0.9631972789115647
+        },
+        "user_holdout/batch ud2bank": {
+          "benign": 48,
+          "fp": 0,
+          "attack": 72,
+          "tp": 53,
+          "fpr": 0.0,
+          "tpr": 0.7361111111111112,
+          "auc": 0.9901620370370371
+        },
+        "user_holdout/batch ud2teen": {
+          "benign": 48,
+          "fp": 1,
+          "attack": 72,
+          "tp": 34,
+          "fpr": 0.020833333333333332,
+          "tpr": 0.4722222222222222,
+          "auc": 0.8776041666666666
+        },
+        "user_holdout/batch ud2teen/teencode": {
+          "benign": 29,
+          "fp": 0,
+          "attack": 32,
+          "tp": 15,
+          "fpr": 0.0,
+          "tpr": 0.46875,
+          "auc": 0.9127155172413794
+        },
+        "user_holdout/batch ud2teen/no_diacritics": {
+          "benign": 17,
+          "fp": 1,
+          "attack": 35,
+          "tp": 17,
+          "fpr": 0.058823529411764705,
+          "tpr": 0.4857142857142857,
+          "auc": 0.8369747899159664
+        },
+        "user_holdout/batch ud2teen/leet": {
+          "benign": 2,
+          "fp": 0,
+          "attack": 5,
+          "tp": 2,
+          "fpr": 0.0,
+          "tpr": 0.4,
+          "auc": 0.8
+        },
+        "val_realistic_holdout/all": {
+          "benign": 366,
+          "fp": 3,
+          "attack": 247,
+          "tp": 215,
+          "fpr": 0.00819672131147541,
+          "tpr": 0.8704453441295547,
+          "auc": 0.9851330722771621
+        },
+        "val_realistic_holdout/en": {
+          "benign": 162,
+          "fp": 3,
+          "attack": 120,
+          "tp": 100,
+          "fpr": 0.018518518518518517,
+          "tpr": 0.8333333333333334,
+          "auc": 0.9733024691358024
+        },
+        "R5 pool: val_v3_holdout + val_realistic_holdout": {
+          "benign": 1539,
+          "fp": 12,
+          "attack": 584,
+          "tp": 524,
+          "fpr": 0.007797270955165692,
+          "tpr": 0.8972602739726028,
+          "auc": 0.9931695995442691
+        },
+        "val_realistic_holdout/vi/orig": {
+          "benign": 169,
+          "fp": 0,
+          "attack": 102,
+          "tp": 95,
+          "fpr": 0.0,
+          "tpr": 0.9313725490196079,
+          "auc": 0.9990138067061144
+        },
+        "val_realistic_holdout/vi/no_diacritics": {
+          "benign": 26,
+          "fp": 0,
+          "attack": 21,
+          "tp": 17,
+          "fpr": 0.0,
+          "tpr": 0.8095238095238095,
+          "auc": 0.9926739926739927
+        },
+        "val_realistic_holdout/vi/teencode": {
+          "benign": 9,
+          "fp": 0,
+          "attack": 4,
+          "tp": 3,
+          "fpr": 0.0,
+          "tpr": 0.75,
+          "auc": 1.0
+        },
+        "val_v3_holdout/all": {
+          "benign": 1173,
+          "fp": 9,
+          "attack": 337,
+          "tp": 309,
+          "fpr": 0.0076726342710997444,
+          "tpr": 0.9169139465875371,
+          "auc": 0.9976245949289275
+        },
+        "val_v3_holdout/en": {
+          "benign": 544,
+          "fp": 4,
+          "attack": 128,
+          "tp": 117,
+          "fpr": 0.007352941176470588,
+          "tpr": 0.9140625,
+          "auc": 0.9984202665441176
+        },
+        "val_v3_holdout/vi/no_diacritics": {
+          "benign": 210,
+          "fp": 2,
+          "attack": 70,
+          "tp": 65,
+          "fpr": 0.009523809523809525,
+          "tpr": 0.9285714285714286,
+          "auc": 0.997687074829932
+        },
+        "val_v3_holdout/vi/orig": {
+          "benign": 210,
+          "fp": 2,
+          "attack": 70,
+          "tp": 69,
+          "fpr": 0.009523809523809525,
+          "tpr": 0.9857142857142858,
+          "auc": 0.9995918367346939
+        },
+        "val_v3_holdout/vi/teencode": {
+          "benign": 209,
+          "fp": 1,
+          "attack": 69,
+          "tp": 58,
+          "fpr": 0.004784688995215311,
+          "tpr": 0.8405797101449275,
+          "auc": 0.994729907773386
+        },
+        "val_v4_holdout/all": {
+          "benign": 131,
+          "fp": 2,
+          "attack": 10,
+          "tp": 9,
+          "fpr": 0.015267175572519083,
+          "tpr": 0.9,
+          "auc": 0.9977099236641221
+        },
+        "val_v4_holdout/vi/no_diacritics": {
+          "benign": 41,
+          "fp": 2,
+          "attack": 2,
+          "tp": 2,
+          "fpr": 0.04878048780487805,
+          "tpr": 1.0,
+          "auc": 1.0
+        },
+        "val_v4_holdout/vi/orig": {
+          "benign": 41,
+          "fp": 0,
+          "attack": 2,
+          "tp": 2,
+          "fpr": 0.0,
+          "tpr": 1.0,
+          "auc": 1.0
+        },
+        "val_v4_holdout/vi/teencode": {
+          "benign": 49,
+          "fp": 0,
+          "attack": 6,
+          "tp": 5,
+          "fpr": 0.0,
+          "tpr": 0.8333333333333334,
+          "auc": 1.0
+        }
+      }
+    },
+    "B": {
+      "summary": {
+        "val_rows": 8342,
+        "val_oof_auc": 0.9950153526483642,
+        "val_oof_logloss": 0.044815607530251746,
+        "holdout_rows": 2848,
+        "probe_v4_scores": [
+          0.0033,
+          0.0123,
+          0.0069,
+          0.0076
+        ]
+      },
+      "groups": {
+        "validation/all": {
+          "benign": 6513,
+          "fp": 33,
+          "attack": 1829,
+          "tp": 1758,
+          "fpr": 0.005066789497927222,
+          "tpr": 0.9611809732094041,
+          "auc": 0.9950153526483642
+        },
+        "validation/en": {
+          "benign": 2142,
+          "fp": 7,
+          "attack": 712,
+          "tp": 681,
+          "fpr": 0.0032679738562091504,
+          "tpr": 0.9564606741573034,
+          "auc": 0.9950655824127403
+        },
+        "validation/split val": {
+          "benign": 3595,
+          "fp": 14,
+          "attack": 1669,
+          "tp": 1615,
+          "fpr": 0.003894297635605007,
+          "tpr": 0.9676452965847813,
+          "auc": 0.9969484446392576
+        },
+        "validation/owner+otpkyc rows": {
+          "benign": 56,
+          "fp": 6,
+          "attack": 83,
+          "tp": 68,
+          "fpr": 0.10714285714285714,
+          "tpr": 0.8192771084337349,
+          "auc": 0.9483648881239243
+        },
+        "validation/vi/no_diacritics": {
+          "benign": 1221,
+          "fp": 7,
+          "attack": 307,
+          "tp": 303,
+          "fpr": 0.005733005733005733,
+          "tpr": 0.9869706840390879,
+          "auc": 0.99847404407665
+        },
+        "validation/vi/teencode": {
+          "benign": 1695,
+          "fp": 14,
+          "attack": 364,
+          "tp": 345,
+          "fpr": 0.008259587020648967,
+          "tpr": 0.9478021978021978,
+          "auc": 0.9901082693118091
+        },
+        "validation/vi/orig": {
+          "benign": 1311,
+          "fp": 5,
+          "attack": 381,
+          "tp": 373,
+          "fpr": 0.0038138825324180014,
+          "tpr": 0.979002624671916,
+          "auc": 0.9973593117793914
+        },
+        "validation/vi/leet": {
+          "benign": 137,
+          "fp": 0,
+          "attack": 52,
+          "tp": 43,
+          "fpr": 0.0,
+          "tpr": 0.8269230769230769,
+          "auc": 0.9943851768669287
+        },
+        "validation/vi/partial_diacritics": {
+          "benign": 7,
+          "fp": 0,
+          "attack": 13,
+          "tp": 13,
+          "fpr": 0.0,
+          "tpr": 1.0,
+          "auc": 1.0
+        },
+        "validation/split val_hard": {
+          "benign": 784,
+          "fp": 0,
+          "attack": 45,
+          "tp": 36,
+          "fpr": 0.0,
+          "tpr": 0.8,
+          "auc": 0.9894557823129252
+        },
+        "validation/split val_vi_variants": {
+          "benign": 1337,
+          "fp": 12,
+          "attack": 71,
+          "tp": 63,
+          "fpr": 0.008975317875841436,
+          "tpr": 0.8873239436619719,
+          "auc": 0.9648150684209972
+        },
+        "validation/split val_v3": {
+          "benign": 477,
+          "fp": 1,
+          "attack": 31,
+          "tp": 31,
+          "fpr": 0.0020964360587002098,
+          "tpr": 1.0,
+          "auc": 1.0
+        },
+        "validation/split val_v4": {
+          "benign": 320,
+          "fp": 6,
+          "attack": 13,
+          "tp": 13,
+          "fpr": 0.01875,
+          "tpr": 1.0,
+          "auc": 0.9973557692307693
+        },
+        "otpkyc_probe/all": {
+          "benign": 120,
+          "fp": 4,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 0.03333333333333333,
+          "tpr": null,
+          "auc": null
+        },
+        "otpkyc_probe/en": {
+          "benign": 47,
+          "fp": 1,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 0.02127659574468085,
+          "tpr": null,
+          "auc": null
+        },
+        "otpkyc_probe/vi": {
+          "benign": 73,
+          "fp": 3,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 0.0410958904109589,
+          "tpr": null,
+          "auc": null
+        },
+        "holdouts/vi/teencode (all hold-outs)": {
+          "benign": 300,
+          "fp": 6,
+          "attack": 111,
+          "tp": 88,
+          "fpr": 0.02,
+          "tpr": 0.7927927927927928,
+          "auc": 0.9798198198198198
+        },
+        "holdouts/vi/no_diacritics (all hold-outs)": {
+          "benign": 303,
+          "fp": 5,
+          "attack": 128,
+          "tp": 106,
+          "fpr": 0.0165016501650165,
+          "tpr": 0.828125,
+          "auc": 0.9852258663366337
+        },
+        "probe_v4/all": {
+          "benign": 4,
+          "fp": 0,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 0.0,
+          "tpr": null,
+          "auc": null
+        },
+        "probe_v4/sentence 0": {
+          "benign": 1,
+          "fp": 0,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 0.0,
+          "tpr": null,
+          "auc": null
+        },
+        "R1 pool: VI benign (user_holdout + val_v4_holdout + probe_v4)": {
+          "benign": 275,
+          "fp": 6,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 0.02181818181818182,
+          "tpr": null,
+          "auc": null
+        },
+        "probe_v4/sentence 1": {
+          "benign": 1,
+          "fp": 0,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 0.0,
+          "tpr": null,
+          "auc": null
+        },
+        "probe_v4/sentence 2": {
+          "benign": 1,
+          "fp": 0,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 0.0,
+          "tpr": null,
+          "auc": null
+        },
+        "probe_v4/sentence 3": {
+          "benign": 1,
+          "fp": 0,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 0.0,
+          "tpr": null,
+          "auc": null
+        },
+        "user_holdout/all": {
+          "benign": 184,
+          "fp": 6,
+          "attack": 276,
+          "tp": 223,
+          "fpr": 0.03260869565217391,
+          "tpr": 0.8079710144927537,
+          "auc": 0.9733183679899181
+        },
+        "user_holdout/en": {
+          "benign": 44,
+          "fp": 1,
+          "attack": 66,
+          "tp": 61,
+          "fpr": 0.022727272727272728,
+          "tpr": 0.9242424242424242,
+          "auc": 0.9927685950413223
+        },
+        "user_holdout/batch ud1": {
+          "benign": 88,
+          "fp": 1,
+          "attack": 132,
+          "tp": 119,
+          "fpr": 0.011363636363636364,
+          "tpr": 0.9015151515151515,
+          "auc": 0.9934573002754821
+        },
+        "user_holdout/ablate": {
+          "benign": 0,
+          "fp": 0,
+          "attack": 64,
+          "tp": 45,
+          "fpr": null,
+          "tpr": 0.703125,
+          "auc": null
+        },
+        "user_holdout/banking (udbank + ud2bank)": {
+          "benign": 72,
+          "fp": 0,
+          "attack": 108,
+          "tp": 94,
+          "fpr": 0.0,
+          "tpr": 0.8703703703703703,
+          "auc": 0.9962705761316872
+        },
+        "user_holdout/vi": {
+          "benign": 140,
+          "fp": 5,
+          "attack": 210,
+          "tp": 162,
+          "fpr": 0.03571428571428571,
+          "tpr": 0.7714285714285715,
+          "auc": 0.964625850340136
+        },
+        "user_holdout/batch ud2bank": {
+          "benign": 48,
+          "fp": 0,
+          "attack": 72,
+          "tp": 59,
+          "fpr": 0.0,
+          "tpr": 0.8194444444444444,
+          "auc": 0.9927662037037037
+        },
+        "user_holdout/batch ud2teen": {
+          "benign": 48,
+          "fp": 5,
+          "attack": 72,
+          "tp": 45,
+          "fpr": 0.10416666666666667,
+          "tpr": 0.625,
+          "auc": 0.8677662037037037
+        },
+        "user_holdout/batch ud2teen/teencode": {
+          "benign": 29,
+          "fp": 3,
+          "attack": 32,
+          "tp": 20,
+          "fpr": 0.10344827586206896,
+          "tpr": 0.625,
+          "auc": 0.8857758620689655
+        },
+        "user_holdout/batch ud2teen/no_diacritics": {
+          "benign": 17,
+          "fp": 2,
+          "attack": 35,
+          "tp": 22,
+          "fpr": 0.11764705882352941,
+          "tpr": 0.6285714285714286,
+          "auc": 0.8352941176470589
+        },
+        "user_holdout/batch ud2teen/leet": {
+          "benign": 2,
+          "fp": 0,
+          "attack": 5,
+          "tp": 3,
+          "fpr": 0.0,
+          "tpr": 0.6,
+          "auc": 0.9
+        },
+        "val_realistic_holdout/all": {
+          "benign": 366,
+          "fp": 6,
+          "attack": 247,
+          "tp": 209,
+          "fpr": 0.01639344262295082,
+          "tpr": 0.8461538461538461,
+          "auc": 0.986814451007721
+        },
+        "val_realistic_holdout/en": {
+          "benign": 162,
+          "fp": 3,
+          "attack": 120,
+          "tp": 90,
+          "fpr": 0.018518518518518517,
+          "tpr": 0.75,
+          "auc": 0.9771090534979424
+        },
+        "R5 pool: val_v3_holdout + val_realistic_holdout": {
+          "benign": 1539,
+          "fp": 18,
+          "attack": 584,
+          "tp": 521,
+          "fpr": 0.011695906432748537,
+          "tpr": 0.8921232876712328,
+          "auc": 0.9932886503422431
+        },
+        "val_realistic_holdout/vi/orig": {
+          "benign": 169,
+          "fp": 3,
+          "attack": 102,
+          "tp": 98,
+          "fpr": 0.01775147928994083,
+          "tpr": 0.9607843137254902,
+          "auc": 0.9961712495649148
+        },
+        "val_realistic_holdout/vi/no_diacritics": {
+          "benign": 26,
+          "fp": 0,
+          "attack": 21,
+          "tp": 17,
+          "fpr": 0.0,
+          "tpr": 0.8095238095238095,
+          "auc": 0.9981684981684982
+        },
+        "val_realistic_holdout/vi/teencode": {
+          "benign": 9,
+          "fp": 0,
+          "attack": 4,
+          "tp": 4,
+          "fpr": 0.0,
+          "tpr": 1.0,
+          "auc": 1.0
+        },
+        "val_v3_holdout/all": {
+          "benign": 1173,
+          "fp": 12,
+          "attack": 337,
+          "tp": 312,
+          "fpr": 0.010230179028132993,
+          "tpr": 0.9258160237388724,
+          "auc": 0.9973134396320777
+        },
+        "val_v3_holdout/en": {
+          "benign": 544,
+          "fp": 6,
+          "attack": 128,
+          "tp": 122,
+          "fpr": 0.011029411764705883,
+          "tpr": 0.953125,
+          "auc": 0.9984633501838236
+        },
+        "val_v3_holdout/vi/no_diacritics": {
+          "benign": 210,
+          "fp": 3,
+          "attack": 70,
+          "tp": 65,
+          "fpr": 0.014285714285714285,
+          "tpr": 0.9285714285714286,
+          "auc": 0.996734693877551
+        },
+        "val_v3_holdout/vi/orig": {
+          "benign": 210,
+          "fp": 1,
+          "attack": 70,
+          "tp": 67,
+          "fpr": 0.004761904761904762,
+          "tpr": 0.9571428571428572,
+          "auc": 0.9989795918367347
+        },
+        "val_v3_holdout/vi/teencode": {
+          "benign": 209,
+          "fp": 2,
+          "attack": 69,
+          "tp": 58,
+          "fpr": 0.009569377990430622,
+          "tpr": 0.8405797101449275,
+          "auc": 0.9938977879481312
+        },
+        "val_v4_holdout/all": {
+          "benign": 131,
+          "fp": 1,
+          "attack": 10,
+          "tp": 10,
+          "fpr": 0.007633587786259542,
+          "tpr": 1.0,
+          "auc": 1.0
+        },
+        "val_v4_holdout/vi/no_diacritics": {
+          "benign": 41,
+          "fp": 0,
+          "attack": 2,
+          "tp": 2,
+          "fpr": 0.0,
+          "tpr": 1.0,
+          "auc": 1.0
+        },
+        "val_v4_holdout/vi/orig": {
+          "benign": 41,
+          "fp": 0,
+          "attack": 2,
+          "tp": 2,
+          "fpr": 0.0,
+          "tpr": 1.0,
+          "auc": 1.0
+        },
+        "val_v4_holdout/vi/teencode": {
+          "benign": 49,
+          "fp": 1,
+          "attack": 6,
+          "tp": 6,
+          "fpr": 0.02040816326530612,
+          "tpr": 1.0,
+          "auc": 1.0
+        }
+      }
+    },
+    "C": {
+      "summary": {
+        "val_rows": 8342,
+        "val_oof_auc": 0.9936032800446127,
+        "val_oof_logloss": 0.051368538156435384,
+        "holdout_rows": 2848,
+        "probe_v4_scores": [
+          0.0197,
+          0.0133,
+          0.0085,
+          0.0098
+        ]
+      },
+      "groups": {
+        "validation/all": {
+          "benign": 6513,
+          "fp": 29,
+          "attack": 1829,
+          "tp": 1738,
+          "fpr": 0.004452633195148165,
+          "tpr": 0.9502460360852925,
+          "auc": 0.9936032800446127
+        },
+        "validation/en": {
+          "benign": 2142,
+          "fp": 8,
+          "attack": 712,
+          "tp": 677,
+          "fpr": 0.003734827264239029,
+          "tpr": 0.9508426966292135,
+          "auc": 0.9940610607538896
+        },
+        "validation/split val": {
+          "benign": 3595,
+          "fp": 12,
+          "attack": 1669,
+          "tp": 1611,
+          "fpr": 0.003337969401947149,
+          "tpr": 0.9652486518873576,
+          "auc": 0.996085952545435
+        },
+        "validation/owner+otpkyc rows": {
+          "benign": 56,
+          "fp": 4,
+          "attack": 83,
+          "tp": 65,
+          "fpr": 0.07142857142857142,
+          "tpr": 0.7831325301204819,
+          "auc": 0.9341652323580034
+        },
+        "validation/vi/no_diacritics": {
+          "benign": 1221,
+          "fp": 8,
+          "attack": 307,
+          "tp": 298,
+          "fpr": 0.006552006552006552,
+          "tpr": 0.9706840390879479,
+          "auc": 0.9965452571315763
+        },
+        "validation/vi/teencode": {
+          "benign": 1695,
+          "fp": 11,
+          "attack": 364,
+          "tp": 338,
+          "fpr": 0.006489675516224189,
+          "tpr": 0.9285714285714286,
+          "auc": 0.98863010146196
+        },
+        "validation/vi/orig": {
+          "benign": 1311,
+          "fp": 2,
+          "attack": 381,
+          "tp": 368,
+          "fpr": 0.0015255530129672007,
+          "tpr": 0.9658792650918635,
+          "auc": 0.9959478749366856
+        },
+        "validation/vi/leet": {
+          "benign": 137,
+          "fp": 0,
+          "attack": 52,
+          "tp": 44,
+          "fpr": 0.0,
+          "tpr": 0.8461538461538461,
+          "auc": 0.9882088714205502
+        },
+        "validation/vi/partial_diacritics": {
+          "benign": 7,
+          "fp": 0,
+          "attack": 13,
+          "tp": 13,
+          "fpr": 0.0,
+          "tpr": 1.0,
+          "auc": 1.0
+        },
+        "validation/split val_hard": {
+          "benign": 784,
+          "fp": 1,
+          "attack": 45,
+          "tp": 36,
+          "fpr": 0.0012755102040816326,
+          "tpr": 0.8,
+          "auc": 0.9768990929705216
+        },
+        "validation/split val_vi_variants": {
+          "benign": 1337,
+          "fp": 11,
+          "attack": 71,
+          "tp": 48,
+          "fpr": 0.008227374719521317,
+          "tpr": 0.676056338028169,
+          "auc": 0.9581678552993353
+        },
+        "validation/split val_v3": {
+          "benign": 477,
+          "fp": 0,
+          "attack": 31,
+          "tp": 30,
+          "fpr": 0.0,
+          "tpr": 0.967741935483871,
+          "auc": 1.0
+        },
+        "validation/split val_v4": {
+          "benign": 320,
+          "fp": 5,
+          "attack": 13,
+          "tp": 13,
+          "fpr": 0.015625,
+          "tpr": 1.0,
+          "auc": 0.998798076923077
+        },
+        "otpkyc_probe/all": {
+          "benign": 120,
+          "fp": 6,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 0.05,
+          "tpr": null,
+          "auc": null
+        },
+        "otpkyc_probe/en": {
+          "benign": 47,
+          "fp": 1,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 0.02127659574468085,
+          "tpr": null,
+          "auc": null
+        },
+        "otpkyc_probe/vi": {
+          "benign": 73,
+          "fp": 5,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 0.0684931506849315,
+          "tpr": null,
+          "auc": null
+        },
+        "holdouts/vi/teencode (all hold-outs)": {
+          "benign": 300,
+          "fp": 1,
+          "attack": 111,
+          "tp": 87,
+          "fpr": 0.0033333333333333335,
+          "tpr": 0.7837837837837838,
+          "auc": 0.9706306306306306
+        },
+        "holdouts/vi/no_diacritics (all hold-outs)": {
+          "benign": 303,
+          "fp": 3,
+          "attack": 128,
+          "tp": 105,
+          "fpr": 0.009900990099009901,
+          "tpr": 0.8203125,
+          "auc": 0.9775938531353136
+        },
+        "probe_v4/all": {
+          "benign": 4,
+          "fp": 0,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 0.0,
+          "tpr": null,
+          "auc": null
+        },
+        "probe_v4/sentence 0": {
+          "benign": 1,
+          "fp": 0,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 0.0,
+          "tpr": null,
+          "auc": null
+        },
+        "R1 pool: VI benign (user_holdout + val_v4_holdout + probe_v4)": {
+          "benign": 275,
+          "fp": 3,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 0.01090909090909091,
+          "tpr": null,
+          "auc": null
+        },
+        "probe_v4/sentence 1": {
+          "benign": 1,
+          "fp": 0,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 0.0,
+          "tpr": null,
+          "auc": null
+        },
+        "probe_v4/sentence 2": {
+          "benign": 1,
+          "fp": 0,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 0.0,
+          "tpr": null,
+          "auc": null
+        },
+        "probe_v4/sentence 3": {
+          "benign": 1,
+          "fp": 0,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 0.0,
+          "tpr": null,
+          "auc": null
+        },
+        "user_holdout/all": {
+          "benign": 184,
+          "fp": 3,
+          "attack": 276,
+          "tp": 205,
+          "fpr": 0.016304347826086956,
+          "tpr": 0.7427536231884058,
+          "auc": 0.9597511027095149
+        },
+        "user_holdout/en": {
+          "benign": 44,
+          "fp": 0,
+          "attack": 66,
+          "tp": 58,
+          "fpr": 0.0,
+          "tpr": 0.8787878787878788,
+          "auc": 0.9941460055096419
+        },
+        "user_holdout/batch ud1": {
+          "benign": 88,
+          "fp": 0,
+          "attack": 132,
+          "tp": 111,
+          "fpr": 0.0,
+          "tpr": 0.8409090909090909,
+          "auc": 0.9918216253443526
+        },
+        "user_holdout/ablate": {
+          "benign": 0,
+          "fp": 0,
+          "attack": 64,
+          "tp": 35,
+          "fpr": null,
+          "tpr": 0.546875,
+          "auc": null
+        },
+        "user_holdout/banking (udbank + ud2bank)": {
+          "benign": 72,
+          "fp": 0,
+          "attack": 108,
+          "tp": 80,
+          "fpr": 0.0,
+          "tpr": 0.7407407407407407,
+          "auc": 0.9830246913580247
+        },
+        "user_holdout/vi": {
+          "benign": 140,
+          "fp": 3,
+          "attack": 210,
+          "tp": 147,
+          "fpr": 0.02142857142857143,
+          "tpr": 0.7,
+          "auc": 0.9444557823129253
+        },
+        "user_holdout/batch ud2bank": {
+          "benign": 48,
+          "fp": 0,
+          "attack": 72,
+          "tp": 51,
+          "fpr": 0.0,
+          "tpr": 0.7083333333333334,
+          "auc": 0.9716435185185186
+        },
+        "user_holdout/batch ud2teen": {
+          "benign": 48,
+          "fp": 3,
+          "attack": 72,
+          "tp": 43,
+          "fpr": 0.0625,
+          "tpr": 0.5972222222222222,
+          "auc": 0.8550347222222222
+        },
+        "user_holdout/batch ud2teen/teencode": {
+          "benign": 29,
+          "fp": 1,
+          "attack": 32,
+          "tp": 18,
+          "fpr": 0.034482758620689655,
+          "tpr": 0.5625,
+          "auc": 0.8523706896551724
+        },
+        "user_holdout/batch ud2teen/no_diacritics": {
+          "benign": 17,
+          "fp": 1,
+          "attack": 35,
+          "tp": 22,
+          "fpr": 0.058823529411764705,
+          "tpr": 0.6285714285714286,
+          "auc": 0.865546218487395
+        },
+        "user_holdout/batch ud2teen/leet": {
+          "benign": 2,
+          "fp": 1,
+          "attack": 5,
+          "tp": 3,
+          "fpr": 0.5,
+          "tpr": 0.6,
+          "auc": 0.7
+        },
+        "val_realistic_holdout/all": {
+          "benign": 366,
+          "fp": 5,
+          "attack": 247,
+          "tp": 217,
+          "fpr": 0.01366120218579235,
+          "tpr": 0.8785425101214575,
+          "auc": 0.9820911041791109
+        },
+        "val_realistic_holdout/en": {
+          "benign": 162,
+          "fp": 4,
+          "attack": 120,
+          "tp": 99,
+          "fpr": 0.024691358024691357,
+          "tpr": 0.825,
+          "auc": 0.9644032921810699
+        },
+        "R5 pool: val_v3_holdout + val_realistic_holdout": {
+          "benign": 1539,
+          "fp": 14,
+          "attack": 584,
+          "tp": 528,
+          "fpr": 0.009096816114359974,
+          "tpr": 0.9041095890410958,
+          "auc": 0.9917810444426642
+        },
+        "val_realistic_holdout/vi/orig": {
+          "benign": 169,
+          "fp": 1,
+          "attack": 102,
+          "tp": 96,
+          "fpr": 0.005917159763313609,
+          "tpr": 0.9411764705882353,
+          "auc": 0.9991878408168001
+        },
+        "val_realistic_holdout/vi/no_diacritics": {
+          "benign": 26,
+          "fp": 0,
+          "attack": 21,
+          "tp": 18,
+          "fpr": 0.0,
+          "tpr": 0.8571428571428571,
+          "auc": 0.9926739926739927
+        },
+        "val_realistic_holdout/vi/teencode": {
+          "benign": 9,
+          "fp": 0,
+          "attack": 4,
+          "tp": 4,
+          "fpr": 0.0,
+          "tpr": 1.0,
+          "auc": 1.0
+        },
+        "val_v3_holdout/all": {
+          "benign": 1173,
+          "fp": 9,
+          "attack": 337,
+          "tp": 311,
+          "fpr": 0.0076726342710997444,
+          "tpr": 0.9228486646884273,
+          "auc": 0.9973033207606357
+        },
+        "val_v3_holdout/en": {
+          "benign": 544,
+          "fp": 5,
+          "attack": 128,
+          "tp": 121,
+          "fpr": 0.009191176470588236,
+          "tpr": 0.9453125,
+          "auc": 0.9981043198529412
+        },
+        "val_v3_holdout/vi/no_diacritics": {
+          "benign": 210,
+          "fp": 2,
+          "attack": 70,
+          "tp": 63,
+          "fpr": 0.009523809523809525,
+          "tpr": 0.9,
+          "auc": 0.9982312925170068
+        },
+        "val_v3_holdout/vi/orig": {
+          "benign": 210,
+          "fp": 2,
+          "attack": 70,
+          "tp": 68,
+          "fpr": 0.009523809523809525,
+          "tpr": 0.9714285714285714,
+          "auc": 0.999251700680272
+        },
+        "val_v3_holdout/vi/teencode": {
+          "benign": 209,
+          "fp": 0,
+          "attack": 69,
+          "tp": 59,
+          "fpr": 0.0,
+          "tpr": 0.855072463768116,
+          "auc": 0.9942445045419874
+        },
+        "val_v4_holdout/all": {
+          "benign": 131,
+          "fp": 0,
+          "attack": 10,
+          "tp": 10,
+          "fpr": 0.0,
+          "tpr": 1.0,
+          "auc": 1.0
+        },
+        "val_v4_holdout/vi/no_diacritics": {
+          "benign": 41,
+          "fp": 0,
+          "attack": 2,
+          "tp": 2,
+          "fpr": 0.0,
+          "tpr": 1.0,
+          "auc": 1.0
+        },
+        "val_v4_holdout/vi/orig": {
+          "benign": 41,
+          "fp": 0,
+          "attack": 2,
+          "tp": 2,
+          "fpr": 0.0,
+          "tpr": 1.0,
+          "auc": 1.0
+        },
+        "val_v4_holdout/vi/teencode": {
+          "benign": 49,
+          "fp": 0,
+          "attack": 6,
+          "tp": 6,
+          "fpr": 0.0,
+          "tpr": 1.0,
+          "auc": 1.0
+        }
+      }
+    },
+    "D": {
+      "summary": {
+        "val_rows": 8342,
+        "val_oof_auc": 0.9953883292002024,
+        "val_oof_logloss": 0.04422030884327464,
+        "holdout_rows": 2848,
+        "probe_v4_scores": [
+          0.0047,
+          0.773,
+          0.0059,
+          0.5808
+        ]
+      },
+      "groups": {
+        "validation/all": {
+          "benign": 6513,
+          "fp": 31,
+          "attack": 1829,
+          "tp": 1758,
+          "fpr": 0.004759711346537694,
+          "tpr": 0.9611809732094041,
+          "auc": 0.9953883292002024
+        },
+        "validation/en": {
+          "benign": 2142,
+          "fp": 8,
+          "attack": 712,
+          "tp": 683,
+          "fpr": 0.003734827264239029,
+          "tpr": 0.9592696629213483,
+          "auc": 0.9947501940851247
+        },
+        "validation/split val": {
+          "benign": 3595,
+          "fp": 14,
+          "attack": 1669,
+          "tp": 1615,
+          "fpr": 0.003894297635605007,
+          "tpr": 0.9676452965847813,
+          "auc": 0.9964612824382443
+        },
+        "validation/owner+otpkyc rows": {
+          "benign": 56,
+          "fp": 5,
+          "attack": 83,
+          "tp": 67,
+          "fpr": 0.08928571428571429,
+          "tpr": 0.8072289156626506,
+          "auc": 0.9361015490533562
+        },
+        "validation/vi/no_diacritics": {
+          "benign": 1221,
+          "fp": 4,
+          "attack": 307,
+          "tp": 303,
+          "fpr": 0.003276003276003276,
+          "tpr": 0.9869706840390879,
+          "auc": 0.9985567444850832
+        },
+        "validation/vi/teencode": {
+          "benign": 1695,
+          "fp": 15,
+          "attack": 364,
+          "tp": 344,
+          "fpr": 0.008849557522123894,
+          "tpr": 0.945054945054945,
+          "auc": 0.9936075723686343
+        },
+        "validation/vi/orig": {
+          "benign": 1311,
+          "fp": 4,
+          "attack": 381,
+          "tp": 373,
+          "fpr": 0.0030511060259344014,
+          "tpr": 0.979002624671916,
+          "auc": 0.9966425821486273
+        },
+        "validation/vi/leet": {
+          "benign": 137,
+          "fp": 0,
+          "attack": 52,
+          "tp": 42,
+          "fpr": 0.0,
+          "tpr": 0.8076923076923077,
+          "auc": 0.9918585064570465
+        },
+        "validation/vi/partial_diacritics": {
+          "benign": 7,
+          "fp": 0,
+          "attack": 13,
+          "tp": 13,
+          "fpr": 0.0,
+          "tpr": 1.0,
+          "auc": 1.0
+        },
+        "validation/split val_hard": {
+          "benign": 784,
+          "fp": 1,
+          "attack": 45,
+          "tp": 38,
+          "fpr": 0.0012755102040816326,
+          "tpr": 0.8444444444444444,
+          "auc": 0.992687074829932
+        },
+        "validation/split val_vi_variants": {
+          "benign": 1337,
+          "fp": 13,
+          "attack": 71,
+          "tp": 61,
+          "fpr": 0.009723261032161555,
+          "tpr": 0.8591549295774648,
+          "auc": 0.9831133397242091
+        },
+        "validation/split val_v3": {
+          "benign": 477,
+          "fp": 0,
+          "attack": 31,
+          "tp": 31,
+          "fpr": 0.0,
+          "tpr": 1.0,
+          "auc": 1.0
+        },
+        "validation/split val_v4": {
+          "benign": 320,
+          "fp": 3,
+          "attack": 13,
+          "tp": 13,
+          "fpr": 0.009375,
+          "tpr": 1.0,
+          "auc": 0.9983173076923078
+        },
+        "otpkyc_probe/all": {
+          "benign": 120,
+          "fp": 4,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 0.03333333333333333,
+          "tpr": null,
+          "auc": null
+        },
+        "otpkyc_probe/en": {
+          "benign": 47,
+          "fp": 1,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 0.02127659574468085,
+          "tpr": null,
+          "auc": null
+        },
+        "otpkyc_probe/vi": {
+          "benign": 73,
+          "fp": 3,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 0.0410958904109589,
+          "tpr": null,
+          "auc": null
+        },
+        "holdouts/vi/teencode (all hold-outs)": {
+          "benign": 300,
+          "fp": 3,
+          "attack": 111,
+          "tp": 85,
+          "fpr": 0.01,
+          "tpr": 0.7657657657657657,
+          "auc": 0.966906906906907
+        },
+        "holdouts/vi/no_diacritics (all hold-outs)": {
+          "benign": 303,
+          "fp": 3,
+          "attack": 128,
+          "tp": 104,
+          "fpr": 0.009900990099009901,
+          "tpr": 0.8125,
+          "auc": 0.9796307755775577
+        },
+        "probe_v4/all": {
+          "benign": 4,
+          "fp": 0,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 0.0,
+          "tpr": null,
+          "auc": null
+        },
+        "probe_v4/sentence 0": {
+          "benign": 1,
+          "fp": 0,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 0.0,
+          "tpr": null,
+          "auc": null
+        },
+        "R1 pool: VI benign (user_holdout + val_v4_holdout + probe_v4)": {
+          "benign": 275,
+          "fp": 7,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 0.025454545454545455,
+          "tpr": null,
+          "auc": null
+        },
+        "probe_v4/sentence 1": {
+          "benign": 1,
+          "fp": 0,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 0.0,
+          "tpr": null,
+          "auc": null
+        },
+        "probe_v4/sentence 2": {
+          "benign": 1,
+          "fp": 0,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 0.0,
+          "tpr": null,
+          "auc": null
+        },
+        "probe_v4/sentence 3": {
+          "benign": 1,
+          "fp": 0,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 0.0,
+          "tpr": null,
+          "auc": null
+        },
+        "user_holdout/all": {
+          "benign": 184,
+          "fp": 4,
+          "attack": 276,
+          "tp": 210,
+          "fpr": 0.021739130434782608,
+          "tpr": 0.7608695652173914,
+          "auc": 0.9703252993068683
+        },
+        "user_holdout/en": {
+          "benign": 44,
+          "fp": 0,
+          "attack": 66,
+          "tp": 56,
+          "fpr": 0.0,
+          "tpr": 0.8484848484848485,
+          "auc": 0.9958677685950413
+        },
+        "user_holdout/batch ud1": {
+          "benign": 88,
+          "fp": 0,
+          "attack": 132,
+          "tp": 115,
+          "fpr": 0.0,
+          "tpr": 0.8712121212121212,
+          "auc": 0.9953512396694214
+        },
+        "user_holdout/ablate": {
+          "benign": 0,
+          "fp": 0,
+          "attack": 64,
+          "tp": 35,
+          "fpr": null,
+          "tpr": 0.546875,
+          "auc": null
+        },
+        "user_holdout/banking (udbank + ud2bank)": {
+          "benign": 72,
+          "fp": 1,
+          "attack": 108,
+          "tp": 88,
+          "fpr": 0.013888888888888888,
+          "tpr": 0.8148148148148148,
+          "auc": 0.991383744855967
+        },
+        "user_holdout/vi": {
+          "benign": 140,
+          "fp": 4,
+          "attack": 210,
+          "tp": 154,
+          "fpr": 0.02857142857142857,
+          "tpr": 0.7333333333333333,
+          "auc": 0.9588095238095239
+        },
+        "user_holdout/batch ud2bank": {
+          "benign": 48,
+          "fp": 1,
+          "attack": 72,
+          "tp": 57,
+          "fpr": 0.020833333333333332,
+          "tpr": 0.7916666666666666,
+          "auc": 0.9861111111111112
+        },
+        "user_holdout/batch ud2teen": {
+          "benign": 48,
+          "fp": 3,
+          "attack": 72,
+          "tp": 38,
+          "fpr": 0.0625,
+          "tpr": 0.5277777777777778,
+          "auc": 0.8787615740740741
+        },
+        "user_holdout/batch ud2teen/teencode": {
+          "benign": 29,
+          "fp": 1,
+          "attack": 32,
+          "tp": 15,
+          "fpr": 0.034482758620689655,
+          "tpr": 0.46875,
+          "auc": 0.8696120689655172
+        },
+        "user_holdout/batch ud2teen/no_diacritics": {
+          "benign": 17,
+          "fp": 1,
+          "attack": 35,
+          "tp": 21,
+          "fpr": 0.058823529411764705,
+          "tpr": 0.6,
+          "auc": 0.8756302521008403
+        },
+        "user_holdout/batch ud2teen/leet": {
+          "benign": 2,
+          "fp": 1,
+          "attack": 5,
+          "tp": 2,
+          "fpr": 0.5,
+          "tpr": 0.4,
+          "auc": 0.7
+        },
+        "val_realistic_holdout/all": {
+          "benign": 366,
+          "fp": 6,
+          "attack": 247,
+          "tp": 215,
+          "fpr": 0.01639344262295082,
+          "tpr": 0.8704453441295547,
+          "auc": 0.9858686754717816
+        },
+        "val_realistic_holdout/en": {
+          "benign": 162,
+          "fp": 3,
+          "attack": 120,
+          "tp": 94,
+          "fpr": 0.018518518518518517,
+          "tpr": 0.7833333333333333,
+          "auc": 0.974022633744856
+        },
+        "R5 pool: val_v3_holdout + val_realistic_holdout": {
+          "benign": 1539,
+          "fp": 16,
+          "attack": 584,
+          "tp": 532,
+          "fpr": 0.010396361273554255,
+          "tpr": 0.910958904109589,
+          "auc": 0.9932168860761746
+        },
+        "val_realistic_holdout/vi/orig": {
+          "benign": 169,
+          "fp": 3,
+          "attack": 102,
+          "tp": 97,
+          "fpr": 0.01775147928994083,
+          "tpr": 0.9509803921568627,
+          "auc": 0.996403295045829
+        },
+        "val_realistic_holdout/vi/no_diacritics": {
+          "benign": 26,
+          "fp": 0,
+          "attack": 21,
+          "tp": 20,
+          "fpr": 0.0,
+          "tpr": 0.9523809523809523,
+          "auc": 0.9981684981684982
+        },
+        "val_realistic_holdout/vi/teencode": {
+          "benign": 9,
+          "fp": 0,
+          "attack": 4,
+          "tp": 4,
+          "fpr": 0.0,
+          "tpr": 1.0,
+          "auc": 1.0
+        },
+        "val_v3_holdout/all": {
+          "benign": 1173,
+          "fp": 10,
+          "attack": 337,
+          "tp": 317,
+          "fpr": 0.008525149190110827,
+          "tpr": 0.9406528189910979,
+          "auc": 0.9974753415751542
+        },
+        "val_v3_holdout/en": {
+          "benign": 544,
+          "fp": 6,
+          "attack": 128,
+          "tp": 128,
+          "fpr": 0.011029411764705883,
+          "tpr": 1.0,
+          "auc": 0.9986931295955883
+        },
+        "val_v3_holdout/vi/no_diacritics": {
+          "benign": 210,
+          "fp": 2,
+          "attack": 70,
+          "tp": 61,
+          "fpr": 0.009523809523809525,
+          "tpr": 0.8714285714285714,
+          "auc": 0.9956462585034013
+        },
+        "val_v3_holdout/vi/orig": {
+          "benign": 210,
+          "fp": 2,
+          "attack": 70,
+          "tp": 68,
+          "fpr": 0.009523809523809525,
+          "tpr": 0.9714285714285714,
+          "auc": 0.9992517006802721
+        },
+        "val_v3_holdout/vi/teencode": {
+          "benign": 209,
+          "fp": 0,
+          "attack": 69,
+          "tp": 60,
+          "fpr": 0.0,
+          "tpr": 0.8695652173913043,
+          "auc": 0.9957007142361833
+        },
+        "val_v4_holdout/all": {
+          "benign": 131,
+          "fp": 3,
+          "attack": 10,
+          "tp": 10,
+          "fpr": 0.022900763358778626,
+          "tpr": 1.0,
+          "auc": 1.0
+        },
+        "val_v4_holdout/vi/no_diacritics": {
+          "benign": 41,
+          "fp": 0,
+          "attack": 2,
+          "tp": 2,
+          "fpr": 0.0,
+          "tpr": 1.0,
+          "auc": 1.0
+        },
+        "val_v4_holdout/vi/orig": {
+          "benign": 41,
+          "fp": 1,
+          "attack": 2,
+          "tp": 2,
+          "fpr": 0.024390243902439025,
+          "tpr": 1.0,
+          "auc": 1.0
+        },
+        "val_v4_holdout/vi/teencode": {
+          "benign": 49,
+          "fp": 2,
+          "attack": 6,
+          "tp": 6,
+          "fpr": 0.04081632653061224,
+          "tpr": 1.0,
+          "auc": 1.0
+        }
+      }
+    },
+    "S": {
+      "summary": {
+        "val_rows": 8342,
+        "val_oof_auc": 0.994749156689355,
+        "val_oof_logloss": 0.04943006719943449,
+        "holdout_rows": 2848,
+        "probe_v4_scores": [
+          0.0127,
+          0.0906,
+          0.0278,
+          0.203
+        ]
+      },
+      "groups": {
+        "validation/all": {
+          "benign": 6513,
+          "fp": 21,
+          "attack": 1829,
+          "tp": 1725,
+          "fpr": 0.0032243205895900505,
+          "tpr": 0.94313832695462,
+          "auc": 0.994749156689355
+        },
+        "validation/en": {
+          "benign": 2142,
+          "fp": 3,
+          "attack": 712,
+          "tp": 669,
+          "fpr": 0.0014005602240896359,
+          "tpr": 0.9396067415730337,
+          "auc": 0.9944793928807478
+        },
+        "validation/split val": {
+          "benign": 3595,
+          "fp": 9,
+          "attack": 1669,
+          "tp": 1587,
+          "fpr": 0.0025034770514603616,
+          "tpr": 0.950868783702816,
+          "auc": 0.9964852822182464
+        },
+        "validation/owner+otpkyc rows": {
+          "benign": 56,
+          "fp": 6,
+          "attack": 83,
+          "tp": 57,
+          "fpr": 0.10714285714285714,
+          "tpr": 0.6867469879518072,
+          "auc": 0.9257745266781411
+        },
+        "validation/vi/no_diacritics": {
+          "benign": 1221,
+          "fp": 3,
+          "attack": 307,
+          "tp": 298,
+          "fpr": 0.002457002457002457,
+          "tpr": 0.9706840390879479,
+          "auc": 0.9978044375438513
+        },
+        "validation/vi/teencode": {
+          "benign": 1695,
+          "fp": 9,
+          "attack": 364,
+          "tp": 337,
+          "fpr": 0.005309734513274336,
+          "tpr": 0.9258241758241759,
+          "auc": 0.9907176893902557
+        },
+        "validation/vi/orig": {
+          "benign": 1311,
+          "fp": 5,
+          "attack": 381,
+          "tp": 362,
+          "fpr": 0.0038138825324180014,
+          "tpr": 0.9501312335958005,
+          "auc": 0.996886830793748
+        },
+        "validation/vi/leet": {
+          "benign": 137,
+          "fp": 1,
+          "attack": 52,
+          "tp": 46,
+          "fpr": 0.0072992700729927005,
+          "tpr": 0.8846153846153846,
+          "auc": 0.9932622122403145
+        },
+        "validation/vi/partial_diacritics": {
+          "benign": 7,
+          "fp": 0,
+          "attack": 13,
+          "tp": 13,
+          "fpr": 0.0,
+          "tpr": 1.0,
+          "auc": 1.0
+        },
+        "validation/split val_hard": {
+          "benign": 784,
+          "fp": 0,
+          "attack": 45,
+          "tp": 38,
+          "fpr": 0.0,
+          "tpr": 0.8444444444444444,
+          "auc": 0.9816609977324263
+        },
+        "validation/split val_vi_variants": {
+          "benign": 1337,
+          "fp": 6,
+          "attack": 71,
+          "tp": 57,
+          "fpr": 0.004487658937920718,
+          "tpr": 0.8028169014084507,
+          "auc": 0.9652259104364407
+        },
+        "validation/split val_v3": {
+          "benign": 477,
+          "fp": 0,
+          "attack": 31,
+          "tp": 30,
+          "fpr": 0.0,
+          "tpr": 0.967741935483871,
+          "auc": 1.0
+        },
+        "validation/split val_v4": {
+          "benign": 320,
+          "fp": 6,
+          "attack": 13,
+          "tp": 13,
+          "fpr": 0.01875,
+          "tpr": 1.0,
+          "auc": 0.9975961538461539
+        },
+        "otpkyc_probe/all": {
+          "benign": 120,
+          "fp": 4,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 0.03333333333333333,
+          "tpr": null,
+          "auc": null
+        },
+        "otpkyc_probe/en": {
+          "benign": 47,
+          "fp": 1,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 0.02127659574468085,
+          "tpr": null,
+          "auc": null
+        },
+        "otpkyc_probe/vi": {
+          "benign": 73,
+          "fp": 3,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 0.0410958904109589,
+          "tpr": null,
+          "auc": null
+        },
+        "holdouts/vi/teencode (all hold-outs)": {
+          "benign": 300,
+          "fp": 5,
+          "attack": 111,
+          "tp": 79,
+          "fpr": 0.016666666666666666,
+          "tpr": 0.7117117117117117,
+          "auc": 0.9706306306306306
+        },
+        "holdouts/vi/no_diacritics (all hold-outs)": {
+          "benign": 303,
+          "fp": 3,
+          "attack": 128,
+          "tp": 103,
+          "fpr": 0.009900990099009901,
+          "tpr": 0.8046875,
+          "auc": 0.9806105610561056
+        },
+        "probe_v4/all": {
+          "benign": 4,
+          "fp": 0,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 0.0,
+          "tpr": null,
+          "auc": null
+        },
+        "probe_v4/sentence 0": {
+          "benign": 1,
+          "fp": 0,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 0.0,
+          "tpr": null,
+          "auc": null
+        },
+        "R1 pool: VI benign (user_holdout + val_v4_holdout + probe_v4)": {
+          "benign": 275,
+          "fp": 5,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 0.01818181818181818,
+          "tpr": null,
+          "auc": null
+        },
+        "probe_v4/sentence 1": {
+          "benign": 1,
+          "fp": 0,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 0.0,
+          "tpr": null,
+          "auc": null
+        },
+        "probe_v4/sentence 2": {
+          "benign": 1,
+          "fp": 0,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 0.0,
+          "tpr": null,
+          "auc": null
+        },
+        "probe_v4/sentence 3": {
+          "benign": 1,
+          "fp": 0,
+          "attack": 0,
+          "tp": 0,
+          "fpr": 0.0,
+          "tpr": null,
+          "auc": null
+        },
+        "user_holdout/all": {
+          "benign": 184,
+          "fp": 3,
+          "attack": 276,
+          "tp": 196,
+          "fpr": 0.016304347826086956,
+          "tpr": 0.7101449275362319,
+          "auc": 0.9612870195337113
+        },
+        "user_holdout/en": {
+          "benign": 44,
+          "fp": 0,
+          "attack": 66,
+          "tp": 60,
+          "fpr": 0.0,
+          "tpr": 0.9090909090909091,
+          "auc": 0.993801652892562
+        },
+        "user_holdout/batch ud1": {
+          "benign": 88,
+          "fp": 0,
+          "attack": 132,
+          "tp": 111,
+          "fpr": 0.0,
+          "tpr": 0.8409090909090909,
+          "auc": 0.9900998622589532
+        },
+        "user_holdout/ablate": {
+          "benign": 0,
+          "fp": 0,
+          "attack": 64,
+          "tp": 36,
+          "fpr": null,
+          "tpr": 0.5625,
+          "auc": null
+        },
+        "user_holdout/banking (udbank + ud2bank)": {
+          "benign": 72,
+          "fp": 0,
+          "attack": 108,
+          "tp": 84,
+          "fpr": 0.0,
+          "tpr": 0.7777777777777778,
+          "auc": 0.9933127572016461
+        },
+        "user_holdout/vi": {
+          "benign": 140,
+          "fp": 3,
+          "attack": 210,
+          "tp": 136,
+          "fpr": 0.02142857142857143,
+          "tpr": 0.6476190476190476,
+          "auc": 0.945952380952381
+        },
+        "user_holdout/batch ud2bank": {
+          "benign": 48,
+          "fp": 0,
+          "attack": 72,
+          "tp": 52,
+          "fpr": 0.0,
+          "tpr": 0.7222222222222222,
+          "auc": 0.9878472222222223
+        },
+        "user_holdout/batch ud2teen": {
+          "benign": 48,
+          "fp": 3,
+          "attack": 72,
+          "tp": 33,
+          "fpr": 0.0625,
+          "tpr": 0.4583333333333333,
+          "auc": 0.8252314814814816
+        },
+        "user_holdout/batch ud2teen/teencode": {
+          "benign": 29,
+          "fp": 2,
+          "attack": 32,
+          "tp": 13,
+          "fpr": 0.06896551724137931,
+          "tpr": 0.40625,
+          "auc": 0.8092672413793103
+        },
+        "user_holdout/batch ud2teen/no_diacritics": {
+          "benign": 17,
+          "fp": 1,
+          "attack": 35,
+          "tp": 19,
+          "fpr": 0.058823529411764705,
+          "tpr": 0.5428571428571428,
+          "auc": 0.838655462184874
+        },
+        "user_holdout/batch ud2teen/leet": {
+          "benign": 2,
+          "fp": 0,
+          "attack": 5,
+          "tp": 1,
+          "fpr": 0.0,
+          "tpr": 0.2,
+          "auc": 0.8
+        },
+        "val_realistic_holdout/all": {
+          "benign": 366,
+          "fp": 3,
+          "attack": 247,
+          "tp": 204,
+          "fpr": 0.00819672131147541,
+          "tpr": 0.8259109311740891,
+          "auc": 0.9883077808013097
+        },
+        "val_realistic_holdout/en": {
+          "benign": 162,
+          "fp": 2,
+          "attack": 120,
+          "tp": 88,
+          "fpr": 0.012345679012345678,
+          "tpr": 0.7333333333333333,
+          "auc": 0.9762860082304528
+        },
+        "R5 pool: val_v3_holdout + val_realistic_holdout": {
+          "benign": 1539,
+          "fp": 11,
+          "attack": 584,
+          "tp": 510,
+          "fpr": 0.007147498375568551,
+          "tpr": 0.8732876712328768,
+          "auc": 0.9944046124952157
+        },
+        "val_realistic_holdout/vi/orig": {
+          "benign": 169,
+          "fp": 1,
+          "attack": 102,
+          "tp": 99,
+          "fpr": 0.005917159763313609,
+          "tpr": 0.9705882352941176,
+          "auc": 0.9991878408168001
+        },
+        "val_realistic_holdout/vi/no_diacritics": {
+          "benign": 26,
+          "fp": 0,
+          "attack": 21,
+          "tp": 15,
+          "fpr": 0.0,
+          "tpr": 0.7142857142857143,
+          "auc": 0.9908424908424909
+        },
+        "val_realistic_holdout/vi/teencode": {
+          "benign": 9,
+          "fp": 0,
+          "attack": 4,
+          "tp": 2,
+          "fpr": 0.0,
+          "tpr": 0.5,
+          "auc": 1.0
+        },
+        "val_v3_holdout/all": {
+          "benign": 1173,
+          "fp": 8,
+          "attack": 337,
+          "tp": 306,
+          "fpr": 0.0068201193520886615,
+          "tpr": 0.9080118694362018,
+          "auc": 0.9980672955545268
+        },
+        "val_v3_holdout/en": {
+          "benign": 544,
+          "fp": 3,
+          "attack": 128,
+          "tp": 112,
+          "fpr": 0.0055147058823529415,
+          "tpr": 0.875,
+          "auc": 0.9987649356617647
+        },
+        "val_v3_holdout/vi/no_diacritics": {
+          "benign": 210,
+          "fp": 2,
+          "attack": 70,
+          "tp": 67,
+          "fpr": 0.009523809523809525,
+          "tpr": 0.9571428571428572,
+          "auc": 0.9983673469387755
+        },
+        "val_v3_holdout/vi/orig": {
+          "benign": 210,
+          "fp": 2,
+          "attack": 70,
+          "tp": 67,
+          "fpr": 0.009523809523809525,
+          "tpr": 0.9571428571428572,
+          "auc": 0.9987074829931973
+        },
+        "val_v3_holdout/vi/teencode": {
+          "benign": 209,
+          "fp": 1,
+          "attack": 69,
+          "tp": 60,
+          "fpr": 0.004784688995215311,
+          "tpr": 0.8695652173913043,
+          "auc": 0.9960474308300395
+        },
+        "val_v4_holdout/all": {
+          "benign": 131,
+          "fp": 2,
+          "attack": 10,
+          "tp": 8,
+          "fpr": 0.015267175572519083,
+          "tpr": 0.8,
+          "auc": 0.9961832061068702
+        },
+        "val_v4_holdout/vi/no_diacritics": {
+          "benign": 41,
+          "fp": 0,
+          "attack": 2,
+          "tp": 2,
+          "fpr": 0.0,
+          "tpr": 1.0,
+          "auc": 1.0
+        },
+        "val_v4_holdout/vi/orig": {
+          "benign": 41,
+          "fp": 0,
+          "attack": 2,
+          "tp": 2,
+          "fpr": 0.0,
+          "tpr": 1.0,
+          "auc": 1.0
+        },
+        "val_v4_holdout/vi/teencode": {
+          "benign": 49,
+          "fp": 2,
+          "attack": 6,
+          "tp": 4,
+          "fpr": 0.04081632653061224,
+          "tpr": 0.6666666666666666,
+          "auc": 0.9829931972789117
+        }
+      }
+    }
+  }
+}
