@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package channels sends alert notifications: Telegram, Slack, Microsoft
-// Teams (Workflows), signed webhooks, A2A agents and email.
+// Teams (Workflows), PagerDuty, Opsgenie, signed webhooks, A2A agents and
+// email.
 //
 // Every sender gets a Message whose payload holds metadata only (the webhook
 // payload v1 of docs/alerts.md) and returns a *Error on failure. An Error is
@@ -38,7 +39,7 @@ const (
 )
 
 // Kinds lists every channel kind.
-var Kinds = []string{KindTelegram, KindSlack, KindTeams, KindWebhook, KindA2A, KindEmail}
+var Kinds = []string{KindTelegram, KindSlack, KindTeams, KindWebhook, KindA2A, KindEmail, KindPagerDuty, KindOpsgenie}
 
 // SchemaV1 is the schema name of the webhook payload.
 const SchemaV1 = "guardspec.alert.v1"

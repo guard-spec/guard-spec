@@ -157,6 +157,29 @@ test('channels: per-kind forms, env names, secret_set and test results', async (
   await expect(edit.getByText('Slack bot token (xoxb-…), e.g. SLACK_BOT_TOKEN_OPS')).toBeVisible();
 });
 
+test('incident tools: a PagerDuty channel with its region and routing key variable', async ({ page, mock }) => {
+  await login(page, 'Channels');
+  await page.getByRole('button', { name: 'New channel' }).click();
+  const dialog = page.getByRole('dialog', { name: 'New channel' });
+  await dialog.getByLabel('Kind').selectOption('pagerduty');
+  await expect(dialog.getByText(/Events API v2 integration/)).toBeVisible();
+  await expect(dialog.getByText('The variable that holds the routing key, e.g. PAGERDUTY_ROUTING_KEY_SEC.', { exact: false })).toBeVisible();
+  await dialog.getByLabel('Name', { exact: true }).fill('sec-on-call');
+  await dialog.getByLabel('Region').selectOption('eu');
+  await dialog.getByLabel('Secret variable').fill('OPSGENIE_KEY');
+  await dialog.getByRole('button', { name: 'Save' }).click();
+  await expect(dialog.getByText('For this kind the name must start with one of: PAGERDUTY_, GUARDSPEC_ALERT_.')).toBeVisible();
+  await dialog.getByLabel('Secret variable').fill('PAGERDUTY_ROUTING_KEY_SEC');
+  await page.screenshot({ path: 'test-results/shots/pagerduty-en.png' });
+  await dialog.getByRole('button', { name: 'Save' }).click();
+  await expect(dialog).toBeHidden();
+  const row = page.getByTestId('channels-table').getByRole('row').filter({ hasText: 'sec-on-call' });
+  await expect(row).toContainText('PagerDuty');
+  await expect(row).toContainText('events api (eu)');
+  expect(mock.alerts.channels.at(-1)).toMatchObject({ kind: 'pagerduty', config: { region: 'eu' }, secret_env: 'PAGERDUTY_ROUTING_KEY_SEC' });
+  await page.screenshot({ path: 'test-results/shots/channels-incident-en.png' });
+});
+
 test('telegram on the instance bot: created without a chat id, verified with /link', async ({ page, mock }) => {
   await login(page, 'Channels');
   const table = page.getByTestId('channels-table');

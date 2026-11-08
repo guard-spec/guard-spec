@@ -573,6 +573,10 @@ function ChannelEditor({
         return t('alerts.channel.envWebhook', { example: envExample('webhook') });
       case 'a2a':
         return t('alerts.channel.envA2a', { example: envExample('a2a') });
+      case 'pagerduty':
+        return t('alerts.channel.envPagerduty', { example: envExample('pagerduty') });
+      case 'opsgenie':
+        return t('alerts.channel.envOpsgenie', { example: envExample('opsgenie') });
       case 'email':
         return '';
     }
@@ -718,6 +722,19 @@ function ChannelEditor({
             </>
           ) : null}
           {v.kind === 'teams' ? <p className="muted small">{t('alerts.channel.teamsHelp')}</p> : null}
+          {v.kind === 'pagerduty' || v.kind === 'opsgenie' ? (
+            <>
+              <p className="muted small">{t(v.kind === 'pagerduty' ? 'alerts.channel.pagerdutyHelp' : 'alerts.channel.opsgenieHelp')}</p>
+              <Field label={t('alerts.channel.region')}>
+                {(p) => (
+                  <select {...p} value={cs('region') || 'us'} disabled={readOnly} onChange={(e) => setCfg({ region: e.target.value })}>
+                    <option value="us">{t('alerts.channel.regionUs')}</option>
+                    <option value="eu">{t('alerts.channel.regionEu')}</option>
+                  </select>
+                )}
+              </Field>
+            </>
+          ) : null}
           {v.kind !== 'email' ? (
             <Field label={t('alerts.channel.secretEnv')} help={secretHelp()} error={err('secret_env') ?? secretError ?? undefined}>
               {(p) => (

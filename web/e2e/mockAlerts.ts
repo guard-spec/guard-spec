@@ -228,7 +228,7 @@ export function seedAlerts(members: Member[], rich: boolean): AlertsState {
     streams: [],
     telegramPending: null,
     env,
-    secretOrgs: { SLACK_WEBHOOK_SECOPS: 'slack', WEBHOOK_SECRET_SIEM: 'webhook', TELEGRAM_BOT_TOKEN_ONCALL: 'telegram', TEAMS_WEBHOOK_IT: 'teams', WEBHOOK_SECRET_SOC: 'webhook' },
+    secretOrgs: { SLACK_WEBHOOK_SECOPS: 'slack', WEBHOOK_SECRET_SIEM: 'webhook', TELEGRAM_BOT_TOKEN_ONCALL: 'telegram', TEAMS_WEBHOOK_IT: 'teams', WEBHOOK_SECRET_SOC: 'webhook', PAGERDUTY_ROUTING_KEY_SEC: 'pagerduty' },
     channelLinkPending: {},
     privateOrg: false,
     capsCalls: [],
@@ -250,7 +250,7 @@ function page(items: unknown[], url: URL): unknown {
 }
 
 const ENV = /^[A-Z][A-Z0-9_]{2,63}$/;
-const KIND_PREFIX: Record<string, string> = { telegram: 'TELEGRAM_BOT_TOKEN_', slack: 'SLACK_', teams: 'TEAMS_', webhook: 'WEBHOOK_SECRET_', a2a: 'A2A_' };
+const KIND_PREFIX: Record<string, string> = { telegram: 'TELEGRAM_BOT_TOKEN_', slack: 'SLACK_', teams: 'TEAMS_', webhook: 'WEBHOOK_SECRET_', a2a: 'A2A_', pagerduty: 'PAGERDUTY_', opsgenie: 'OPSGENIE_' };
 
 /** docs/alerts.md §4: shape, the kind's prefix, and the ALERTS_SECRET_ORGS binding. */
 function envRefused(s: AlertsState, kind: string, name: string | null | undefined): string | null {

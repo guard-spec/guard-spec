@@ -168,6 +168,13 @@ describe('channels', () => {
     expect(validateChannel(ch({ kind: 'a2a', config: { agent_card_url: 'http://10.0.0.7:9000', allow_private: true }, secret_env: '' }), true).agent_card_url).toBeUndefined();
     expect(validateChannel(ch({ kind: 'a2a', config: { agent_card_url: 'http://10.0.0.7:9000' }, secret_env: '' }), true).agent_card_url).toBe('https');
     expect(channelTarget('email', { to: ['a@b.co', 'c@d.co'] })).toBe('a@b.co, c@d.co');
+    // Incident tools keep the region only and need their key.
+    expect(channelBody(ch({ kind: 'pagerduty', config: { region: 'eu', url: 'x' }, secret_env: 'PAGERDUTY_KEY' })).config).toEqual({ region: 'eu' });
+    expect(channelBody(ch({ kind: 'opsgenie', config: {}, secret_env: 'OPSGENIE_KEY' })).config).toEqual({ region: 'us' });
+    expect(validateChannel(ch({ kind: 'pagerduty', config: { region: 'us' }, secret_env: '' })).secret_env).toBeDefined();
+    expect(validateChannel(ch({ kind: 'opsgenie', config: { region: 'us' }, secret_env: 'PAGERDUTY_KEY' })).secret_env).toBe('envPrefix');
+    expect(validateChannel(ch({ kind: 'opsgenie', config: { region: 'apac' }, secret_env: 'OPSGENIE_KEY' })).region).toBe('region');
+    expect(channelTarget('pagerduty', { region: 'eu' })).toBe('events api (eu)');
     // The instance bot refuses a chat_id from the client.
     expect(channelBody(ch({ kind: 'telegram', config: { chat_id: '-100123' }, secret_env: '' })).config).toEqual({});
     expect(channelBody(ch({ kind: 'telegram', config: { chat_id: ' -100123 ' }, secret_env: 'TELEGRAM_BOT_TOKEN_OPS' })).config).toEqual({ chat_id: '-100123' });

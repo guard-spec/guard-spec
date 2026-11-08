@@ -54,7 +54,7 @@ trước khi dùng.
 **Control plane và quản trị**
 - **Cảnh báo thời gian thực** khi request bị chặn hoặc gắn cờ, upstream lỗi,
   cấu hình bảo mật thay đổi; gửi qua **Telegram, Slack, Microsoft Teams,
-  email, webhook có ký (SIEM) và agent A2A**, cùng chuông trong giao diện;
+  email, PagerDuty, Opsgenie, webhook có ký (SIEM) và agent A2A**, cùng chuông trong giao diện;
   rule có ngưỡng, giãn tần suất, giờ yên lặng và tùy chọn riêng từng người
   ([Cảnh báo và thông báo](#cảnh-báo-và-thông-báo)).
 - **Đăng nhập cho doanh nghiệp:** SSO bằng OpenID Connect (có sẵn Google, dùng
@@ -494,7 +494,8 @@ hoặc bị gắn cờ (`detection.blocked`, `detection.flagged`), lỗi upstrea
 nhập thất bại, khóa 2FA, thay đổi role, SSO, policy và upstream. Rule cảnh báo,
 đặt theo từng tổ chức, lọc event và báo cho đúng người:
 
-- **Kênh:** Telegram, Slack, Microsoft Teams, email (SMTP), webhook có ký
+- **Kênh:** Telegram, Slack, Microsoft Teams, email (SMTP), PagerDuty và
+  Opsgenie (mỗi cảnh báo một incident, tự đóng theo cảnh báo), webhook có ký
   (HMAC, cho SIEM hoặc dịch vụ của bạn), agent A2A (ví dụ agent SOC), và
   chuông trong admin UI.
 - **Rule:** loại event cùng điều kiện tùy chọn viết bằng cú pháp policy, ví dụ

@@ -61,7 +61,7 @@ export type AlertRuleInput = Omit<AlertRule, 'id' | 'created_by' | 'created_at' 
   channel_ids: UUID[];
 };
 
-export const CHANNEL_KINDS = ['telegram', 'slack', 'teams', 'webhook', 'a2a', 'email'] as const;
+export const CHANNEL_KINDS = ['telegram', 'slack', 'teams', 'webhook', 'a2a', 'email', 'pagerduty', 'opsgenie'] as const;
 export type ChannelKind = (typeof CHANNEL_KINDS)[number];
 
 export interface NotificationChannel {

@@ -38,7 +38,7 @@ const (
 var SecretEnvRe = regexp.MustCompile(`^[A-Z][A-Z0-9_]{2,63}$`)
 
 // SecretEnvPrefixes are the variable name prefixes a channel may name.
-var SecretEnvPrefixes = []string{"GUARDSPEC_ALERT_", "TELEGRAM_BOT_TOKEN_", "SLACK_", "TEAMS_", "WEBHOOK_SECRET_", "A2A_", "SIEM_"}
+var SecretEnvPrefixes = []string{"GUARDSPEC_ALERT_", "TELEGRAM_BOT_TOKEN_", "SLACK_", "TEAMS_", "WEBHOOK_SECRET_", "A2A_", "SIEM_", "PAGERDUTY_", "OPSGENIE_"}
 
 // AllowedSecretEnv reports whether a channel may read the variable name.
 func AllowedSecretEnv(name string) bool {

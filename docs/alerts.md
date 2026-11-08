@@ -191,6 +191,8 @@ critical alerts through.
 | `teams` | `{}` | Workflows webhook URL (Adaptive Card), `TEAMS_*`. No O365 connectors. |
 | `webhook` | `{url, allow_private:false}` | HMAC signing secret (`WEBHOOK_SECRET_*`) |
 | `a2a` | `{agent_card_url, allow_private:false}` | bearer/API key if the Agent Card demands it (`A2A_*`) |
+| `pagerduty` | `{region?: "us"\|"eu"}` | Events API v2 routing key (`PAGERDUTY_*`) |
+| `opsgenie` | `{region?: "us"\|"eu"}` | API integration key (`OPSGENIE_*`) |
 | `email` | `{to[], lang?: "en"\|"vi"}` (shared mailbox; each address confirms) | — (SMTP comes from global env `SMTP_URL`, `SMTP_FROM`) |
 
 Any logged-in user can create an org and own it, so "an org admin" is
@@ -199,7 +201,7 @@ anyone. The rules below hold against that.
 Secrets:
 - Env var names must match `^[A-Z][A-Z0-9_]{2,63}$`, with a prefix of the
   channel's kind: `TELEGRAM_BOT_TOKEN_`, `SLACK_`, `TEAMS_`,
-  `WEBHOOK_SECRET_`, `A2A_`, or `GUARDSPEC_ALERT_` (any kind). Nothing else is
+  `WEBHOOK_SECRET_`, `A2A_`, `PAGERDUTY_`, `OPSGENIE_`, or `GUARDSPEC_ALERT_` (any kind). Nothing else is
   allowed (this stops reading `DATABASE_URL`), nor the instance tokens
   `TELEGRAM_BOT_TOKEN` and `SLACK_BOT_TOKEN`.
 - **Every variable is bound to one kind and to orgs** by the operator in
@@ -434,7 +436,7 @@ Control plane:
 | `SMTP_URL` | — | `smtp://user:pass@host:587` (STARTTLS, required unless loopback) or `smtps://user:pass@host:465`. |
 | `SMTP_FROM` | — | Sender, such as `Guard Spec <alerts@example.com>`. |
 | `ALERTS_TEST_TELEGRAM_API`, `ALERTS_TEST_SLACK_API` | — | Test only: origins that replace `https://api.telegram.org` and `https://slack.com/api`, for fake servers in end-to-end runs. Leave unset in production. |
-| channel secrets | — | The variables channels name in `secret_env` (`WEBHOOK_SECRET_*`, `SLACK_*`, `TEAMS_*`, `TELEGRAM_BOT_TOKEN_*`, `A2A_*`, `GUARDSPEC_ALERT_*`; `SIEM_*` for SIEM export sinks), each listed in `ALERTS_SECRET_ORGS`. |
+| channel secrets | — | The variables channels name in `secret_env` (`WEBHOOK_SECRET_*`, `SLACK_*`, `TEAMS_*`, `TELEGRAM_BOT_TOKEN_*`, `A2A_*`, `PAGERDUTY_*`, `OPSGENIE_*`, `GUARDSPEC_ALERT_*`; `SIEM_*` for SIEM export sinks), each listed in `ALERTS_SECRET_ORGS`. |
 
 Gateway:
 
@@ -510,6 +512,30 @@ then list the variable with its kind for the org in `ALERTS_SECRET_ORGS`
 in the channel, Workflows → "Post to a channel when a webhook request is
 received", copy the URL into `TEAMS_<NAME>`, create a `teams` channel with
 `{}`. Messages are Adaptive Cards 1.4.
+
+**PagerDuty** — in the service, Integrations → Add integration → Events API
+v2; put the routing key in `PAGERDUTY_<NAME>`, grant it
+(`PAGERDUTY_<NAME>=pagerduty:<org-id>` in `ALERTS_SECRET_ORGS`) and create a
+`pagerduty` channel with `{}` or `{"region":"eu"}` for accounts on
+`events.eu.pagerduty.com`. A firing alert sends `trigger` with
+`dedup_key = guardspec-<alert id>`, so repeats of the same alert update the
+incident instead of opening another; its resolution sends `resolve` for the
+same key, but only from rules with auto-resolve. The summary is the alert
+title; `custom_details` hold the rule, count, window, group and a link,
+metadata only. Severity: critical and warning as is, info otherwise. A test
+opens its own incident (`guardspec-test-<event id>`); resolve it by hand.
+
+**Opsgenie** — Settings → Integrations → API; put the API key in
+`OPSGENIE_<NAME>`, grant it (`=opsgenie:<org-id>`) and create an `opsgenie`
+channel (`{"region":"eu"}` for `api.eu.opsgenie.com`). A firing alert creates
+an alert with `alias = guardspec-<alert id>` (Opsgenie de-duplicates on it),
+priority P1 for critical, P3 for warning and P5 for info, the tags
+`guard-spec` and the severity, and the metadata as details; the resolution
+closes it by alias. The key needs the Create and Update access rights only.
+
+Both endpoints are public SaaS hosts; a 400 (a wrong key, an invalid event)
+is not retried, a 429 waits for `Retry-After`, a 5xx is retried with the
+outbox's backoff. The key never appears in an error or the delivery log.
 
 **Webhook** — `{"url":"https://…"}` and a random signing secret in
 `WEBHOOK_SECRET_<NAME>` (`openssl rand -hex 32`). Verify every delivery
