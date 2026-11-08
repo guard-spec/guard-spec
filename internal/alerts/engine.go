@@ -856,6 +856,10 @@ func ChannelTarget(kind string, cfg map[string]any) string {
 		return s("channel")
 	case channels.KindTeams:
 		return "workflow"
+	case channels.KindPagerDuty:
+		return "events api (" + regionOf(cfg) + ")"
+	case channels.KindOpsgenie:
+		return "alert api (" + regionOf(cfg) + ")"
 	case channels.KindWebhook:
 		return channels.RedactURL(s("url"))
 	case channels.KindA2A:
@@ -924,4 +928,12 @@ func (e *Engine) payload(ctx context.Context, tx pgx.Tx, a *alertRow, r *Rule, s
 	}
 	p.Links.Requests = req
 	return p, nil
+}
+
+// regionOf is an incident channel's config.region: us (default) or eu.
+func regionOf(cfg map[string]any) string {
+	if r, _ := cfg["region"].(string); r == "eu" {
+		return "eu"
+	}
+	return "us"
 }

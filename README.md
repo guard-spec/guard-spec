@@ -78,7 +78,7 @@ before you rely on it.
 **Control plane and administration**
 - **Real-time alerts** on blocked and flagged requests, upstream failures and
   security changes, sent over **Telegram, Slack, Microsoft Teams, email,
-  signed webhooks (SIEM) and A2A agents**, plus an in-app bell; rules with
+  PagerDuty, Opsgenie, signed webhooks (SIEM) and A2A agents**, plus an in-app bell; rules with
   thresholds, throttling, quiet hours and per-person preferences
   ([Alerts and notifications](#alerts-and-notifications)).
 - **Enterprise sign-in:** single sign-on with OpenID Connect (Google preset,
@@ -1164,7 +1164,8 @@ failures, failed logins and 2FA lockouts, and changes to roles, SSO, policies
 and upstreams. Alert rules, kept per organization, match events and notify
 people:
 
-- **Channels:** Telegram, Slack, Microsoft Teams, email (SMTP), signed
+- **Channels:** Telegram, Slack, Microsoft Teams, email (SMTP), PagerDuty and
+  Opsgenie (an incident per alert, resolved with it), signed
   webhooks (HMAC, for a SIEM or your own service), A2A agents (for example a
   SOC agent), and the bell in the admin UI.
 - **Rules:** event types plus an optional condition in the policy text syntax,
@@ -2344,7 +2345,7 @@ make bench-onnx                            # HTTP path benchmarks with L2/L3
 important one: **`eval/` is never used for tuning**. Design notes are in
 [DESIGN.md](DESIGN.md), [docs/arch-flow.html](docs/arch-flow.html) and
 [docs/adr/](docs/adr/). Alerts and notifications (Telegram, Slack, Teams,
-webhooks, A2A, email, in-app) are described in [docs/alerts.md](docs/alerts.md).
+PagerDuty, Opsgenie, webhooks, A2A, email, in-app) are described in [docs/alerts.md](docs/alerts.md).
 Bypass and false-positive reports, and how they reach the training data, are
 described in [docs/red-team.md](docs/red-team.md).
 Planned work is in [ROADMAP.md](ROADMAP.md).

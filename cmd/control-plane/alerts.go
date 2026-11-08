@@ -146,12 +146,14 @@ func newAlertsRuntime(db *pgxpool.Pool, s *appSettings, sessions auth.SessionLoo
 		sessions: sessions, base: base,
 		engine: &alerts.Engine{DB: db, PublicURL: s.publicURL, Caps: caps, Lang: cfg.lang},
 		disp: &alerts.Dispatcher{DB: db, Getenv: cfg.getenv, Lang: cfg.lang, TelegramToken: cfg.telegramToken, SlackToken: cfg.slackToken, SecretOrgs: cfg.secretOrgs, EmailDailyCap: cfg.emailDailyCap, Senders: map[string]channels.Sender{
-			channels.KindTelegram: tg,
-			channels.KindSlack:    slack,
-			channels.KindTeams:    &channels.Teams{Guard: guard},
-			channels.KindWebhook:  &channels.Webhook{Guard: guard},
-			channels.KindA2A:      &channels.A2A{Guard: guard},
-			channels.KindEmail:    &channels.Email{SMTP: cfg.smtp},
+			channels.KindTelegram:  tg,
+			channels.KindSlack:     slack,
+			channels.KindTeams:     &channels.Teams{Guard: guard},
+			channels.KindPagerDuty: &channels.PagerDuty{Guard: guard},
+			channels.KindOpsgenie:  &channels.Opsgenie{Guard: guard},
+			channels.KindWebhook:   &channels.Webhook{Guard: guard},
+			channels.KindA2A:       &channels.A2A{Guard: guard},
+			channels.KindEmail:     &channels.Email{SMTP: cfg.smtp},
 		}},
 	}
 	if !s.noAlertEvents {

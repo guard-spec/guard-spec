@@ -23,6 +23,9 @@ var kindPrefixes = map[string][]string{
 	channels.KindTeams:    {"TEAMS_", "GUARDSPEC_ALERT_"},
 	channels.KindWebhook:  {"WEBHOOK_SECRET_", "GUARDSPEC_ALERT_"},
 	channels.KindA2A:      {"A2A_", "GUARDSPEC_ALERT_"},
+	// Incident tools: the PagerDuty routing key, the Opsgenie API key.
+	channels.KindPagerDuty: {"PAGERDUTY_", "GUARDSPEC_ALERT_"},
+	channels.KindOpsgenie:  {"OPSGENIE_", "GUARDSPEC_ALERT_"},
 	// SIEM export sinks (internal/siem): HEC tokens, API keys, client secrets.
 	KindSIEM: {"SIEM_", "GUARDSPEC_ALERT_"},
 }
@@ -86,7 +89,7 @@ func ParseSecretOrgs(s string) (SecretOrgs, error) {
 			return SecretOrgs{}, fmt.Errorf("ALERTS_SECRET_ORGS: %q %s", entry, usage)
 		}
 		if _, known := kindPrefixes[kind]; !known {
-			return SecretOrgs{}, fmt.Errorf("ALERTS_SECRET_ORGS: %s: kind %q must be one of telegram, slack, teams, webhook, a2a, siem", name, kind)
+			return SecretOrgs{}, fmt.Errorf("ALERTS_SECRET_ORGS: %s: kind %q must be one of telegram, slack, teams, webhook, a2a, pagerduty, opsgenie, siem", name, kind)
 		}
 		if !AllowedSecretEnvFor(kind, name) {
 			return SecretOrgs{}, fmt.Errorf("ALERTS_SECRET_ORGS: %s cannot be a %s secret (prefixes %s)", name, kind,

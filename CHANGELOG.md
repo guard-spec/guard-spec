@@ -30,6 +30,14 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ### Added
 
+- PagerDuty and Opsgenie alert channels (RF-656e36ac): a firing alert opens
+  a PagerDuty incident (Events API v2) or an Opsgenie alert, keyed by the
+  Guard Spec alert id so a repeat never opens a second one; the alert's
+  resolution (rules with auto-resolve) resolves or closes it. Severity maps
+  to PagerDuty severity and Opsgenie priority (critical P1, warning P3, info
+  P5); US or EU region. The routing key or API key is a `PAGERDUTY_*` or
+  `OPSGENIE_*` variable granted in `ALERTS_SECRET_ORGS` (migration 024).
+  ([docs/alerts.md](docs/alerts.md#10-setting-up-each-channel))
 - SIEM export (RF-f2f95010): an organization's events (detections,
   security, configuration and admin activity; metadata only) go to Splunk
   (HEC), Elasticsearch, Microsoft Sentinel (Logs Ingestion API), syslog over

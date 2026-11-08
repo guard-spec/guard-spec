@@ -3,7 +3,7 @@
 
 // Pieces shared by the alert pages: badges, pickers and loaders.
 
-import { Bot, Mail, MessageCircle, Send, Users, Webhook, type LucideIcon } from 'lucide-react';
+import { Bot, type LucideIcon, Mail, MessageCircle, Send, Siren, Users, Webhook } from 'lucide-react';
 import { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import { Badge, type Tone } from '../components/DataTable';
 import { useApp, useOrg } from '../context';
@@ -44,6 +44,8 @@ export const KIND_ICON: Partial<Record<string, LucideIcon>> = {
   webhook: Webhook,
   a2a: Bot,
   email: Mail,
+  pagerduty: Siren,
+  opsgenie: Siren,
   in_app: MessageCircle,
 };
 

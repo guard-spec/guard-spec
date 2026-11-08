@@ -97,7 +97,7 @@ export function ruleBody(r: AlertRuleInput): AlertRuleInput {
 
 /** Contract §4: the shape and the prefixes an env name may have. */
 export const ENV_NAME = /^[A-Z][A-Z0-9_]{2,63}$/;
-export const ENV_PREFIXES = ['GUARDSPEC_ALERT_', 'TELEGRAM_BOT_TOKEN_', 'SLACK_', 'TEAMS_', 'WEBHOOK_SECRET_', 'A2A_'] as const;
+export const ENV_PREFIXES = ['GUARDSPEC_ALERT_', 'TELEGRAM_BOT_TOKEN_', 'SLACK_', 'TEAMS_', 'WEBHOOK_SECRET_', 'A2A_', 'PAGERDUTY_', 'OPSGENIE_'] as const;
 
 /** The suggested variable name per kind (helper text and placeholder). */
 export function envExample(kind: ChannelKind, slackMode: 'bot' | 'webhook' = 'bot'): string {
@@ -114,6 +114,10 @@ export function envExample(kind: ChannelKind, slackMode: 'bot' | 'webhook' = 'bo
       return 'A2A_TOKEN_TRIAGE';
     case 'email':
       return '';
+    case 'pagerduty':
+      return 'PAGERDUTY_ROUTING_KEY_SEC';
+    case 'opsgenie':
+      return 'OPSGENIE_API_KEY_SEC';
   }
 }
 
@@ -124,6 +128,8 @@ export const KIND_PREFIX: Record<Exclude<ChannelKind, 'email'>, string> = {
   teams: 'TEAMS_',
   webhook: 'WEBHOOK_SECRET_',
   a2a: 'A2A_',
+  pagerduty: 'PAGERDUTY_',
+  opsgenie: 'OPSGENIE_',
 };
 /** The instance tokens, never usable by a channel. */
 const INSTANCE_TOKENS = ['TELEGRAM_BOT_TOKEN', 'SLACK_BOT_TOKEN'];
@@ -152,7 +158,7 @@ export function envNameProblem(name: string, kind?: ChannelKind): 'format' | 'pr
  */
 export function secretRequired(kind: ChannelKind, instanceTelegram = true): boolean {
   if (kind === 'telegram') return !instanceTelegram;
-  return kind === 'slack' || kind === 'teams' || kind === 'webhook';
+  return kind === 'slack' || kind === 'teams' || kind === 'webhook' || kind === 'pagerduty' || kind === 'opsgenie';
 }
 
 /** A Telegram channel on the instance bot (no secret of its own): verified with /link, no chat_id from the client. */
@@ -211,6 +217,10 @@ export function validateChannel(c: ChannelInput, allowPrivate = false, instanceT
     }
     case 'teams':
       break;
+    case 'pagerduty':
+    case 'opsgenie':
+      if (cfg.region !== undefined && cfg.region !== 'us' && cfg.region !== 'eu') e.region = 'region';
+      break;
   }
   return e;
 }
@@ -226,6 +236,9 @@ export function defaultConfig(kind: ChannelKind): Record<string, unknown> {
       return { agent_card_url: '', allow_private: false };
     case 'email':
       return { to: [] };
+    case 'pagerduty':
+    case 'opsgenie':
+      return { region: 'us' };
     default:
       return {};
   }
@@ -255,6 +268,10 @@ export function channelBody(c: ChannelInput): ChannelInput {
       break;
     case 'teams':
       config = {};
+      break;
+    case 'pagerduty':
+    case 'opsgenie':
+      config = { region: cfg.region === 'eu' ? 'eu' : 'us' };
   }
   const env = c.secret_env?.trim() ?? '';
   return { name: c.name.trim(), kind: c.kind, config, secret_env: c.kind === 'email' || env === '' ? null : env, enabled: c.enabled };
@@ -276,6 +293,10 @@ export function channelTarget(kind: ChannelKind, config: Record<string, unknown>
       return Array.isArray(config.to) ? (config.to as string[]).join(', ') : '';
     case 'teams':
       return '';
+    case 'pagerduty':
+      return `events api (${config.region === 'eu' ? 'eu' : 'us'})`;
+    case 'opsgenie':
+      return `alert api (${config.region === 'eu' ? 'eu' : 'us'})`;
   }
 }
 

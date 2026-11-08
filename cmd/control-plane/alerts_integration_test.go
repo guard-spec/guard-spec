@@ -140,7 +140,7 @@ type alertsHarness struct {
 func newAlertsHarness(t *testing.T) *alertsHarness {
 	t.Helper()
 	fake := newFakeReceivers(t)
-	env := map[string]string{"WEBHOOK_SECRET_SEC": webhookSecret}
+	env := map[string]string{"WEBHOOK_SECRET_SEC": webhookSecret, "PAGERDUTY_TEST": "pd-routing-key", "OPSGENIE_TEST": "og-api-key"}
 	getenv := func(k string) string { return env[k] }
 	mailer := newFakeMailer(t)
 	private := []uuid.UUID{uuid.New(), uuid.New(), uuid.New()}
@@ -155,7 +155,8 @@ func newAlertsHarness(t *testing.T) *alertsHarness {
 		slackToken: fakeSlackToken, lang: "en", telegramAPI: fake.URL, slackAPI: fake.URL,
 	}
 	var err error
-	if cfg.secretOrgs, err = alerts.ParseSecretOrgs("WEBHOOK_SECRET_SEC=webhook:*;A2A_ONLY_B=a2a:" + uuid.Nil.String()); err != nil {
+	if cfg.secretOrgs, err = alerts.ParseSecretOrgs("WEBHOOK_SECRET_SEC=webhook:*;A2A_ONLY_B=a2a:" + uuid.Nil.String() +
+		";PAGERDUTY_TEST=pagerduty:*;OPSGENIE_TEST=opsgenie:*"); err != nil {
 		t.Fatal(err)
 	}
 	var settings *appSettings

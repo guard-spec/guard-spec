@@ -91,12 +91,14 @@ func configChat(c *alerts.ChannelRow) string {
 
 // channelKeys are the config keys each kind accepts.
 var channelKeys = map[string][]string{
-	channels.KindTelegram: {"chat_id"},
-	channels.KindSlack:    {"mode", "channel"},
-	channels.KindTeams:    {},
-	channels.KindWebhook:  {"url", "allow_private"},
-	channels.KindA2A:      {"agent_card_url", "allow_private"},
-	channels.KindEmail:    {"to", "lang"},
+	channels.KindTelegram:  {"chat_id"},
+	channels.KindSlack:     {"mode", "channel"},
+	channels.KindTeams:     {},
+	channels.KindPagerDuty: {"region"},
+	channels.KindOpsgenie:  {"region"},
+	channels.KindWebhook:   {"url", "allow_private"},
+	channels.KindA2A:       {"agent_card_url", "allow_private"},
+	channels.KindEmail:     {"to", "lang"},
 }
 
 // validateChannel checks a channel's kind, config and secret_env.
@@ -201,6 +203,14 @@ func (rt *alertsRuntime) validateChannel(org uuid.UUID, c *alerts.ChannelRow, pr
 		}
 	case channels.KindTeams:
 		return needSecret("Workflows webhook URL")
+	case channels.KindPagerDuty, channels.KindOpsgenie:
+		if r, ok := c.Config["region"]; ok && r != "us" && r != "eu" {
+			return errors.New("config.region must be us or eu")
+		}
+		if c.Kind == channels.KindPagerDuty {
+			return needSecret("Events API v2 routing key")
+		}
+		return needSecret("API integration key")
 	case channels.KindWebhook:
 		u, err := str("url")
 		if err != nil {
