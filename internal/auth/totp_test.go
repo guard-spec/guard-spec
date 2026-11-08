@@ -104,3 +104,33 @@ func TestSecretBox(t *testing.T) {
 		t.Error("tampered ciphertext opened")
 	}
 }
+
+// MFA_ENC_KEY "new,old": the new key seals, both open, so a rotation keeps
+// every enrolled user working.
+func TestSecretBoxKeyring(t *testing.T) {
+	oldKey := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{1}, 32))
+	newKey := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{2}, 32))
+	old, _ := NewSecretBox(oldKey)
+	sealedOld, _ := old.Seal([]byte("totp"), []byte("u"))
+
+	both, err := NewSecretBox(newKey + ", " + oldKey)
+	if err != nil || both.Keys() != 2 {
+		t.Fatalf("keyring: %v", err)
+	}
+	if got, i, err := both.OpenKey(sealedOld, []byte("u")); err != nil || string(got) != "totp" || i != 1 {
+		t.Fatalf("old secret: %q key %d %v", got, i, err)
+	}
+	sealedNew, _ := both.Seal([]byte("totp"), []byte("u"))
+	if _, i, err := both.OpenKey(sealedNew, []byte("u")); err != nil || i != 0 {
+		t.Fatalf("new secret: key %d %v", i, err)
+	}
+	if _, err := old.Open(sealedNew, []byte("u")); err == nil {
+		t.Error("the old key alone opened a secret sealed with the new one")
+	}
+	if _, err := NewSecretBox(newKey + ",short"); err == nil {
+		t.Error("a bad second key accepted")
+	}
+	if _, err := NewSecretBox(" , "); err != ErrNoMFAKey {
+		t.Errorf("only commas: %v", err)
+	}
+}

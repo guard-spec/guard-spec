@@ -28,6 +28,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/guard-spec/guard-spec/internal/auth"
 	"github.com/guard-spec/guard-spec/internal/config"
+	"github.com/guard-spec/guard-spec/internal/datakey"
 	"github.com/guard-spec/guard-spec/internal/metrics"
 	"github.com/guard-spec/guard-spec/internal/policy"
 	"github.com/guard-spec/guard-spec/internal/retention"
@@ -58,6 +59,13 @@ func main() {
 		os.Exit(0)
 	}
 
+	if len(os.Args) > 1 && os.Args[1] == "keys" {
+		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+		code := runKeys(ctx, os.Args[2:], os.Getenv, os.Stdout, os.Stderr)
+		stop()
+		os.Exit(code)
+	}
+
 	checkOnly := flag.Bool("check-policies", false,
 		"validate every stored policy, list the failures and exit (1 if any fail); "+
 			"DATABASE_URL must name a role that bypasses row-level security")
@@ -84,6 +92,11 @@ func main() {
 	secret := []byte(cfg.JWTSecret)
 	mfaBox, err := auth.NewSecretBox(cfg.MFAEncKey)
 	if err != nil && !errors.Is(err, auth.ErrNoMFAKey) {
+		slog.Error("config", "err", err)
+		os.Exit(1)
+	}
+	contentKeys, err := datakey.FromEnv(os.Getenv)
+	if err != nil {
 		slog.Error("config", "err", err)
 		os.Exit(1)
 	}
@@ -128,6 +141,9 @@ func main() {
 	app := newApp(db, secret, eng, cfg.AllowedOrigins, withEnvUpstream(cfg.UpstreamURL), withKeyOrgs(keyOrgs),
 		func(s *appSettings) {
 			s.mfaBox, s.publicURL, s.allowPrivate = mfaBox, cfg.PublicBaseURL, cfg.UpstreamAllowPrivate
+			if contentKeys != nil {
+				s.contentKeys = datakey.NewStore(contentKeys)
+			}
 			s.trustedProxies = cfg.TrustedProxies
 			s.gatewayURL = cfg.GatewayURL
 			s.alertsBase = ctx
@@ -171,6 +187,9 @@ type appSettings struct {
 	keyOrgs config.KeyOrgs
 	// mfaBox encrypts TOTP secrets (MFA_ENC_KEY); nil: 2FA cannot be set up.
 	mfaBox *auth.SecretBox
+	// contentKeys open the request content the gateway sealed (CONTENT_KEK,
+	// CONTENT_KEK_FILE, CONTENT_KEK_VAULT_KEY); nil: sealed content is not shown.
+	contentKeys *datakey.Store
 	// publicURL is PUBLIC_BASE_URL, for SSO callback urls.
 	publicURL string
 	// allowPrivate is UPSTREAM_ALLOW_PRIVATE, for upstream connection tests.
@@ -352,7 +371,7 @@ func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins 
 	authed.Put("/organizations/:orgId/policies/:id", admin, updatePolicy(db, eng))
 	authed.Delete("/organizations/:orgId/policies/:id", admin, deletePolicy(db))
 
-	authed.Get("/organizations/:orgId/requests", viewer, listRequests(db))
+	authed.Get("/organizations/:orgId/requests", viewer, listRequests(db, settings.contentKeys))
 	// Aggregates of the request log over a window (dashboard.go).
 	authed.Get("/organizations/:orgId/dashboard", viewer, getDashboard(db))
 	// Shadow mode: the candidate model compared with the active one
@@ -953,7 +972,7 @@ func validateRules(eng *policy.Engine, raw json.RawMessage) (json.RawMessage, []
 	return stored, routeTargets(rules), err
 }
 
-func listRequests(db *pgxpool.Pool) fiber.Handler {
+func listRequests(db *pgxpool.Pool, keys *datakey.Store) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		id := orgID(c)
 		pg, err := parsePage(c, true)
@@ -991,6 +1010,9 @@ func listRequests(db *pgxpool.Pool) fiber.Handler {
 			RequestContent  *string   `json:"request_content,omitempty"`
 			ResponseContent *string   `json:"response_content,omitempty"`
 			CreatedAt       time.Time `json:"created_at"`
+			// Why stored content is not shown: it is encrypted and this
+			// control plane has no key for it, or its key was destroyed.
+			ContentError string `json:"content_error,omitempty"`
 		}
 		reqs := []row{}
 		var total int64
@@ -1043,7 +1065,17 @@ func listRequests(db *pgxpool.Pool) fiber.Handler {
 				}
 				reqs = append(reqs, r)
 			}
-			return rows.Err()
+			if err := rows.Err(); err != nil {
+				return err
+			}
+			rows.Close()
+			for i := range reqs {
+				r := &reqs[i]
+				r.ContentError = openContent(c.Context(), tx, keys, id,
+					contentField{&r.RequestContent, "request_content", r.RequestSHA256},
+					contentField{&r.ResponseContent, "response_content", r.ResponseSHA256})
+			}
+			return nil
 		})
 		if errors.Is(err, errBadCursor) {
 			return badPage(c, err)
@@ -1145,10 +1177,13 @@ func (cfg appConfig) check() error {
 		}
 	}
 	// The dev key of docker-compose.override.yml decodes to "dev-only-...".
-	if raw, err := base64.StdEncoding.DecodeString(cfg.MFAEncKey); err == nil && cfg.MFAEncKey != "" &&
-		config.IsKnownDefault(string(raw)) && !config.DevMode() {
-		return errors.New("MFA_ENC_KEY is the development key; set MFA_ENC_KEY to 32 random bytes in base64 " +
-			"(openssl rand -base64 32)")
+	for _, k := range strings.Split(cfg.MFAEncKey, ",") {
+		k = strings.TrimSpace(k)
+		if raw, err := base64.StdEncoding.DecodeString(k); err == nil && k != "" &&
+			config.IsKnownDefault(string(raw)) && !config.DevMode() {
+			return errors.New("MFA_ENC_KEY is the development key; set MFA_ENC_KEY to 32 random bytes in base64 " +
+				"(openssl rand -base64 32)")
+		}
 	}
 	var c config.Checker
 	c.Secret("JWT_SECRET", cfg.JWTSecret)

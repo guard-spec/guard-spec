@@ -21,6 +21,12 @@ guardEnv: ""
 #                      base64 (openssl rand -base64 32). Optional here: it may
 #                      also come from controlPlane.extraEnvFrom. Without it 2FA
 #                      cannot be turned on. Back it up with the database.
+#   CONTENT_KEK        gateway and control plane, encrypts stored content
+#                      (AUDIT_STORE_CONTENT or an org's opt-in): 32 random bytes
+#                      in base64, several comma-separated for a rotation.
+#                      Optional; for Vault Transit set CONTENT_KEK_VAULT_KEY,
+#                      VAULT_ADDR and VAULT_TOKEN_FILE through env/extraEnvFrom.
+#                      Back it up with the database.
 #   ADMIN_PASSWORD     first owner (optional; with controlPlane.adminEmail)
 #   GATEWAY_ADMIN_TOKEN gateway, bearer token of POST /admin/models/reload
 #                      (only with gateway.adminToken.enabled; 32+ bytes)

@@ -45,7 +45,7 @@ dụng LLM trở nên an toàn.
 | I3 | Ai cũng tạo được tổ chức | Admin không tin cậy chọn upstream | Thiết lập ở P3, giới hạn người đăng ký |
 | I4 | Đăng ký 2FA tin ở lần đầu | Kẻ có mật khẩu đăng ký trước | Bắt buộc 2FA sớm; reset 2FA khi nghi ngờ |
 | I5 | `TRUSTED_PROXIES` sai | Giả mạo IP trong rate limit và log | Chỉ liệt kê proxy của bạn |
-| R1 | Lưu nội dung prompt trong audit | Dữ liệu cá nhân lưu trữ lâu dài | Để tắt `AUDIT_STORE_CONTENT`, đặt thời hạn lưu |
+| R1 | Lưu nội dung prompt trong audit | Dữ liệu cá nhân lưu trữ lâu dài | Để tắt `AUDIT_STORE_CONTENT`, đặt `CONTENT_KEK`, đặt thời hạn lưu |
 | R2 | Dữ liệu cá nhân lọt qua bộ che | Lộ trong câu trả lời | Bộ che dựa trên regex; tự kiểm thêm |
 | R3 | Trace ID hoặc nhãn metric lộ dữ liệu tenant | Lộ thông tin giữa các tenant | Mặc định an toàn; xem kỹ trước khi đổi |
 | S1 | Image, binary hoặc model bị sửa | Chạy mã tuỳ ý hoặc bộ phát hiện yếu đi | cosign verify, model ghim SHA-256, digest |
@@ -278,6 +278,10 @@ sẽ lưu prompt và câu trả lời được đệm.
 Nên làm:
 
 - Để tắt lưu nội dung nếu không cần, và báo cho người dùng nếu bật.
+- Đặt khoá mã hoá khoá (`CONTENT_KEK`, `CONTENT_KEK_FILE` hoặc khoá Vault
+  Transit): nội dung đã lưu khi đó được mã hoá bằng khoá riêng của từng org
+  ([Mã hoá](security/README.vi.md#mã-hoá)); sao lưu khoá, và chạy
+  `control-plane keys encrypt-existing` cho nội dung đã lưu trước đó.
 - Đặt `AUDIT_RETENTION_DAYS`, mã hoá database khi lưu trữ và hạn chế người đọc được.
 
 ### R2. Dữ liệu cá nhân lọt qua bộ che

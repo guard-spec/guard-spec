@@ -45,7 +45,7 @@ make an LLM application safe on its own.
 | I3 | Any user can create an organization | Untrusted admins choose upstreams | P3 settings, restrict who can sign up |
 | I4 | 2FA enrolment is trust on first use | An attacker with a password enrols first | Require 2FA early; reset 2FA when in doubt |
 | I5 | Wrong `TRUSTED_PROXIES` | Spoofed client IPs in limits and logs | List only your proxies |
-| R1 | Prompt content stored in audit rows | Personal data at rest | Keep `AUDIT_STORE_CONTENT` off, retention |
+| R1 | Prompt content stored in audit rows | Personal data at rest | Keep `AUDIT_STORE_CONTENT` off, set `CONTENT_KEK`, retention |
 | R2 | Personal data passes the redactor | Leaks in answers | Redaction is regex-based; add your own checks |
 | R3 | Trace IDs or metric labels leak tenant data | Cross-tenant information | Defaults are safe; review before changing them |
 | S1 | Tampered image, binary or model | Arbitrary code or a weakened detector | cosign verify, SHA-256 pinned models, digests |
@@ -288,6 +288,10 @@ What to do:
 
 - Keep content storage off unless you need it, and tell your users if you
   turn it on.
+- Set a key-encryption key (`CONTENT_KEK`, `CONTENT_KEK_FILE` or a Vault
+  Transit key): stored content is then encrypted with a key per organization
+  ([Encryption](security/README.md#encryption)); back the key up, and run
+  `control-plane keys encrypt-existing` for content stored before.
 - Set `AUDIT_RETENTION_DAYS`, encrypt the database at rest and limit who can
   read it.
 

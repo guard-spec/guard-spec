@@ -617,6 +617,7 @@ in a second table.
 | `UPSTREAM_ALLOW_PRIVATE` | `false` (compose: `true`) | `true` lets org-defined upstreams reach loopback, RFC 1918, unique local (fc00::/7) and CGNAT (100.64.0.0/10) addresses. Checked when the gateway connects. `UPSTREAM_LLM_URL` is never restricted |
 | `CLIENT_HALF_CLOSE` | `cancel` | `wait` keeps the upstream call running when a client half-closes its socket |
 | `AUDIT_STORE_CONTENT` | `false` | `true` stores prompt and response content in audit rows for every org |
+| `CONTENT_KEK` | empty | Key-encryption key of stored content (also `CONTENT_KEK_FILE`, or `CONTENT_KEK_VAULT_KEY` for Vault Transit): content is sealed with a data key per org before it is stored. Same value on the control plane. See [Encryption](docs/security/README.md#encryption) |
 | `AUDIT_DEDUPE_WINDOW` | `10s` | Retried refusals: a request refused the same way as one within this window (same org, API key, layer, label, rule and triggering text) adds to the first row's `repeat_count` instead of writing a row and an alert event. The window slides with each repeat, up to 5 minutes per row. `0` turns it off. Per process. See [Audit privacy](#audit-privacy) |
 | `SCAN_ROLES` | `user,tool,tool_descriptions` | Parts to classify: `user`, `tool`, `system`, `tool_calls`, `tool_descriptions`, or `all` / `none` |
 | `SCAN_TOOL_PREFIXES` | empty (every tool) | Comma-separated tool-name prefixes: only tool definitions whose name starts with one of them are checked for poisoning; the others are trusted as the client's own. For Claude Code: `mcp__` (its MCP servers' tools), see [docs/integrations.md](docs/integrations.md#claude-code-checked-through-the-gateway) |
@@ -680,7 +681,8 @@ in a second table.
 | `UPSTREAM_KEY_ORGS` | empty (compose: `UPSTREAM_KEY_MAIN=*`) | As on the gateway. Saving an upstream (or a config file) that names a key variable not allowed for the org is refused |
 | `UPSTREAM_KEY_*`, `UPSTREAM_ALLOW_PRIVATE` | empty, `false` (compose: `false`; dev override: `true`) | Used only by `POST .../upstreams/:id/test` (owner only), which applies the gateway's key allowlist and address rules. A key is sent with a test only to orgs `UPSTREAM_KEY_ORGS` lists by id, not through `*` (except with `GUARD_ENV=dev`); the answer says `key_sent`. Give the control plane `UPSTREAM_KEY_*` variables only if tests should use them |
 | `TRUSTED_PROXIES` | empty | Comma-separated CIDRs or addresses of reverse proxies. Their `X-Forwarded-For` is read from the right, and the first address that is not a trusted proxy is the client, for rate limits, sessions and the activity log. Empty: the header is ignored and the TCP peer is the client |
-| `MFA_ENC_KEY` | empty (dev: a fixed key) | 32 random bytes in base64 (`openssl rand -base64 32`). Encrypts TOTP secrets with AES-256-GCM. Without it 2FA cannot be turned on; when users already have 2FA the control plane refuses to start without it. The development key is refused outside `GUARD_ENV=dev`. Back it up with the database: a lost key disables everyone's 2FA |
+| `MFA_ENC_KEY` | empty (dev: a fixed key) | 32 random bytes in base64 (`openssl rand -base64 32`). Encrypts TOTP secrets with AES-256-GCM. Without it 2FA cannot be turned on; when users already have 2FA the control plane refuses to start without it. The development key is refused outside `GUARD_ENV=dev`. Back it up with the database: a lost key disables everyone's 2FA. Several keys, comma-separated and the newest first, for a rotation (`control-plane keys rotate`) |
+| `CONTENT_KEK` | empty | Opens the stored content the gateway encrypted; the same value as on the gateway (or `CONTENT_KEK_FILE`, `CONTENT_KEK_VAULT_KEY`). See [Encryption](docs/security/README.md#encryption) |
 | `PUBLIC_BASE_URL` | empty (dev: `http://localhost:18081`) | External origin of the control plane, such as `https://guard.example.com`. SSO callbacks go to `<PUBLIC_BASE_URL>/v1/auth/oidc/<provider id>/callback`; SSO is unavailable without it |
 | `OIDC_SECRET_*` | empty | Client secrets of SSO providers; each provider names its variable in `client_secret_env` |
 | `METRICS_ADDR` | `:9091` | Metrics listener; `off` disables it |
@@ -1559,7 +1561,9 @@ prompt or response content unless content storage is enabled, either for every
 organization with `AUDIT_STORE_CONTENT=true` on the gateway, or for one
 organization with `PATCH /v1/organizations/{id}` and
 `{"audit_store_content": true}` (admin role). Streamed responses are not
-buffered, so their response columns stay empty.
+buffered, so their response columns stay empty. With `CONTENT_KEK` (or a
+Vault Transit key) the stored content is encrypted with a data key of its
+organization ([Encryption](docs/security/README.md#encryption)).
 
 Each request gets one audit row. `action` is `allow`, `block`, `error` (the
 upstream failed or the client left before it answered) or `output_leak` (the

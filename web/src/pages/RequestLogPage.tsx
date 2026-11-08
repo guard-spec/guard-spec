@@ -211,6 +211,12 @@ export function RequestLogPage() {
                 </dd>
               </>
             ) : null}
+            {open.content_error ? (
+              <>
+                <dt>{t('audit.content')}</dt>
+                <dd className="muted">{t('audit.contentUnavailable')}</dd>
+              </>
+            ) : null}
           </dl>
         ) : null}
       </Dialog>

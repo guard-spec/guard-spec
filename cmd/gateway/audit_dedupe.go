@@ -195,9 +195,9 @@ func (s auditStore) write(e requestEntry) {
 }
 
 // dbAuditStore writes to the requests table and the alert emitter.
-func dbAuditStore(db *pgxpool.Pool, storeContent bool, emitter *events.Emitter, flagAt float64) auditStore {
+func dbAuditStore(db *pgxpool.Pool, content auditContent, emitter *events.Emitter, flagAt float64) auditStore {
 	return auditStore{
-		insert: func(e requestEntry) error { return insertRequest(db, storeContent, e) },
+		insert: func(e requestEntry) error { return insertRequest(db, content, e) },
 		update: func(org, id uuid.UUID, count int64) error { return updateRepeatCount(db, org, id, count) },
 		emit:   func(e requestEntry) { emitEvents(emitter, e, flagAt) },
 	}

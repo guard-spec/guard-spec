@@ -15,6 +15,7 @@ nhận định phụ thuộc vào một thiết lập, thiết lập đó đư�
 | Tài liệu | Nội dung |
 |---|---|
 | Trang này | Kiến trúc, luồng dữ liệu, dữ liệu được lưu và thời hạn lưu, secret, mã hoá |
+| [Quản lý lỗ hổng](vulnerabilities.vi.md) | Cách không để CVE đã biết đi vào bản phát hành: quét hằng ngày code, lockfile và image đã phát hành, gate CI, VEX, base image, thời hạn vá |
 | [Xác minh một bản phát hành](verifying-releases.md) | Chữ ký cosign của image và archive, SBOM, SLSA provenance, kèm lệnh và kết quả của chúng cho v0.2.0 |
 | [Rủi ro bảo mật và gia cố](../security-risks.vi.md) | Mô hình mối đe doạ: các rủi ro còn lại trong một bản triển khai, cách giảm từng rủi ro, và checklist gia cố |
 | [SECURITY.md](../../SECURITY.md) | Báo lỗ hổng, các phiên bản được hỗ trợ, mục tiêu thời gian phản hồi |
@@ -148,14 +149,53 @@ mã khôi phục chỉ hiển thị một lần và chỉ được lưu dạng h
   `sslmode=require` (hoặc `verify-full`) trong `DATABASE_URL` khi database nằm
   trên host khác. Các lời gọi tới upstream, SSO và kênh cảnh báo dùng HTTPS
   theo cấu hình.
-- **Khi lưu, do Guard Spec mã hoá.** Secret TOTP: AES-256-GCM với `MFA_ENC_KEY`.
-  Mật khẩu và mã khôi phục: bcrypt. API key và token dùng một lần: SHA-256.
-  Ứng dụng không mã hoá gì khác.
-- **Khi lưu, do nền tảng của bạn mã hoá.** Các dòng audit (và nội dung của
-  chúng, nếu có lưu), activity log, địa chỉ e-mail và địa chỉ IP dựa vào mã hoá
-  lưu trữ của database: hãy bật nó (RDS `storage_encrypted`, mã hoá mặc định
-  của Cloud SQL, LUKS hoặc tương tự khi chạy on-premise), và bật cho cả bản
-  sao lưu.
+- **Nội dung đã lưu, do Guard Spec mã hoá.** Khi có khoá mã hoá khoá (KEK),
+  prompt và câu trả lời mà gateway lưu (chỉ khi `AUDIT_STORE_CONTENT=true` hoặc
+  org bật lưu) được mã hoá AES-256-GCM bằng khoá dữ liệu riêng của org trước
+  khi vào database: `request_content` chứa `gsenc:v1:<id khoá>:<bản mã>`, gắn
+  với org, cột và hash của body. Khoá dữ liệu nằm trong `org_data_keys`, chỉ ở
+  dạng đã bọc bằng KEK; KEK không bao giờ được lưu. Control plane giải mã khi
+  hiển thị request log; không có khoá thì chỉ báo nội dung đã mã hoá. Khi không
+  dùng được KEK (Vault ngừng), dòng audit vẫn được ghi nhưng không có nội dung,
+  không bao giờ ghi dạng rõ.
+- **Secret TOTP**: AES-256-GCM với `MFA_ENC_KEY`. Mật khẩu và mã khôi phục:
+  bcrypt. API key và token dùng một lần: SHA-256.
+- **Khi lưu, do nền tảng của bạn mã hoá.** Phần còn lại của dòng audit,
+  activity log, địa chỉ e-mail và địa chỉ IP dựa vào mã hoá lưu trữ của
+  database: hãy bật nó (RDS `storage_encrypted`, mã hoá mặc định của Cloud
+  SQL, LUKS hoặc tương tự khi chạy on-premise), và bật cho cả bản sao lưu.
+
+### Cấu hình khoá mã hoá khoá
+
+Đặt cùng một giá trị cho gateway và control plane:
+
+| Biến | Giá trị |
+|---|---|
+| `CONTENT_KEK` | Khoá local: 32 byte ngẫu nhiên dạng base64 (`openssl rand -base64 32`), có thể đặt tên (`2026-11:<khoá>`). Nhiều khoá cách nhau bằng dấu phẩy, khoá đang dùng đứng đầu |
+| `CONTENT_KEK_FILE` | Như trên, đọc từ tệp (secret của Docker hoặc Kubernetes) |
+| `CONTENT_KEK_VAULT_KEY` | Tên khoá Transit của HashiCorp Vault, kèm `VAULT_ADDR`, `VAULT_TOKEN` hoặc `VAULT_TOKEN_FILE` (đọc lại mỗi phút, cho agent tự gia hạn token), và tuỳ chọn `CONTENT_KEK_VAULT_MOUNT` (mặc định `transit`), `VAULT_NAMESPACE`. Khoá không rời Vault; token cần quyền `encrypt` và `decrypt` trên khoá đó. Nếu đặt cả khoá local, Vault là khoá đang dùng và khoá local chỉ để mở: đó là cách chuyển từ khoá local sang Vault |
+
+**Sao lưu KEK** cùng với bản sao lưu database nhưng tách riêng: không có nó
+thì không đọc được nội dung trong bản sao lưu. `doctor` (check `encryption`)
+thử bọc và mở bằng KEK đang dùng, và báo các khoá dữ liệu có KEK chưa cấu hình
+cùng nội dung còn ở dạng rõ.
+
+### Xoay khoá và nội dung đã có
+
+`control-plane keys` chạy với `DATABASE_URL` của role bỏ qua row-level
+security (chủ sở hữu bảng), trong khi dịch vụ vẫn chạy. `-org <id>` giới hạn
+trong một org. Các lệnh ở bản tiếng Anh: `encrypt-existing`, `rotate
+-new-data-keys` (KEK mới đặt đầu `CONTENT_KEK=new:<khoá>,old:<khoá>`, khởi
+động lại dịch vụ, rồi chạy lệnh; sau đó bỏ được KEK cũ), `status`, `prune`,
+`decrypt-existing` (trước khi bỏ KEK hoặc migrate xuống). `MFA_ENC_KEY` xoay
+giống vậy: `MFA_ENC_KEY=<mới>,<cũ>` rồi `keys rotate`.
+
+Retention xoá các khoá dữ liệu đã nghỉ mà không còn dòng nào dùng, sau khi xoá
+dòng cũ. Xoá một org thì xoá khoá dữ liệu của nó: nội dung đã mã hoá của org
+không còn giải mã được ở nơi khoá đã mất. Bản sao lưu database chụp trước đó
+vẫn chứa khoá đã bọc, nên muốn cả bản sao lưu cũ không đọc được thì xoay KEK và
+huỷ KEK cũ (với Vault Transit: nâng `min_decryption_version` và xoá các phiên
+bản cũ) khi các bản sao lưu đó đã hết hạn.
 
 ## Cách ly tenant
 
@@ -211,7 +251,9 @@ có thể xác nhận rằng một văn bản đã biết đã được org đó
 | SSO provider | Luồng ủy quyền OIDC | Khi đăng nhập SSO |
 | Kênh cảnh báo | Metadata cảnh báo: loại event, mức độ, id, nhóm, điểm số. Không có nội dung prompt | Khi khớp luật cảnh báo |
 | OTLP collector | Span không chứa nội dung prompt; `traceparent` chỉ gửi tới upstream khi `OTEL_PROPAGATE_UPSTREAM=true` | Khi bật tracing |
-| Hugging Face (hoặc `MODELS_MIRROR`) | Tải model, kiểm tra theo SHA-256 đã ghim | Chỉ khi chạy `models pull`; `gateway-full` không cần |
+| Hugging Face (hoặc `MODELS_MIRROR`) | Tải model, kiểm tra theo SHA-256 đã ghim | Chỉ khi chạy `models pull` / `models init`; `gateway-full` không cần |
+| GitHub API (hoặc `DOCTOR_ADVISORIES_URL`) | Một GET danh sách security advisory đã công bố của dự án, không kèm định danh nào của bản cài | Khi bạn chạy `doctor`; `-skip advisories` để tắt |
+| Vault (`VAULT_ADDR`) | Khoá dữ liệu cần bọc hoặc mở, không có nội dung | Chỉ khi `CONTENT_KEK_VAULT_KEY` được đặt |
 
 Không có telemetry hay gọi về nhà.
 

@@ -335,6 +335,7 @@ export const vi: Messages = {
   'audit.flags': 'Dấu hiệu',
   'audit.requestHash': 'SHA-256 của yêu cầu',
   'audit.content': 'Nội dung đã lưu',
+  'audit.contentUnavailable': 'Đã lưu dạng mã hoá; control plane này không mở được (thiếu khoá, hoặc khoá đã bị huỷ).',
   'audit.emptyTitle': 'Chưa có yêu cầu nào',
   'audit.emptyBody': 'Yêu cầu sẽ hiện ở đây khi một ứng dụng gọi gateway bằng khóa API của tổ chức này.',
   'report.action': 'Báo cáo',

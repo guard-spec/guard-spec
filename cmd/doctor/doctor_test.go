@@ -380,7 +380,7 @@ func TestRunOutput(t *testing.T) {
 	if err := json.Unmarshal(buf.Bytes(), &rep); err != nil {
 		t.Fatalf("not JSON: %v\n%s", err, buf.String())
 	}
-	if len(rep.Checks) != len(checkNames) || rep.Summary != (Summary{OK: 1, Warnings: 1, Skipped: 5}) {
+	if len(rep.Checks) != len(checkNames) || rep.Summary != (Summary{OK: 1, Warnings: 1, Skipped: 6}) {
 		t.Errorf("report %+v", rep)
 	}
 
@@ -389,7 +389,7 @@ func TestRunOutput(t *testing.T) {
 	if code != exitFail {
 		t.Errorf("strict with a warning: exit %d", code)
 	}
-	for _, s := range []string{"guard-spec doctor", "[ OK ] layers", "[WARN] upstream", "[SKIP] database", "summary: 1 ok, 1 warnings, 0 failed, 5 skipped"} {
+	for _, s := range []string{"guard-spec doctor", "[ OK ] layers", "[WARN] upstream", "[SKIP] database", "summary: 1 ok, 1 warnings, 0 failed, 6 skipped"} {
 		if !strings.Contains(buf.String(), s) {
 			t.Errorf("output lacks %q:\n%s", s, buf.String())
 		}

@@ -703,6 +703,8 @@ export interface MockOptions {
   noShadow?: boolean;
   /** The org stores request content: every request row carries a chat body with STORED_PROMPT. */
   storeContent?: boolean;
+  /** Stored content is encrypted and this control plane has no key: rows carry content_error instead. */
+  encryptedContent?: boolean;
 }
 
 /** The user message of every stored request body (storeContent). */
@@ -1024,6 +1026,10 @@ const IDENTITY_PATH =
 
 export async function installMockApi(page: Page, state: MockState = seedState(), opts: MockOptions = {}): Promise<MockState> {
   const id = state.identity;
+  if (opts.encryptedContent) {
+    state.org.audit_store_content = true;
+    for (const r of state.requests) r.content_error = 'encrypted: this control plane has no key-encryption key (CONTENT_KEK, CONTENT_KEK_FILE or CONTENT_KEK_VAULT_KEY)';
+  }
   if (opts.storeContent) {
     state.org.audit_store_content = true;
     for (const r of state.requests) r.request_content = JSON.stringify({ model: r.model, messages: [{ role: 'system', content: 'You are the Acme support bot.' }, { role: 'user', content: STORED_PROMPT }] });

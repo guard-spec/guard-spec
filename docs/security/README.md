@@ -149,13 +149,64 @@ codes are shown once and stored only as hashes.
 - **In transit.** Terminate TLS in front of both services. Use
   `sslmode=require` (or `verify-full`) in `DATABASE_URL` for a database on
   another host. Upstream, SSO and alert calls use HTTPS as configured.
-- **At rest, by Guard Spec.** TOTP secrets: AES-256-GCM with `MFA_ENC_KEY`.
-  Passwords and recovery codes: bcrypt. API keys and one-time tokens: SHA-256.
-  Nothing else is encrypted by the application.
-- **At rest, by your platform.** Audit rows (and their content, if stored),
-  the activity log, e-mail addresses and IP addresses rely on the
-  database's storage encryption: turn it on (RDS `storage_encrypted`, Cloud
-  SQL default encryption, LUKS or similar on-premise) and for backups too.
+- **Stored content, by Guard Spec.** With a key-encryption key (KEK)
+  configured, the prompts and answers the gateway stores (only with
+  `AUDIT_STORE_CONTENT=true` or an organization's opt-in) are sealed with
+  AES-256-GCM under a data key of their organization, before they reach the
+  database: `request_content` holds `gsenc:v1:<key id>:<ciphertext>`, bound
+  to its organization, column and body hash. The data keys are in
+  `org_data_keys`, only wrapped by the KEK; the KEK is never stored. The
+  control plane opens the content for the request log; without the key it
+  shows that the content is encrypted. When the KEK cannot be used (Vault
+  down), the row is written without its content rather than in the clear.
+- **TOTP secrets**: AES-256-GCM with `MFA_ENC_KEY`. Passwords and recovery
+  codes: bcrypt. API keys and one-time tokens: SHA-256.
+- **At rest, by your platform.** The rest of the audit rows, the activity
+  log, e-mail addresses and IP addresses rely on the database's storage
+  encryption: turn it on (RDS `storage_encrypted`, Cloud SQL default
+  encryption, LUKS or similar on-premise) and for backups too.
+
+### Configuring the key-encryption key
+
+Set the same value on the gateway and the control plane:
+
+| Variable | Value |
+|---|---|
+| `CONTENT_KEK` | Local keys: 32 random bytes in base64 (`openssl rand -base64 32`), optionally named (`2026-11:<key>`). Several, comma-separated, the active one first |
+| `CONTENT_KEK_FILE` | The same, read from a file (a Docker or Kubernetes secret) |
+| `CONTENT_KEK_VAULT_KEY` | A HashiCorp Vault Transit key name, with `VAULT_ADDR`, `VAULT_TOKEN` or `VAULT_TOKEN_FILE` (re-read every minute, for an agent that renews it), and optionally `CONTENT_KEK_VAULT_MOUNT` (default `transit`) and `VAULT_NAMESPACE`. The key never leaves Vault; the token needs `encrypt` and `decrypt` on it. With local keys set too, Vault is active and the local keys only unwrap: that is how you move from local keys to Vault |
+
+**Back the KEK up** with the database backups, separately from them: the
+stored content of a backup cannot be read without it. `doctor` (check
+`encryption`) tries a wrap and unwrap with the active KEK and reports data
+keys whose KEK is not configured and content still stored in the clear.
+
+### Rotating keys and existing content
+
+`control-plane keys` runs with a `DATABASE_URL` of a role that bypasses
+row-level security (the table owner), while the services keep running.
+`-org <id>` limits it to one organization.
+
+```bash
+# Content stored before the KEK was set: seal it, in batches.
+control-plane keys encrypt-existing
+# New KEK: put it first (CONTENT_KEK=new:<key>,old:<key>), restart the
+# services, then wrap every data key with it (and, optionally, start a new
+# data key per organization). The old KEK can then be removed.
+control-plane keys rotate -new-data-keys
+# MFA_ENC_KEY rotates the same way: MFA_ENC_KEY=<new>,<old>, then keys rotate.
+control-plane keys status            # what uses which key
+control-plane keys prune             # retired data keys no row uses
+control-plane keys decrypt-existing  # before removing the KEK or migrating down
+```
+
+Retention deletes retired data keys that no stored row uses after it
+deletes old rows. Deleting an organization deletes its data keys: its sealed
+content no longer decrypts wherever the key is gone. A database backup taken
+earlier holds the wrapped keys too, so to make old backups unreadable as
+well, rotate the KEK and destroy the old one (for Vault Transit, raise
+`min_decryption_version` and trim the old versions) once those backups
+have expired.
 
 ## Tenant isolation
 
@@ -212,6 +263,7 @@ reader can confirm that a known text was sent by that org within 6 hours).
 | Alert channels | Alert metadata: event type, severity, ids, categories, scores. No prompt text | Matching alert rules |
 | OTLP collector | Spans without prompt text; `traceparent` to the upstream only with `OTEL_PROPAGATE_UPSTREAM=true` | Tracing on |
 | Hugging Face (or `MODELS_MIRROR`) | Model downloads, checked against SHA-256 pins | `models pull` / `models init` only; `gateway-full` needs none |
+| Vault (`VAULT_ADDR`) | Data keys to wrap or unwrap, never content | Only with `CONTENT_KEK_VAULT_KEY` |
 | GitHub API (or `DOCTOR_ADVISORIES_URL`) | A GET of the project's published security advisories, with no identifier of the install | When you run `doctor`; `-skip advisories` turns it off |
 
 There is no telemetry or call home: the services never contact anything you

@@ -73,7 +73,7 @@ func TestRetriedRefusalsDB(t *testing.T) {
 		t.Fatal(err)
 	}
 	gw := testGateway(t, runner)
-	gw.audit = newAuditLog(dbAuditStore(db, false, emitter, defaultFlagThreshold).write)
+	gw.audit = newAuditLog(dbAuditStore(db, auditContent{}, emitter, defaultFlagThreshold).write)
 	dedupe := newRefusalDedupe(10 * time.Second)
 	now := time.Now()
 	var clockMu sync.Mutex

@@ -76,6 +76,11 @@ services:
       DATABASE_URL: postgres://guardspec_app@postgres:5432/${POSTGRES_DB:-guardspec}?sslmode=disable
       PGPASSWORD: ${GUARDSPEC_APP_PASSWORD:?set GUARDSPEC_APP_PASSWORD in .env}
       AUDIT_STORE_CONTENT: ${AUDIT_STORE_CONTENT:-false}
+      # Encrypts stored content (with AUDIT_STORE_CONTENT or an org's opt-in):
+      # 32 random bytes, base64 (openssl rand -base64 32), the same on the
+      # gateway and the control plane. Back it up: without it stored content
+      # cannot be read. Vault Transit instead: docs/security/README.md#encryption.
+      CONTENT_KEK: ${CONTENT_KEK:-}
       MODEL_DIR: /models
       L2_MODEL: ${L2_MODEL:-}
       L3_MODEL: ${L3_MODEL:-}
@@ -148,6 +153,8 @@ services:
       PGPASSWORD: ${GUARDSPEC_APP_PASSWORD:?set GUARDSPEC_APP_PASSWORD in .env}
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
       MFA_ENC_KEY: ${MFA_ENC_KEY:?set MFA_ENC_KEY in .env (openssl rand -base64 32) and back it up}
+      # Opens the stored content the gateway encrypted (same value as there).
+      CONTENT_KEK: ${CONTENT_KEK:-}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       ALLOWED_ORIGINS: https://${ADMIN_HOST}
