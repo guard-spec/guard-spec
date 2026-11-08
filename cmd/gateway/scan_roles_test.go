@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -50,7 +51,7 @@ func TestLoadScanConfig(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := loadScanConfig(func(k string) string { return tt.env[k] })
-			if (err != nil) != tt.wantErr || got != tt.want {
+			if (err != nil) != tt.wantErr || !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("got %+v, %v; want %+v, err %v", got, err, tt.want, tt.wantErr)
 			}
 		})

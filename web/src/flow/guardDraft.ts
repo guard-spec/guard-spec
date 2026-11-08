@@ -24,6 +24,10 @@ export function guardBody(s: GuardSettings): GuardSettings {
   if (s.conversation_window_turns !== undefined) out.conversation_window_turns = s.conversation_window_turns;
   if (s.conversation_window_bytes !== undefined) out.conversation_window_bytes = s.conversation_window_bytes;
   if (s.input_pii !== undefined) out.input_pii = s.input_pii;
+  if (s.input_pii_action && s.input_pii_action !== 'off') {
+    out.input_pii_action = s.input_pii_action;
+    if (s.input_pii_kinds?.length) out.input_pii_kinds = [...s.input_pii_kinds];
+  }
   return out;
 }
 

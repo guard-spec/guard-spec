@@ -438,8 +438,23 @@ kế tiếp.
   không được kiểm tra**, kể cả khi `SCAN_ROLES` quét chúng tìm injection: đó
   là văn bản của chính ứng dụng và thường chứa dữ liệu mẫu, nếu tính vào thì
   mọi request đều khớp luật.
+- **Giữ dữ liệu khỏi nhà cung cấp** (`input_pii_action`, Thiết lập bảo vệ →
+  Trước khi gửi request lên upstream). `tokenize` thay mỗi giá trị bằng một
+  token như `⟦EMAIL_1⟧` (cùng giá trị, cùng token) và trả lại giá trị trong câu
+  trả lời, streaming hay không, trước khi tới client: nhà cung cấp không bao
+  giờ thấy, người dùng vẫn thấy. `redact` thay bằng nhãn (`[EMAIL]`) và không
+  trả lại. `input_pii_kinds` giới hạn theo loại (mặc định cả năm). Áp dụng cho
+  lượt người dùng, kết quả tool và tài liệu (sau khi đã chấm điểm, nên phát
+  hiện và luật thấy request như được gửi) và các câu trả lời trước mà client
+  gửi lại, gồm cả văn bản assistant và tham số tool call (số JSON trong tham số
+  được giữ nguyên). Giữ nguyên: system prompt và developer prompt, khối thinking
+  có chữ ký, kết quả web search và fetch của chính nhà cung cấp. Token chỉ nằm
+  trong bộ nhớ cho request đó. Giá trị được trả lại vẫn đi qua output guard như
+  mọi văn bản khác, nên với `OUTPUT_REDACT_PII=true` câu trả lời hiện dạng đã
+  che. Dòng audit có `input:pii_tokenized_<loại>=<số>` hoặc
+  `input:pii_redacted_<loại>=<số>`.
 - **Luật, audit, cảnh báo.** Luật có thể `log` hoặc `block` theo
-  `input.pii.kinds` và `input.pii.count`; không có `redact`. Dòng audit có thẻ
+  `input.pii.kinds` và `input.pii.count`. Dòng audit có thẻ
   `input:pii_<loại>=<số>`, event phát hiện có `pii_kinds` và `pii_count`;
   giá trị không bao giờ được lưu hay gửi đi.
 - **Độ trễ** (Apple M3 Max, `BenchmarkInputPII`): thêm khoảng 11 µs cho

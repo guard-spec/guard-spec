@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/guard-spec/guard-spec/internal/outputguard"
 )
 
 // Source names where a scanned piece of text came from.
@@ -132,11 +134,29 @@ type Settings struct {
 	// or false), the default: the text is not checked and the fields read
 	// empty. There is no gateway-wide default (ADR 0003).
 	InputPII *bool `json:"input_pii,omitempty"`
+	// InputPIIAction keeps personal data in request text from the upstream
+	// (RF-5b9b3aa2): off (the default), redact (a label such as "[EMAIL]") or
+	// tokenize (a token such as "⟦EMAIL_1⟧" that the answer gets the value
+	// back for). It checks the text the way input_pii does, and turns the
+	// counting on too.
+	InputPIIAction *string `json:"input_pii_action,omitempty"`
+	// InputPIIKinds limits the action to these kinds (outputguard.PIIKinds);
+	// empty: every kind.
+	InputPIIKinds []string `json:"input_pii_kinds,omitempty"`
 }
 
-// PII reports whether the org turned the personal-data check of request text on.
+// PII reports whether the org turned the personal-data check of request text
+// on, by itself or through an action.
 func (s Settings) PII() bool {
-	return s.InputPII != nil && *s.InputPII
+	return (s.InputPII != nil && *s.InputPII) || s.PIIAction() != outputguard.PIIOff
+}
+
+// PIIAction is the org's input_pii_action, off when not set.
+func (s Settings) PIIAction() string {
+	if s.InputPIIAction == nil || *s.InputPIIAction == "" {
+		return outputguard.PIIOff
+	}
+	return *s.InputPIIAction
 }
 
 // Bounds and defaults of the conversation window. A window of one turn is
@@ -252,6 +272,14 @@ func ParseSettings(raw []byte) (Settings, error) {
 	}
 	if err := validThreshold("indirect_threshold", s.IndirectThreshold); err != nil {
 		return Settings{}, err
+	}
+	if a := s.InputPIIAction; a != nil && !slices.Contains([]string{outputguard.PIIOff, outputguard.PIIRedact, outputguard.PIITokenize}, *a) {
+		return Settings{}, fmt.Errorf("guard settings: input_pii_action must be off, redact or tokenize")
+	}
+	for _, k := range s.InputPIIKinds {
+		if !slices.Contains(outputguard.PIIKinds, k) {
+			return Settings{}, fmt.Errorf("guard settings: unknown input_pii_kinds entry %q (have %s)", k, strings.Join(outputguard.PIIKinds, ", "))
+		}
 	}
 	// The org sets a size; turning the window off is conversation_window.
 	if t := s.ConversationWindowTurns; t != nil && (*t < MinWindowTurns || *t > MaxWindowTurns) {

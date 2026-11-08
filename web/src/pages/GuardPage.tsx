@@ -9,6 +9,7 @@ import { guardBody, parseThreshold, parseWindowSize } from '../flow/guardDraft';
 import { KeyTip } from '../flow/HelpText';
 import {
   DEFAULT_SCAN_ROLES,
+  PII_KINDS,
   SCAN_ROLES,
   WINDOW_BYTES,
   WINDOW_TURNS,
@@ -199,8 +200,9 @@ export function GuardPage() {
                     id="input-pii"
                     type="checkbox"
                     role="switch"
-                    checked={draft.input_pii === true}
-                    disabled={!writable}
+                    // An action needs the check: it is on while one is chosen.
+                    checked={draft.input_pii === true || (draft.input_pii_action ?? 'off') !== 'off'}
+                    disabled={!writable || (draft.input_pii_action ?? 'off') !== 'off'}
                     onChange={(e) => {
                       const { input_pii: _old, ...rest } = draft;
                       // Off is stored as false, so the page shows what the org chose.
@@ -215,6 +217,57 @@ export function GuardPage() {
             </span>
             <div className="small muted">{t('guard.inputPii.help')}</div>
           </div>
+          <div className="field">
+            <label htmlFor="input-pii-action">{t('guard.piiAction')}</label>
+            <select
+              id="input-pii-action"
+              value={draft.input_pii_action ?? 'off'}
+              disabled={!writable}
+              onChange={(e) => {
+                const v = e.target.value as 'off' | 'redact' | 'tokenize';
+                const { input_pii_action: _old, input_pii_kinds: kinds, ...rest } = draft;
+                setDraft(v === 'off' ? rest : { ...rest, input_pii_action: v, ...(kinds?.length ? { input_pii_kinds: kinds } : {}) });
+              }}
+            >
+              <option value="off">{t('guard.piiAction.off')}</option>
+              <option value="tokenize">{t('guard.piiAction.tokenize')}</option>
+              <option value="redact">{t('guard.piiAction.redact')}</option>
+            </select>
+            <div className="small muted" data-testid="pii-action-help">
+              {t(`guard.piiAction.${draft.input_pii_action ?? 'off'}Help`)}
+            </div>
+          </div>
+          {draft.input_pii_action && draft.input_pii_action !== 'off' ? (
+            <fieldset className="check-group" aria-describedby="pii-kinds-help">
+              <legend>{t('guard.piiKinds')}</legend>
+              <div className="check-row">
+                {PII_KINDS.map((k) => {
+                  const chosen = draft.input_pii_kinds ?? [];
+                  const all = chosen.length === 0;
+                  const on = all || chosen.includes(k);
+                  return (
+                    <label key={k} className="check">
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        disabled={!writable}
+                        onChange={(e) => {
+                          const current = all ? [...PII_KINDS] : [...chosen];
+                          const next = e.target.checked ? [...current, k] : current.filter((x) => x !== k);
+                          if (next.length === 0) return; // at least one kind; off is the action above
+                          const { input_pii_kinds: _old, ...rest } = draft;
+                          // Every kind is stored as none: the default.
+                          setDraft(next.length === PII_KINDS.length ? rest : { ...rest, input_pii_kinds: PII_KINDS.filter((x) => next.includes(x)) });
+                        }}
+                      />
+                      {t(`guard.piiKind.${k}`)}
+                    </label>
+                  );
+                })}
+              </div>
+              <div id="pii-kinds-help" className="small muted">{t('guard.piiKinds.help')}</div>
+            </fieldset>
+          ) : null}
         </fieldset>
         <fieldset>
           <legend>{t('panel.detectors.thresholds')}</legend>

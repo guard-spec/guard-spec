@@ -216,6 +216,7 @@ func (g *textGuard) guardAnthropicMessage(m map[string]any) error {
 		return g.guardSystem(m["content"])
 	}
 	if role == "assistant" {
+		defer g.pseudonymizeModel(m) // after classification (input_pii_protect.go)
 		return g.guardAssistantMessage(m)
 	}
 	g.source = indirect.SourceUser

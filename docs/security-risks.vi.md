@@ -46,7 +46,7 @@ dụng LLM trở nên an toàn.
 | I4 | Đăng ký 2FA tin ở lần đầu | Kẻ có mật khẩu đăng ký trước | Bắt buộc 2FA sớm; reset 2FA khi nghi ngờ |
 | I5 | `TRUSTED_PROXIES` sai | Giả mạo IP trong rate limit và log | Chỉ liệt kê proxy của bạn |
 | R1 | Lưu nội dung prompt trong audit | Dữ liệu cá nhân lưu trữ lâu dài | Để tắt `AUDIT_STORE_CONTENT`, đặt `CONTENT_KEK`, đặt thời hạn lưu |
-| R2 | Dữ liệu cá nhân lọt qua bộ che | Lộ trong câu trả lời | Bộ che dựa trên regex; tự kiểm thêm |
+| R2 | Dữ liệu cá nhân lọt qua bộ che | Lộ trong câu trả lời, gửi tới nhà cung cấp | `input_pii_action` tokenize hoặc redact; chỉ theo mẫu, tự kiểm thêm |
 | R3 | Trace ID hoặc nhãn metric lộ dữ liệu tenant | Lộ thông tin giữa các tenant | Mặc định an toàn; xem kỹ trước khi đổi |
 | S1 | Image, binary hoặc model bị sửa | Chạy mã tuỳ ý hoặc bộ phát hiện yếu đi | cosign verify, model ghim SHA-256, digest |
 | S2 | Lỗ hổng đã biết trong thư viện | Dịch vụ bị khai thác | Cập nhật bản mới nhất; theo dõi advisory |
@@ -288,10 +288,15 @@ Nên làm:
 
 Output guard che email, số điện thoại, CCCD, số thẻ Việt Nam và địa chỉ IPv4
 bằng mẫu regex. Định dạng khác, của nước khác, hay dữ liệu cá nhân viết bằng
-chữ đều không bị bắt. Prompt gửi lên upstream không được che.
+chữ đều không bị bắt. Prompt đi lên upstream nguyên văn, trừ khi tổ chức đặt
+`input_pii_action` (bên dưới).
 
-Nên làm: nếu không được gửi dữ liệu cá nhân cho nhà cung cấp LLM, hãy loại bỏ nó
-trong ứng dụng trước khi gửi, hoặc dùng nhà cung cấp và hợp đồng cho phép điều đó.
+Nên làm: nếu không được gửi dữ liệu cá nhân cho nhà cung cấp LLM, đặt
+`input_pii_action` là `tokenize` (câu trả lời được trả lại giá trị) hoặc
+`redact` trong guard settings của tổ chức ([Dữ liệu cá nhân trong
+request](../README.vi.md#dữ-liệu-cá-nhân-trong-request)). Cách này chỉ che những
+gì mẫu tìm được: dữ liệu cá nhân khác (họ tên, địa chỉ) hãy loại bỏ trong ứng
+dụng trước khi gửi, hoặc dùng nhà cung cấp và hợp đồng cho phép điều đó.
 
 ### R3. Trace ID hoặc nhãn metric lộ dữ liệu tenant
 
