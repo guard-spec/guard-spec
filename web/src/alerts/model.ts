@@ -166,7 +166,7 @@ export function onInstanceBot(c: { kind: ChannelKind; secret_env: string | null 
   return c.kind === 'telegram' && (c.secret_env ?? '').trim() === '';
 }
 
-export type ChannelErrors = Partial<Record<'name' | 'secret_env' | 'url' | 'agent_card_url' | 'to' | 'chat_id' | 'channel', string>>;
+export type ChannelErrors = Partial<Record<'name' | 'secret_env' | 'url' | 'agent_card_url' | 'to' | 'chat_id' | 'channel' | 'region', string>>;
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
