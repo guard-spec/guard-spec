@@ -86,7 +86,7 @@ resource "aws_ecs_task_definition" "gateway" {
       capabilities = { drop = ["ALL"] }
     }
     healthCheck = {
-      command     = ["CMD-SHELL", "curl -fsS http://localhost:8080/readyz || exit 1"]
+      command     = ["CMD", "/app/gateway", "health"]
       interval    = 10
       timeout     = 3
       retries     = 3

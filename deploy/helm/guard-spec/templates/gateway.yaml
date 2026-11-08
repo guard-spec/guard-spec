@@ -40,24 +40,9 @@ spec:
           imagePullPolicy: {{ .Values.gateway.image.pullPolicy }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          {{- if .Values.gateway.image.shell }}
-          command:
-            - /bin/sh
-            - -c
-            - |
-              ./models pull -manifest manifest.yaml -dir /models/cache "$@" && exit 0
-              if [ "$MODELS_REQUIRED" = true ]; then
-                echo "models-pull: a model could not be pulled (models.pull.required=true)" >&2
-                exit 1
-              fi
-              echo "models-pull: some models could not be pulled; the gateway starts on the layers it can load (see /readyz)" >&2
-            - models-pull
-            {{- range $pull.models }}
-            - {{ . | quote }}
-            {{- end }}
-          {{- else }}
-          # models init: the same, without a shell (MODELS_REQUIRED=true makes a
-          # failed pull fatal).
+          # models init (the image has no shell): MODELS_REQUIRED=true makes a
+          # failed pull fatal; otherwise it warns and the gateway starts on the
+          # layers it can load (see /readyz).
           command:
             - ./models
             - init
@@ -68,7 +53,6 @@ spec:
             {{- range $pull.models }}
             - {{ . | quote }}
             {{- end }}
-          {{- end }}
           env:
             - name: HOME
               value: /tmp

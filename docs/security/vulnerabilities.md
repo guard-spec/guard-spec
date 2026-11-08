@@ -58,13 +58,10 @@ so the deployment files call the binaries' own subcommands:
 | the `models-init` shell script (compose, Helm `models-pull`) | `./models init`: pulls what `DETECTOR_LAYERS` needs; a failed pull warns, or exits 1 with `DETECTOR_REQUIRE_ML=true` / `MODELS_REQUIRED=true` |
 | `cp /app/migrations/*.sql /migrations/` (Helm migrations job) | `/app/doctor copy-migrations /migrations /app/migrations` |
 
-The released 0.3.x images still have a shell, and `docker-compose.yml`, the
-production compose file, the Helm chart (`gateway.image.shell: true`) and
-the Terraform ECS module keep the shell forms for them until the release
-that ships the new images. `internal/version` has a test that fails when the
-version is bumped and one of those files still uses a shell form. Images
-built from source use the new forms already (`docker-compose.override.yml`,
-`tests/kind/values.yaml`).
+Since 0.4.0 the compose files, the Helm chart and the Terraform ECS module
+use these forms; the 0.3.x images were the last with a shell (an older
+chart's `gateway.image.shell` setting is gone). `internal/version` has a
+test that fails if a deployment file goes back to a shell form.
 
 ## When a scan finds something
 

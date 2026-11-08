@@ -20,7 +20,7 @@ name: guard-spec
 
 services:
   gateway:
-    image: ghcr.io/guard-spec/guard-spec-gateway:${GUARDSPEC_VERSION:-0.3.1}
+    image: ghcr.io/guard-spec/guard-spec-gateway:${GUARDSPEC_VERSION:-0.4.0}
     ports:
       - "${GATEWAY_PORT:-8080}:8080"   # proxy API (OpenAI-compatible, Anthropic Messages)
       - "${METRICS_PORT:-9090}:9090"   # Prometheus metrics
@@ -112,13 +112,13 @@ services:
       models-init:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD", "/app/gateway", "health", "/health"]
       interval: 10s
       timeout: 5s
       retries: 3
 
   control-plane:
-    image: ghcr.io/guard-spec/guard-spec-control-plane:${GUARDSPEC_VERSION:-0.3.1}
+    image: ghcr.io/guard-spec/guard-spec-control-plane:${GUARDSPEC_VERSION:-0.4.0}
     ports:
       - "${CONTROL_PLANE_PORT:-18081}:8081"
       - "${CONTROL_PLANE_METRICS_PORT:-9091}:9091"   # Prometheus metrics
@@ -243,19 +243,9 @@ services:
   # unless DETECTOR_REQUIRE_ML=true, which makes the failure stop the stack.
   # Air-gapped: use the gateway-full image or a mirror (docs/models.md).
   models-init:
-    image: ghcr.io/guard-spec/guard-spec-gateway:${GUARDSPEC_VERSION:-0.3.1}
-    entrypoint:
-      - /bin/sh
-      - -c
-      - |
-        case ",$${DETECTOR_LAYERS:-l1,l2,l3}," in
-        *,l3,*) set -- ;;
-        *,l2,*) set -- "$${L2_MODEL:-guardspec-classifier}" ;;
-        *) echo "models-init: DETECTOR_LAYERS=$${DETECTOR_LAYERS} needs no model"; exit 0 ;;
-        esac
-        ./models pull -manifest manifest.yaml -dir /models/cache "$$@" && exit 0
-        if [ "$${DETECTOR_REQUIRE_ML:-false}" = true ]; then exit 1; fi
-        echo "models-init: some models could not be pulled; the gateway runs without them (see /readyz and docs/models.md)" >&2
+    image: ghcr.io/guard-spec/guard-spec-gateway:${GUARDSPEC_VERSION:-0.4.0}
+    # models init reads DETECTOR_LAYERS, L2_MODEL and DETECTOR_REQUIRE_ML (the image has no shell).
+    entrypoint: ["./models", "init", "-manifest", "manifest.yaml", "-dir", "/models/cache"]
     user: "${MODELS_UID:-0}:${MODELS_GID:-0}"   # set to your uid/gid on Linux to own the files
     environment:
       MODELS_MIRROR: ${MODELS_MIRROR:-}
@@ -272,7 +262,7 @@ services:
   # Without arguments it does what models-init does.
   models-pull:
     profiles: [models]
-    image: ghcr.io/guard-spec/guard-spec-gateway:${GUARDSPEC_VERSION:-0.3.1}
+    image: ghcr.io/guard-spec/guard-spec-gateway:${GUARDSPEC_VERSION:-0.4.0}
     entrypoint: ["./models", "pull", "-manifest", "manifest.yaml", "-dir", "/models/cache"]
     user: "${MODELS_UID:-0}:${MODELS_GID:-0}"
     environment:

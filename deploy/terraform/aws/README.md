@@ -49,7 +49,7 @@ example is [terraform.tfvars.example](terraform.tfvars.example).
 
 | Variable | Default | What it chooses |
 |---|---|---|
-| `image_tag` | `0.3.1` | Release of both images |
+| `image_tag` | `0.4.0` | Release of both images |
 | `gateway_image_digest`, `control_plane_image_digest` | empty | Pin by digest instead of tag (take the digest from `cosign verify`, see [docs/security](../../../docs/security/README.md#verifying-a-release)) |
 | `gateway_image` | `ghcr.io/guard-spec/guard-spec-gateway-full` | `-full` has the models; the plain `guard-spec-gateway` has none and can only run `detector_layers = "l1"` here |
 | `detector_layers` | `l1,l2,l3` | `DETECTOR_LAYERS`. `l1` is rules only, with fewer false positives (README, Models) |
