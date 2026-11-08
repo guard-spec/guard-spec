@@ -371,6 +371,7 @@ dùng nhất:
 | `RESPONSES_SERVER_STATE` | `refuse` | `/v1/responses`: request dùng trạng thái hội thoại lưu ở upstream (`previous_response_id`, `conversation`, `item_reference`) bị từ chối (400) vì gateway không quét được các lượt trước; `allow` cho qua và gắn `input:server_state=1` vào audit |
 | `EMBEDDINGS_SCAN` | `off` | `on`: chấm từng input của `/v1/embeddings` như tài liệu không tin cậy |
 | `AUDIT_STORE_CONTENT` | `false` | Lưu nội dung prompt/response vào audit |
+| `CONTENT_KEK` | rỗng | Khoá mã hoá khoá cho nội dung đã lưu (hoặc `CONTENT_KEK_FILE`, `CONTENT_KEK_VAULT_KEY` cho Vault Transit): nội dung được mã hoá bằng khoá riêng của từng org trước khi lưu. Đặt cùng giá trị cho control plane. Xem [Mã hoá](docs/security/README.vi.md#mã-hoá) |
 | `AUDIT_DEDUPE_WINDOW` | `10s` | Request bị từ chối lặp lại (client gửi lại) trong khoảng này được cộng vào `repeat_count` của dòng audit đầu tiên, không ghi dòng và sự kiện mới; `0` là tắt |
 | `RATE_LIMIT_RPM` / `RATE_LIMIT_TPM` | `0` | Giới hạn mỗi key (0 = không giới hạn) |
 

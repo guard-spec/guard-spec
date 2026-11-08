@@ -58,6 +58,14 @@ spec:
                   name: {{ .Values.existingSecret }}
                   key: MFA_ENC_KEY
                   optional: true
+            # Optional: without CONTENT_KEK in the Secret the variable is not
+            # set; stored content is then kept in the clear (docs/security).
+            - name: CONTENT_KEK
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: CONTENT_KEK
+                  optional: true
             {{- if .Values.controlPlane.adminEmail }}
             - name: ADMIN_EMAIL
               value: {{ .Values.controlPlane.adminEmail | quote }}

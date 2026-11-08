@@ -136,6 +136,14 @@ spec:
             - name: MODELS_MANIFEST
               value: {{ .Values.gateway.modelsManifest | quote }}
             {{- end }}
+            # Optional: without CONTENT_KEK in the Secret the variable is not
+            # set; stored content is then kept in the clear (docs/security).
+            - name: CONTENT_KEK
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: CONTENT_KEK
+                  optional: true
             {{- if .Values.gateway.adminToken.enabled }}
             - name: GATEWAY_ADMIN_TOKEN
               valueFrom:

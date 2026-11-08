@@ -334,6 +334,7 @@ export const en = {
   'audit.flags': 'Flags',
   'audit.requestHash': 'Request SHA-256',
   'audit.content': 'Stored content',
+  'audit.contentUnavailable': 'Stored encrypted; this control plane cannot open it (no key, or the key was destroyed).',
   'audit.emptyTitle': 'No requests yet',
   'audit.emptyBody': 'Requests appear here once a client calls the gateway with an API key of this organization.',
   'report.action': 'Report',

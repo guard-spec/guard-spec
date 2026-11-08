@@ -31,6 +31,11 @@ services:
       PGPASSWORD: ${GUARDSPEC_APP_PASSWORD:-}
       # Audit rows keep hashes and lengths only; true also stores the content.
       AUDIT_STORE_CONTENT: ${AUDIT_STORE_CONTENT:-false}
+      # Encrypts stored content (with AUDIT_STORE_CONTENT or an org's opt-in):
+      # 32 random bytes, base64 (openssl rand -base64 32), the same on the
+      # gateway and the control plane. Back it up: without it stored content
+      # cannot be read. Vault Transit instead: docs/security/README.md#encryption.
+      CONTENT_KEK: ${CONTENT_KEK:-}
       # Detection layers (internal/inference/ml). L1 rules always load; L2 (our
       # classifier) and L3 (e5 embeddings) load from ./models, mounted read-only
       # below and filled by models-init. Missing models: the gateway warns and
@@ -145,6 +150,8 @@ services:
       # Encrypts TOTP 2FA secrets: 32 random bytes, base64 (openssl rand -base64 32).
       # Keep it: losing it disables every user's 2FA.
       MFA_ENC_KEY: ${MFA_ENC_KEY:-}
+      # Opens the stored content the gateway encrypted (same value as there).
+      CONTENT_KEK: ${CONTENT_KEK:-}
       # External origin of the control plane, for SSO callback urls.
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
       # Client secrets of SSO providers; a provider names its variable.

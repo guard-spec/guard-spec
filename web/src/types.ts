@@ -196,6 +196,8 @@ export interface AuditRow {
   response_bytes?: number | null;
   request_content?: string;
   response_content?: string;
+  /** Why stored content is not shown (encrypted without a key, key destroyed). */
+  content_error?: string;
   created_at: string;
 }
 

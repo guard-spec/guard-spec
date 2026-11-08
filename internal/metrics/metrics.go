@@ -170,7 +170,7 @@ var (
 	// retention job, by table (activity_log, sessions).
 	RetentionTableDeleted = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: namespace, Subsystem: "retention", Name: "deleted_rows_total",
-		Help: "Rows deleted by retention by table: activity_log (ACTIVITY_LOG_RETENTION_DAYS), sessions (SESSION_RETENTION_DAYS) or scan_cache (expired entries).",
+		Help: "Rows deleted by retention by table: activity_log (ACTIVITY_LOG_RETENTION_DAYS), sessions (SESSION_RETENTION_DAYS) scan_cache (expired entries) or org_data_keys (retired content data keys no row uses).",
 	}, []string{"table"})
 
 	// ScanCacheLookups counts scan cache lookups per key, by layer (memory,

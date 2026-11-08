@@ -49,6 +49,7 @@ type Result struct {
 	ActivityDeleted  int64
 	SessionsDeleted  int64
 	ScanCacheDeleted int64 // expired scan cache entries
+	DataKeysDeleted  int64 // retired content data keys no row uses any more
 	Skipped          bool  // another replica held the lock
 }
 
@@ -58,6 +59,9 @@ const (
 	purgeActivity = `SELECT purge_activity_rows($1, $2)`
 	// Expired scan cache entries; the cutoff is the database's now().
 	purgeScanCache = `SELECT purge_scan_cache($1)`
+	// Retired data keys of stored content that no row names any more
+	// (migration 021): after audit rows go, so do the keys only they used.
+	purgeDataKeys = `SELECT purge_unused_data_keys()`
 	// An active session has revoked_at NULL and expires_at in the future,
 	// so it matches neither condition while the cutoff is in the past.
 	purgeSessions = `DELETE FROM sessions WHERE id IN (
@@ -134,6 +138,14 @@ func Once(ctx context.Context, db *pgxpool.Pool, cfg Config, now time.Time) (res
 		func(n int64) { metrics.RetentionDeleted.WithLabelValues().Add(float64(n)) }); err != nil {
 		return res, err
 	}
+	if cfg.Days > 0 {
+		var n int64
+		if err := conn.QueryRow(ctx, purgeDataKeys).Scan(&n); err != nil {
+			return res, fmt.Errorf("purge data keys: %w", err)
+		}
+		res.DataKeysDeleted = n
+		metrics.RetentionTableDeleted.WithLabelValues("org_data_keys").Add(float64(n))
+	}
 	if err := purge("activity_log", cfg.ActivityDays, viaFunc(purgeActivity), &res.ActivityDeleted,
 		tableDeleted("activity_log")); err != nil {
 		return res, err
@@ -179,10 +191,10 @@ func Run(ctx context.Context, db *pgxpool.Pool, cfg Config) {
 			slog.Debug("retention skipped: another replica is running it")
 		default:
 			metrics.RetentionRuns.WithLabelValues("ok").Inc()
-			if res.Deleted+res.ActivityDeleted+res.SessionsDeleted+res.ScanCacheDeleted > 0 {
+			if res.Deleted+res.ActivityDeleted+res.SessionsDeleted+res.ScanCacheDeleted+res.DataKeysDeleted > 0 {
 				slog.Info("retention", "deleted", res.Deleted,
 					"activity_deleted", res.ActivityDeleted, "sessions_deleted", res.SessionsDeleted,
-					"scan_cache_deleted", res.ScanCacheDeleted)
+					"scan_cache_deleted", res.ScanCacheDeleted, "data_keys_deleted", res.DataKeysDeleted)
 			}
 		}
 		select {

@@ -30,6 +30,21 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ### Added
 
+- Stored content is encrypted (RF-771f82ec): with a key-encryption key
+  (`CONTENT_KEK`, `CONTENT_KEK_FILE`, or a HashiCorp Vault Transit key with
+  `CONTENT_KEK_VAULT_KEY`) on the gateway and the control plane, the prompts
+  and answers kept in audit rows are sealed with AES-256-GCM under a data key
+  of their organization before they reach the database, bound to the
+  organization, column and body hash. The data keys are stored only wrapped
+  (new table `org_data_keys`, migration 021). A KEK that cannot be used
+  leaves the row without its content, never in the clear. The request log
+  says when content cannot be opened. `control-plane keys`
+  (`status`, `rotate [-new-data-keys]`, `encrypt-existing`,
+  `decrypt-existing`, `prune`, `-org`) rotates keys while the services run;
+  retention deletes retired data keys no row uses; deleting an organization
+  deletes its keys. `MFA_ENC_KEY` takes several keys (newest first) so it can
+  be rotated too. `doctor` check `encryption`.
+  ([docs/security/README.md#encryption](docs/security/README.md#encryption))
 - `gateway health [path]`: the image's health check without curl (HTTP 200
   from `/readyz`, or the path given, on `LISTEN_ADDR`).
 - `models init`: the container entry point that pulls what
@@ -80,6 +95,13 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   one value with either operator, and the editor flags a list of values.
 
 ### Upgrade notes
+
+- Migration 021 adds `org_data_keys`. Content stays in the clear until a
+  key-encryption key is set: to encrypt it, set `CONTENT_KEK` (or
+  `CONTENT_KEK_FILE`, or a Vault Transit key) on the gateway and the control
+  plane, back it up, and run `control-plane keys encrypt-existing` with an
+  owner `DATABASE_URL`. Run `control-plane keys decrypt-existing` before
+  removing the key or migrating below 021.
 
 - With the release that ships the new images, the deployment files switch to
   the subcommands above: compose health checks and `models-init`, the Helm

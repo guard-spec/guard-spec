@@ -22,6 +22,7 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/google/uuid"
 	appconfig "github.com/guard-spec/guard-spec/internal/config"
+	"github.com/guard-spec/guard-spec/internal/datakey"
 	"github.com/guard-spec/guard-spec/internal/events"
 	"github.com/guard-spec/guard-spec/internal/indirect"
 	"github.com/guard-spec/guard-spec/internal/inference"
@@ -147,7 +148,15 @@ func main() {
 		emitter = events.New(db, events.Config{Source: "gateway"})
 	}
 	flagAt := flagThreshold(os.Getenv)
-	audit := newAuditLog(dbAuditStore(db, cfg.AuditStoreContent, emitter, flagAt).write)
+	content := auditContent{all: cfg.AuditStoreContent}
+	if cfg.ContentKeys != nil {
+		content.keys = datakey.NewStore(cfg.ContentKeys)
+		slog.Info("content encryption", "kek", cfg.ContentKeys.Active().ID())
+	} else if cfg.AuditStoreContent {
+		slog.Warn("AUDIT_STORE_CONTENT=true without a key-encryption key: prompts and answers are stored in the clear; " +
+			"set CONTENT_KEK, CONTENT_KEK_FILE or CONTENT_KEK_VAULT_KEY (docs/security/README.md#encryption)")
+	}
+	audit := newAuditLog(dbAuditStore(db, content, emitter, flagAt).write)
 	// Retried refusals add to the first one's row (audit_dedupe.go).
 	audit.dedupe = newRefusalDedupe(cfg.AuditDedupeWindow)
 	cache, closeCache, err := buildScanCache(cfg, db, live)
@@ -504,15 +513,16 @@ func auditTags(e requestEntry) []string {
 	return tags
 }
 
-// logRequest writes one requests row, logging a failure.
+// logRequest writes one requests row without content encryption, logging a
+// failure (tests).
 func logRequest(db *pgxpool.Pool, storeContent bool, e requestEntry) {
-	if err := insertRequest(db, storeContent, e); err != nil {
+	if err := insertRequest(db, auditContent{all: storeContent}, e); err != nil {
 		slog.Warn("request log write failed", "err", err, "action", e.Action)
 	}
 }
 
 // insertRequest writes one requests row.
-func insertRequest(db *pgxpool.Pool, storeContent bool, e requestEntry) error {
+func insertRequest(db *pgxpool.Pool, content auditContent, e requestEntry) error {
 	if e.OrgID == uuid.Nil {
 		slog.Warn("request log skipped: no org")
 		return nil
@@ -538,6 +548,9 @@ func insertRequest(db *pgxpool.Pool, storeContent bool, e requestEntry) error {
 	// Wait for the shadow comparison before the transaction, not inside it.
 	shadow, withShadow := shadowRow(e)
 	return tenant.WithOrg(ctx, db, e.OrgID, func(tx pgx.Tx) error {
+		if err := content.sealSafe(ctx, tx, e.OrgID, &req, &resp); err != nil {
+			return err
+		}
 		_, err := tx.Exec(ctx, auditInsert,
 			e.OrgID,
 			nullUUID(e.ProjectID),
@@ -552,7 +565,7 @@ func insertRequest(db *pgxpool.Pool, storeContent bool, e requestEntry) error {
 			e.Report.HadBidi,
 			e.LatencyMs,
 			auditTags(e),
-			storeContent,
+			content.all,
 			req.SHA256, req.Bytes, req.Content,
 			resp.SHA256, resp.Bytes, resp.Content,
 			target,
@@ -1450,6 +1463,10 @@ type config struct {
 	// AuditStoreContent stores request and response content in audit rows for
 	// every org. Off by default; an org can opt in on its own (decision D6).
 	AuditStoreContent bool
+	// ContentKeys are the key-encryption keys of CONTENT_KEK, CONTENT_KEK_FILE
+	// or CONTENT_KEK_VAULT_KEY; with them stored content is sealed with each
+	// org's data key (internal/datakey). nil: stored in the clear.
+	ContentKeys *datakey.Keyring
 	// Output is the output guard's configuration; nil turns the guard off.
 	// There are no per-org settings yet, so it applies to every org.
 	Output *outputguard.Config
@@ -1503,6 +1520,10 @@ func loadConfig() (config, error) {
 	if err != nil {
 		return config{}, fmt.Errorf("AUDIT_STORE_CONTENT must be true or false: %w", err)
 	}
+	contentKeys, err := datakey.FromEnv(os.Getenv)
+	if err != nil {
+		return config{}, err
+	}
 	keyOrgs, err := appconfig.ParseKeyOrgs(os.Getenv("UPSTREAM_KEY_ORGS"))
 	if err != nil {
 		return config{}, err
@@ -1542,6 +1563,7 @@ func loadConfig() (config, error) {
 		Output:               output,
 		WaitOnHalfClose:      waitOnHalfClose,
 		AuditStoreContent:    storeContent,
+		ContentKeys:          contentKeys,
 		Scan:                 scan,
 		AdminToken:           strings.TrimSpace(os.Getenv("GATEWAY_ADMIN_TOKEN")),
 		AuditDedupeWindow:    dedupeWindow,

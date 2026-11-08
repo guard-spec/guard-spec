@@ -1,9 +1,16 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"log/slog"
 	"strings"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+
+	"github.com/guard-spec/guard-spec/internal/datakey"
 )
 
 // auditDigest is what an audit row keeps of a request or response body. The
@@ -45,3 +52,68 @@ VALUES (COALESCE($22, gen_random_uuid()), $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12
 
 const storeContent = `($14::bool OR COALESCE(
 	(SELECT o.audit_store_content FROM organizations o WHERE o.id = $1), false))`
+
+// auditContent says whether audit rows keep content and how it is sealed.
+type auditContent struct {
+	all  bool           // AUDIT_STORE_CONTENT: every org stores content
+	keys *datakey.Store // nil: content is stored in the clear
+}
+
+// sealSafe runs seal in a savepoint. When sealing fails (the KEK service is
+// down, say) the row is still written, without its content: content is never
+// stored in the clear when keys are configured.
+func (c auditContent) sealSafe(ctx context.Context, tx pgx.Tx, org uuid.UUID, req, resp *auditDigest) error {
+	if c.keys == nil || (req.Content == nil && resp.Content == nil) {
+		return nil
+	}
+	sp, err := tx.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	if err := c.seal(ctx, sp, org, req, resp); err != nil {
+		_ = sp.Rollback(ctx)
+		slog.Error("content encryption failed: the request is logged without its content", "org", org, "err", err)
+		req.Content, resp.Content = nil, nil
+		return nil
+	}
+	return sp.Commit(ctx)
+}
+
+// seal replaces the content of req and resp with values sealed by the org's
+// data key, inside the transaction that writes the row. It does nothing
+// without keys or content, and drops the content when the row will not store
+// it (the org has not opted in), so no data key is made for orgs that never
+// store content.
+func (c auditContent) seal(ctx context.Context, tx pgx.Tx, org uuid.UUID, req, resp *auditDigest) error {
+	if c.keys == nil || (req.Content == nil && resp.Content == nil) {
+		return nil
+	}
+	store := c.all
+	if !store {
+		if err := tx.QueryRow(ctx, `SELECT COALESCE((SELECT audit_store_content FROM organizations WHERE id = $1), false)`, org).Scan(&store); err != nil {
+			return err
+		}
+	}
+	if !store {
+		req.Content, resp.Content = nil, nil
+		return nil
+	}
+	dek, err := c.keys.Active(ctx, tx, org)
+	if err != nil {
+		return err
+	}
+	for _, x := range []struct {
+		d   *auditDigest
+		col string
+	}{{req, "request_content"}, {resp, "response_content"}} {
+		if x.d.Content == nil {
+			continue
+		}
+		sealed, err := dek.Seal(*x.d.Content, datakey.ContentAAD(org, x.col, *x.d.SHA256))
+		if err != nil {
+			return err
+		}
+		x.d.Content = &sealed
+	}
+	return nil
+}

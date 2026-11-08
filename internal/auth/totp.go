@@ -104,53 +104,90 @@ func OTPAuthURL(issuer, account, secret string) string {
 
 // SecretBox encrypts 2FA secrets with AES-256-GCM. The key is MFA_ENC_KEY;
 // the additional data (the user id) binds a ciphertext to its row.
-type SecretBox struct{ aead cipher.AEAD }
+//
+// MFA_ENC_KEY may list several keys, newest first ("new,old"): Seal uses the
+// first, Open tries each, so a key is rotated by putting the new one in front
+// and running `control-plane keys rotate`, which seals every secret again
+// with it; the old key can then be dropped.
+type SecretBox struct{ aeads []cipher.AEAD }
 
 // ErrNoMFAKey means MFA_ENC_KEY is not set.
 var ErrNoMFAKey = errors.New("MFA_ENC_KEY is not set")
 
-// NewSecretBox parses MFA_ENC_KEY: 32 bytes, standard or URL-safe base64.
-// An empty value returns ErrNoMFAKey.
+// NewSecretBox parses MFA_ENC_KEY: one or more comma-separated keys, each 32
+// bytes in standard or URL-safe base64. An empty value returns ErrNoMFAKey.
 func NewSecretBox(b64 string) (*SecretBox, error) {
 	b64 = strings.TrimSpace(b64)
 	if b64 == "" {
 		return nil, ErrNoMFAKey
 	}
-	var key []byte
-	var err error
-	for _, enc := range []*base64.Encoding{base64.StdEncoding, base64.RawStdEncoding, base64.URLEncoding, base64.RawURLEncoding} {
-		if key, err = enc.DecodeString(b64); err == nil {
-			break
+	box := &SecretBox{}
+	for _, part := range strings.Split(b64, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
 		}
+		key, err := decodeMFAKey(part)
+		if err != nil {
+			return nil, err
+		}
+		block, err := aes.NewCipher(key)
+		if err != nil {
+			return nil, err
+		}
+		aead, err := cipher.NewGCM(block)
+		if err != nil {
+			return nil, err
+		}
+		box.aeads = append(box.aeads, aead)
 	}
-	if err != nil || len(key) != 32 {
-		return nil, errors.New("MFA_ENC_KEY must be 32 random bytes in base64 (for example: openssl rand -base64 32)")
+	if len(box.aeads) == 0 {
+		return nil, ErrNoMFAKey
 	}
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, err
-	}
-	aead, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, err
-	}
-	return &SecretBox{aead: aead}, nil
+	return box, nil
 }
 
-// Seal encrypts plain; the result is nonce || ciphertext.
+func decodeMFAKey(b64 string) ([]byte, error) {
+	for _, enc := range []*base64.Encoding{base64.StdEncoding, base64.RawStdEncoding, base64.URLEncoding, base64.RawURLEncoding} {
+		if key, err := enc.DecodeString(b64); err == nil && len(key) == 32 {
+			return key, nil
+		}
+	}
+	return nil, errors.New("MFA_ENC_KEY must be 32 random bytes in base64 (for example: openssl rand -base64 32); " +
+		"several keys are separated by commas, the newest first")
+}
+
+// Keys is the number of configured keys.
+func (b *SecretBox) Keys() int { return len(b.aeads) }
+
+// Seal encrypts plain with the first key; the result is nonce || ciphertext.
 func (b *SecretBox) Seal(plain, ad []byte) ([]byte, error) {
-	nonce := make([]byte, b.aead.NonceSize())
+	aead := b.aeads[0]
+	nonce := make([]byte, aead.NonceSize())
 	if _, err := rand.Read(nonce); err != nil {
 		return nil, err
 	}
-	return b.aead.Seal(nonce, nonce, plain, ad), nil
+	return aead.Seal(nonce, nonce, plain, ad), nil
 }
 
-// Open decrypts what Seal returned with the same additional data.
+// Open decrypts what Seal returned with the same additional data, with
+// whichever configured key sealed it.
 func (b *SecretBox) Open(sealed, ad []byte) ([]byte, error) {
-	n := b.aead.NonceSize()
+	plain, _, err := b.OpenKey(sealed, ad)
+	return plain, err
+}
+
+// OpenKey is Open that also returns the index of the key that opened it
+// (0: the newest).
+func (b *SecretBox) OpenKey(sealed, ad []byte) ([]byte, int, error) {
+	n := b.aeads[0].NonceSize()
 	if len(sealed) < n {
-		return nil, errors.New("ciphertext too short")
+		return nil, 0, errors.New("ciphertext too short")
 	}
-	return b.aead.Open(nil, sealed[:n], sealed[n:], ad)
+	for i, aead := range b.aeads {
+		if plain, err := aead.Open(nil, sealed[:n], sealed[n:], ad); err == nil {
+			return plain, i, nil
+		}
+	}
+	return nil, 0, errors.New("cipher: message authentication failed")
 }
