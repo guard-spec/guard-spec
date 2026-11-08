@@ -9,6 +9,8 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-08
+
 ### Security
 
 - No known CVE ships: a new workflow (`vuln-scan.yml`) scans every lockfile
@@ -112,8 +114,6 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 - `doctor` check `advisories`: fails when a published Guard Spec security
   advisory affects the running version (`-skip advisories` without internet
   access; `DOCTOR_ADVISORIES_URL` for a mirror).
-- Helm: `gateway.image.shell` (default `true`, for the released 0.3.x
-  images); `false` for images without a shell.
 - Personal data in requests as a policy signal (RF-474e756a,
   [ADR 0003](docs/adr/0003-input-pii-policy-signal.md), which supersedes the
   input-side PII part of ADR 0002). With the new per-org guard setting
@@ -134,6 +134,22 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   removed `pii.entities` stays removed: stored rules that name it read `[]`
   as before. Cost with the setting on: about 11 µs for a 2 KB request and
   57 µs for a 20 KB one (`BenchmarkInputPII`); nothing with it off.
+
+### Changed
+
+- The deployment files run the shell-less images: the compose health checks
+  use `gateway health`, compose `models-init` and the Helm `models-pull` init
+  container use `models init`, the Helm migrations job uses
+  `doctor copy-migrations`, and the ECS health check uses `gateway health`.
+  The Helm setting `gateway.image.shell` is gone.
+- The request log no longer returns content in its list
+  (`GET .../requests`): rows carry `has_content`, and content is read one row
+  at a time with `POST .../requests/{id}/content` (permission and reason, see
+  Added).
+- `guardspec_app` can no longer update or delete `activity_log` rows
+  (migration 022).
+- `build/gateway-full.Dockerfile` builds on the signed v0.3.1 gateway image
+  by default.
 
 ### Fixed
 
@@ -159,20 +175,25 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 - Migration 022 chains the existing activity rows and takes UPDATE and
   DELETE on `activity_log` from `guardspec_app`. Set `AUDIT_SIGNING_KEY` on the
   control plane for signed anchors, and keep its public key elsewhere.
-
 - Migration 021 adds `org_data_keys`. Content stays in the clear until a
   key-encryption key is set: to encrypt it, set `CONTENT_KEK` (or
   `CONTENT_KEK_FILE`, or a Vault Transit key) on the gateway and the control
   plane, back it up, and run `control-plane keys encrypt-existing` with an
   owner `DATABASE_URL`. Run `control-plane keys decrypt-existing` before
   removing the key or migrating below 021.
-
-- With the release that ships the new images, the deployment files switch to
-  the subcommands above: compose health checks and `models-init`, the Helm
-  init containers (and `gateway.image.shell` goes), the ECS health check.
-  Custom manifests or scripts that run `sh`, `curl` or `cp` inside the
-  gateway or control-plane image must do the same.
-
+- The images have no shell, curl or package manager any more. The compose
+  files, the Helm chart and the Terraform module of this release already use
+  the subcommands (see Changed); remove `gateway.image.shell` from your Helm
+  values. Custom manifests, health checks or scripts that run `sh`, `curl`
+  or `cp` inside the gateway or control-plane image must switch to
+  `gateway health`, `models init` and `doctor copy-migrations`, or they fail.
+- Migrations 021 to 024 run in order (`org_data_keys`, the activity log
+  chain, `siem_sinks`, the PagerDuty and Opsgenie channel kinds); back up the
+  database first. Every new feature is off until it is configured
+  (`CONTENT_KEK`, `AUDIT_SIGNING_KEY`, `input_pii_action`, SIEM sinks,
+  `ADMIN_LISTEN_ADDR`).
+- This release fixes the OS-package vulnerabilities of the v0.3.1 images
+  (issue #111): upgrade the images, not only the deployment files.
 
 ## [0.3.1] - 2026-11-07
 
@@ -938,7 +959,8 @@ First release.
 - List endpoints still answer the older `{"data": [...]}` shape when called
   without `limit` and `cursor`; use the paginated form.
 
-[Unreleased]: https://github.com/guard-spec/guard-spec/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/guard-spec/guard-spec/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/guard-spec/guard-spec/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/guard-spec/guard-spec/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/guard-spec/guard-spec/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/guard-spec/guard-spec/compare/v0.2.0...v0.2.1

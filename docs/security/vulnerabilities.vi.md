@@ -56,12 +56,10 @@ file triển khai gọi lệnh con của chính binary:
 | script shell `models-init` (compose, Helm `models-pull`) | `./models init`: tải model mà `DETECTOR_LAYERS` cần; tải lỗi thì cảnh báo, hoặc thoát 1 khi `DETECTOR_REQUIRE_ML=true` / `MODELS_REQUIRED=true` |
 | `cp /app/migrations/*.sql /migrations/` (job migration của Helm) | `/app/doctor copy-migrations /migrations /app/migrations` |
 
-Image 0.3.x đã phát hành vẫn có shell, nên `docker-compose.yml`, file
-compose production, Helm chart (`gateway.image.shell: true`) và module
-Terraform ECS giữ dạng shell cho tới bản phát hành mang image mới. Một test
-trong `internal/version` thất bại khi tăng phiên bản mà các file đó còn dạng
-shell. Image build từ mã nguồn đã dùng dạng mới (`docker-compose.override.yml`,
-`tests/kind/values.yaml`).
+Từ 0.4.0, các file compose, Helm chart và module Terraform ECS dùng dạng
+mới; image 0.3.x là bản cuối còn shell (thiết lập `gateway.image.shell` của
+chart cũ đã bỏ). Một test trong `internal/version` thất bại nếu file triển
+khai quay lại dạng shell.
 
 ## Khi quét ra lỗ hổng
 
