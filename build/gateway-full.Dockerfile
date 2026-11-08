@@ -36,9 +36,15 @@ ARG GATEWAY_IMAGE=ghcr.io/guard-spec/guard-spec-gateway:0.3.0@sha256:1886eda0035
 # --build-context l2=... stops below with a clear message.
 FROM scratch AS l2
 
-FROM ${GATEWAY_IMAGE} AS models
-USER root
+FROM ${GATEWAY_IMAGE} AS gateway
+
+# The gateway image has no shell (distroless), so the models are assembled in
+# a Debian stage that is not shipped: it runs the image's own models tool and
+# manifest, with the image's CA certificates.
+FROM debian:bookworm-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc AS models
 WORKDIR /app
+COPY --from=gateway /app/models /app/manifest.yaml ./
+COPY --from=gateway /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY build/gateway-full.l2.sha256 /tmp/l2.sha256
 COPY --from=l2 / /tmp/l2/
 # L2: exactly the files listed in build/gateway-full.l2.sha256, each verified.

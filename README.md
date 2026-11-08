@@ -2245,8 +2245,9 @@ kubectl exec deploy/gs-guard-spec-gateway -c gateway -- ./doctor   # checks the 
 - **`doctor`** (`/app/doctor` in the gateway and control-plane images
   released from 0.2.0, and in the release archives) checks
   the database, the migration version, the model files against the
-  manifest's SHA-256, which detection layers will load, the upstream and the
-  security settings. Exit code 0: nothing failed (warnings allowed); 1: a
+  manifest's SHA-256, which detection layers will load, the upstream, the
+  security settings and whether a published security advisory affects the
+  running version (`-skip advisories` without internet access). Exit code 0: nothing failed (warnings allowed); 1: a
   check failed (`-strict`: or warned); 2: usage error. `-json` for scripts.
 - **Secrets** come from `existingSecret`. `GUARDSPEC_APP_PASSWORD` reaches both
   services as `PGPASSWORD`, so URLs carry no password. `POSTGRES_PASSWORD` is

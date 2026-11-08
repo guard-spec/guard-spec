@@ -9,11 +9,32 @@ updates:
         patterns: ["golang.org/x/*"]
     open-pull-requests-limit: 10
 
+  # The base images (Chainguard Wolfi) are rebuilt with fixes every day; their
+  # digest pins are bumped daily so a released image never lags.
   - package-ecosystem: docker
     directories:
       - /build
     schedule:
+      interval: daily
+
+  # Pinned scanners (govulncheck), kept out of the main module.
+  - package-ecosystem: gomod
+    directory: /tools
+    schedule:
       interval: weekly
+
+  # Python: training, benchmark and the Python examples (uv.lock).
+  - package-ecosystem: uv
+    directories:
+      - /train
+      - /bench
+      - /examples/python/*
+    schedule:
+      interval: weekly
+    groups:
+      uv-minor-patch:
+        update-types: ["minor", "patch"]
+    open-pull-requests-limit: 5
 
   - package-ecosystem: docker-compose
     directory: /

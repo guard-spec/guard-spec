@@ -55,6 +55,7 @@ go run ./cmd/models pull -models a,b@v1               # the older flag form stil
 go run ./cmd/models list                              # what is installed
 go run ./cmd/models list --available                  # what the manifest offers
 go run ./cmd/models verify                            # re-check the SHA-256 of installed files
+go run ./cmd/models init                              # như models-init: các model DETECTOR_LAYERS cần; tải lỗi chỉ cảnh báo, trừ khi -required
 ```
 
 Những gì `pull` bảo đảm:

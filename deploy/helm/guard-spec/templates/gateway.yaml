@@ -40,6 +40,7 @@ spec:
           imagePullPolicy: {{ .Values.gateway.image.pullPolicy }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
+          {{- if .Values.gateway.image.shell }}
           command:
             - /bin/sh
             - -c
@@ -54,6 +55,20 @@ spec:
             {{- range $pull.models }}
             - {{ . | quote }}
             {{- end }}
+          {{- else }}
+          # models init: the same, without a shell (MODELS_REQUIRED=true makes a
+          # failed pull fatal).
+          command:
+            - ./models
+            - init
+            - -manifest
+            - manifest.yaml
+            - -dir
+            - /models/cache
+            {{- range $pull.models }}
+            - {{ . | quote }}
+            {{- end }}
+          {{- end }}
           env:
             - name: HOME
               value: /tmp

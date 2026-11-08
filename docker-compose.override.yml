@@ -29,14 +29,21 @@ services:
     environment:
       GUARD_ENV: ${GUARD_ENV:-dev}
       PGPASSWORD: ${GUARDSPEC_APP_PASSWORD:-guardspec_app}
+    # The image built from source is distroless (no shell or curl); it checks
+    # itself. docker-compose.yml keeps curl and a shell script for the
+    # released images until the next release ships the same image.
+    healthcheck:
+      test: ["CMD", "/app/gateway", "health", "/health"]
 
   # The model helpers run the same locally built gateway image (its `models`
-  # binary and manifest).
+  # binary and manifest). `models init` does what the script of
+  # docker-compose.yml does, without a shell.
   models-init:
     image: guard-spec-gateway:latest
     build:
       context: .
       dockerfile: build/gateway.Dockerfile
+    entrypoint: ["./models", "init", "-manifest", "manifest.yaml", "-dir", "/models/cache"]
 
   models-pull:
     image: guard-spec-gateway:latest
