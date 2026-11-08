@@ -422,7 +422,7 @@ Control plane:
 | Variable | Default | Meaning |
 |---|---|---|
 | `PUBLIC_BASE_URL` | — | Origin of the admin UI, for links in notifications and email confirmation links. |
-| `ALERTS_SECRET_ORGS` | empty (no channel secret usable) | Which channel kind and which orgs may name each secret variable: `WEBHOOK_SECRET_SIEM=webhook:*;A2A_SOC=a2a:<org-id>,<org-id>;GUARDSPEC_ALERT_OPS=slack:<org-id>`. `*` means every org. One kind per variable. Invalid entries stop the control plane at startup. |
+| `ALERTS_SECRET_ORGS` | empty (no channel secret usable) | Which channel kind and which orgs may name each secret variable: `WEBHOOK_SECRET_SIEM=webhook:*;A2A_SOC=a2a:<org-id>,<org-id>;GUARDSPEC_ALERT_OPS=slack:<org-id>`. `*` means every org. Kind `siem` is for [SIEM export](siem.md) sinks (`SIEM_*` variables). One kind per variable. Invalid entries stop the control plane at startup. |
 | `ALERTS_PRIVATE_ORGS` | empty | Org ids whose channels with `allow_private` may reach loopback and private addresses (over http too). Metadata and link-local addresses stay refused. Replaces `ALERTS_ALLOW_PRIVATE_URLS`, which now stops the control plane at startup. |
 | `ALERTS_EMAIL_DAILY_CAP` | `500` | Emails one org may send per 24 hours (deliveries and confirmation mails). |
 | `ALERTS_LANG` | `en` | Language of in-app notifications, personal channels and confirmation mails: `en` or `vi`. |
@@ -434,7 +434,7 @@ Control plane:
 | `SMTP_URL` | — | `smtp://user:pass@host:587` (STARTTLS, required unless loopback) or `smtps://user:pass@host:465`. |
 | `SMTP_FROM` | — | Sender, such as `Guard Spec <alerts@example.com>`. |
 | `ALERTS_TEST_TELEGRAM_API`, `ALERTS_TEST_SLACK_API` | — | Test only: origins that replace `https://api.telegram.org` and `https://slack.com/api`, for fake servers in end-to-end runs. Leave unset in production. |
-| channel secrets | — | The variables channels name in `secret_env` (`WEBHOOK_SECRET_*`, `SLACK_*`, `TEAMS_*`, `TELEGRAM_BOT_TOKEN_*`, `A2A_*`, `GUARDSPEC_ALERT_*`), each listed in `ALERTS_SECRET_ORGS`. |
+| channel secrets | — | The variables channels name in `secret_env` (`WEBHOOK_SECRET_*`, `SLACK_*`, `TEAMS_*`, `TELEGRAM_BOT_TOKEN_*`, `A2A_*`, `GUARDSPEC_ALERT_*`; `SIEM_*` for SIEM export sinks), each listed in `ALERTS_SECRET_ORGS`. |
 
 Gateway:
 

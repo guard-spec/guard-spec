@@ -211,6 +211,28 @@ export interface AuditRow {
   created_at: string;
 }
 
+/** A SIEM export sink (GET /organizations/{org}/siem-sinks). */
+export type SiemKind = 'splunk_hec' | 'elastic' | 'sentinel' | 'syslog' | 'http';
+export interface SiemSink {
+  id: string;
+  name: string;
+  kind: SiemKind;
+  config: Record<string, string>;
+  secret_env: string | null;
+  secret_set: boolean;
+  event_types: string[];
+  min_severity: 'info' | 'warning' | 'critical';
+  allow_private: boolean;
+  enabled: boolean;
+  cursor_at: string;
+  failures: number;
+  last_error: string | null;
+  last_success_at: string | null;
+  delivered: number;
+  created_at: string;
+}
+export type SiemSinkInput = Pick<SiemSink, 'name' | 'kind' | 'config' | 'secret_env' | 'event_types' | 'min_severity' | 'allow_private' | 'enabled'>;
+
 /** POST /organizations/{org}/requests/{id}/content */
 export interface StoredContent {
   request_content: string | null;

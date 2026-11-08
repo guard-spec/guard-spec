@@ -284,9 +284,10 @@ describe('personal notification settings', () => {
 });
 
 describe('alerts navigation and strings', () => {
-  it('has the five pages under an Alerts group, at their contract paths', () => {
+  it('has the five alert pages and SIEM export under an Alerts group, at their contract paths', () => {
     const group = NAV.find((g) => g.id === 'alerts');
-    expect(group?.items.map((i) => i.route)).toEqual(['alert-rules', 'alert-channels', 'alert-groups', 'alert-history', 'alert-deliveries']);
+    expect(group?.items.map((i) => i.route)).toEqual(['alert-rules', 'alert-channels', 'alert-groups', 'alert-history', 'alert-deliveries', 'siem-export']);
+    expect(PATHS['siem-export']).toBe('alerts/siem');
     // The webhook payload links to /ui/alerts/history?id=…
     expect(PATHS['alert-history']).toBe('alerts/history');
     expect(resolve('/ui/alerts/history', '?id=x', '', '/ui').route).toBe('alert-history');

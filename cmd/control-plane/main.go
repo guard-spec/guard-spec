@@ -33,6 +33,7 @@ import (
 	"github.com/guard-spec/guard-spec/internal/policy"
 	"github.com/guard-spec/guard-spec/internal/retention"
 	secretsrc "github.com/guard-spec/guard-spec/internal/secrets"
+	"github.com/guard-spec/guard-spec/internal/siem"
 	"github.com/guard-spec/guard-spec/internal/tenant"
 	"github.com/guard-spec/guard-spec/internal/version"
 	"github.com/guard-spec/guard-spec/web"
@@ -202,6 +203,14 @@ func main() {
 		defer close(alertsDone)
 		rt.run(ctx)
 	}()
+	// SIEM export (internal/siem): due sinks every SIEM_EXPORT_INTERVAL (5s).
+	siemEvery := 5 * time.Second
+	if v := os.Getenv("SIEM_EXPORT_INTERVAL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d >= time.Second {
+			siemEvery = d
+		}
+	}
+	go siem.Run(ctx, db, newSIEMResolver(&alertsCfg), siemEvery)
 
 	go func() {
 		slog.Info("control-plane listening", "addr", cfg.ListenAddr, "version", version.String())
@@ -430,6 +439,7 @@ func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins 
 
 	// Real-time alerts and notifications (alerts.go, docs/alerts.md).
 	registerAlertRoutes(v1, authed, db, settings.alertsRT, perIP)
+	registerSIEMRoutes(authed, db, newSIEMResolver(settings.alertsCfg))
 
 	// Invites, also under the short /orgs prefix.
 	for _, prefix := range []string{"/organizations/:orgId", "/orgs/:orgId"} {

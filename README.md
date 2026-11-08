@@ -1187,6 +1187,10 @@ sidebar): rules, channels, groups, alert history and the delivery log.
 [docs/alerts.md](docs/alerts.md) has the event types, the rule fields, the
 setup of each channel, webhook signature verification and the metrics.
 
+The same events go to a SIEM as OCSF records (Splunk, Elasticsearch,
+Microsoft Sentinel, syslog over TLS, HTTP): **Alerts → SIEM export**,
+[docs/siem.md](docs/siem.md).
+
 ## Benchmarks
 
 All numbers below were measured by us on **2026-11-04** at commit `2275698`
