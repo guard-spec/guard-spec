@@ -683,6 +683,7 @@ in a second table.
 | `TRUSTED_PROXIES` | empty | Comma-separated CIDRs or addresses of reverse proxies. Their `X-Forwarded-For` is read from the right, and the first address that is not a trusted proxy is the client, for rate limits, sessions and the activity log. Empty: the header is ignored and the TCP peer is the client |
 | `MFA_ENC_KEY` | empty (dev: a fixed key) | 32 random bytes in base64 (`openssl rand -base64 32`). Encrypts TOTP secrets with AES-256-GCM. Without it 2FA cannot be turned on; when users already have 2FA the control plane refuses to start without it. The development key is refused outside `GUARD_ENV=dev`. Back it up with the database: a lost key disables everyone's 2FA. Several keys, comma-separated and the newest first, for a rotation (`control-plane keys rotate`) |
 | `CONTENT_KEK` | empty | Opens the stored content the gateway encrypted; the same value as on the gateway (or `CONTENT_KEK_FILE`, `CONTENT_KEK_VAULT_KEY`). See [Encryption](docs/security/README.md#encryption) |
+| `AUDIT_SIGNING_KEY` | empty | Ed25519 seed, 32 random bytes in base64: signs the heads of the activity log's hash chains every `AUDIT_ANCHOR_INTERVAL` (default `1h`, at least `1m`). See [Audit log integrity](docs/security/README.md#audit-log-integrity) |
 | `PUBLIC_BASE_URL` | empty (dev: `http://localhost:18081`) | External origin of the control plane, such as `https://guard.example.com`. SSO callbacks go to `<PUBLIC_BASE_URL>/v1/auth/oidc/<provider id>/callback`; SSO is unavailable without it |
 | `OIDC_SECRET_*` | empty | Client secrets of SSO providers; each provider names its variable in `client_secret_env` |
 | `METRICS_ADDR` | `:9091` | Metrics listener; `off` disables it |
@@ -814,7 +815,8 @@ needs `Authorization: Bearer <token from /v1/auth/login>`. Roles are `owner`,
 | `GET`, `POST /organizations/:orgId/policies` (409 on a name the org already uses; `enabled` defaults to true) | viewer, admin |
 | `POST /organizations/:orgId/policies/simulate` | viewer |
 | `PUT`, `DELETE /organizations/:orgId/policies/:id` | admin |
-| `GET /organizations/:orgId/requests?limit=&cursor=&action=` (includes `route_target` and `repeat_count`) | viewer |
+| `GET /organizations/:orgId/requests?limit=&cursor=&action=` (includes `route_target`, `repeat_count` and `has_content`; never the content) | viewer |
+| `POST /organizations/:orgId/requests/:requestId/content` `{"reason"}`: the stored prompt and answer of one request, logged as `request.content_viewed` with the reason | the org's `content_read_role` (default admin) |
 | `GET /organizations/:orgId/dashboard?window=24h\|7d\|30d&project_id=` (request log aggregates; see below) | viewer |
 | `GET`, `POST /organizations/:orgId/exemplars` | viewer, admin |
 | `PUT`, `DELETE /organizations/:orgId/exemplars/:id` | admin |

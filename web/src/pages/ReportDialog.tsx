@@ -128,6 +128,10 @@ export function ReportDialog({ row, ruleName, onClose }: { row: AuditRow; ruleNa
             </div>
           ) : null}
         </>
+      ) : row.has_content ? (
+        <p className="muted small" data-testid="report-content-not-read">
+          {t('report.contentNotRead')}
+        </p>
       ) : (
         <p className="muted small" data-testid="report-no-content">
           {t('report.noContent')}

@@ -1708,6 +1708,11 @@ tbody tr:last-child td {
   margin: 0 -4px;
   padding: 0 4px;
 }
+.stack-sm {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
 .row-gap {
   display: flex;
   gap: 8px;

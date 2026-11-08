@@ -66,6 +66,12 @@ spec:
                   name: {{ .Values.existingSecret }}
                   key: CONTENT_KEK
                   optional: true
+            - name: AUDIT_SIGNING_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: AUDIT_SIGNING_KEY
+                  optional: true
             {{- if .Values.controlPlane.adminEmail }}
             - name: ADMIN_EMAIL
               value: {{ .Values.controlPlane.adminEmail | quote }}

@@ -32,6 +32,11 @@ type orgSecurity struct {
 	AllowedLoginMethods  []string         `json:"allowed_login_methods"`
 	DomainJoin           []domainJoinRule `json:"domain_join"`
 	SessionLifetimeHours int              `json:"session_lifetime_hours"`
+	// ContentReadRole is the lowest role that may read stored prompt and
+	// answer content (migration 022, default admin); ContentViewReason makes
+	// a reader give a reason, which the activity log keeps (default true).
+	ContentReadRole   string `json:"content_read_role"`
+	ContentViewReason *bool  `json:"content_view_reason"`
 }
 
 // allLoginMethods lists password and every enabled provider's method.
@@ -47,14 +52,16 @@ func allLoginMethods(ctx context.Context, db *pgxpool.Pool) ([]string, error) {
 }
 
 func loadOrgSecurity(ctx context.Context, db *pgxpool.Pool, org uuid.UUID) (orgSecurity, error) {
-	s := orgSecurity{SessionLifetimeHours: 12, DomainJoin: []domainJoinRule{}}
+	reason := true
+	s := orgSecurity{SessionLifetimeHours: 12, DomainJoin: []domainJoinRule{}, ContentReadRole: string(auth.RoleAdmin), ContentViewReason: &reason}
 	var methods []string
 	var joins []byte
 	err := tenant.WithOrg(ctx, db, org, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx,
-			`SELECT require_mfa, sso_satisfies_mfa, allowed_login_methods, domain_join, session_lifetime_hours
+			`SELECT require_mfa, sso_satisfies_mfa, allowed_login_methods, domain_join, session_lifetime_hours,
+			        content_read_role, content_view_reason
 			 FROM org_security WHERE org_id = $1`, org).
-			Scan(&s.RequireMFA, &s.SSOSatisfiesMFA, &methods, &joins, &s.SessionLifetimeHours)
+			Scan(&s.RequireMFA, &s.SSOSatisfiesMFA, &methods, &joins, &s.SessionLifetimeHours, &s.ContentReadRole, s.ContentViewReason)
 	})
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return s, err
@@ -86,6 +93,17 @@ func (s *orgSecurity) validate(ctx context.Context, db *pgxpool.Pool) error {
 	}
 	if s.SessionLifetimeHours < 1 || s.SessionLifetimeHours > 12 {
 		return errors.New("session_lifetime_hours must be between 1 and 12")
+	}
+	// Omitted by clients from before migration 022: the defaults.
+	if s.ContentReadRole == "" {
+		s.ContentReadRole = string(auth.RoleAdmin)
+	}
+	if _, ok := auth.ParseRole(s.ContentReadRole); !ok {
+		return errors.New("content_read_role must be viewer, member, admin or owner")
+	}
+	if s.ContentViewReason == nil {
+		on := true
+		s.ContentViewReason = &on
 	}
 	known, err := allLoginMethods(ctx, db)
 	if err != nil {
@@ -166,13 +184,15 @@ func putOrgSecurity(db *pgxpool.Pool) fiber.Handler {
 		err = tenant.WithOrg(c.Context(), db, org, func(tx pgx.Tx) error {
 			_, err := tx.Exec(c.Context(),
 				`INSERT INTO org_security (org_id, require_mfa, sso_satisfies_mfa, allowed_login_methods, domain_join,
-				   session_lifetime_hours)
-				 VALUES ($1, $2, $3, $4, $5, $6)
+				   session_lifetime_hours, content_read_role, content_view_reason)
+				 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 				 ON CONFLICT (org_id) DO UPDATE SET require_mfa = EXCLUDED.require_mfa,
 				   sso_satisfies_mfa = EXCLUDED.sso_satisfies_mfa, allowed_login_methods = EXCLUDED.allowed_login_methods,
 				   domain_join = EXCLUDED.domain_join, session_lifetime_hours = EXCLUDED.session_lifetime_hours,
+				   content_read_role = EXCLUDED.content_read_role, content_view_reason = EXCLUDED.content_view_reason,
 				   updated_at = NOW()`,
-				org, s.RequireMFA, s.SSOSatisfiesMFA, s.AllowedLoginMethods, joins, s.SessionLifetimeHours)
+				org, s.RequireMFA, s.SSOSatisfiesMFA, s.AllowedLoginMethods, joins, s.SessionLifetimeHours,
+				s.ContentReadRole, *s.ContentViewReason)
 			return err
 		})
 		if err != nil {
@@ -182,6 +202,7 @@ func putOrgSecurity(db *pgxpool.Pool) fiber.Handler {
 			"require_mfa": s.RequireMFA, "sso_satisfies_mfa": s.SSOSatisfiesMFA,
 			"allowed_login_methods": s.AllowedLoginMethods, "domain_join": s.DomainJoin,
 			"session_lifetime_hours": s.SessionLifetimeHours,
+			"content_read_role": s.ContentReadRole, "content_view_reason": *s.ContentViewReason,
 		})
 		out, err := loadOrgSecurity(c.Context(), db, org)
 		if err != nil {

@@ -155,6 +155,9 @@ services:
       MFA_ENC_KEY: ${MFA_ENC_KEY:?set MFA_ENC_KEY in .env (openssl rand -base64 32) and back it up}
       # Opens the stored content the gateway encrypted (same value as there).
       CONTENT_KEK: ${CONTENT_KEK:-}
+      # Signs the activity log's hash chains every AUDIT_ANCHOR_INTERVAL (1h):
+      # an Ed25519 seed, 32 random bytes in base64 (openssl rand -base64 32).
+      AUDIT_SIGNING_KEY: ${AUDIT_SIGNING_KEY:-}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       ALLOWED_ORIGINS: https://${ADMIN_HOST}

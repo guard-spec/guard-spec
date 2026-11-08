@@ -31,6 +31,7 @@ nhận định phụ thuộc vào một thiết lập, thiết lập đó đư�
 - [Cách ly tenant](#cách-ly-tenant)
 - [Scan cache dùng chung](#scan-cache-dùng-chung)
 - [Những gì đi ra khỏi mạng của bạn](#những-gì-đi-ra-khỏi-mạng-của-bạn)
+- [Toàn vẹn của nhật ký kiểm toán](#toàn-vẹn-của-nhật-ký-kiểm-toán)
 - [Mô hình mối đe doạ](#mô-hình-mối-đe-doạ)
 - [Xác minh một bản phát hành](#xác-minh-một-bản-phát-hành)
 
@@ -256,6 +257,39 @@ có thể xác nhận rằng một văn bản đã biết đã được org đó
 | Vault (`VAULT_ADDR`) | Khoá dữ liệu cần bọc hoặc mở, không có nội dung | Chỉ khi `CONTENT_KEK_VAULT_KEY` được đặt |
 
 Không có telemetry hay gọi về nhà.
+
+## Toàn vẹn của nhật ký kiểm toán
+
+Nhật ký hoạt động (thao tác quản trị, đăng nhập, các lần xem nội dung đã lưu)
+có thể được kiểm tra xem có bị sửa trong database hay không:
+
+- **Chuỗi hash.** Các dòng của mỗi tổ chức, và của instance, tạo thành một
+  chuỗi: trigger trong database gán cho mỗi dòng mới `seq` kế tiếp,
+  `prev_hash` là hash của dòng trước, và `hash = SHA-256(prev_hash || dòng ở
+  dạng chuẩn)`, dưới khoá theo từng chuỗi, bất kể ai ghi. Role của ứng dụng chỉ
+  được chèn: không sửa, không xoá (retention xoá các dòng cũ nhất qua hàm
+  riêng).
+- **Điểm neo có chữ ký.** Khi có `AUDIT_SIGNING_KEY` (seed Ed25519), control
+  plane ký đầu chuỗi của mọi chuỗi có thay đổi sau mỗi `AUDIT_ANCHOR_INTERVAL`
+  (mặc định 1 giờ), lưu vào `audit_anchors` và ghi ra log của nó, để có bản sao
+  nằm ngoài database. Giữ khoá công khai (`control-plane audit public-key`)
+  ở nơi khác máy chủ database.
+- **Xác minh.** `control-plane audit verify [-org <id>]` (với `DATABASE_URL`
+  của chủ sở hữu bảng; khoá công khai lấy từ `AUDIT_SIGNING_KEY`,
+  `AUDIT_VERIFY_KEY` hoặc `-key`) tự tính lại mọi hash, độc lập với các hàm
+  trong database, và chỉ ra chỗ hỏng đầu tiên: dòng bị sửa, dòng bị xoá, dòng
+  bị sửa rồi tính lại hash (dòng sau không còn khớp), và khi có điểm neo thì cả
+  chuỗi bị cắt đuôi hoặc bị viết lại từ đầu. Các dòng retention đã xoá được báo
+  đúng là do retention.
+- **Xuất.** `control-plane audit export -org <id>` in các dòng và điểm neo
+  dạng JSON lines cho kiểm toán viên kiểm tra mà không cần vào database.
+
+Xem prompt và câu trả lời đã lưu là một quyền riêng: chính sách bảo mật của tổ
+chức đặt vai trò thấp nhất được xem (`content_read_role`, mặc định admin) và có
+bắt buộc nêu lý do không (`content_view_reason`, mặc định bật). Nhật ký yêu cầu
+chỉ cho biết một dòng có nội dung hay không; mỗi lần xem đi qua `POST
+.../requests/{id}/content` và được ghi là `request.content_viewed` kèm lý do,
+trong chuỗi nói trên.
 
 ## Mô hình mối đe doạ
 

@@ -7,7 +7,8 @@ import { DataTable, EmptyState, SearchBox, type Column } from '../components/Dat
 import { usePaged } from '../components/usePaged';
 import { CopyButton, Dialog, formatTime, PageHeader, useDebounced, useLoad } from '../components/ui';
 import { useApp, useOrg } from '../context';
-import { ACTIONS, type AuditRow } from '../types';
+import { ApiError } from '../api';
+import { ACTIONS, type AuditRow, type StoredContent } from '../types';
 import { normLabel, ruleNames } from './dashboard';
 import { ReportDialog } from './ReportDialog';
 
@@ -19,6 +20,8 @@ export function RequestLogPage() {
   const query = useDebounced(q);
   const [open, setOpen] = useState<AuditRow | null>(null);
   const [reporting, setReporting] = useState<AuditRow | null>(null);
+  // Stored content read in this page (each read is logged on the server).
+  const [contents, setContents] = useState<Record<string, StoredContent>>({});
   const actionId = useId();
 
   const fetchPage = useCallback(
@@ -147,7 +150,8 @@ export function RequestLogPage() {
               type="button"
               className="btn"
               onClick={() => {
-                setReporting(open);
+                const c = contents[open.id];
+                setReporting(c ? { ...open, request_content: c.request_content ?? undefined } : open);
                 setOpen(null);
               }}
             >
@@ -203,18 +207,17 @@ export function RequestLogPage() {
                 <dd className="mono small wrap">{open.request_sha256}</dd>
               </>
             ) : null}
-            {open.request_content ? (
+            {open.has_content ? (
               <>
                 <dt>{t('audit.content')}</dt>
                 <dd>
-                  <pre className="pre">{open.request_content}</pre>
+                  <ContentReader
+                    key={open.id}
+                    row={open}
+                    loaded={contents[open.id]}
+                    onLoaded={(c) => setContents((m) => ({ ...m, [open.id]: c }))}
+                  />
                 </dd>
-              </>
-            ) : null}
-            {open.content_error ? (
-              <>
-                <dt>{t('audit.content')}</dt>
-                <dd className="muted">{t('audit.contentUnavailable')}</dd>
               </>
             ) : null}
           </dl>
@@ -228,6 +231,64 @@ export function RequestLogPage() {
           onClose={() => setReporting(null)}
         />
       ) : null}
+    </div>
+  );
+}
+
+/** Reads one row's stored content on request: the server checks the role
+ * and the reason and logs the read, so nothing is fetched by just opening
+ * the details. */
+function ContentReader({ row, loaded, onLoaded }: { row: AuditRow; loaded?: StoredContent; onLoaded: (c: StoredContent) => void }) {
+  const { api, t } = useApp();
+  const { org } = useOrg();
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const reasonId = useId();
+
+  if (loaded) {
+    if (loaded.content_error) return <span className="muted">{t('audit.contentUnavailable')}</span>;
+    return (
+      <div className="stack-sm">
+        {loaded.request_content ? <pre className="pre" data-testid="stored-request">{loaded.request_content}</pre> : null}
+        {loaded.response_content ? (
+          <>
+            <div className="small muted">{t('audit.storedAnswer')}</div>
+            <pre className="pre" data-testid="stored-response">{loaded.response_content}</pre>
+          </>
+        ) : null}
+      </div>
+    );
+  }
+  const read = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      onLoaded(await api.readRequestContent(org.id, row.id, reason.trim()));
+    } catch (e) {
+      const code = e instanceof ApiError ? (e.body as { code?: string } | undefined)?.code : undefined;
+      setError(code === 'reason_required' ? t('audit.reasonRequired') : code === 'content_read_role' ? t('audit.contentForbidden') : e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="stack-sm">
+      <div className="small muted">{t('audit.contentLogged')}</div>
+      <label htmlFor={reasonId} className="small">
+        {t('audit.reason')}
+      </label>
+      <input id={reasonId} value={reason} maxLength={500} placeholder={t('audit.reasonPlaceholder')} onChange={(e) => setReason(e.target.value)} />
+      {error ? (
+        <div className="field-error" role="alert">
+          {error}
+        </div>
+      ) : null}
+      <div>
+        <button type="button" className="btn btn-small" disabled={busy} onClick={() => void read()}>
+          {t('audit.showContent')}
+        </button>
+      </div>
     </div>
   );
 }

@@ -330,7 +330,8 @@ func TestInputPIIRulesThroughGateway(t *testing.T) {
 					noValues(t, "audit tags", tags...)
 					for _, ev := range eventsFor(&row, 0.5) {
 						for k, v := range ev.Attrs {
-							if s, ok := v.(string); ok {
+							// Ids are random UUIDs that may hold "4111" or "0912" by chance.
+							if s, ok := v.(string); ok && !strings.HasSuffix(k, "_id") {
 								noValues(t, "event attr "+k, s)
 							}
 						}

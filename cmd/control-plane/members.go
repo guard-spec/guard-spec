@@ -794,6 +794,7 @@ var capabilities = []capability{
 	{"members.owner", auth.RoleOwner, "Grant the owner role and change or remove owners"},
 	{"members.reset_mfa", auth.RoleOwner, "Reset a member's two-factor authentication"},
 	{"activity.read", auth.RoleAdmin, "View the activity log"},
+	{"requests.content.read", auth.RoleAdmin, "Read the stored prompt and answer of a request (the role is set in the security policy; each read is logged, with a reason when required)"},
 	{"security.read", auth.RoleAdmin, "View the security policy"},
 	{"security.write", auth.RoleOwner, "Change the security policy (2FA, login methods, domain join)"},
 	{"alerts.read", auth.RoleViewer, "View alert rules, channels (never their secrets), groups and alert history"},

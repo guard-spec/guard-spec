@@ -33,6 +33,8 @@ export function securityBody(s: OrgSecurity, methodsTouched: boolean): Partial<O
     sso_satisfies_mfa: s.sso_satisfies_mfa,
     domain_join: s.domain_join,
     session_lifetime_hours: s.session_lifetime_hours,
+    content_read_role: s.content_read_role ?? 'admin',
+    content_view_reason: s.content_view_reason ?? true,
   };
   if (methodsTouched) body.allowed_login_methods = s.allowed_login_methods;
   return body;
@@ -201,6 +203,28 @@ export function SecurityPage() {
             <Plus size={14} aria-hidden="true" />
             <span>{t('sec.addDomain')}</span>
           </button>
+        </fieldset>
+
+        <fieldset className="card" disabled={!writable}>
+          <legend>{t('sec.content')}</legend>
+          <p className="muted small">{t('sec.contentHelp')}</p>
+          <Field label={t('sec.contentRole')}>
+            {(p) => (
+              <select {...p} value={s.content_read_role ?? 'admin'} onChange={(e) => set({ content_read_role: e.target.value as Role })}>
+                {ROLES.map((r) => (
+                  <option key={r} value={r}>
+                    {t(`org.role.${r}` as MessageKey)}
+                  </option>
+                ))}
+              </select>
+            )}
+          </Field>
+          <Toggle
+            label={t('sec.contentReason')}
+            help={t('sec.contentReasonHelp')}
+            checked={s.content_view_reason ?? true}
+            onChange={(v) => set({ content_view_reason: v })}
+          />
         </fieldset>
 
         <fieldset className="card" disabled={!writable}>

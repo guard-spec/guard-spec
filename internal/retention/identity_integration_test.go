@@ -40,12 +40,8 @@ func TestRetentionActivityLogAndSessions(t *testing.T) {
 	orgs := []uuid.UUID{uuid.New(), uuid.New()}
 	addActivity := func(tx pgx.Tx, org *uuid.UUID) error {
 		for i := 0; i < 5; i++ {
-			at := base.Add(time.Duration(i) * time.Minute)
-			if i == 4 {
-				at = recent
-			}
-			if _, err := tx.Exec(ctx, `INSERT INTO activity_log (org_id, at, action, target) VALUES ($1,$2,'test',$3)`,
-				org, at, tag); err != nil {
+			if _, err := tx.Exec(ctx, `INSERT INTO activity_log (org_id, action, target) VALUES ($1,'test',$2)`,
+				org, tag); err != nil {
 				return err
 			}
 		}
@@ -72,6 +68,26 @@ func TestRetentionActivityLogAndSessions(t *testing.T) {
 		})
 	}
 	if err := instance(func(tx pgx.Tx) error { return addActivity(tx, nil) }); err != nil {
+		t.Fatal(err)
+	}
+	// The activity log's trigger stamps each row with the time it was
+	// recorded (migration 022, hash chain), and the application role cannot
+	// update it: the test dates its rows as the owner. This changes rows
+	// after they were chained, which audit verify would report; retention
+	// does not care.
+	ownerURL := os.Getenv("TEST_OWNER_DATABASE_URL")
+	if ownerURL == "" {
+		ownerURL = "postgres://ps:ps@localhost:5432/guardspec?sslmode=disable"
+	}
+	owner, err := pgxpool.New(ctx, ownerURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer owner.Close()
+	if _, err := owner.Exec(ctx, `UPDATE activity_log a
+		SET at = CASE WHEN x.rn = 5 THEN $2::timestamptz ELSE $3::timestamptz + (x.rn - 1) * interval '1 minute' END
+		FROM (SELECT id, row_number() OVER (PARTITION BY org_id ORDER BY seq) AS rn FROM activity_log WHERE target = $1) x
+		WHERE a.id = x.id`, tag, recent, base); err != nil {
 		t.Fatal(err)
 	}
 	countActivity := func() (perOrg []int, inst int) {

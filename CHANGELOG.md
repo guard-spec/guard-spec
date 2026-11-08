@@ -30,6 +30,20 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ### Added
 
+- Tamper-evident activity log (RF-aceaddfc): each organization's activity
+  rows, and the instance's, form a SHA-256 hash chain kept by a database
+  trigger (migration 022; existing rows are chained by the migration); the
+  application role can no longer update or delete them. With
+  `AUDIT_SIGNING_KEY` the control plane signs the chain heads every
+  `AUDIT_ANCHOR_INTERVAL` (Ed25519, stored in `audit_anchors` and logged).
+  `control-plane audit verify|anchor|export|public-key` checks the chains on
+  its own and names the first changed, removed or rehashed row, and a cut or
+  rewritten chain against the anchors.
+- Reading stored content is a permission of its own: the security policy's
+  `content_read_role` (default admin) and `content_view_reason` (default on);
+  `POST /v1/organizations/{org}/requests/{id}/content` returns one row's
+  prompt and answer and logs `request.content_viewed` with the reason. The
+  request log asks for the reason and shows the content on request.
 - Personal data kept from the model provider (RF-5b9b3aa2): the guard
   setting `input_pii_action` replaces the personal data the input check finds
   (e-mail, Vietnamese phone, card, CCCD, IPv4; `input_pii_kinds` picks some)
@@ -107,6 +121,14 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   one value with either operator, and the editor flags a list of values.
 
 ### Upgrade notes
+
+- `GET /v1/organizations/{org}/requests` no longer returns `request_content`
+  and `response_content`: it returns `has_content`, and the content of one
+  row comes from `POST .../requests/{id}/content` (admin by default, with a
+  reason). Scripts that read content from the list must switch.
+- Migration 022 chains the existing activity rows and takes UPDATE and
+  DELETE on `activity_log` from `guardspec_app`. Set `AUDIT_SIGNING_KEY` on the
+  control plane for signed anchors, and keep its public key elsewhere.
 
 - Migration 021 adds `org_data_keys`. Content stays in the clear until a
   key-encryption key is set: to encrypt it, set `CONTENT_KEK` (or

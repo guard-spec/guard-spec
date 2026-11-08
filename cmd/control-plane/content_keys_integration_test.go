@@ -7,6 +7,7 @@ package main
 
 import (
 	"context"
+	"strconv"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -63,7 +64,9 @@ func sealedRow(t *testing.T, h *cpHarness, ring *datakey.Keyring, org uuid.UUID,
 	}
 }
 
-func requestRows(t *testing.T, h *cpHarness, org uuid.UUID, token string) []map[string]any {
+// contentOf lists org's requests (newest first) and reads each one's stored
+// content through the content endpoint with reason.
+func contentOf(t *testing.T, h *cpHarness, org uuid.UUID, token, reason string) []map[string]any {
 	t.Helper()
 	status, body := h.do("GET", "/v1/organizations/"+org.String()+"/requests", token, "")
 	if status != 200 {
@@ -71,7 +74,19 @@ func requestRows(t *testing.T, h *cpHarness, org uuid.UUID, token string) []map[
 	}
 	var out []map[string]any
 	for _, r := range body["data"].([]any) {
-		out = append(out, r.(map[string]any))
+		row := r.(map[string]any)
+		if _, ok := row["request_content"]; ok {
+			t.Errorf("the list returned content: %v", row)
+		}
+		if row["has_content"] != true {
+			t.Fatalf("has_content: %v", row)
+		}
+		st, got := h.do("POST", "/v1/organizations/"+org.String()+"/requests/"+row["id"].(string)+"/content", token,
+			`{"reason":`+strconv.Quote(reason)+`}`)
+		if st != 200 {
+			t.Fatalf("content: %d %v", st, got)
+		}
+		out = append(out, got)
 	}
 	return out
 }
@@ -84,7 +99,7 @@ func TestRequestsContentDecryption(t *testing.T) {
 		h := newCPHarness(t, func(s *appSettings) { s.contentKeys = datakey.NewStore(ring) })
 		org, _, admin := h.org(auth.RoleAdmin)
 		sealedRow(t, h, ring, org, prompt)
-		rows := requestRows(t, h, org, admin)
+		rows := contentOf(t, h, org, admin, "kiểm tra mã hoá")
 		if len(rows) != 2 || rows[0]["request_content"] != prompt || rows[0]["content_error"] != nil {
 			t.Fatalf("sealed row: %v", rows)
 		}
@@ -97,8 +112,8 @@ func TestRequestsContentDecryption(t *testing.T) {
 		h := newCPHarness(t)
 		org, _, admin := h.org(auth.RoleAdmin)
 		sealedRow(t, h, ring, org, prompt)
-		rows := requestRows(t, h, org, admin)
-		if _, ok := rows[0]["request_content"]; ok || rows[0]["content_error"] == nil {
+		rows := contentOf(t, h, org, admin, "kiểm tra mã hoá")
+		if rows[0]["request_content"] != nil || rows[0]["content_error"] == nil {
 			t.Fatalf("sealed row shown without a key: %v", rows[0])
 		}
 		if rows[1]["request_content"] != "legacy plain text" {
@@ -110,8 +125,8 @@ func TestRequestsContentDecryption(t *testing.T) {
 		h := newCPHarness(t, func(s *appSettings) { s.contentKeys = datakey.NewStore(testContentRing(t)) })
 		org, _, admin := h.org(auth.RoleAdmin)
 		sealedRow(t, h, ring, org, prompt)
-		rows := requestRows(t, h, org, admin)
-		if _, ok := rows[0]["request_content"]; ok || rows[0]["content_error"] == nil {
+		rows := contentOf(t, h, org, admin, "kiểm tra mã hoá")
+		if rows[0]["request_content"] != nil || rows[0]["content_error"] == nil {
 			t.Fatalf("row: %v", rows[0])
 		}
 	})
