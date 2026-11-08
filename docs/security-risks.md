@@ -46,7 +46,7 @@ make an LLM application safe on its own.
 | I4 | 2FA enrolment is trust on first use | An attacker with a password enrols first | Require 2FA early; reset 2FA when in doubt |
 | I5 | Wrong `TRUSTED_PROXIES` | Spoofed client IPs in limits and logs | List only your proxies |
 | R1 | Prompt content stored in audit rows | Personal data at rest | Keep `AUDIT_STORE_CONTENT` off, set `CONTENT_KEK`, retention |
-| R2 | Personal data passes the redactor | Leaks in answers | Redaction is regex-based; add your own checks |
+| R2 | Personal data passes the redactor | Leaks in answers, sent to the provider | `input_pii_action` tokenize or redact; patterns only, add your own checks |
 | R3 | Trace IDs or metric labels leak tenant data | Cross-tenant information | Defaults are safe; review before changing them |
 | S1 | Tampered image, binary or model | Arbitrary code or a weakened detector | cosign verify, SHA-256 pinned models, digests |
 | S2 | Known vulnerabilities in dependencies | Exploitable services | Update to the latest release; watch advisories |
@@ -299,12 +299,16 @@ What to do:
 
 The output guard redacts e-mail addresses, Vietnamese phone, ID and card
 numbers and IPv4 addresses with patterns. Other formats, other countries and
-personal data written in words are not caught. Prompts going to the upstream
-are not redacted.
+personal data written in words are not caught. Prompts go to the upstream as
+they are unless the organization sets `input_pii_action` (below).
 
-What to do: if you must not send personal data to the LLM provider, remove it
-in your application before the request, or use a provider and contract that
-allow it.
+What to do: if you must not send personal data to the LLM provider, set
+`input_pii_action` to `tokenize` (the answer gets the values back) or
+`redact` in the organization's guard settings ([Personal data in
+requests](../README.md#personal-data-in-requests)). It only covers what the
+patterns find: remove other personal data (names, addresses) in your
+application before the request, or use a provider and contract that allow
+it.
 
 ### R3. Trace IDs or metric labels leak tenant data
 

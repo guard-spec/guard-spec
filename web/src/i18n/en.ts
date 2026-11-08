@@ -278,9 +278,25 @@ export const en = {
   'guard.inputPii.legend': 'Personal data in requests',
   'guard.inputPii': 'Detect personal data in requests',
   'guard.inputPii.help':
-    'Off by default. When on, the gateway checks user messages, tool results and documents (not system or developer prompts) for five kinds of data: e-mail addresses, Vietnamese phone numbers, payment card numbers (Luhn check), CCCD numbers and IPv4 addresses. Rules can log or block on input.pii.kinds and input.pii.count; nothing is redacted, and only kinds and counts are recorded.',
+    'Off by default. When on, the gateway checks user messages, tool results and documents (not system or developer prompts) for five kinds of data: e-mail addresses, Vietnamese phone numbers, payment card numbers (Luhn check), CCCD numbers and IPv4 addresses. Rules can log or block on input.pii.kinds and input.pii.count; only kinds and counts are recorded. To keep the data from the model provider, choose an action below.',
   'guard.inputPii.tip':
     'These are pattern checks, not full personal-data detection: names, street addresses, bank account numbers and ID numbers of other countries are not found. A version number such as 1.2.3.4 reads as an IPv4 address. System and developer prompts are left out because they often hold example data. It adds about 0.01 ms to a 2 KB request and 0.06 ms to a 20 KB one.',
+  'guard.piiAction': 'Before the request goes upstream',
+  'guard.piiAction.off': 'Send it as it is',
+  'guard.piiAction.tokenize': 'Replace with tokens, put the values back in the answer',
+  'guard.piiAction.redact': 'Replace with labels',
+  'guard.piiAction.offHelp': 'The model provider receives the personal data the client sent.',
+  'guard.piiAction.tokenizeHelp':
+    'Each value becomes a token such as ⟦EMAIL_1⟧ (the same value, the same token) in user messages, tool results, documents and earlier answers. The answer, streamed or not, gets the values back before it reaches the client, so the provider never sees them and the user does. Tokens live in memory for the one request only. System prompts, signed thinking blocks and the provider\'s own web search results are left alone.',
+  'guard.piiAction.redactHelp':
+    'Each value becomes a label such as [EMAIL] and does not come back: use it when the model does not need the data.',
+  'guard.piiKinds': 'Kinds to replace',
+  'guard.piiKinds.help': 'The same pattern checks as detection, so the same limits: names and street addresses are not found.',
+  'guard.piiKind.email': 'E-mail',
+  'guard.piiKind.phone': 'Phone (VN)',
+  'guard.piiKind.card': 'Payment card',
+  'guard.piiKind.cccd': 'CCCD',
+  'guard.piiKind.ipv4': 'IPv4',
 
   'keys.title': 'API keys',
   'keys.new': 'New API key',

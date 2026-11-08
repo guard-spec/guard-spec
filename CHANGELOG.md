@@ -30,6 +30,18 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ### Added
 
+- Personal data kept from the model provider (RF-5b9b3aa2): the guard
+  setting `input_pii_action` replaces the personal data the input check finds
+  (e-mail, Vietnamese phone, card, CCCD, IPv4; `input_pii_kinds` picks some)
+  before the request goes upstream. `tokenize` uses tokens such as
+  `⟦EMAIL_1⟧` and puts the values back in the answer, streamed or not, on the
+  three APIs, with the output guard on or off; `redact` uses labels such as
+  `[EMAIL]`. It covers user turns, tool results, documents and the earlier
+  answers the client sends back (assistant text, tool-call arguments); not
+  system prompts, signed thinking or the provider's own web search results.
+  Tokens are kept in memory for the request only. The audit row records
+  kinds and counts (`input:pii_tokenized_<kind>=<n>`), never values. Admin
+  UI: Guard settings → Before the request goes upstream.
 - Stored content is encrypted (RF-771f82ec): with a key-encryption key
   (`CONTENT_KEK`, `CONTENT_KEK_FILE`, or a HashiCorp Vault Transit key with
   `CONTENT_KEK_VAULT_KEY`) on the gateway and the control plane, the prompts

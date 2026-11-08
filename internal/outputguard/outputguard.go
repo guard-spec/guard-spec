@@ -80,6 +80,8 @@ func (c Counts) Total() int {
 type Guard struct {
 	cfg   Config
 	hosts []string
+	// passthrough: the guard only restores tokens (RestoreOnly).
+	passthrough bool
 }
 
 // New returns a Guard for cfg.
@@ -112,6 +114,7 @@ func NewCanary() (string, error) {
 type Scanner struct {
 	g      *Guard
 	canary string
+	tokens *Tokens // put back before guarding (WithTokens); nil: none
 }
 
 // ForRequest returns a Scanner for one request.

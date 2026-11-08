@@ -37,6 +37,8 @@ type Stream struct {
 	// re-check produced (settle).
 	stages []stage
 	Counts Counts
+	// rest holds back the start of a token split across writes (WithTokens).
+	rest restorer
 }
 
 // dropper discards the rest of a construct that was removed before it ended.
@@ -63,6 +65,16 @@ func (s *Scanner) NewStream() *Stream {
 
 // Write adds text and returns what can be sent now.
 func (st *Stream) Write(text string) string {
+	if st.s.tokens != nil {
+		text = st.rest.write(text, st.s.tokens)
+	}
+	if st.s.g.passthrough {
+		return text
+	}
+	return st.write(text)
+}
+
+func (st *Stream) write(text string) string {
 	text = st.drop.skip(text)
 	if text == "" {
 		return ""
@@ -84,6 +96,16 @@ const scanEvery = 64
 // Flush returns everything still held, with unfinished images and links removed.
 func (st *Stream) Flush() string {
 	var b strings.Builder
+	if st.s.tokens != nil {
+		// The tail held back for a token that never closed.
+		tail := st.rest.flush()
+		if st.s.g.passthrough {
+			return tail
+		}
+		b.WriteString(st.write(tail))
+	} else if st.s.g.passthrough {
+		return ""
+	}
 	for st.sent < len(st.text) {
 		before := len(st.text) - st.sent
 		b.WriteString(st.settle(st.emit(true), false))

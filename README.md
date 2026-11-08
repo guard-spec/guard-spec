@@ -1953,9 +1953,24 @@ JSON column.
   either. A part that the org's scan roles leave out is not checked.
 - **Rules.** `input.pii.kinds` lists the kinds found (in the order above) and
   `input.pii.count` counts all values. Rules can `log` or `block` on them (or
-  `route`, for example to a self-hosted model). There is no `redact`: the
-  request goes upstream as it is unless a rule blocks it. The Simulator takes
-  both fields (`email, card` and a number).
+  `route`, for example to a self-hosted model). The Simulator takes both
+  fields (`email, card` and a number).
+- **Keeping the data from the provider** (`input_pii_action`, Guard
+  settings → Before the request goes upstream). `tokenize` replaces each
+  value with a token such as `⟦EMAIL_1⟧` (the same value, the same token) and
+  puts the values back in the answer, streamed or not, before it reaches the
+  client: the provider never sees them, the user does. `redact` replaces them
+  with a label (`[EMAIL]`) for good. `input_pii_kinds` limits either to some
+  kinds (default: all five). The replacement covers user turns, tool results
+  and documents (after classification, so detection and rules see the request
+  as sent) and the earlier answers the client sends back, assistant text and
+  tool-call arguments included (a JSON number in the arguments is left
+  alone). Left as they are: system and developer prompts, signed thinking
+  blocks, the provider's own web search and fetch results. Tokens live only in
+  memory for the request. A restored value passes the output guard like any
+  other text, so `OUTPUT_REDACT_PII=true` shows the redaction in the answer.
+  The audit row gets `input:pii_tokenized_<kind>=<n>` or
+  `input:pii_redacted_<kind>=<n>`.
 - **Audit and alerts.** The audit row's `pii_entities` gets
   `input:pii_<kind>=<n>` tags; `detection.blocked` and `detection.flagged`
   events get `pii_kinds` and `pii_count` (alert conditions can use

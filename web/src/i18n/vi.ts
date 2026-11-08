@@ -279,9 +279,25 @@ export const vi: Messages = {
   'guard.inputPii.legend': 'Dữ liệu cá nhân trong request',
   'guard.inputPii': 'Phát hiện dữ liệu cá nhân trong request',
   'guard.inputPii.help':
-    'Mặc định tắt. Khi bật, gateway kiểm tra tin nhắn người dùng, kết quả tool và tài liệu (không gồm system prompt hay developer prompt) để tìm năm loại dữ liệu: địa chỉ email, số điện thoại Việt Nam, số thẻ thanh toán (kiểm tra Luhn), số CCCD và địa chỉ IPv4. Luật có thể ghi log hoặc chặn theo input.pii.kinds và input.pii.count; không có gì bị che, và chỉ loại và số lượng được ghi lại.',
+    'Mặc định tắt. Khi bật, gateway kiểm tra tin nhắn người dùng, kết quả tool và tài liệu (không gồm system prompt hay developer prompt) để tìm năm loại dữ liệu: địa chỉ email, số điện thoại Việt Nam, số thẻ thanh toán (kiểm tra Luhn), số CCCD và địa chỉ IPv4. Luật có thể ghi log hoặc chặn theo input.pii.kinds và input.pii.count; chỉ loại và số lượng được ghi lại. Muốn giữ dữ liệu khỏi nhà cung cấp mô hình, chọn một hành động bên dưới.',
   'guard.inputPii.tip':
     'Đây là kiểm tra theo mẫu, không phải phát hiện dữ liệu cá nhân đầy đủ: không tìm được họ tên, địa chỉ nhà, số tài khoản ngân hàng hay số giấy tờ của nước khác. Số phiên bản như 1.2.3.4 bị đọc là địa chỉ IPv4. System prompt và developer prompt được bỏ qua vì thường chứa dữ liệu mẫu. Thêm khoảng 0,01 ms cho request 2 KB và 0,06 ms cho request 20 KB.',
+  'guard.piiAction': 'Trước khi gửi request lên upstream',
+  'guard.piiAction.off': 'Gửi nguyên văn',
+  'guard.piiAction.tokenize': 'Thay bằng token, trả lại giá trị trong câu trả lời',
+  'guard.piiAction.redact': 'Thay bằng nhãn',
+  'guard.piiAction.offHelp': 'Nhà cung cấp mô hình nhận dữ liệu cá nhân mà client gửi.',
+  'guard.piiAction.tokenizeHelp':
+    'Mỗi giá trị thành một token như ⟦EMAIL_1⟧ (cùng giá trị, cùng token) trong tin nhắn người dùng, kết quả tool, tài liệu và các câu trả lời trước. Câu trả lời, streaming hay không, được trả lại giá trị trước khi tới client, nên nhà cung cấp không bao giờ thấy còn người dùng vẫn thấy. Token chỉ nằm trong bộ nhớ cho đúng request đó. System prompt, khối thinking có chữ ký và kết quả web search của chính nhà cung cấp được giữ nguyên.',
+  'guard.piiAction.redactHelp':
+    'Mỗi giá trị thành một nhãn như [EMAIL] và không được trả lại: dùng khi mô hình không cần dữ liệu đó.',
+  'guard.piiKinds': 'Loại dữ liệu cần thay',
+  'guard.piiKinds.help': 'Dùng cùng bộ kiểm tra theo mẫu như phần phát hiện, nên có cùng giới hạn: không tìm được họ tên và địa chỉ nhà.',
+  'guard.piiKind.email': 'Email',
+  'guard.piiKind.phone': 'Số điện thoại (VN)',
+  'guard.piiKind.card': 'Thẻ thanh toán',
+  'guard.piiKind.cccd': 'CCCD',
+  'guard.piiKind.ipv4': 'IPv4',
 
   'keys.title': 'Khóa API',
   'keys.new': 'Khóa API mới',

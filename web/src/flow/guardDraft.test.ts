@@ -134,3 +134,14 @@ describe('one save for guard settings and rules', () => {
     expect(r.keep).toHaveLength(1);
   });
 });
+
+describe('guardBody: personal data action', () => {
+  it('keeps the action and the chosen kinds, drops off and empty kinds', () => {
+    expect(guardBody({ input_pii_action: 'tokenize', input_pii_kinds: ['email', 'cccd'] })).toEqual({
+      input_pii_action: 'tokenize',
+      input_pii_kinds: ['email', 'cccd'],
+    });
+    expect(guardBody({ input_pii_action: 'redact', input_pii_kinds: [] })).toEqual({ input_pii_action: 'redact' });
+    expect(guardBody({ input_pii_action: 'off', input_pii_kinds: ['email'] })).toEqual({});
+  });
+});

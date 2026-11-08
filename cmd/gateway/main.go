@@ -367,6 +367,10 @@ type requestEntry struct {
 	// InputPII counts the personal data in the request text by kind, never
 	// the values; nil when the org has the check off (input_pii.go).
 	InputPII outputguard.Counts
+	// PIIAction and PIIProtected: what the org's input_pii_action replaced
+	// before the request went upstream, by kind (input_pii_protect.go).
+	PIIAction    string
+	PIIProtected outputguard.Counts
 	// RouteTarget is the named upstream the request went to, or was meant to
 	// go to when it failed closed; "" for UPSTREAM_LLM_URL and the stub.
 	RouteTarget string
@@ -500,6 +504,7 @@ func outputTags(counts outputguard.Counts) []string {
 func auditTags(e requestEntry) []string {
 	tags := outputTags(e.Output)
 	tags = append(tags, piiTags(e.InputPII)...)
+	tags = append(tags, piiProtectTags(e.PIIAction, e.PIIProtected)...)
 	if e.Redacted > 0 {
 		tags = append(tags, fmt.Sprintf("input:redacted=%d", e.Redacted))
 	}
@@ -635,6 +640,9 @@ type textGuard struct {
 	// found in user text, tool results and documents, by kind (input_pii.go).
 	detectPII bool
 	pii       outputguard.Counts
+	// pseudo replaces personal data before the request goes upstream (the
+	// org's input_pii_action, input_pii_protect.go); nil: off.
+	pseudo *outputguard.Pseudonymizer
 }
 
 func (g *textGuard) toolSchemaKey() string {
@@ -666,7 +674,8 @@ func (g *textGuard) clean(text string) (string, error) {
 	}
 	g.texts = append(g.texts, cleaned)
 	g.collect(cleaned)
-	return cleaned, nil
+	// Classified and counted as sent; forwarded without its personal data.
+	return g.pseudonymize(cleaned), nil
 }
 
 // rejectShadowKeys refuses a key that differs from a guarded one only in case.
@@ -901,11 +910,15 @@ func proxyHandler(gw gateway, f apiFormat) fiber.Handler {
 		guard := textGuard{roles: &scanCfg.Roles, toolPrefixes: scanCfg.toolPrefixes(), org: entry.OrgID,
 			latest: f.history && scanCfg.History == historyLatest, useCache: f.history,
 			allowServerState: scanCfg.ServerState == serverStateAllow,
-			windowTurns:      scanCfg.WindowTurns, windowBytes: scanCfg.WindowBytes, detectPII: scanCfg.InputPII}
+			windowTurns:      scanCfg.WindowTurns, windowBytes: scanCfg.WindowBytes, detectPII: scanCfg.InputPII,
+			pseudo: outputguard.NewPseudonymizer(scanCfg.PIIAction, scanCfg.PIIKinds)}
 		_, endSpan := tracing.Start(tctx, "sanitize")
 		err = f.guardBody(&guard, body)
 		endSpan(err)
 		entry.Report, entry.ServerState, entry.InputPII = guard.report, guard.serverState, guard.pii
+		if guard.pseudo != nil {
+			entry.PIIAction, entry.PIIProtected = scanCfg.PIIAction, guard.pseudo.Counts
+		}
 		if err != nil {
 			if errors.Is(err, errBlocked) {
 				entry.Detected = layerSanitizer
@@ -1072,6 +1085,14 @@ func proxyHandler(gw gateway, f apiFormat) fiber.Handler {
 				}
 			}
 			scan = gw.output.ForRequest(canary)
+		}
+		// Tokenized personal data: the answer gets the values back, with or
+		// without the output guard.
+		if tokens := guard.pseudo.Tokens(); tokens != nil {
+			if scan == nil {
+				scan = outputguard.RestoreOnly().ForRequest("")
+			}
+			scan.WithTokens(tokens)
 		}
 
 		// Cancelled when the client hangs up, so a client that leaves while the

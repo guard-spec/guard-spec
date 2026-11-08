@@ -145,7 +145,15 @@ export interface GuardSettings {
   conversation_window_bytes?: number;
   /** Counts personal data in request text for input.pii.* rules; unset or false: off (the default). */
   input_pii?: boolean;
+  /** Keeps personal data from the upstream: off (unset), redact (a label) or tokenize (a token the answer gets the value back for). */
+  input_pii_action?: 'off' | 'redact' | 'tokenize';
+  /** Kinds the action replaces; unset or empty: every kind. */
+  input_pii_kinds?: PiiKind[];
 }
+
+/** Kinds of personal data the gateway finds (outputguard.PIIKinds). */
+export type PiiKind = 'email' | 'phone' | 'card' | 'cccd' | 'ipv4';
+export const PII_KINDS: PiiKind[] = ['email', 'phone', 'card', 'cccd', 'ipv4'];
 
 /** Bounds of the conversation window sizes (internal/indirect MinWindowTurns...). */
 export const WINDOW_TURNS = { min: 2, max: 32, default: 4 } as const;

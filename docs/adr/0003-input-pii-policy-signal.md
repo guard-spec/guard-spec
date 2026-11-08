@@ -114,5 +114,5 @@ not called at all (`TestInputPIIOffCostsNothing`).
   this ADR; its toxicity and topic decision is unchanged.
 - README and README.vi list the new fields; ROADMAP no longer lists input PII
   under "Later"; CHANGELOG has the feature under "Added".
-- Redaction of personal data in requests is still not built. If it is, it
-  needs the `redact` action, reversible placeholders and a new ADR.
+- Redaction of personal data in requests was not part of this decision; it
+  came with [ADR 0004](0004-input-pii-tokenize.md) (`input_pii_action`).

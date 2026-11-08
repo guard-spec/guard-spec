@@ -218,6 +218,9 @@ var toolCallItems = map[string]bool{
 }
 
 func (g *textGuard) guardInputItem(m map[string]any) error {
+	if isModelItem(m) {
+		defer g.pseudonymizeModel(m) // after classification (input_pii_protect.go)
+	}
 	kind, _ := m["type"].(string)
 	switch {
 	case kind == "" || kind == "message":

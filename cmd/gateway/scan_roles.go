@@ -58,6 +58,10 @@ type scanConfig struct {
 	// check of request text (input_pii.go). Off by default, with no
 	// gateway-wide switch.
 	InputPII bool
+	// PIIAction and PIIKinds are the org's input_pii_action and
+	// input_pii_kinds (input_pii_protect.go); "" is off.
+	PIIAction string
+	PIIKinds  []string
 }
 
 // Values of SCAN_HISTORY.
@@ -209,6 +213,7 @@ func (gw gateway) scanConfigFor(orgID uuid.UUID) (scanConfig, error) {
 	cfg.InjectionThreshold, cfg.IndirectThreshold = s.Thresholds(cfg.injectionThreshold(), cfg.IndirectThreshold)
 	cfg.WindowTurns, cfg.WindowBytes = s.Window(cfg.WindowTurns, cfg.WindowBytes)
 	cfg.InputPII = s.PII()
+	cfg.PIIAction, cfg.PIIKinds = s.PIIAction(), s.InputPIIKinds
 	return cfg, nil
 }
 
@@ -294,6 +299,9 @@ func (g *textGuard) guardMessage(m map[string]any) error {
 		}
 		return g.scoreOnly(indirect.SourceSystem, texts)
 	case "assistant":
+		// After classification: the earlier answer may carry values the
+		// client got back from tokens (input_pii_protect.go).
+		defer g.pseudonymizeModel(m)
 		if !roles.ToolCalls {
 			return nil
 		}
