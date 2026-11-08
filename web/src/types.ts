@@ -206,7 +206,16 @@ export interface AuditRow {
   response_content?: string;
   /** Why stored content is not shown (encrypted without a key, key destroyed). */
   content_error?: string;
+  /** The row stores the prompt or the answer: read it with readRequestContent (permission, reason, logged). */
+  has_content?: boolean;
   created_at: string;
+}
+
+/** POST /organizations/{org}/requests/{id}/content */
+export interface StoredContent {
+  request_content: string | null;
+  response_content: string | null;
+  content_error?: string;
 }
 
 /** A window of GET /organizations/:orgId/dashboard. */
@@ -523,6 +532,10 @@ export interface OrgSecurity {
   allowed_login_methods: string[] | null;
   domain_join: DomainJoinRule[];
   session_lifetime_hours: number;
+  /** Lowest role that may read stored prompt and answer content (default admin). */
+  content_read_role?: Role;
+  /** Readers must give a reason, which the activity log keeps (default true). */
+  content_view_reason?: boolean;
 }
 
 // ── User management (identity contract §4) ──────────────────────────────────

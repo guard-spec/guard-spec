@@ -59,6 +59,12 @@ func main() {
 		os.Exit(0)
 	}
 
+	if len(os.Args) > 1 && os.Args[1] == "audit" {
+		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+		code := runAudit(ctx, os.Args[2:], os.Getenv, os.Stdout, os.Stderr)
+		stop()
+		os.Exit(code)
+	}
 	if len(os.Args) > 1 && os.Args[1] == "keys" {
 		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 		code := runKeys(ctx, os.Args[2:], os.Getenv, os.Stdout, os.Stderr)
@@ -157,6 +163,25 @@ func main() {
 		os.Exit(1)
 	}
 	go retention.Run(ctx, db, ops.Retention)
+	// Signed anchors of the activity log's hash chains (audit_chain.go).
+	if k := os.Getenv("AUDIT_SIGNING_KEY"); k != "" {
+		key, err := parseSigningKey(k)
+		if err != nil {
+			slog.Error("config", "err", err)
+			os.Exit(1)
+		}
+		every := time.Hour
+		if v := os.Getenv("AUDIT_ANCHOR_INTERVAL"); v != "" {
+			if every, err = time.ParseDuration(v); err != nil || every < time.Minute {
+				slog.Error("config", "err", "AUDIT_ANCHOR_INTERVAL must be a duration of at least 1m")
+				os.Exit(1)
+			}
+		}
+		go runAnchoring(ctx, db, key, every)
+	} else {
+		slog.Warn("AUDIT_SIGNING_KEY is not set: the activity log is hash-chained but its heads are not signed " +
+			"(docs/security/README.md#audit-log-integrity)")
+	}
 	// The alert worker, the SSE hub and the Telegram polling fallback.
 	alertsDone := make(chan struct{})
 	go func() {
@@ -371,7 +396,10 @@ func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins 
 	authed.Put("/organizations/:orgId/policies/:id", admin, updatePolicy(db, eng))
 	authed.Delete("/organizations/:orgId/policies/:id", admin, deletePolicy(db))
 
-	authed.Get("/organizations/:orgId/requests", viewer, listRequests(db, settings.contentKeys))
+	authed.Get("/organizations/:orgId/requests", viewer, listRequests(db))
+	// Stored content: the org's content_read_role, a reason when required,
+	// and an activity log row for every read (content_access.go).
+	authed.Post("/organizations/:orgId/requests/:requestId/content", viewer, readRequestContent(db, settings.contentKeys))
 	// Aggregates of the request log over a window (dashboard.go).
 	authed.Get("/organizations/:orgId/dashboard", viewer, getDashboard(db))
 	// Shadow mode: the candidate model compared with the active one
@@ -972,7 +1000,7 @@ func validateRules(eng *policy.Engine, raw json.RawMessage) (json.RawMessage, []
 	return stored, routeTargets(rules), err
 }
 
-func listRequests(db *pgxpool.Pool, keys *datakey.Store) fiber.Handler {
+func listRequests(db *pgxpool.Pool) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		id := orgID(c)
 		pg, err := parsePage(c, true)
@@ -1006,13 +1034,11 @@ func listRequests(db *pgxpool.Pool, keys *datakey.Store) fiber.Handler {
 			// How many identical refused requests the row stands for when
 			// retries were folded into it (migration 019); null for one.
 			RepeatCount *int `json:"repeat_count"`
-			// Present only when the org or gateway enabled content storage.
-			RequestContent  *string   `json:"request_content,omitempty"`
-			ResponseContent *string   `json:"response_content,omitempty"`
-			CreatedAt       time.Time `json:"created_at"`
-			// Why stored content is not shown: it is encrypted and this
-			// control plane has no key for it, or its key was destroyed.
-			ContentError string `json:"content_error,omitempty"`
+			// HasContent: the row stores the prompt or the answer. The
+			// content itself is read one row at a time, with its own
+			// permission and a logged reason (POST .../requests/{id}/content).
+			HasContent bool      `json:"has_content"`
+			CreatedAt  time.Time `json:"created_at"`
 		}
 		reqs := []row{}
 		var total int64
@@ -1048,7 +1074,7 @@ func listRequests(db *pgxpool.Pool, keys *datakey.Store) fiber.Handler {
 				        COALESCE(injection_score, 0), COALESCE(toxicity_score, 0), COALESCE(anomaly_score, 0),
 				        COALESCE(had_tag_chars, false), COALESCE(had_bidi, false), latency_ms,
 				        request_sha256, request_bytes, response_sha256, response_bytes, route_target, repeat_count,
-				        request_content, response_content, created_at
+				        (request_content IS NOT NULL OR response_content IS NOT NULL), created_at
 				 FROM requests WHERE org_id = $1`+filter+cond+ks.orderLimit(pageReq{Limit: pg.Limit, Enveloped: true}),
 				args...)
 			if err != nil {
@@ -1060,22 +1086,12 @@ func listRequests(db *pgxpool.Pool, keys *datakey.Store) fiber.Handler {
 				if err := rows.Scan(&r.ID, &r.Model, &r.Action, &r.RuleID, &r.InjectionLabel, &r.InjectionScore, &r.ToxicityScore,
 					&r.AnomalyScore, &r.HadTagChars, &r.HadBidi, &r.LatencyMs,
 					&r.RequestSHA256, &r.RequestBytes, &r.ResponseSHA256, &r.ResponseBytes, &r.RouteTarget, &r.RepeatCount,
-					&r.RequestContent, &r.ResponseContent, &r.CreatedAt); err != nil {
+					&r.HasContent, &r.CreatedAt); err != nil {
 					return err
 				}
 				reqs = append(reqs, r)
 			}
-			if err := rows.Err(); err != nil {
-				return err
-			}
-			rows.Close()
-			for i := range reqs {
-				r := &reqs[i]
-				r.ContentError = openContent(c.Context(), tx, keys, id,
-					contentField{&r.RequestContent, "request_content", r.RequestSHA256},
-					contentField{&r.ResponseContent, "response_content", r.ResponseSHA256})
-			}
-			return nil
+			return rows.Err()
 		})
 		if errors.Is(err, errBadCursor) {
 			return badPage(c, err)

@@ -6,6 +6,7 @@
 // ends the session (onUnauthorized).
 
 import type {
+  StoredContent,
   ApiKey,
   AuditRow,
   CatalogEntry,
@@ -445,6 +446,11 @@ export class ApiClient {
 
   listRequestsPage(orgId: UUID, q: ListQuery): Promise<unknown> {
     return this.request('GET', `/organizations/${enc(orgId)}/requests`, { query: q });
+  }
+
+  /** One request's stored prompt and answer: needs the org's content_read_role and, when required, a reason; every read is in the activity log. */
+  readRequestContent(orgId: UUID, requestId: UUID, reason: string): Promise<StoredContent> {
+    return this.request('POST', `/organizations/${enc(orgId)}/requests/${enc(requestId)}/content`, { body: { reason } });
   }
 
   /** The organizations the signed-in user belongs to, with the role. */

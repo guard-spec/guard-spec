@@ -31,6 +31,7 @@ statement depends on a setting, the setting is named.
 - [Tenant isolation](#tenant-isolation)
 - [Shared scan cache](#shared-scan-cache)
 - [What leaves your network](#what-leaves-your-network)
+- [Audit log integrity](#audit-log-integrity)
 - [Threat model](#threat-model)
 - [Verifying a release](#verifying-a-release)
 
@@ -268,6 +269,41 @@ reader can confirm that a known text was sent by that org within 6 hours).
 
 There is no telemetry or call home: the services never contact anything you
 did not configure.
+
+## Audit log integrity
+
+The activity log (admin actions, sign-ins, reads of stored content) can be
+checked for changes made in the database:
+
+- **Hash chain.** Each organization's rows, and the instance's, form a
+  chain: a database trigger gives every new row the next `seq`, the previous
+  row's hash as `prev_hash`, and `hash = SHA-256(prev_hash || canonical
+  row)`, under a lock per chain, whoever writes it. The application role can
+  only insert: no update, no delete (retention deletes the oldest rows
+  through its own function).
+- **Signed anchors.** With `AUDIT_SIGNING_KEY` (an Ed25519 seed) the control
+  plane signs the head of every chain that moved, every
+  `AUDIT_ANCHOR_INTERVAL` (default 1 hour), stores the anchor in
+  `audit_anchors` and writes it to its log, so a copy lives outside the
+  database. Keep the public key (`control-plane audit public-key`) away from
+  the database server.
+- **Verify.** `control-plane audit verify [-org <id>]` (an owner
+  `DATABASE_URL`; the public key from `AUDIT_SIGNING_KEY`, `AUDIT_VERIFY_KEY`
+  or `-key`) recomputes every hash on its own, independently of the
+  database's functions, and names the first break: a changed row, a removed
+  one, a row changed and rehashed (the next row stops linking), and with
+  anchors a chain cut at its end or rewritten from the start. Rows that
+  retention removed are reported as such.
+- **Export.** `control-plane audit export -org <id>` prints the rows and
+  their anchors as JSON lines for an auditor, who can check them without
+  access to the database.
+
+Reading stored prompt and answer content is a permission of its own: the
+organization's security policy sets the lowest role allowed
+(`content_read_role`, default admin) and whether a reason is required
+(`content_view_reason`, default on). The request log lists only whether a
+row has content; each read goes through `POST .../requests/{id}/content` and
+is logged as `request.content_viewed` with the reason, in the chain above.
 
 ## Threat model
 

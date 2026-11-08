@@ -13,14 +13,14 @@ import type { ActivityEntry } from '../types';
 
 /** Action families of the filter (the action is "family.verb"). */
 /** Action families of the org log (?action=); sign-ins live in the instance log. */
-export const ORG_FAMILIES = ['member', 'invite', 'api_key', 'policy', 'upstream', 'guard_settings', 'config', 'security', 'mfa', 'identity_provider', 'user', 'org', 'project_member', 'identity', 'session', 'password'];
+export const ORG_FAMILIES = ['member', 'invite', 'api_key', 'policy', 'upstream', 'guard_settings', 'config', 'security', 'mfa', 'identity_provider', 'user', 'org', 'project_member', 'identity', 'session', 'password', 'request'];
 /** The instance log (GET /admin/activity) also has the sign-ins. */
 export const INSTANCE_FAMILIES = ['login', ...ORG_FAMILIES];
 
 export function actionTone(action: string): Tone {
   if (/fail|denied|refused|revoked|removed|deleted|reset/.test(action)) return 'danger';
   if (/created|added|enabled|success|login$/.test(action)) return 'ok';
-  if (/changed|updated|role/.test(action)) return 'warn';
+  if (/changed|updated|role|viewed/.test(action)) return 'warn';
   return 'neutral';
 }
 

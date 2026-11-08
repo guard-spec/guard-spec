@@ -27,6 +27,8 @@ guardEnv: ""
 #                      Optional; for Vault Transit set CONTENT_KEK_VAULT_KEY,
 #                      VAULT_ADDR and VAULT_TOKEN_FILE through env/extraEnvFrom.
 #                      Back it up with the database.
+#   AUDIT_SIGNING_KEY  control plane, signs the activity log's hash chains:
+#                      an Ed25519 seed, 32 random bytes in base64. Optional.
 #   ADMIN_PASSWORD     first owner (optional; with controlPlane.adminEmail)
 #   GATEWAY_ADMIN_TOKEN gateway, bearer token of POST /admin/models/reload
 #                      (only with gateway.adminToken.enabled; 32+ bytes)

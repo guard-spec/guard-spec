@@ -321,6 +321,8 @@ function evalNode(node: ConditionNode, vars: Record<string, SimValue>): boolean 
 // ── State ──────────────────────────────────────────────────────────────────
 
 export interface MockState {
+  /** Reads of stored content (POST .../requests/{id}/content), as the control plane logs them. */
+  contentReads?: { id: string; reason: string }[];
   org: Org;
   projects: Project[];
   upstreams: Upstream[];
@@ -797,6 +799,8 @@ export function seedIdentity(rich = false): IdentityState {
       allowed_login_methods: null,
       domain_join: [{ domain: 'acme.example', provider_id: 'google', role: 'viewer' }],
       session_lifetime_hours: 12,
+      content_read_role: 'admin',
+      content_view_reason: true,
     },
     activity,
     users: members.map((m, i) => ({
@@ -1401,15 +1405,39 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
       }
     }
 
+    const contentMatch = /^\/requests\/([^/]+)\/content$/.exec(sub);
+    if (contentMatch && method === 'POST') {
+      // As readRequestContent: the org's content_read_role, a reason when required, every read logged.
+      const row = state.requests.find((r) => r.id === contentMatch[1]);
+      if (!row) return json(404, { error: 'request not found' });
+      if (!row.request_content && !row.content_error) return json(404, { error: 'this request has no stored content', code: 'no_content' });
+      const rank = { viewer: 1, member: 2, admin: 3, owner: 4 } as const;
+      const need = id.security.content_read_role ?? 'admin';
+      if (rank[opts.role ?? 'owner'] < rank[need]) {
+        return json(403, { error: `reading stored content needs the ${need} role in this organization`, code: 'content_read_role' });
+      }
+      const reason = ((body as { reason?: string } | undefined)?.reason ?? '').trim();
+      if (id.security.content_view_reason !== false && Array.from(reason).length < 3) {
+        return json(400, { error: 'give a reason for reading this content (at least 3 characters)', code: 'reason_required' });
+      }
+      (state.contentReads ??= []).push({ id: row.id, reason });
+      return json(200, { request_content: row.content_error ? null : (row.request_content ?? null), response_content: null, content_error: row.content_error });
+    }
     if (sub === '/requests' && method === 'GET') {
       const limit = Number(url.searchParams.get('limit') ?? 100);
+      // The list never carries the content: has_content, and the content endpoint above.
+      const pub = (rows: AuditRow[]) =>
+        rows.map(({ request_content, response_content, content_error, ...r }) => ({
+          ...r,
+          has_content: Boolean(request_content) || Boolean(response_content) || Boolean(content_error),
+        }));
       // main: the latest rows up to limit, no cursor.
-      if (legacy) return json(200, { data: state.requests.slice(0, limit), total: Math.min(limit, state.requests.length) });
+      if (legacy) return json(200, { data: pub(state.requests.slice(0, limit)), total: Math.min(limit, state.requests.length) });
       const action = url.searchParams.get('action');
       const q = (url.searchParams.get('q') ?? '').toLowerCase();
       const rows = state.requests.filter((r) => (!action || r.action === action) && (!q || `${r.model ?? ''} ${r.route_target ?? ''} ${r.injection_label ?? ''}`.toLowerCase().includes(q)));
       // N15 counts up to a cap and says so (total_capped).
-      const body = listBody(rows, url, false) as { total?: number; total_capped?: boolean };
+      const body = listBody(pub(rows), url, false) as { total?: number; total_capped?: boolean };
       if (rows.length > 400) Object.assign(body, { total: 400, total_capped: true });
       return json(200, body);
     }
