@@ -240,6 +240,9 @@ What to do:
 
 - Generate secrets randomly (`scripts/quickstart.sh` does) and keep them in a
   secret manager, not in Git or in Helm values.
+- Give them as files (`NAME_FILE`) or Vault references (`NAME=vault:...`)
+  rather than in the environment, where `docker inspect` and process listings
+  show them ([where secrets come from](security/README.md#where-secrets-come-from)).
 - Never run production with `GUARD_ENV=dev`.
 - Rotate `JWT_SECRET` (signs everyone out) and the database passwords if you
   suspect a leak. Revoke API keys you no longer use.

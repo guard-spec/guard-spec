@@ -232,6 +232,9 @@ Nên làm:
 
 - Sinh secret ngẫu nhiên (`scripts/quickstart.sh` làm việc này) và giữ trong
   secret manager, không để trong Git hay Helm values.
+- Đặt secret dạng file (`NAME_FILE`) hoặc tham chiếu Vault (`NAME=vault:...`)
+  thay vì trong biến môi trường, nơi `docker inspect` và danh sách tiến trình
+  đều thấy ([secret lấy từ đâu](security/README.vi.md#secret-lấy-từ-đâu)).
 - Không bao giờ chạy production với `GUARD_ENV=dev`.
 - Đổi `JWT_SECRET` (mọi người bị đăng xuất) và mật khẩu database khi nghi bị lộ.
   Thu hồi API key không còn dùng.

@@ -32,6 +32,7 @@ import (
 	"github.com/guard-spec/guard-spec/internal/metrics"
 	"github.com/guard-spec/guard-spec/internal/policy"
 	"github.com/guard-spec/guard-spec/internal/retention"
+	secretsrc "github.com/guard-spec/guard-spec/internal/secrets"
 	"github.com/guard-spec/guard-spec/internal/tenant"
 	"github.com/guard-spec/guard-spec/internal/version"
 	"github.com/guard-spec/guard-spec/web"
@@ -77,6 +78,11 @@ func main() {
 			"DATABASE_URL must name a role that bypasses row-level security")
 	flag.Parse()
 
+	// PGPASSWORD_FILE or a vault: reference: pgx reads PGPASSWORD itself.
+	if err := secretsrc.Export("PGPASSWORD"); err != nil {
+		slog.Error("config", "err", err)
+		os.Exit(1)
+	}
 	cfg := loadConfig()
 	if *checkOnly {
 		os.Exit(runPolicyCheck(context.Background(), cfg.DatabaseURL, os.Stdout))
@@ -134,7 +140,14 @@ func main() {
 		os.Exit(1)
 	}
 
-	alertsCfg, err := loadAlertsConfig(os.Getenv)
+	// Mutual TLS to the gateway's admin listener (GATEWAY_TLS_*).
+	gatewayClient, err := gatewayTLSClient(os.Getenv)
+	if err != nil {
+		slog.Error("config", "err", err)
+		os.Exit(1)
+	}
+
+	alertsCfg, err := loadAlertsConfig(secretsrc.Getenv)
 	if err != nil {
 		slog.Error("config", "err", err)
 		os.Exit(1)
@@ -152,6 +165,7 @@ func main() {
 			}
 			s.trustedProxies = cfg.TrustedProxies
 			s.gatewayURL = cfg.GatewayURL
+			s.gatewayClient = gatewayClient
 			s.alertsBase = ctx
 			s.alertsCfg = &alertsCfg
 		},
@@ -164,7 +178,7 @@ func main() {
 	}
 	go retention.Run(ctx, db, ops.Retention)
 	// Signed anchors of the activity log's hash chains (audit_chain.go).
-	if k := os.Getenv("AUDIT_SIGNING_KEY"); k != "" {
+	if k := secretsrc.Getenv("AUDIT_SIGNING_KEY"); k != "" {
 		key, err := parseSigningKey(k)
 		if err != nil {
 			slog.Error("config", "err", err)
@@ -1141,13 +1155,13 @@ func loadConfig() appConfig {
 	cfg := appConfig{
 		ListenAddr:     getenv("LISTEN_ADDR", ":8081"),
 		DatabaseURL:    os.Getenv("DATABASE_URL"),
-		JWTSecret:      os.Getenv("JWT_SECRET"),
+		JWTSecret:      secretsrc.Getenv("JWT_SECRET"),
 		AdminEmail:     os.Getenv("ADMIN_EMAIL"),
-		AdminPassword:  os.Getenv("ADMIN_PASSWORD"),
+		AdminPassword:  secretsrc.Getenv("ADMIN_PASSWORD"),
 		AllowedOrigins: os.Getenv("ALLOWED_ORIGINS"),
 		GatewayURL:     strings.TrimSpace(os.Getenv("GATEWAY_URL")),
 		UpstreamURL:    redactURL(os.Getenv("UPSTREAM_LLM_URL")),
-		MFAEncKey:      os.Getenv("MFA_ENC_KEY"),
+		MFAEncKey:      secretsrc.Getenv("MFA_ENC_KEY"),
 		PublicBaseURL:  os.Getenv("PUBLIC_BASE_URL"),
 		// Invalid values are refused by check.
 		UpstreamAllowPrivate: strings.EqualFold(os.Getenv("UPSTREAM_ALLOW_PRIVATE"), "true"),

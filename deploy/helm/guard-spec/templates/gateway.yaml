@@ -102,6 +102,10 @@ spec:
               containerPort: 8080
             - name: metrics
               containerPort: {{ .Values.gateway.metricsPort }}
+            {{- if .Values.gateway.adminListener.enabled }}
+            - name: admin
+              containerPort: {{ .Values.gateway.adminListener.port }}
+            {{- end }}
           env:
             {{- include "guard-spec.commonEnv" . | nindent 12 }}
             - name: LISTEN_ADDR
@@ -171,6 +175,22 @@ spec:
                   key: {{ .redis.key }}
             {{- end }}
             {{- end }}
+            {{- with .Values.gateway.adminListener }}
+            {{- if .enabled }}
+            {{- if not .tlsSecret }}
+            {{- fail "gateway.adminListener.enabled needs gateway.adminListener.tlsSecret (tls.crt, tls.key, ca.crt)" }}
+            {{- end }}
+            # The admin listener: /readyz and /admin over mutual TLS.
+            - name: ADMIN_LISTEN_ADDR
+              value: {{ printf ":%v" .port | quote }}
+            - name: ADMIN_TLS_CERT_FILE
+              value: /run/guard-spec/admin-tls/tls.crt
+            - name: ADMIN_TLS_KEY_FILE
+              value: /run/guard-spec/admin-tls/tls.key
+            - name: ADMIN_TLS_CLIENT_CA_FILE
+              value: /run/guard-spec/admin-tls/ca.crt
+            {{- end }}
+            {{- end }}
             {{- range $k, $v := .Values.gateway.env }}
             - name: {{ $k }}
               value: {{ $v | quote }}
@@ -187,6 +207,14 @@ spec:
             {{- end }}
             - name: tmp
               mountPath: /tmp
+            {{- if .Values.gateway.adminListener.enabled }}
+            - name: admin-tls
+              mountPath: /run/guard-spec/admin-tls
+              readOnly: true
+            {{- end }}
+            {{- with .Values.gateway.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           startupProbe:
             httpGet: {path: /health, port: http}
             periodSeconds: 5
@@ -216,6 +244,14 @@ spec:
         {{- end }}
         - name: tmp
           emptyDir: {}
+        {{- if .Values.gateway.adminListener.enabled }}
+        - name: admin-tls
+          secret:
+            secretName: {{ .Values.gateway.adminListener.tlsSecret }}
+        {{- end }}
+        {{- with .Values.gateway.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       {{- with .Values.gateway.topologySpreadConstraints }}
       topologySpreadConstraints:
         {{- include "guard-spec.topologySpread" (dict "root" $ "component" "gateway" "constraints" .) | nindent 8 }}
@@ -267,3 +303,22 @@ spec:
     - name: metrics
       port: {{ .Values.gateway.metricsPort }}
       targetPort: metrics
+{{- if .Values.gateway.adminListener.enabled }}
+---
+# The admin listener (mutual TLS): ClusterIP only, never with the API Service.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "guard-spec.fullname" . }}-gateway-admin
+  labels:
+    {{- include "guard-spec.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "guard-spec.selector" (dict "root" . "component" "gateway") | nindent 4 }}
+  ports:
+    - name: admin
+      port: {{ .Values.gateway.adminListener.port }}
+      targetPort: admin
+{{- end }}

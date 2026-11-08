@@ -122,7 +122,15 @@ release's gateway Service; "" when it is "-".
 {{- if eq $u "-" -}}
 {{- else if $u -}}
 {{- $u -}}
+{{- else if .Values.gateway.adminListener.enabled -}}
+{{- printf "https://%s-gateway-admin:%v" (include "guard-spec.fullname" .) .Values.gateway.adminListener.port -}}
 {{- else -}}
 {{- printf "http://%s-gateway:%v" (include "guard-spec.fullname" .) .Values.gateway.service.port -}}
 {{- end -}}
+{{- end }}
+
+{{/* The port the control plane reaches the gateway on for /readyz: the
+admin listener's (mutual TLS) when it is on, else the API port. */}}
+{{- define "guard-spec.gatewayProbePort" -}}
+{{- if .Values.gateway.adminListener.enabled -}}{{ .Values.gateway.adminListener.port }}{{- else -}}8080{{- end -}}
 {{- end }}

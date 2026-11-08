@@ -30,6 +30,19 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ### Added
 
+- Secrets from files and Vault (RF-da721d14): every secret setting can be
+  given as `NAME_FILE` (Docker and Kubernetes secrets; read again when the
+  file changes) or `NAME=vault:<mount>/<path>#<key>` (HashiCorp Vault KV v2,
+  cached for `SECRETS_VAULT_TTL`, the last value kept when Vault is down).
+  Upstream keys are read per request, so they rotate without a restart.
+  `doctor` check `secrets` says where each comes from, never the value.
+- Mutual TLS between the control plane and the gateway: `ADMIN_LISTEN_ADDR`
+  serves `/health`, `/readyz` and `/admin` on a second port that only
+  accepts client certificates of `ADMIN_TLS_CLIENT_CA_FILE` (and `/admin`
+  leaves the API port); the control plane calls it with `GATEWAY_TLS_*`.
+  Certificates are read again when they rotate. Helm:
+  `gateway.adminListener`, `controlPlane.gatewayTLSSecret`, and
+  `extraVolumes` / `extraVolumeMounts` on both.
 - Tamper-evident activity log (RF-aceaddfc): each organization's activity
   rows, and the instance's, form a SHA-256 hash chain kept by a database
   trigger (migration 022; existing rows are chained by the migration); the

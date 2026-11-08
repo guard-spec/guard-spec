@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
-	"os"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -23,6 +22,7 @@ import (
 	"github.com/guard-spec/guard-spec/internal/auth"
 	"github.com/guard-spec/guard-spec/internal/events"
 	"github.com/guard-spec/guard-spec/internal/proxy"
+	secretsrc "github.com/guard-spec/guard-spec/internal/secrets"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -124,7 +124,7 @@ func newAlertsRuntime(db *pgxpool.Pool, s *appSettings, sessions auth.SessionLoo
 	if cfg == nil {
 		getenv := s.getenv
 		if getenv == nil {
-			getenv = os.Getenv
+			getenv = secretsrc.Getenv
 		}
 		c, err := loadAlertsConfig(getenv)
 		if err != nil {

@@ -17,6 +17,8 @@
 //	layers      which detection layers (L1, L2, L3) the gateway would load
 //	upstream    UPSTREAM_LLM_URL answers HTTP
 //	security    secrets set and strong, GUARD_ENV not dev, TLS hints
+//	secrets     where the secret settings come from (env, file, Vault), that
+//	            the files and Vault references read, and the mutual TLS files
 //	encryption  stored content is encrypted: the KEK works, every data key's
 //	            KEK is configured, no content in the clear
 //	advisories  no published security advisory affects this version (GitHub;
