@@ -23,6 +23,7 @@ export function guardBody(s: GuardSettings): GuardSettings {
   if (s.conversation_window !== undefined) out.conversation_window = s.conversation_window;
   if (s.conversation_window_turns !== undefined) out.conversation_window_turns = s.conversation_window_turns;
   if (s.conversation_window_bytes !== undefined) out.conversation_window_bytes = s.conversation_window_bytes;
+  if (s.input_pii !== undefined) out.input_pii = s.input_pii;
   return out;
 }
 

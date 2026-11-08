@@ -144,9 +144,18 @@ export function validateCondition(root: ConditionNode | null | undefined, schema
         }
         return;
       }
-      case 'list':
-        if (listItems(value).length === 0) push('error', 'cond.emptyValue', { field }, node);
+      case 'list': {
+        // "x" in list: one value, whatever the operator (contains or in).
+        if (typeof value !== 'string' || value.trim() === '') {
+          push('error', 'cond.emptyValue', { field }, node);
+          return;
+        }
+        const known = values.get(field);
+        if (known && known.length > 0 && !known.includes(value)) {
+          push('warning', 'cond.unknownValue', { field, value, values: known.join(', ') }, node);
+        }
         return;
+      }
     }
   };
   if (root) visit(root);

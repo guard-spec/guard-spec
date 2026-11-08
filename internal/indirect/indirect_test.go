@@ -403,3 +403,32 @@ func TestSignalScore(t *testing.T) {
 		t.Errorf("three weak signals = %.2f, must block", s)
 	}
 }
+
+// input_pii is off unless the org turns it on; it keeps its false when set,
+// so the admin UI shows what the org chose.
+func TestSettingsInputPII(t *testing.T) {
+	for _, tt := range []struct {
+		settings, marshal string
+		want              bool
+	}{
+		{`{}`, `{}`, false},
+		{`{"input_pii":false}`, `{"input_pii":false}`, false},
+		{`{"input_pii":true}`, `{"input_pii":true}`, true},
+	} {
+		s, err := ParseSettings([]byte(tt.settings))
+		if err != nil {
+			t.Fatalf("%s: %v", tt.settings, err)
+		}
+		if s.PII() != tt.want {
+			t.Errorf("%s: PII() = %v", tt.settings, s.PII())
+		}
+		if raw, _ := json.Marshal(s); string(raw) != tt.marshal {
+			t.Errorf("%s: marshal = %s", tt.settings, raw)
+		}
+	}
+	for _, bad := range []string{`{"input_pii":"on"}`, `{"input_pii":1}`} {
+		if _, err := ParseSettings([]byte(bad)); err == nil {
+			t.Errorf("ParseSettings(%s) accepted", bad)
+		}
+	}
+}

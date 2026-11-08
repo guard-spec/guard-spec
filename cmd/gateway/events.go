@@ -167,6 +167,10 @@ func eventsFor(e *requestEntry, flagAt float64) []events.Event {
 		if e.SourceRole == sourceConversation {
 			attrs["signal"] = sourceConversation // the conversation window scored highest
 		}
+		if kinds, n := piiVars(e.InputPII); n > 0 {
+			// Personal data in the request (input.pii.*): kinds and count only.
+			attrs["pii_kinds"], attrs["pii_count"] = kinds, n
+		}
 		return events.Event{OrgID: e.OrgID, ProjectID: project, Type: typ, Severity: severity, OccurredAt: e.Start,
 			Attrs: attrs}
 	}

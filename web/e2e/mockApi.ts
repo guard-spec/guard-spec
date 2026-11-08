@@ -79,6 +79,13 @@ export const SCHEMA: PolicySchema = {
     { name: 'anomaly.has_tag_chars', type: 'bool', description: 'Unicode tag characters were found' },
     { name: 'anomaly.has_bidi', type: 'bool', description: 'The text contained bidirectional control characters.' },
     { name: 'mcp.is_tool_response', type: 'bool' },
+    {
+      name: 'input.pii.kinds',
+      type: 'list',
+      description: 'Kinds of personal data in the request text',
+      values: ['email', 'phone', 'card', 'cccd', 'ipv4'],
+    },
+    { name: 'input.pii.count', type: 'int', description: 'How many values of personal data' },
   ],
   operators: {
     double: ['=', '!=', '>', '>=', '<', '<='],
@@ -278,6 +285,10 @@ function evalLeaf(leaf: ConditionLeaf, vars: Record<string, SimValue>): boolean 
     const a = raw === true;
     const b = value === true || value === 'true';
     return leaf.operator === '!=' ? a !== b : a === b;
+  }
+  if (type === 'list') {
+    // "x" in list, for contains and in alike.
+    return Array.isArray(raw) && raw.map(String).includes(String(value));
   }
   const a = typeof raw === 'string' ? raw : '';
   const list = Array.isArray(value) ? value.map(String) : String(value).split(',').map((s) => s.trim());
@@ -1328,6 +1339,9 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
         if (v !== undefined && !(typeof v === 'number' && v > 0 && v <= 0.85)) {
           return json(400, { error: `guard settings: ${k} must be a number in (0, 0.85]` });
         }
+      }
+      if (g.input_pii !== undefined && typeof g.input_pii !== 'boolean') {
+        return json(400, { error: 'guard settings: input_pii must be true or false' });
       }
       state.guard = g;
       return json(200, state.guard);

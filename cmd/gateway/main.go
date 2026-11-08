@@ -355,6 +355,9 @@ type requestEntry struct {
 	SourceRole string
 	// Conversation is the conversation window's score, 0 without one.
 	Conversation float64
+	// InputPII counts the personal data in the request text by kind, never
+	// the values; nil when the org has the check off (input_pii.go).
+	InputPII outputguard.Counts
 	// RouteTarget is the named upstream the request went to, or was meant to
 	// go to when it failed closed; "" for UPSTREAM_LLM_URL and the stub.
 	RouteTarget string
@@ -482,9 +485,12 @@ func outputTags(counts outputguard.Counts) []string {
 // "input:server_state=1" when a /v1/responses request referred to
 // conversation state the upstream keeps, and
 // "input:signal=conversation" when a request refused by the detector or a
-// policy had its strongest finding in the conversation window.
+// policy had its strongest finding in the conversation window, and
+// "input:pii_<kind>=<n>" for the personal data found in the request text
+// (input_pii.go): kinds and counts, never the values.
 func auditTags(e requestEntry) []string {
 	tags := outputTags(e.Output)
+	tags = append(tags, piiTags(e.InputPII)...)
 	if e.Redacted > 0 {
 		tags = append(tags, fmt.Sprintf("input:redacted=%d", e.Redacted))
 	}
@@ -612,6 +618,10 @@ type textGuard struct {
 	windowTurns, windowBytes int
 	msg                      int
 	turns                    []userTurn
+	// detectPII is the org's input_pii setting; pii counts the personal data
+	// found in user text, tool results and documents, by kind (input_pii.go).
+	detectPII bool
+	pii       outputguard.Counts
 }
 
 func (g *textGuard) toolSchemaKey() string {
@@ -878,11 +888,11 @@ func proxyHandler(gw gateway, f apiFormat) fiber.Handler {
 		guard := textGuard{roles: &scanCfg.Roles, toolPrefixes: scanCfg.toolPrefixes(), org: entry.OrgID,
 			latest: f.history && scanCfg.History == historyLatest, useCache: f.history,
 			allowServerState: scanCfg.ServerState == serverStateAllow,
-			windowTurns:      scanCfg.WindowTurns, windowBytes: scanCfg.WindowBytes}
+			windowTurns:      scanCfg.WindowTurns, windowBytes: scanCfg.WindowBytes, detectPII: scanCfg.InputPII}
 		_, endSpan := tracing.Start(tctx, "sanitize")
 		err = f.guardBody(&guard, body)
 		endSpan(err)
-		entry.Report, entry.ServerState = guard.report, guard.serverState
+		entry.Report, entry.ServerState, entry.InputPII = guard.report, guard.serverState, guard.pii
 		if err != nil {
 			if errors.Is(err, errBlocked) {
 				entry.Detected = layerSanitizer
@@ -1350,6 +1360,7 @@ func policyVars(entry requestEntry, body map[string]any, bodyBytes int) *policy.
 		SourceRole:         entry.SourceRole,
 		ConversationScore:  entry.Conversation,
 	}
+	vars.InputPIIKinds, vars.InputPIICount = piiVars(entry.InputPII)
 	vars.ScoreL1, vars.ScoreL2, vars.ScoreL3 = vars.InjectionScore, -1, -1
 	if d := entry.Scores.Injection.Detail; d != nil {
 		vars.ScoreL1, vars.ScoreL2, vars.ScoreL3, vars.InjectionCat = d.L1, d.L2, d.L3, d.Category

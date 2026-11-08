@@ -43,12 +43,41 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   access; `DOCTOR_ADVISORIES_URL` for a mirror).
 - Helm: `gateway.image.shell` (default `true`, for the released 0.3.x
   images); `false` for images without a shell.
+- Personal data in requests as a policy signal (RF-474e756a,
+  [ADR 0003](docs/adr/0003-input-pii-policy-signal.md), which supersedes the
+  input-side PII part of ADR 0002). With the new per-org guard setting
+  `input_pii` (admin UI: Guard settings → Detect personal data in requests;
+  off by default) the gateway counts e-mail addresses, Vietnamese phone
+  numbers, card numbers that pass the Luhn check, CCCD numbers and IPv4
+  addresses in the request text, with the output guard's own detectors
+  (`outputguard.CountPII`, shared, not copied; the output guard is
+  unchanged). Rules get `input.pii.kinds` (list) and `input.pii.count` (int)
+  and can log or block on them; nothing is redacted. The text is what the
+  injection scan collects from user turns, tool results and documents on
+  chat completions, `/v1/messages` and `/v1/responses`, streamed or not;
+  system and developer prompts are left out, since they often hold example
+  data. The audit row gets `input:pii_<kind>=<n>` tags and detection events
+  `pii_kinds` and `pii_count` (also alert condition fields), never the
+  values. The Policy flow field picker has a Personal data group with
+  English and Vietnamese help, and the Simulator takes both fields. The
+  removed `pii.entities` stays removed: stored rules that name it read `[]`
+  as before. Cost with the setting on: about 11 µs for a 2 KB request and
+  57 µs for a 20 KB one (`BenchmarkInputPII`); nothing with it off.
 
 ### Fixed
 
 - `models list` in the images failed with "open models/manifest.yaml: not a
   directory" (in `/app`, `models` is the binary) instead of using its
   built-in manifest.
+- Condition text: `"x" in list.field` at the end of a parenthesized group lost
+  the group the parentheses make when parsed, because the field name after
+  the last dot was not counted as part of the leaf, so `parse(format(tree))`
+  did not give the tree back. Policy rules had no list field before
+  `input.pii.kinds`; alert rule conditions on `attrs.categories` were read the
+  same way and are now parsed as written.
+- Policy flow: a rule on a list field with known values offered a
+  multi-select for the `in` operator, which the server refuses; it now takes
+  one value with either operator, and the editor flags a list of values.
 
 ### Upgrade notes
 
@@ -57,6 +86,7 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   init containers (and `gateway.image.shell` goes), the ECS health check.
   Custom manifests or scripts that run `sh`, `curl` or `cp` inside the
   gateway or control-plane image must do the same.
+
 
 ## [0.3.1] - 2026-11-07
 

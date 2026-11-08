@@ -26,6 +26,8 @@ export const ALERT_SCHEMA: PolicySchema = {
     { name: 'attrs.decision', type: 'string', description: 'detection.*' },
     { name: 'attrs.model', type: 'string', description: 'detection.*' },
     { name: 'attrs.api_key_id', type: 'string', description: 'detection.*' },
+    { name: 'attrs.pii_kinds', type: 'list', values: ['email', 'phone', 'card', 'cccd', 'ipv4'], description: 'detection.*' },
+    { name: 'attrs.pii_count', type: 'int', description: 'detection.*' },
     { name: 'attrs.upstream_id', type: 'string', description: 'upstream.error' },
     { name: 'attrs.status', type: 'int', description: 'upstream.error' },
     { name: 'attrs.error_kind', type: 'string', values: ['timeout', '5xx', 'model_not_allowed', 'connect'], description: 'upstream.error' },

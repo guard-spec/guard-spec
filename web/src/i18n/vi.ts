@@ -276,6 +276,12 @@ export const vi: Messages = {
   'guard.window.turns': 'Số lượt người dùng trong cửa sổ',
   'guard.window.bytes': 'Số byte trong cửa sổ',
   'guard.window.sizeError': 'Số nguyên từ {min} đến {max}.',
+  'guard.inputPii.legend': 'Dữ liệu cá nhân trong request',
+  'guard.inputPii': 'Phát hiện dữ liệu cá nhân trong request',
+  'guard.inputPii.help':
+    'Mặc định tắt. Khi bật, gateway kiểm tra tin nhắn người dùng, kết quả tool và tài liệu (không gồm system prompt hay developer prompt) để tìm năm loại dữ liệu: địa chỉ email, số điện thoại Việt Nam, số thẻ thanh toán (kiểm tra Luhn), số CCCD và địa chỉ IPv4. Luật có thể ghi log hoặc chặn theo input.pii.kinds và input.pii.count; không có gì bị che, và chỉ loại và số lượng được ghi lại.',
+  'guard.inputPii.tip':
+    'Đây là kiểm tra theo mẫu, không phải phát hiện dữ liệu cá nhân đầy đủ: không tìm được họ tên, địa chỉ nhà, số tài khoản ngân hàng hay số giấy tờ của nước khác. Số phiên bản như 1.2.3.4 bị đọc là địa chỉ IPv4. System prompt và developer prompt được bỏ qua vì thường chứa dữ liệu mẫu. Thêm khoảng 0,01 ms cho request 2 KB và 0,06 ms cho request 20 KB.',
 
   'keys.title': 'Khóa API',
   'keys.new': 'Khóa API mới',
@@ -1199,6 +1205,7 @@ export const vi: Messages = {
   'help.group.indirect': 'Nội dung gián tiếp',
   'help.group.request': 'Request',
   'help.group.mcp': 'MCP',
+  'help.group.pii': 'Dữ liệu cá nhân',
   'help.var.injection.score.desc': 'Điểm prompt injection tổng hợp của phần văn bản được quét trong request (gộp L1, L2 và L3). Khi L1 bắt được một luật mang tính quyết định, điểm của L1 là mức thấp nhất (ngưỡng sàn L1, xem Bộ phát hiện). Nếu có nhiều phần, lấy phần có điểm cao nhất.',
   'help.var.injection.score.range': 'Số từ 0 đến 1. Request đạt ngưỡng chặn (0,85, hoặc mức thấp hơn đặt trong Bộ phát hiện) bị chặn trước khi chạy luật, nên luật chỉ thấy điểm thấp hơn ngưỡng.',
   'help.var.injection.score.when': 'Chặn hoặc chuyển hướng request đáng ngờ nhưng chưa tới ngưỡng chặn, ví dụ từ 0,6 trở lên.',
@@ -1250,6 +1257,12 @@ export const vi: Messages = {
   'help.var.mcp.is_tool_response.desc': 'Request có chứa kết quả công cụ: một tin nhắn role tool hoặc một khối tool_result (MCP và function calling).',
   'help.var.mcp.is_tool_response.range': 'true hoặc false.',
   'help.var.mcp.is_tool_response.when': 'Chỉ áp dụng luật cho các lượt của agent có trả về kết quả công cụ, ví dụ kết hợp với indirect.score.',
+  'help.var.input.pii.kinds.desc': 'Các loại dữ liệu cá nhân tìm thấy trong văn bản của request: tin nhắn người dùng, kết quả tool và tài liệu, không gồm system prompt hay developer prompt. Dùng cùng bộ kiểm tra theo mẫu với output guard; giá trị không bao giờ được lưu.',
+  'help.var.input.pii.kinds.range': 'Danh sách gồm email, phone (số điện thoại Việt Nam, dạng +84 hoặc 0), card (qua kiểm tra Luhn), cccd (12 chữ số bắt đầu bằng 0) và ipv4; trống khi không tìm thấy gì hoặc khi Phát hiện dữ liệu cá nhân trong request đang tắt (Thiết lập bảo vệ). Không phát hiện họ tên hay địa chỉ nhà.',
+  'help.var.input.pii.kinds.when': 'Chặn hoặc ghi log request chứa số thẻ hay số CCCD, ví dụ trước khi chúng tới một upstream bạn không tin cậy với loại dữ liệu này.',
+  'help.var.input.pii.count.desc': 'Số giá trị dữ liệu cá nhân có trong văn bản của request, cộng tất cả các loại của input.pii.kinds.',
+  'help.var.input.pii.count.range': 'Số nguyên từ 0 trở lên; bằng 0 khi không tìm thấy gì hoặc khi Phát hiện dữ liệu cá nhân trong request đang tắt (Thiết lập bảo vệ).',
+  'help.var.input.pii.count.when': 'Ghi log mọi request có dữ liệu cá nhân (input.pii.count > 0), hoặc chặn request chứa nhiều giá trị, như một danh sách khách hàng được dán vào.',
   'help.op.=': 'Bằng giá trị.',
   'help.op.!=': 'Khác giá trị.',
   'help.op.>': 'Lớn hơn giá trị.',

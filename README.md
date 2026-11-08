@@ -289,10 +289,15 @@ fallback chains and cost caps for routing, ClickHouse, GPU or Triton serving,
 and LLM-based judges such as Qwen3Guard or Granite Guardian. See
 [ROADMAP.md](ROADMAP.md) and [DESIGN.md](DESIGN.md).
 
-**PII, toxicity and topic detection on the input side** were decided against
-for now ([ADR 0002](docs/adr/0002-no-input-pii-toxicity-topic.md)). Personal
-data is redacted in answers by the output guard only; the gateway forwards
-prompts as it receives them. Toxicity and topic classification are out of
+**Personal data in requests** is a policy signal, off by default per
+organization: with it on, rules can log or block on `input.pii.kinds` and
+`input.pii.count`, found by the output guard's five pattern checks (e-mail,
+Vietnamese phone, card, CCCD, IPv4; not names or addresses). Nothing in a
+request is redacted. See
+[Personal data in requests](#personal-data-in-requests) and
+[ADR 0003](docs/adr/0003-input-pii-policy-signal.md).
+**Toxicity and topic detection** were decided against
+([ADR 0002](docs/adr/0002-no-input-pii-toxicity-topic.md)): they are out of
 scope for a prompt-injection guard; use your provider's moderation or a
 moderation model in your application. The ADR lists what you can do instead.
 
@@ -881,7 +886,14 @@ group keep it a group. Fields: `request.model`, `request.tenant_id`, `request.to
 `indirect.score`, `indirect.source`, `injection.source_role`,
 `conversation.score` (the [conversation window](#conversation-window); 0 when
 there was none), `anomaly.score`, `anomaly.has_tag_chars`, `anomaly.has_bidi`,
-`mcp.is_tool_response`. A policy holds at most 200 rules; each rule has a CEL
+`mcp.is_tool_response`, `input.pii.kinds` (list of `email`, `phone`, `card`,
+`cccd`, `ipv4` found in the request text) and `input.pii.count` (how many
+values of all kinds); both read `[]` and `0` unless the org turned on
+[personal data in requests](#personal-data-in-requests). Example:
+`"card" in input.pii.kinds || input.pii.count >= 5` with action `block`.
+`pii.entities`, `toxicity.score` and `topic.categories` were removed: new
+rules may not name them, and stored rules that do read `[]` or `0` as they
+always did. A policy holds at most 200 rules; each rule has a CEL
 cost limit, the rules of one request share a cost budget and a timeout, and
 any of these limits fails closed with 503. Project policies run before the
 org-wide ones.
@@ -1369,6 +1381,23 @@ about 13 ms more at p50; model time grows with the tokens, up to
 `CONVERSATION_WINDOW_BYTES`). A request whose user turns did not change pays a
 cache lookup.
 
+**Personal data in requests** (`BenchmarkInputPII`, `BenchmarkCountPII`):
+a chat request of 2 KB or 20 KB of English and Vietnamese text that ends with
+an e-mail address and a phone number, with the org setting off and on.
+"Sanitize step" runs the request guard alone (where the check runs); "HTTP"
+is the whole path with L1 and a `log` rule on `input.pii.count`. Measured on
+**2026-11-08**, same machine, median of 3 to 4 runs (load average about 4).
+
+| Request text | Sanitize step off / on | HTTP p50 off / on (L1) | `CountPII` alone |
+|---|---|---|---|
+| 2 KB | 148 / 159 µs | 1.18 / 1.20 ms | 10.5 µs (0.7 µs without digits or `@`) |
+| 20 KB | 1.62 / 1.68 ms | 11.08 / 11.19 ms | 53 µs (6.6 µs without digits or `@`) |
+
+```bash
+go test -run '^$' -bench 'InputPII' -benchmem ./cmd/gateway
+go test -run '^$' -bench 'CountPII' -benchmem ./internal/outputguard
+```
+
 ### Detection latency on Linux (GitHub-hosted runners)
 
 Measured on **2026-11-06** at commit `70827a7`, by the manual
@@ -1735,7 +1764,8 @@ checked and gives 502.
   stream events with content follow `OUTPUT_UNKNOWN_BLOCKS`.
 
 The audit row counts what was removed per type in `pii_entities`, as
-`output:email=2`. It never stores the content. These settings apply to every
+`output:email=2` (and, with [personal data in requests](#personal-data-in-requests)
+on, what the request held, as `input:pii_email=1`). It never stores the content. These settings apply to every
 organization; there are no per-org output settings yet.
 
 ### Indirect injection and tool poisoning
@@ -1884,6 +1914,55 @@ L1+L2+L3: FPR 1.4 % at the gateway decision, as before).
 **Latency.** One more detector run per request that has a new window, and a
 cache lookup otherwise (`BenchmarkConversationWindow`, see
 [Go benchmarks](#go-benchmarks-sanitizer-output-guard-policy-and-http-path)).
+
+### Personal data in requests
+
+An organization can have the gateway count the personal data in each request
+and give the result to its policy rules
+([ADR 0003](docs/adr/0003-input-pii-policy-signal.md)). It is **off by
+default**; turn it on with `input_pii: true` in the org's guard settings
+(`PUT /v1/organizations/:orgId/guard-settings`, or admin UI: Guard settings →
+Detect personal data in requests). The setting is read per request, so a
+change applies to the next one. No migration is needed: guard settings are a
+JSON column.
+
+- **What is found.** The output guard's own detectors
+  (`outputguard.CountPII`, shared code): `email`; `phone`, Vietnamese numbers
+  in `+84`, `84` or `0` form with optional spaces, dots or dashes; `card`, 13
+  to 19 digits that pass the Luhn check; `cccd`, 12 digits starting with 0;
+  `ipv4`. These are pattern checks, **not** full personal-data detection:
+  names, street addresses, bank account numbers and other countries' phone and
+  ID numbers are not found. A version such as `1.2.3.4` counts as `ipv4`, and
+  a long order number can pass the Luhn check; test the kinds you care about
+  (`"card" in input.pii.kinds`) rather than only the count when that matters.
+- **Which text.** The cleaned text the injection scan collects: user turns
+  (every part, the legacy `prompt` and `suffix`, Responses prompt variables),
+  tool results (also web search and fetch results and Responses tool output
+  items) and documents (Messages API `document` and `search_result` blocks),
+  on `/v1/chat/completions`, `/v1/completions`, `/v1/messages` and
+  `/v1/responses`, streamed or not (`/v1/embeddings` and `/guardrail/scan`
+  do not run the check). Earlier turns count too. **System and
+  developer prompts are not checked** (nor Responses `instructions`), even
+  when `SCAN_ROLES` scans them for injection: they are the application's own
+  text and often hold example data, which would make every request match.
+  Tool-call arguments in the history and tool descriptions are not checked
+  either. A part that the org's scan roles leave out is not checked.
+- **Rules.** `input.pii.kinds` lists the kinds found (in the order above) and
+  `input.pii.count` counts all values. Rules can `log` or `block` on them (or
+  `route`, for example to a self-hosted model). There is no `redact`: the
+  request goes upstream as it is unless a rule blocks it. The Simulator takes
+  both fields (`email, card` and a number).
+- **Audit and alerts.** The audit row's `pii_entities` gets
+  `input:pii_<kind>=<n>` tags; `detection.blocked` and `detection.flagged`
+  events get `pii_kinds` and `pii_count` (alert conditions can use
+  `attrs.pii_kinds` and `attrs.pii_count`). The values themselves are never
+  stored, logged or sent.
+- **Latency** (Apple M3 Max, `BenchmarkInputPII`, a request whose text ends
+  with an e-mail address and a phone number): the check adds about 11 µs to
+  a 2 KB request (sanitize step 148 → 159 µs) and about 57 µs to a 20 KB one
+  (1.62 → 1.68 ms); end to end with L1 the p50 goes from 1.18 to 1.20 ms
+  (2 KB) and from 11.08 to 11.19 ms (20 KB). With the setting off nothing
+  runs. See [Go benchmarks](#go-benchmarks-sanitizer-output-guard-policy-and-http-path).
 
 ### Per-organization exemplars
 

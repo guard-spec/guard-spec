@@ -64,7 +64,8 @@ export function builderFields(schema: PolicySchema): Field[] {
         if (f.values && f.values.length > 0) {
           return {
             ...base,
-            valueEditorType: (_op: string) => (_op === 'in' || _op === 'notIn' ? 'multiselect' : 'select'),
+            // A list field takes one value ("x" in list) with either operator.
+            valueEditorType: (_op: string) => (f.type !== 'list' && (_op === 'in' || _op === 'notIn') ? 'multiselect' : 'select'),
             values: f.values.map((v) => ({ name: v, value: v, label: v })),
             defaultValue: f.values[0],
           };

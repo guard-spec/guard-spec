@@ -6,6 +6,7 @@ import { ErrorBanner, Loading, PageHeader, useLoad } from '../components/ui';
 import { errorText, useApp, useOrg } from '../context';
 import type { MessageKey } from '../i18n';
 import { guardBody, parseThreshold, parseWindowSize } from '../flow/guardDraft';
+import { KeyTip } from '../flow/HelpText';
 import {
   DEFAULT_SCAN_ROLES,
   SCAN_ROLES,
@@ -187,6 +188,33 @@ export function GuardPage() {
               </div>
             );
           })}
+        </fieldset>
+        <fieldset>
+          <legend>{t('guard.inputPii.legend')}</legend>
+          <div className="field">
+            <span className="label-row">
+              <label className="switch-label" htmlFor="input-pii">
+                <span className="switch">
+                  <input
+                    id="input-pii"
+                    type="checkbox"
+                    role="switch"
+                    checked={draft.input_pii === true}
+                    disabled={!writable}
+                    onChange={(e) => {
+                      const { input_pii: _old, ...rest } = draft;
+                      // Off is stored as false, so the page shows what the org chose.
+                      setDraft({ ...rest, input_pii: e.target.checked });
+                    }}
+                  />
+                  <span className="switch-track" aria-hidden="true" />
+                </span>
+                {t('guard.inputPii')}
+              </label>
+              <KeyTip name={t('guard.inputPii')} k="guard.inputPii.tip" testId="help-input-pii" />
+            </span>
+            <div className="small muted">{t('guard.inputPii.help')}</div>
+          </div>
         </fieldset>
         <fieldset>
           <legend>{t('panel.detectors.thresholds')}</legend>
