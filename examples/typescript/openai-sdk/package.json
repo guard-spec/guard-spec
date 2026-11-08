@@ -13,7 +13,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "openai": "7.43.0"
+    "openai": "7.51.0"
   },
   "devDependencies": {
     "@types/node": "22.20.5",
