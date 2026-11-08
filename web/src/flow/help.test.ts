@@ -36,7 +36,7 @@ const CEL_TYPES: Record<string, string> = { DoubleType: 'double', IntType: 'int'
 /** internal/policy fieldTypes: name -> schema type. */
 function backendFields(): Map<string, string> {
   const out = new Map<string, string>();
-  for (const m of goMap(policyGo, 'fieldTypes').matchAll(/"([^"]+)":\s*cel\.(\w+)/g)) {
+  for (const m of goMap(policyGo, 'fieldTypes').matchAll(/"([^"]+)":\s*(?:cel\.(\w+)|listOfStrings)/g)) {
     out.set(m[1] ?? '', CEL_TYPES[m[2] ?? ''] ?? 'list');
   }
   return out;
@@ -49,6 +49,8 @@ describe('help metadata', () => {
     expect(fields.size).toBeGreaterThanOrEqual(16);
     expect(fields.get('injection.score')).toBe('double');
     expect(fields.get('mcp.is_tool_response')).toBe('bool');
+    expect(fields.get('input.pii.kinds')).toBe('list');
+    expect(fields.get('input.pii.count')).toBe('int');
   });
 
   it('has help for every backend variable, and only for those', () => {
@@ -115,7 +117,7 @@ describe('help metadata', () => {
 
   it('groups fields in display order and searches descriptions', () => {
     const groups = groupFields(FALLBACK_SCHEMA.fields);
-    expect(groups.map((g) => g.group)).toEqual(['scores', 'anomaly', 'indirect', 'request', 'mcp']);
+    expect(groups.map((g) => g.group)).toEqual(['scores', 'anomaly', 'indirect', 'pii', 'request', 'mcp']);
     expect(groups.flatMap((g) => g.fields).length).toBe(FALLBACK_SCHEMA.fields.length);
     const describe = (n: string) => en[descKey(n)];
     expect(filterFields(FALLBACK_SCHEMA.fields, 'bidirectional', describe).map((f) => f.name)).toEqual(['anomaly.has_bidi']);

@@ -127,6 +127,16 @@ type Settings struct {
 	ConversationWindow      *bool `json:"conversation_window,omitempty"`
 	ConversationWindowTurns *int  `json:"conversation_window_turns,omitempty"`
 	ConversationWindowBytes *int  `json:"conversation_window_bytes,omitempty"`
+	// InputPII turns on the personal-data check of request text for the
+	// org: the policy fields input.pii.kinds and input.pii.count. Off (nil
+	// or false), the default: the text is not checked and the fields read
+	// empty. There is no gateway-wide default (ADR 0003).
+	InputPII *bool `json:"input_pii,omitempty"`
+}
+
+// PII reports whether the org turned the personal-data check of request text on.
+func (s Settings) PII() bool {
+	return s.InputPII != nil && *s.InputPII
 }
 
 // Bounds and defaults of the conversation window. A window of one turn is

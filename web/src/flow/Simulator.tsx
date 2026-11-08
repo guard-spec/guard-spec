@@ -81,6 +81,9 @@ function FieldInput({ f, value, onChange }: { f: SchemaField; value: string; onC
         onChange={(e) => onChange(e.target.value)}
       />
     );
+  } else if (f.type === 'list') {
+    // Comma-separated (simVars), such as "email, card" for input.pii.kinds.
+    input = <input id={id} placeholder={f.values?.slice(0, 2).join(', ')} value={value} onChange={(e) => onChange(e.target.value)} />;
   } else {
     input = <input id={id} value={value} onChange={(e) => onChange(e.target.value)} />;
   }

@@ -210,6 +210,24 @@ func TestParsedTreeCompilesToTheSameCEL(t *testing.T) {
 	}
 }
 
+// A list field ends its leaf with a select ("x" in attrs.categories): the
+// field name after the last dot is part of the leaf, so parentheses around
+// a group that ends with it still make a group.
+func TestParseListFieldInParentheses(t *testing.T) {
+	fields := FieldSet{"attrs.score": Double, "attrs.categories": StringList}
+	parsed, err := parseCondition(`!((attrs.score > 0.5 && "jailbreak" in attrs.categories)) || ("x" in attrs.categories)`, fields)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"combinator":"or","rules":[{"combinator":"and","not":true,"rules":[{"combinator":"and","rules":[` +
+		`{"field":"attrs.score","operator":">","value":0.5},` +
+		`{"field":"attrs.categories","operator":"contains","value":"jailbreak"}]}]},` +
+		`{"combinator":"and","rules":[{"field":"attrs.categories","operator":"contains","value":"x"}]}]}`
+	if string(parsed) != want {
+		t.Errorf("parsed\n got %s\nwant %s", parsed, want)
+	}
+}
+
 // ── Round-trip property ──────────────────────────────────────────────────────
 
 type treeGen struct{ r *rand.Rand }
@@ -234,6 +252,9 @@ func (g treeGen) leaf() map[string]any {
 	case "bool":
 		ops := operatorsByType["bool"]
 		return map[string]any{"field": field, "operator": ops[g.r.IntN(len(ops))], "value": g.r.IntN(2) == 0}
+	case "list":
+		// "x" in list: contains (in reads the same and is written contains).
+		return map[string]any{"field": field, "operator": "contains", "value": str()}
 	default:
 		ops := operatorsByType["string"]
 		op := ops[g.r.IntN(len(ops))]

@@ -136,6 +136,7 @@ func VarsFromMap(m map[string]any) (*Vars, error) {
 			f float64
 			s string
 			b bool
+			l []string
 		)
 		switch typ {
 		case cel.DoubleType, cel.IntType:
@@ -159,6 +160,19 @@ func VarsFromMap(m map[string]any) (*Vars, error) {
 				return nil, fmt.Errorf("%s must be true or false", name)
 			}
 			b = val
+		case listOfStrings:
+			items, ok := raw.([]any)
+			if !ok {
+				return nil, fmt.Errorf("%s must be a list of strings", name)
+			}
+			l = make([]string, 0, len(items))
+			for _, item := range items {
+				str, ok := item.(string)
+				if !ok {
+					return nil, fmt.Errorf("%s must be a list of strings", name)
+				}
+				l = append(l, str)
+			}
 		}
 		switch name {
 		case "request.model":
@@ -195,6 +209,13 @@ func VarsFromMap(m map[string]any) (*Vars, error) {
 			v.AnomalyHasBidi = b
 		case "mcp.is_tool_response":
 			v.IsMCPResponse = b
+		case "input.pii.kinds":
+			v.InputPIIKinds = l
+		case "input.pii.count":
+			if f < 0 {
+				return nil, fmt.Errorf("%s must not be negative", name)
+			}
+			v.InputPIICount = int(f)
 		default:
 			return nil, fmt.Errorf("field %s cannot be simulated", name)
 		}

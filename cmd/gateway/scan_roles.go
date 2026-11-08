@@ -54,6 +54,10 @@ type scanConfig struct {
 	// recent user turns, at most this many and this many bytes, and scores
 	// them together (conversation.go). WindowTurns 0: off.
 	WindowTurns, WindowBytes int
+	// InputPII is the org's input_pii guard setting: the personal-data
+	// check of request text (input_pii.go). Off by default, with no
+	// gateway-wide switch.
+	InputPII bool
 }
 
 // Values of SCAN_HISTORY.
@@ -204,6 +208,7 @@ func (gw gateway) scanConfigFor(orgID uuid.UUID) (scanConfig, error) {
 	cfg.IndirectAction = s.Action(cfg.IndirectAction)
 	cfg.InjectionThreshold, cfg.IndirectThreshold = s.Thresholds(cfg.injectionThreshold(), cfg.IndirectThreshold)
 	cfg.WindowTurns, cfg.WindowBytes = s.Window(cfg.WindowTurns, cfg.WindowBytes)
+	cfg.InputPII = s.PII()
 	return cfg, nil
 }
 
@@ -260,6 +265,8 @@ func (g *textGuard) collect(text string) {
 		// Earlier turns too: the window joins them (conversation.go).
 		g.addTurn(text)
 	}
+	// Earlier turns too: the request sends them upstream again (input_pii.go).
+	g.countPII(src, text)
 	if g.history && !src.Untrusted() {
 		// An earlier turn's own text was classified when it was the trailing
 		// turn (SCAN_HISTORY=latest).

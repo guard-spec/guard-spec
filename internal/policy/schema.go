@@ -50,6 +50,8 @@ var fieldDescriptions = map[string]string{
 	"anomaly.has_tag_chars": "The text contained Unicode tag characters.",
 	"anomaly.has_bidi":      "The text contained bidirectional control characters.",
 	"mcp.is_tool_response":  "The request carries a tool (MCP) result message.",
+	"input.pii.kinds":       "Kinds of personal data in the request text (user turns, tool results, documents; not system prompts): email, phone, card, cccd, ipv4. Pattern checks, not names or addresses. Empty unless the org turned on Detect personal data in requests.",
+	"input.pii.count":       "How many values of personal data input.pii.kinds counts, all kinds together; 0 unless the org turned the check on.",
 }
 
 var categoryValues = []string{"direct_injection", "indirect_injection", "jailbreak", "prompt_extraction",
@@ -60,6 +62,7 @@ var fieldValues = map[string][]string{
 	"injection.label":       append([]string{"BENIGN"}, categoryValues...),
 	"indirect.source":       {"tool", "document", "tool_description"},
 	"injection.source_role": {"user", "system", "assistant", "tool", "tool_description", "conversation"},
+	"input.pii.kinds":       {"email", "phone", "card", "cccd", "ipv4"}, // outputguard.PIIKinds
 }
 
 // typeName maps a CEL type to the schema's type name.

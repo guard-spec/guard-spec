@@ -198,11 +198,17 @@ Nguồn của các sơ đồ ở [docs/diagrams/](docs/diagrams/)
 khi định tuyến, ClickHouse, Triton/GPU, Qwen3Guard/Granite Guardian. Xem
 [ROADMAP.md](ROADMAP.md).
 
-**Phát hiện PII, toxicity và chủ đề phía đầu vào**: tạm thời không làm
-([ADR 0002](docs/adr/0002-no-input-pii-toxicity-topic.md)). Dữ liệu cá nhân
-chỉ được che trong câu trả lời (output guard); prompt được chuyển tiếp nguyên
-vẹn. Toxicity và chủ đề nằm ngoài phạm vi của một lớp chống prompt injection;
-hãy dùng moderation của nhà cung cấp hoặc một mô hình moderation trong ứng dụng.
+**Dữ liệu cá nhân trong request** là một tín hiệu cho luật, mặc định tắt
+cho từng tổ chức: khi bật, luật có thể ghi log hoặc chặn theo
+`input.pii.kinds` và `input.pii.count`, do năm bộ kiểm tra theo mẫu của output
+guard tìm ra (email, số điện thoại Việt Nam, số thẻ, CCCD, IPv4; không tìm họ
+tên hay địa chỉ). Không có gì trong request bị che. Xem mục
+[Dữ liệu cá nhân trong request](#dữ-liệu-cá-nhân-trong-request) và
+[ADR 0003](docs/adr/0003-input-pii-policy-signal.md).
+**Phát hiện toxicity và chủ đề**: không làm
+([ADR 0002](docs/adr/0002-no-input-pii-toxicity-topic.md)). Đây là việc nằm
+ngoài phạm vi của một lớp chống prompt injection; hãy dùng moderation của nhà
+cung cấp hoặc một mô hình moderation trong ứng dụng.
 
 ## Bắt đầu nhanh
 
@@ -391,6 +397,54 @@ tính trong Postgres trên toàn bộ khoảng thời gian: tổng số yêu c�
 tỷ lệ chặn, số theo quyết định, độ trễ p50/p95/p99, chuỗi thời gian theo giờ
 (24h) hoặc theo ngày (UTC), các nhãn phát hiện, luật và dự án nhiều nhất.
 Trang Bảng điều khiển dùng endpoint này.
+
+### Trường của luật (policy)
+
+Điều kiện của luật dùng các trường: `request.model`, `request.tenant_id`,
+`request.tokens`, `injection.score`, `injection.label`, `injection.category`,
+`scores.l1`, `scores.l2`, `scores.l3` (đã hiệu chuẩn, `-1` khi lớp đó không
+chạy), `indirect.score`, `indirect.source`, `injection.source_role`,
+`conversation.score` (cửa sổ hội thoại; 0 khi không có), `anomaly.score`,
+`anomaly.has_tag_chars`, `anomaly.has_bidi`, `mcp.is_tool_response`,
+`input.pii.kinds` (danh sách các loại `email`, `phone`, `card`, `cccd`, `ipv4`
+tìm thấy trong văn bản của request) và `input.pii.count` (tổng số giá trị của
+mọi loại); hai trường cuối là `[]` và `0` nếu tổ chức chưa bật
+[dữ liệu cá nhân trong request](#dữ-liệu-cá-nhân-trong-request). Ví dụ:
+`"card" in input.pii.kinds || input.pii.count >= 5` với hành động `block`.
+Các trường `pii.entities`, `toxicity.score` và `topic.categories` đã bị bỏ:
+luật mới không được dùng chúng, còn luật đã lưu có dùng thì vẫn đọc `[]` hoặc
+`0` như trước. Chi tiết ở mục [APIs](README.md#apis).
+
+### Dữ liệu cá nhân trong request
+
+Một tổ chức có thể cho gateway đếm dữ liệu cá nhân trong mỗi request và đưa kết
+quả cho các luật ([ADR 0003](docs/adr/0003-input-pii-policy-signal.md)).
+**Mặc định tắt**; bật bằng `input_pii: true` trong guard settings của tổ chức
+(`PUT /v1/organizations/:orgId/guard-settings`, hoặc giao diện: Thiết lập bảo
+vệ → Phát hiện dữ liệu cá nhân trong request). Thay đổi có hiệu lực từ request
+kế tiếp.
+
+- **Tìm gì.** Dùng chung bộ phát hiện của output guard: `email`; `phone`, số
+  Việt Nam dạng `+84`, `84` hoặc `0`, có thể có dấu cách, chấm hoặc gạch;
+  `card`, 13 đến 19 chữ số qua kiểm tra Luhn; `cccd`, 12 chữ số bắt đầu bằng
+  0; `ipv4`. Đây là kiểm tra theo mẫu, **không** phải phát hiện dữ liệu cá nhân
+  đầy đủ: không tìm được họ tên, địa chỉ nhà, số tài khoản ngân hàng hay số
+  điện thoại và giấy tờ của nước khác. Số phiên bản như `1.2.3.4` được tính là
+  `ipv4`, và một mã đơn hàng dài có thể qua kiểm tra Luhn.
+- **Văn bản nào.** Văn bản đã làm sạch mà bước quét injection thu thập: lượt
+  người dùng, kết quả tool và tài liệu, trên chat completions, `/v1/messages`
+  và `/v1/responses`, có stream hay không. **System prompt và developer prompt
+  không được kiểm tra**, kể cả khi `SCAN_ROLES` quét chúng tìm injection: đó
+  là văn bản của chính ứng dụng và thường chứa dữ liệu mẫu, nếu tính vào thì
+  mọi request đều khớp luật.
+- **Luật, audit, cảnh báo.** Luật có thể `log` hoặc `block` theo
+  `input.pii.kinds` và `input.pii.count`; không có `redact`. Dòng audit có thẻ
+  `input:pii_<loại>=<số>`, event phát hiện có `pii_kinds` và `pii_count`;
+  giá trị không bao giờ được lưu hay gửi đi.
+- **Độ trễ** (Apple M3 Max, `BenchmarkInputPII`): thêm khoảng 11 µs cho
+  request 2 KB và khoảng 57 µs cho request 20 KB; p50 cả đường HTTP với L1 từ
+  1,18 lên 1,20 ms (2 KB) và từ 11,08 lên 11,19 ms (20 KB). Khi tắt thì không
+  chạy gì.
 
 ### Giao diện quản trị
 

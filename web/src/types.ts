@@ -143,6 +143,8 @@ export interface GuardSettings {
   conversation_window_turns?: number;
   /** The most bytes of the joined text (WINDOW_BYTES bounds). */
   conversation_window_bytes?: number;
+  /** Counts personal data in request text for input.pii.* rules; unset or false: off (the default). */
+  input_pii?: boolean;
 }
 
 /** Bounds of the conversation window sizes (internal/indirect MinWindowTurns...). */

@@ -1,8 +1,16 @@
 # ADR 0002: No input-side PII, toxicity or topic detection for now
 
-- Status: accepted
+- Status: accepted; decision 1 (input-side PII) superseded by
+  [ADR 0003](0003-input-pii-policy-signal.md) on 2026-11-08
 - Date: 2026-11-06
 - Task: RF-840422a3
+
+> **Superseded in part.** Personal data in requests is now a policy signal,
+> built on the conditions of decision 1 below: new fields `input.pii.kinds`
+> and `input.pii.count`, a per-org switch off by default, `log` or `block`
+> only, the output guard's detectors shared. See
+> [ADR 0003](0003-input-pii-policy-signal.md). Decisions 2 and 3 (toxicity,
+> topic, removed fields) stand.
 
 ## Context
 

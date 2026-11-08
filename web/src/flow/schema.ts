@@ -30,6 +30,8 @@ export const FALLBACK_SCHEMA: PolicySchema = {
     { name: 'anomaly.has_tag_chars', type: 'bool' },
     { name: 'anomaly.has_bidi', type: 'bool' },
     { name: 'mcp.is_tool_response', type: 'bool' },
+    { name: 'input.pii.kinds', type: 'list', values: ['email', 'phone', 'card', 'cccd', 'ipv4'] },
+    { name: 'input.pii.count', type: 'int' },
   ],
   operators: {
     double: ['=', '!=', '>', '>=', '<', '<='],

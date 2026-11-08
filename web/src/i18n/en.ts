@@ -275,6 +275,12 @@ export const en = {
   'guard.window.turns': 'User turns in the window',
   'guard.window.bytes': 'Bytes in the window',
   'guard.window.sizeError': 'A whole number from {min} to {max}.',
+  'guard.inputPii.legend': 'Personal data in requests',
+  'guard.inputPii': 'Detect personal data in requests',
+  'guard.inputPii.help':
+    'Off by default. When on, the gateway checks user messages, tool results and documents (not system or developer prompts) for five kinds of data: e-mail addresses, Vietnamese phone numbers, payment card numbers (Luhn check), CCCD numbers and IPv4 addresses. Rules can log or block on input.pii.kinds and input.pii.count; nothing is redacted, and only kinds and counts are recorded.',
+  'guard.inputPii.tip':
+    'These are pattern checks, not full personal-data detection: names, street addresses, bank account numbers and ID numbers of other countries are not found. A version number such as 1.2.3.4 reads as an IPv4 address. System and developer prompts are left out because they often hold example data. It adds about 0.01 ms to a 2 KB request and 0.06 ms to a 20 KB one.',
 
   'keys.title': 'API keys',
   'keys.new': 'New API key',
@@ -1199,6 +1205,7 @@ export const en = {
   'help.group.indirect': 'Indirect content',
   'help.group.request': 'Request',
   'help.group.mcp': 'MCP',
+  'help.group.pii': 'Personal data',
   'help.var.injection.score.desc': 'The fused prompt-injection score of the scanned text of the request (L1, L2 and L3 combined). When L1 fires a decisive rule, its score is a lower bound (the L1 floor, in Detectors). With several parts, the strongest one counts.',
   'help.var.injection.score.range': 'A number from 0 to 1. Requests at or above the block threshold (0.85, or the lower value set in Detectors) are blocked before any rule runs, so rules see lower scores.',
   'help.var.injection.score.when': 'Block or route requests that are suspicious but under the block threshold, for example 0.6 or more.',
@@ -1250,6 +1257,12 @@ export const en = {
   'help.var.mcp.is_tool_response.desc': 'The request carries a tool result: a message with role tool, or a tool_result block (MCP and function calling).',
   'help.var.mcp.is_tool_response.range': 'true or false.',
   'help.var.mcp.is_tool_response.when': 'Apply a rule only to agent turns that return tool output, for example together with indirect.score.',
+  'help.var.input.pii.kinds.desc': 'The kinds of personal data found in the request text: user messages, tool results and documents, not system or developer prompts. The same pattern checks as the output guard; the values are never kept.',
+  'help.var.input.pii.kinds.range': 'A list of email, phone (Vietnamese numbers, +84 or 0), card (passes the Luhn check), cccd (12 digits starting with 0) and ipv4; empty when nothing was found or Detect personal data in requests is off (Guard settings). Names and street addresses are not detected.',
+  'help.var.input.pii.kinds.when': 'Block or log requests that carry a card number or a citizen ID, for example before they reach an upstream you do not trust with such data.',
+  'help.var.input.pii.count.desc': 'How many values of personal data the request text holds, all kinds of input.pii.kinds together.',
+  'help.var.input.pii.count.range': 'A whole number, 0 or more; 0 when nothing was found or Detect personal data in requests is off (Guard settings).',
+  'help.var.input.pii.count.when': 'Log every request with personal data (input.pii.count > 0), or block one that carries many values, such as a pasted customer list.',
   'help.op.=': 'Equal to the value.',
   'help.op.!=': 'Not equal to the value.',
   'help.op.>': 'Greater than the value.',

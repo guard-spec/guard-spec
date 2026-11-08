@@ -60,6 +60,8 @@ var Fields = policy.FieldSet{
 	"attrs.provider_id": policy.String,
 	"attrs.policy_id":   policy.String,
 	"attrs.action":      policy.String,
+	"attrs.pii_kinds":   policy.StringList,
+	"attrs.pii_count":   policy.Int,
 }
 
 // GroupByKeys are the allowed group_by entries.

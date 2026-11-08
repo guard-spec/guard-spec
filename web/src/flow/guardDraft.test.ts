@@ -68,6 +68,14 @@ describe('staged guard settings', () => {
     expect(guardChanged({}, { conversation_window: false })).toBe(true);
   });
 
+  it('keeps the personal-data switch, off included', () => {
+    expect(guardBody({ input_pii: true })).toEqual({ input_pii: true });
+    expect(guardBody({ input_pii: false })).toEqual({ input_pii: false });
+    expect(guardBody({ spotlight: 'off' })).toEqual({ spotlight: 'off' });
+    expect(guardChanged({}, { input_pii: true })).toBe(true);
+    expect(guardChanged({ input_pii: true }, { input_pii: true })).toBe(false);
+  });
+
   it('reads window sizes: empty is the default, whole numbers within the bounds', () => {
     expect(parseWindowSize('', WINDOW_TURNS)).toBeUndefined();
     expect(parseWindowSize(' 6 ', WINDOW_TURNS)).toBe(6);
