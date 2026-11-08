@@ -39,8 +39,12 @@ const (
 
 // Config describes the upstream. Key is optional.
 type Config struct {
-	BaseURL string        // for example http://host:11434/v1
-	Key     string        // sent as a bearer token when set
+	BaseURL string // for example http://host:11434/v1
+	Key     string // sent as a bearer token when set
+	// KeyFunc, when set, is called for every request instead of Key, so a
+	// key read from a file or Vault can change without a restart
+	// (internal/secrets).
+	KeyFunc func() string
 	Timeout time.Duration // time to first byte, and longest silence after it
 	// Propagate sends the W3C traceparent of the gateway's span upstream
 	// (OTEL_PROPAGATE_UPSTREAM=true). Off by default: it would tell the
@@ -68,6 +72,7 @@ type Config struct {
 type Proxy struct {
 	base       string
 	key        string
+	keyFunc    func() string
 	keyHeader  string
 	apiVersion string
 	headers    map[string]string
@@ -218,6 +223,7 @@ func New(cfg Config) (*Proxy, error) {
 	return &Proxy{
 		base:       strings.TrimRight(cfg.BaseURL, "/"),
 		key:        cfg.Key,
+		keyFunc:    cfg.KeyFunc,
 		keyHeader:  cfg.KeyHeader,
 		apiVersion: cfg.APIVersion,
 		headers:    safeHeaders(cfg.Headers),
@@ -321,15 +327,19 @@ func (p *Proxy) setCallHeaders(req *http.Request, call Call) {
 	for k, v := range p.headers {
 		req.Header.Set(k, v)
 	}
-	if p.key != "" {
+	key := p.key
+	if p.keyFunc != nil {
+		key = p.keyFunc()
+	}
+	if key != "" {
 		keyHeader := p.keyHeader
 		if call.KeyHeader != "" {
 			keyHeader = call.KeyHeader
 		}
 		if keyHeader != "" {
-			req.Header.Set(keyHeader, p.key)
+			req.Header.Set(keyHeader, key)
 		} else {
-			req.Header.Set("Authorization", "Bearer "+p.key)
+			req.Header.Set("Authorization", "Bearer "+key)
 		}
 	}
 }

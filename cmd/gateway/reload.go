@@ -72,8 +72,8 @@ func adminAuth(token string) fiber.Handler {
 }
 
 // registerAdmin mounts the model admin routes.
-func registerAdmin(app *fiber.App, gw gateway) {
-	admin := app.Group("/admin", adminAuth(gw.adminToken))
+func registerAdmin(app *fiber.App, gw gateway, auth fiber.Handler) {
+	admin := app.Group("/admin", auth)
 	admin.Get("/models", func(c *fiber.Ctx) error {
 		if gw.live == nil {
 			return c.Status(fiber.StatusNotFound).JSON(errorBody("no model layers", "invalid_request_error", "not_found"))

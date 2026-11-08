@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
-	"os"
 	"slices"
 	"strconv"
 	"sync"
@@ -18,6 +17,7 @@ import (
 	"github.com/guard-spec/guard-spec/internal/metrics"
 	"github.com/guard-spec/guard-spec/internal/policy"
 	"github.com/guard-spec/guard-spec/internal/proxy"
+	secretsrc "github.com/guard-spec/guard-spec/internal/secrets"
 	"github.com/guard-spec/guard-spec/internal/tenant"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -274,7 +274,7 @@ const maxPooledProxies = 1024
 
 func newUpstreamPool(cfg poolConfig) *upstreamPool {
 	if cfg.getenv == nil {
-		cfg.getenv = os.Getenv
+		cfg.getenv = secretsrc.Getenv
 	}
 	return &upstreamPool{cfg: cfg, proxies: map[uuid.UUID]pooledProxy{}}
 }

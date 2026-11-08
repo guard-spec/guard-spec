@@ -38,7 +38,7 @@ const (
 )
 
 // checkNames are the checks in the order they run.
-var checkNames = []string{"database", "migrations", "models", "layers", "upstream", "security", "encryption", "advisories"}
+var checkNames = []string{"database", "migrations", "models", "layers", "upstream", "security", "secrets", "encryption", "advisories"}
 
 func isCheckName(s string) bool {
 	for _, n := range checkNames {
@@ -135,6 +135,7 @@ func Collect(ctx context.Context, get func(string) string, opts Options) Report 
 		"upstream":   d.checkUpstream,
 		"security":   d.checkSecurity,
 		"encryption": d.checkEncryption,
+		"secrets":    d.checkSecrets,
 		"advisories": d.checkAdvisories,
 	}
 	for _, name := range checkNames {

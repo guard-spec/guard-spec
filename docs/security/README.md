@@ -145,6 +145,53 @@ Outside `GUARD_ENV=dev` the services refuse to start with a missing, short
 or known default secret. API keys, invite tokens, link codes and recovery
 codes are shown once and stored only as hashes.
 
+### Where secrets come from
+
+Every secret setting above (and the named ones: `UPSTREAM_KEY_*`,
+`OIDC_SECRET_*`, channel secrets, `SCAN_CACHE_REDIS_URL`, `SMTP_URL`,
+`GATEWAY_ADMIN_TOKEN`, `AUDIT_SIGNING_KEY`, `PGPASSWORD`) can be given three
+ways, so that it never sits in the environment where `docker inspect` and
+process listings show it:
+
+| Form | Example | Read again |
+|---|---|---|
+| The value | `UPSTREAM_KEY_MAIN=sk-...` | at restart |
+| A file | `UPSTREAM_KEY_MAIN_FILE=/run/secrets/upstream_main` (Docker and Kubernetes secrets, a Vault agent's template); the final newline is dropped | when the file changes, checked every 10 s |
+| HashiCorp Vault KV v2 | `UPSTREAM_KEY_MAIN=vault:secret/guard-spec#upstream_main`, with `VAULT_ADDR` and `VAULT_TOKEN` or `VAULT_TOKEN_FILE` (and `VAULT_NAMESPACE`) | every `SECRETS_VAULT_TTL` (default 5m) |
+
+Keys used per request (the upstream keys) change without a restart; the
+others (`JWT_SECRET`, `MFA_ENC_KEY`, `PGPASSWORD`, ...) are read at start. When
+Vault cannot be reached the last value is kept and the error logged.
+`doctor` (check `secrets`) lists where each one comes from, never its value,
+and fails when a file or a Vault reference cannot be read. In the Helm chart,
+mount files with `gateway.extraVolumes` / `extraVolumeMounts` (and the
+`controlPlane` ones) and set `NAME_FILE` in `env`.
+
+### Mutual TLS between the control plane and the gateway
+
+The control plane reads the gateway's `/readyz` (`GATEWAY_URL`), and an
+operator calls `/admin/models/reload`. With `ADMIN_LISTEN_ADDR` (for example
+`:8443`) the gateway serves `/health`, `/readyz` and `/admin` on that port
+over mutual TLS, and `/admin` leaves the API port:
+
+| Gateway | Control plane |
+|---|---|
+| `ADMIN_TLS_CERT_FILE`, `ADMIN_TLS_KEY_FILE`: its certificate | `GATEWAY_TLS_CERT_FILE`, `GATEWAY_TLS_KEY_FILE`: its client certificate |
+| `ADMIN_TLS_CLIENT_CA_FILE`: the CA of the callers' certificates | `GATEWAY_TLS_CA_FILE`: the CA of the gateway's certificate; `GATEWAY_URL=https://gateway:8443` |
+
+A caller without a certificate of that CA is refused in the TLS handshake.
+Certificates and CAs are read again when the files change, so short-lived
+certificates from cert-manager or step-ca rotate without a restart. The
+Helm chart does the wiring with `gateway.adminListener.enabled`,
+`gateway.adminListener.tlsSecret` and `controlPlane.gatewayTLSSecret`
+(Secrets with `tls.crt`, `tls.key` and `ca.crt`, as cert-manager writes them),
+on a ClusterIP Service of its own. `GATEWAY_ADMIN_TOKEN` is still required on
+`/admin` when it is set.
+
+For the database, use `sslmode=verify-full` in `DATABASE_URL`, and a client
+certificate with `PGSSLCERT`, `PGSSLKEY` and `PGSSLROOTCERT` if your Postgres
+requires one (pgx reads them).
+
 ## Encryption
 
 - **In transit.** Terminate TLS in front of both services. Use

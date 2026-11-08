@@ -32,6 +32,7 @@ import (
 	"github.com/guard-spec/guard-spec/internal/policy"
 	"github.com/guard-spec/guard-spec/internal/proxy"
 	"github.com/guard-spec/guard-spec/internal/sanitizer"
+	secretsrc "github.com/guard-spec/guard-spec/internal/secrets"
 	"github.com/guard-spec/guard-spec/internal/tenant"
 	"github.com/guard-spec/guard-spec/internal/tracing"
 	"github.com/guard-spec/guard-spec/internal/version"
@@ -73,6 +74,11 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
 
+	// PGPASSWORD_FILE or a vault: reference: pgx reads PGPASSWORD itself.
+	if err := secretsrc.Export("PGPASSWORD"); err != nil {
+		slog.Error("config", "err", err)
+		os.Exit(1)
+	}
 	cfg, err := loadConfig()
 	if err != nil {
 		slog.Error("config", "err", err)
@@ -84,11 +90,18 @@ func main() {
 		os.Exit(1)
 	}
 
+	adminCfg, err := loadAdminListenerConfig(os.Getenv)
+	if err != nil {
+		slog.Error("config", "err", err)
+		os.Exit(1)
+	}
+
 	var upstream *proxy.Proxy
 	if cfg.UpstreamURL != "" {
 		upstream, err = proxy.New(proxy.Config{
 			BaseURL:   cfg.UpstreamURL,
-			Key:       cfg.UpstreamKey,
+			// Read for every request: a key from a file or Vault can change.
+			KeyFunc:   func() string { return secretsrc.Getenv("UPSTREAM_LLM_KEY") },
 			Timeout:   cfg.UpstreamTimeout,
 			Propagate: ops.Propagate,
 		})
@@ -167,10 +180,11 @@ func main() {
 	defer closeCache()
 	slog.Info("scan config", "roles", cfg.Scan.Roles.String(), "spotlight", cfg.Scan.Spotlight,
 		"indirect_threshold", cfg.Scan.IndirectThreshold, "tool_prefixes", cfg.Scan.ToolPrefixes)
-	app := newApp(gateway{
+	gw := gateway{
 		detector:         newLiveStatus(detector, live, cfg.Detector.RequireML),
 		live:             live,
 		adminToken:       cfg.AdminToken,
+		adminSeparate:    adminCfg.addr != "",
 		runner:           runner,
 		engine:           engine,
 		policies:         dbPolicyLoader(db),
@@ -180,7 +194,7 @@ func main() {
 		policyRoutes:     dbPolicyRouteLoader(db),
 		upstreams:        dbUpstreamLoader(db),
 		pool: newUpstreamPool(poolConfig{propagate: ops.Propagate, allowPrivate: cfg.UpstreamAllowPrivate,
-			keyOrgs: cfg.UpstreamKeyOrgs, getenv: os.Getenv}),
+			keyOrgs: cfg.UpstreamKeyOrgs, getenv: secretsrc.Getenv}),
 		output:   output,
 		base:     base,
 		scan:     &cfg.Scan,
@@ -189,7 +203,8 @@ func main() {
 		cache:    cache,
 
 		waitOnHalfClose: cfg.WaitOnHalfClose,
-	}, dbKeyLookup(db))
+	}
+	app := newApp(gw, dbKeyLookup(db))
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -202,8 +217,19 @@ func main() {
 		}
 	}()
 
+	var adminApp *fiber.App
+	if adminCfg.addr != "" {
+		if adminApp, err = serveAdmin(adminCfg, gw); err != nil {
+			slog.Error("admin listener", "err", err)
+			os.Exit(1)
+		}
+	}
+
 	<-ctx.Done()
 	slog.Info("shutting down")
+	if adminApp != nil {
+		_ = adminApp.ShutdownWithTimeout(shutdownGrace)
+	}
 	_ = app.ShutdownWithTimeout(shutdownGrace)
 	cancelUpstream()
 	audit.close() // the pool closes after this; pending rows need it
@@ -255,6 +281,9 @@ type gateway struct {
 	live *ml.Live
 	// adminToken is GATEWAY_ADMIN_TOKEN; "" turns the /admin routes off.
 	adminToken string
+	// adminSeparate: ADMIN_LISTEN_ADDR is set, and the /admin routes are
+	// served only there, over mutual TLS (admin_listener.go).
+	adminSeparate bool
 }
 
 // newApp builds the Fiber app with all gateway routes.
@@ -266,24 +295,12 @@ func newApp(gw gateway, lookup tenant.LookupFn) *fiber.App {
 	app.Use(observe()) // metrics and the request span; first, so it sees every response
 	app.Use(cors.New())
 
-	// Health check — no auth required
-	app.Get("/health", func(c *fiber.Ctx) error {
-		return c.JSON(fiber.Map{"status": "ok", "version": version.String()})
-	})
-	// Readiness — no auth required. Reports which detection layers run, so a
-	// release image started without /models shows it runs L1 only. 503 (same
-	// body, status "degraded") when a layer the configuration requires is
-	// missing; a degraded gateway that does not require its models stays ready.
-	app.Get("/readyz", func(c *fiber.Ctx) error {
-		det := gw.detector.current()
-		status, code := "ready", fiber.StatusOK
-		if !det.ready() {
-			status, code = "degraded", fiber.StatusServiceUnavailable
-		}
-		return c.Status(code).JSON(fiber.Map{"status": status, "version": version.String(), "detector": det})
-	})
-	// Model reload and status, with GATEWAY_ADMIN_TOKEN (reload.go).
-	registerAdmin(app, gw)
+	registerProbes(app, gw)
+	// Model reload and status, with GATEWAY_ADMIN_TOKEN (reload.go); only on
+	// the admin listener when there is one (admin_listener.go).
+	if !gw.adminSeparate {
+		registerAdmin(app, gw, adminAuth(gw.adminToken))
+	}
 
 	// Errors of the Anthropic routes, the key check and rate limit included,
 	// in the Anthropic error shape (messages.go).
@@ -1557,7 +1574,7 @@ func loadConfig() (config, error) {
 	if err != nil || cacheSize < 0 || cacheSize > 1_000_000 {
 		return config{}, errors.New("SCAN_CACHE_SIZE must be a number from 0 to 1000000")
 	}
-	scanCache, err := loadScanCacheConfig(os.Getenv)
+	scanCache, err := loadScanCacheConfig(secretsrc.Getenv)
 	if err != nil {
 		return config{}, err
 	}
@@ -1577,7 +1594,7 @@ func loadConfig() (config, error) {
 		Detector:             detector,
 		DatabaseURL:          getenv("DATABASE_URL", ""),
 		UpstreamURL:          os.Getenv("UPSTREAM_LLM_URL"),
-		UpstreamKey:          os.Getenv("UPSTREAM_LLM_KEY"),
+		UpstreamKey:          secretsrc.Getenv("UPSTREAM_LLM_KEY"),
 		UpstreamTimeout:      timeout,
 		UpstreamKeyOrgs:      keyOrgs,
 		UpstreamAllowPrivate: allowPrivate,
@@ -1586,7 +1603,7 @@ func loadConfig() (config, error) {
 		AuditStoreContent:    storeContent,
 		ContentKeys:          contentKeys,
 		Scan:                 scan,
-		AdminToken:           strings.TrimSpace(os.Getenv("GATEWAY_ADMIN_TOKEN")),
+		AdminToken:           strings.TrimSpace(secretsrc.Getenv("GATEWAY_ADMIN_TOKEN")),
 		AuditDedupeWindow:    dedupeWindow,
 	}
 	// Refuse a default or weak database password unless GUARD_ENV=dev.

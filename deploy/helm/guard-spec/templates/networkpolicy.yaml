@@ -33,7 +33,7 @@ spec:
     {{- if and (eq $key "gateway") (get $np $key).from (include "guard-spec.gatewayURL" $) }}
     # The control plane reads /readyz for the Models page (GATEWAY_URL).
     - ports:
-        - {port: 8080, protocol: TCP}
+        - {port: {{ include "guard-spec.gatewayProbePort" $ }}, protocol: TCP}
       from:
         - podSelector:
             matchLabels:
@@ -61,7 +61,7 @@ spec:
     {{- if and (eq $key "controlPlane") (include "guard-spec.gatewayURL" $) }}
     # The gateway's /readyz for the Models page (GATEWAY_URL).
     - ports:
-        - {port: 8080, protocol: TCP}
+        - {port: {{ include "guard-spec.gatewayProbePort" $ }}, protocol: TCP}
       to:
         - podSelector:
             matchLabels:

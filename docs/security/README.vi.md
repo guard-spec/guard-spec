@@ -144,6 +144,52 @@ Ngoài `GUARD_ENV=dev`, các dịch vụ từ chối khởi động nếu secret
 ngắn hoặc là giá trị mặc định đã biết. API key, token lời mời, mã liên kết và
 mã khôi phục chỉ hiển thị một lần và chỉ được lưu dạng hash.
 
+### Secret lấy từ đâu
+
+Mọi secret ở trên (và các secret theo tên: `UPSTREAM_KEY_*`, `OIDC_SECRET_*`,
+secret của kênh cảnh báo, `SCAN_CACHE_REDIS_URL`, `SMTP_URL`,
+`GATEWAY_ADMIN_TOKEN`, `AUDIT_SIGNING_KEY`, `PGPASSWORD`) đặt được theo ba
+cách, để không nằm trong biến môi trường, nơi `docker inspect` và danh sách
+tiến trình đều thấy:
+
+| Cách | Ví dụ | Đọc lại |
+|---|---|---|
+| Giá trị | `UPSTREAM_KEY_MAIN=sk-...` | khi khởi động lại |
+| File | `UPSTREAM_KEY_MAIN_FILE=/run/secrets/upstream_main` (secret của Docker và Kubernetes, template của Vault agent); bỏ dấu xuống dòng cuối | khi file đổi, kiểm tra mỗi 10 giây |
+| HashiCorp Vault KV v2 | `UPSTREAM_KEY_MAIN=vault:secret/guard-spec#upstream_main`, kèm `VAULT_ADDR` và `VAULT_TOKEN` hoặc `VAULT_TOKEN_FILE` (và `VAULT_NAMESPACE`) | mỗi `SECRETS_VAULT_TTL` (mặc định 5 phút) |
+
+Khoá dùng theo từng request (khoá upstream) đổi được mà không cần khởi động
+lại; các secret khác (`JWT_SECRET`, `MFA_ENC_KEY`, `PGPASSWORD`, ...) đọc khi
+khởi động. Khi không gọi được Vault, giá trị gần nhất được giữ và lỗi được ghi
+log. `doctor` (check `secrets`) liệt kê mỗi secret lấy từ đâu, không bao giờ in
+giá trị, và báo lỗi khi file hoặc tham chiếu Vault không đọc được. Trong Helm
+chart, mount file bằng `gateway.extraVolumes` / `extraVolumeMounts` (và của
+`controlPlane`) rồi đặt `NAME_FILE` trong `env`.
+
+### Mutual TLS giữa control plane và gateway
+
+Control plane đọc `/readyz` của gateway (`GATEWAY_URL`), và người vận hành gọi
+`/admin/models/reload`. Với `ADMIN_LISTEN_ADDR` (ví dụ `:8443`) gateway phục vụ
+`/health`, `/readyz` và `/admin` trên cổng đó bằng mutual TLS, và `/admin` rời
+khỏi cổng API:
+
+| Gateway | Control plane |
+|---|---|
+| `ADMIN_TLS_CERT_FILE`, `ADMIN_TLS_KEY_FILE`: chứng chỉ của nó | `GATEWAY_TLS_CERT_FILE`, `GATEWAY_TLS_KEY_FILE`: chứng chỉ client của nó |
+| `ADMIN_TLS_CLIENT_CA_FILE`: CA của chứng chỉ bên gọi | `GATEWAY_TLS_CA_FILE`: CA của chứng chỉ gateway; `GATEWAY_URL=https://gateway:8443` |
+
+Bên gọi không có chứng chỉ của CA đó bị từ chối ngay trong bắt tay TLS. Chứng
+chỉ và CA được đọc lại khi file đổi, nên chứng chỉ ngắn hạn của cert-manager
+hay step-ca xoay vòng mà không cần khởi động lại. Helm chart tự nối bằng
+`gateway.adminListener.enabled`, `gateway.adminListener.tlsSecret` và
+`controlPlane.gatewayTLSSecret` (Secret có `tls.crt`, `tls.key` và `ca.crt`,
+đúng dạng cert-manager ghi), trên một Service ClusterIP riêng.
+`GATEWAY_ADMIN_TOKEN` vẫn bắt buộc trên `/admin` khi được đặt.
+
+Với database, dùng `sslmode=verify-full` trong `DATABASE_URL`, và chứng chỉ
+client qua `PGSSLCERT`, `PGSSLKEY`, `PGSSLROOTCERT` nếu Postgres yêu cầu (pgx tự
+đọc các biến này).
+
 ## Mã hoá
 
 - **Khi truyền.** Terminate TLS phía trước cả hai dịch vụ. Dùng

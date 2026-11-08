@@ -3,13 +3,13 @@ package main
 import (
 	"context"
 	"errors"
-	"os"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"github.com/guard-spec/guard-spec/internal/config"
 	"github.com/guard-spec/guard-spec/internal/proxy"
+	secretsrc "github.com/guard-spec/guard-spec/internal/secrets"
 	"github.com/guard-spec/guard-spec/internal/tenant"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -100,7 +100,7 @@ func upstreamProxy(u upstream, org uuid.UUID, s *appSettings) (px *proxy.Proxy, 
 		if s.keyOrgs.Explicit(u.APIKeyEnv, org) || config.DevMode() {
 			getenv := s.getenv
 			if getenv == nil {
-				getenv = os.Getenv
+				getenv = secretsrc.Getenv
 			}
 			if key = getenv(u.APIKeyEnv); key == "" {
 				return nil, false, errors.New(u.APIKeyEnv + " is not set in the control plane's environment; " +

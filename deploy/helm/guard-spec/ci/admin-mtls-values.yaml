@@ -1,0 +1,14 @@
+# CI: the gateway's admin listener over mutual TLS, with secrets as files.
+gateway:
+  adminListener:
+    enabled: true
+    tlsSecret: guard-spec-gateway-admin-tls
+  extraVolumes:
+    - name: upstream-key
+      secret: {secretName: guard-spec-upstream}
+  extraVolumeMounts:
+    - {name: upstream-key, mountPath: /run/secrets/upstream, readOnly: true}
+  env:
+    UPSTREAM_LLM_KEY_FILE: /run/secrets/upstream/key
+controlPlane:
+  gatewayTLSSecret: guard-spec-cp-client-tls

@@ -181,6 +181,21 @@ gateway:
     ALERTS_FLAG_THRESHOLD: "0.5"
     ALERTS_EVENTS: ""
   extraEnvFrom: []
+  # The admin listener (ADMIN_LISTEN_ADDR): /readyz and /admin over mutual
+  # TLS on its own port and ClusterIP Service (<release>-gateway-admin); the
+  # /admin routes leave the API port. tlsSecret holds tls.crt, tls.key and
+  # ca.crt (the CA of the callers' certificates), as cert-manager writes it;
+  # files are read again when they rotate. Needs controlPlane.gatewayTLSSecret.
+  adminListener:
+    enabled: false
+    port: 8443
+    tlsSecret: ""
+  # Extra volumes and mounts, for secrets as files (a Secret, the Secrets
+  # Store CSI driver, a Vault agent) read with NAME_FILE in env, and for the
+  # admin listener's mutual TLS files (ADMIN_LISTEN_ADDR, ADMIN_TLS_*); see
+  # docs/security/README.md#secrets.
+  extraVolumes: []
+  extraVolumeMounts: []
   # Shadow mode (README, "Shadow mode and model reload"): a candidate L2
   # classifier scores the same traffic off the response path and only records
   # what it would have decided. Off while model and modelDir are empty. The
@@ -305,6 +320,14 @@ controlPlane:
   #   extraEnvFrom:
   #     - secretRef: {name: guard-spec-alerts}
   extraEnvFrom: []
+  # The control plane's client certificate for the gateway's admin listener
+  # (gateway.adminListener): a Secret with tls.crt, tls.key and ca.crt (the
+  # CA of the gateway's certificate).
+  gatewayTLSSecret: ""
+  # As gateway.extraVolumes and extraVolumeMounts (secrets as files, and the
+  # client certificate for the gateway's admin listener: GATEWAY_TLS_*).
+  extraVolumes: []
+  extraVolumeMounts: []
   resources:
     requests: {cpu: 100m, memory: 64Mi}
     limits: {memory: 256Mi}

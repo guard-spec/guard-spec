@@ -11,7 +11,6 @@ import (
 	"log/slog"
 	"net"
 	"net/url"
-	"os"
 	"regexp"
 	"slices"
 	"strings"
@@ -21,6 +20,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"github.com/guard-spec/guard-spec/internal/auth"
+	secretsrc "github.com/guard-spec/guard-spec/internal/secrets"
 	"github.com/guard-spec/guard-spec/internal/tenant"
 	"github.com/jackc/pgx/v5"
 	"golang.org/x/oauth2"
@@ -205,7 +205,7 @@ func (id *identity) provider(ctx context.Context, pid uuid.UUID) (*oidcProvider,
 	if id.publicURL == "" {
 		return nil, errors.New("PUBLIC_BASE_URL is not set; SSO needs it for the callback url")
 	}
-	secret := os.Getenv(row.ClientSecretEnv)
+	secret := secretsrc.Getenv(row.ClientSecretEnv)
 	if secret == "" {
 		return nil, fmt.Errorf("%s is not set", row.ClientSecretEnv)
 	}
