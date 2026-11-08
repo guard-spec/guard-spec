@@ -43,6 +43,8 @@ import {
   type SimValue,
   type TraceEntry,
   type Upstream,
+  type SiemSink,
+  type SiemSinkInput,
 } from '../src/types';
 
 export const ORG_ID = '00000000-0000-0000-0000-000000000001';
@@ -321,6 +323,9 @@ function evalNode(node: ConditionNode, vars: Record<string, SimValue>): boolean 
 // ── State ──────────────────────────────────────────────────────────────────
 
 export interface MockState {
+  /** SIEM export sinks (GET/POST/PUT/DELETE .../siem-sinks) and the test deliveries sent. */
+  siemSinks?: SiemSink[];
+  siemTests?: string[];
   /** Reads of stored content (POST .../requests/{id}/content), as the control plane logs them. */
   contentReads?: { id: string; reason: string }[];
   org: Org;
@@ -1405,6 +1410,39 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
       }
     }
 
+    if (sub === '/siem-sinks' || sub.startsWith('/siem-sinks/')) {
+      if (opts.role === 'viewer' || opts.role === 'member') return json(403, { error: 'requires role admin' });
+      const sinks = (state.siemSinks ??= []);
+      const [, , id, action] = sub.split('/');
+      if (!id && method === 'GET') return json(200, { data: sinks, kinds: ['splunk_hec', 'elastic', 'sentinel', 'syslog', 'http'], ocsf_version: '1.9.0' });
+      const b = body as SiemSinkInput;
+      if (!id && method === 'POST') {
+        if (b.kind === 'splunk_hec' && !b.config.url) return json(400, { error: 'splunk_hec needs config.url' });
+        if (b.secret_env && !b.secret_env.startsWith('SIEM_')) {
+          return json(400, { error: `the variable ${b.secret_env} is not allowed for siem channels of this organization; the operator lists it in ALERTS_SECRET_ORGS` });
+        }
+        const s: SiemSink = { ...b, id: `siem-${sinks.length + 1}`, secret_set: Boolean(b.secret_env), cursor_at: '2026-11-08T09:00:00Z', failures: 0,
+          last_error: null, last_success_at: null, delivered: 0, created_at: '2026-11-08T09:00:00Z' };
+        sinks.push(s);
+        return json(201, s);
+      }
+      const i = sinks.findIndex((s) => s.id === id);
+      if (i < 0) return json(404, { error: 'sink not found' });
+      const cur = sinks.find((s) => s.id === id);
+      if (!cur) return json(404, { error: 'sink not found' });
+      if (action === 'test' && method === 'POST') {
+        (state.siemTests ??= []).push(cur.id);
+        return json(200, cur.config.url?.includes('down') ? { ok: false, error: 'test delivery: https://siem.down.example/services/collector/event: HTTP 503' } : { ok: true });
+      }
+      if (method === 'PUT') {
+        sinks[i] = { ...cur, ...b };
+        return json(200, sinks[i]);
+      }
+      if (method === 'DELETE') {
+        sinks.splice(i, 1);
+        return json(204);
+      }
+    }
     const contentMatch = /^\/requests\/([^/]+)\/content$/.exec(sub);
     if (contentMatch && method === 'POST') {
       // As readRequestContent: the org's content_read_role, a reason when required, every read logged.

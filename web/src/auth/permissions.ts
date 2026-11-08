@@ -35,6 +35,7 @@ export const FALLBACK_MATRIX: PermissionMatrix = {
     { key: 'shadow.read', min_role: 'viewer', description: 'View the classifier models and the shadow comparison' },
     { key: 'shadow.disagreements.read', min_role: 'admin', description: 'View the requests where the shadow model disagrees' },
     { key: 'alerts.deliveries.read', min_role: 'admin', description: 'View the notification delivery log' },
+    { key: 'siem.manage', min_role: 'admin', description: 'Manage SIEM export sinks and send test events' },
     { key: 'security.write', min_role: 'owner', description: 'Change the security policy (2FA, login methods, domain join)' },
   ],
 };

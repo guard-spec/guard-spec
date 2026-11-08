@@ -71,3 +71,9 @@ func SafeClient(denyPrivate bool, timeout time.Duration) *http.Client {
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 }
+
+// SafeDialer is the dialer of SafeClient, for protocols other than HTTP
+// (syslog over TLS to a SIEM): it refuses the same addresses after DNS.
+func SafeDialer(denyPrivate bool, timeout time.Duration) *net.Dialer {
+	return &net.Dialer{Timeout: timeout, Control: dialControl(denyPrivate)}
+}

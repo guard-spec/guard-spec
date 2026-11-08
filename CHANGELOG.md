@@ -30,6 +30,15 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ### Added
 
+- SIEM export (RF-f2f95010): an organization's events (detections,
+  security, configuration and admin activity; metadata only) go to Splunk
+  (HEC), Elasticsearch, Microsoft Sentinel (Logs Ingestion API), syslog over
+  TLS (CEF or JSON) or an HTTP endpoint as OCSF 1.9.0 records (Detection
+  Finding, Authentication, Account Change, API Activity), at least once, with
+  a cursor per sink, backoff and catch-up (migration 023). Secrets are `SIEM_*`
+  variables granted in `ALERTS_SECRET_ORGS` (kind `siem`); private addresses
+  need `ALERTS_PRIVATE_ORGS`. Admin UI: Alerts → SIEM export.
+  ([docs/siem.md](docs/siem.md))
 - Secrets from files and Vault (RF-da721d14): every secret setting can be
   given as `NAME_FILE` (Docker and Kubernetes secrets; read again when the
   file changes) or `NAME=vault:<mount>/<path>#<key>` (HashiCorp Vault KV v2,

@@ -800,6 +800,7 @@ var capabilities = []capability{
 	{"alerts.read", auth.RoleViewer, "View alert rules, channels (never their secrets), groups and alert history"},
 	{"alerts.write", auth.RoleAdmin, "Create, edit, test and delete alert rules, channels and groups"},
 	{"alerts.deliveries.read", auth.RoleAdmin, "View the notification delivery log"},
+	{"siem.manage", auth.RoleAdmin, "Manage SIEM export sinks and send test events"},
 }
 
 func permissions(c *fiber.Ctx) error {

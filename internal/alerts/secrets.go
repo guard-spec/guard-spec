@@ -23,7 +23,13 @@ var kindPrefixes = map[string][]string{
 	channels.KindTeams:    {"TEAMS_", "GUARDSPEC_ALERT_"},
 	channels.KindWebhook:  {"WEBHOOK_SECRET_", "GUARDSPEC_ALERT_"},
 	channels.KindA2A:      {"A2A_", "GUARDSPEC_ALERT_"},
+	// SIEM export sinks (internal/siem): HEC tokens, API keys, client secrets.
+	KindSIEM: {"SIEM_", "GUARDSPEC_ALERT_"},
 }
+
+// KindSIEM is the secret kind of SIEM export sinks in ALERTS_SECRET_ORGS
+// ("SIEM_SPLUNK=siem:*").
+const KindSIEM = "siem"
 
 // instanceVars are the instance's own tokens: never a channel's secret.
 var instanceVars = map[string]bool{EnvTelegramToken: true, EnvSlackToken: true}
@@ -80,7 +86,7 @@ func ParseSecretOrgs(s string) (SecretOrgs, error) {
 			return SecretOrgs{}, fmt.Errorf("ALERTS_SECRET_ORGS: %q %s", entry, usage)
 		}
 		if _, known := kindPrefixes[kind]; !known {
-			return SecretOrgs{}, fmt.Errorf("ALERTS_SECRET_ORGS: %s: kind %q must be one of telegram, slack, teams, webhook, a2a", name, kind)
+			return SecretOrgs{}, fmt.Errorf("ALERTS_SECRET_ORGS: %s: kind %q must be one of telegram, slack, teams, webhook, a2a, siem", name, kind)
 		}
 		if !AllowedSecretEnvFor(kind, name) {
 			return SecretOrgs{}, fmt.Errorf("ALERTS_SECRET_ORGS: %s cannot be a %s secret (prefixes %s)", name, kind,

@@ -41,6 +41,7 @@ export const PATHS = {
   'alert-groups': 'alerts/groups',
   'alert-history': 'alerts/history',
   'alert-deliveries': 'alerts/deliveries',
+  'siem-export': 'alerts/siem',
   'admin-users': 'admin/users',
   'admin-idps': 'admin/identity-providers',
   'admin-activity': 'admin/activity',

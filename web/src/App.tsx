@@ -43,6 +43,7 @@ const ChannelsPage = lazy(() => import('./alerts/ChannelsPage'));
 const GroupsPage = lazy(() => import('./alerts/GroupsPage'));
 const AlertHistoryPage = lazy(() => import('./alerts/HistoryPage'));
 const DeliveriesPage = lazy(() => import('./alerts/DeliveriesPage'));
+const SiemPage = lazy(() => import('./alerts/SiemPage'));
 
 /** Pages of an organization. */
 const ORG_PAGES: Partial<Record<Route, ComponentType>> = {
@@ -67,6 +68,7 @@ const ORG_PAGES: Partial<Record<Route, ComponentType>> = {
   'alert-groups': GroupsPage,
   'alert-history': AlertHistoryPage,
   'alert-deliveries': DeliveriesPage,
+  'siem-export': SiemPage,
 };
 
 /** Pages that need no organization. */

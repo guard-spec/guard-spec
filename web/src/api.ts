@@ -6,6 +6,8 @@
 // ends the session (onUnauthorized).
 
 import type {
+  SiemSink,
+  SiemSinkInput,
   StoredContent,
   ApiKey,
   AuditRow,
@@ -446,6 +448,23 @@ export class ApiClient {
 
   listRequestsPage(orgId: UUID, q: ListQuery): Promise<unknown> {
     return this.request('GET', `/organizations/${enc(orgId)}/requests`, { query: q });
+  }
+
+  /** SIEM export sinks (admin). */
+  async listSiemSinks(orgId: UUID): Promise<SiemSink[]> {
+    return listOf<SiemSink>(await this.request('GET', `/organizations/${enc(orgId)}/siem-sinks`));
+  }
+  createSiemSink(orgId: UUID, s: SiemSinkInput): Promise<SiemSink> {
+    return this.request('POST', `/organizations/${enc(orgId)}/siem-sinks`, { body: s });
+  }
+  updateSiemSink(orgId: UUID, id: UUID, s: SiemSinkInput): Promise<SiemSink> {
+    return this.request('PUT', `/organizations/${enc(orgId)}/siem-sinks/${enc(id)}`, { body: s });
+  }
+  deleteSiemSink(orgId: UUID, id: UUID): Promise<void> {
+    return this.request('DELETE', `/organizations/${enc(orgId)}/siem-sinks/${enc(id)}`);
+  }
+  testSiemSink(orgId: UUID, id: UUID): Promise<{ ok: boolean; error?: string }> {
+    return this.request('POST', `/organizations/${enc(orgId)}/siem-sinks/${enc(id)}/test`);
   }
 
   /** One request's stored prompt and answer: needs the org's content_read_role and, when required, a reason; every read is in the activity log. */
