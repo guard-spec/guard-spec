@@ -26,7 +26,9 @@ RUN CGO_ENABLED=0 GOOS=linux \
  && CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /out/doctor ./cmd/doctor/
 
 # --- runtime image ---
-FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
+# Chainguard static (Wolfi): CA certificates, tzdata and passwd only; no
+# shell. Same nonroot user (65532) as distroless/static had.
+FROM cgr.dev/chainguard/static:latest@sha256:fc42af33e643f20d08baf03cddcc1c02ba57052dfb02edb0d79f3fc47bcea8d9
 
 WORKDIR /app
 COPY --from=builder /out/control-plane /out/doctor ./

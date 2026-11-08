@@ -30,6 +30,7 @@ gateway:
     repository: guard-spec-gateway
     tag: e2e
     pullPolicy: Never
+    shell: false   # built from this checkout: no shell in the image
   env:
     UPSTREAM_LLM_URL: http://fake-upstream:8080/v1
   resources:

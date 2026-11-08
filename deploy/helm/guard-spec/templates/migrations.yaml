@@ -38,7 +38,11 @@ spec:
           imagePullPolicy: {{ .Values.gateway.image.pullPolicy }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
+          {{- if .Values.gateway.image.shell }}
           command: ["/bin/sh", "-ec", "cp /app/migrations/*.sql /migrations/ && ls /migrations"]
+          {{- else }}
+          command: ["/app/doctor", "copy-migrations", "/migrations", "/app/migrations"]
+          {{- end }}
           volumeMounts:
             - name: migrations
               mountPath: /migrations

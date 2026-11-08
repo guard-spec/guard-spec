@@ -7,6 +7,7 @@
 //
 //	doctor [-json] [-strict] [-skip upstream,...] [-timeout 5s]
 //	       [-manifest manifest.yaml] [-migrations migrations]
+//	doctor copy-migrations DEST [SRC]   (copy the image's *.sql migrations)
 //
 // Checks, in order:
 //
@@ -16,6 +17,8 @@
 //	layers      which detection layers (L1, L2, L3) the gateway would load
 //	upstream    UPSTREAM_LLM_URL answers HTTP
 //	security    secrets set and strong, GUARD_ENV not dev, TLS hints
+//	advisories  no published security advisory affects this version (GitHub;
+//	            -skip advisories without internet access)
 //
 // Each check prints OK, WARN, FAIL or SKIP with a short detail and, for
 // problems, a hint. Exit codes:
@@ -43,6 +46,9 @@ func main() {
 	if len(os.Args) > 1 && version.IsFlag(os.Args[1]) {
 		fmt.Println("doctor", version.String())
 		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "copy-migrations" {
+		os.Exit(copyMigrations(os.Args[2:], os.Stdout, os.Stderr))
 	}
 	opts, err := parseFlags(os.Args[1:], os.Stderr)
 	if errors.Is(err, flag.ErrHelp) {

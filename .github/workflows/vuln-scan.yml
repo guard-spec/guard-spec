@@ -1,0 +1,149 @@
+name: Vulnerability scan
+
+# No known CVE may ship (SECURITY.md, "Fixing vulnerabilities"):
+#
+# - pull requests and main: Trivy scans every lockfile (Go, npm, uv) and the
+#   gateway and control-plane images built from the checkout. A vulnerability
+#   with a fixed version fails the job, whatever its severity; one without a
+#   fix is reported to Code scanning. govulncheck runs in ci.yml.
+# - every day and on demand: the same scans on main, plus the images of the
+#   latest release. Findings in a release open (or update) one issue labelled
+#   "security"; the issue is closed when a later scan is clean.
+#
+# A vulnerability that does not apply to Guard Spec is recorded, with the
+# reason, in .vex/guard-spec.openvex.json, which every scan reads.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "41 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vuln-scan-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The Trivy DB, with a fallback when ghcr.io rate-limits.
+  TRIVY_DB_REPOSITORY: mirror.gcr.io/aquasec/trivy-db,ghcr.io/aquasecurity/trivy-db
+  TRIVY_JAVA_DB_REPOSITORY: mirror.gcr.io/aquasec/trivy-java-db,ghcr.io/aquasecurity/trivy-java-db
+  TRIVY_VEX: .vex/guard-spec.openvex.json
+  TRIVY_SCANNERS: vuln
+  TRIVY_NO_PROGRESS: "true"
+
+jobs:
+  dependencies:
+    name: Dependencies (lockfiles)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write   # SARIF to Code scanning
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: scripts/install-trivy.sh "$RUNNER_TEMP/bin" && echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Report every finding
+        run: trivy fs --format sarif --output deps.sarif .
+      - uses: github/codeql-action/upload-sarif@1fc58d04a4d4374f921bdac573c3811c240f9c26 # v4
+        if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        with:
+          sarif_file: deps.sarif
+          category: trivy-dependencies
+      - name: Fail on a vulnerability that has a fix
+        run: trivy fs --ignore-unfixed --exit-code 1 .
+
+  images:
+    name: Images (built from this checkout)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [gateway, control-plane]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: scripts/install-trivy.sh "$RUNNER_TEMP/bin" && echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Build
+        env:
+          IMAGE: ${{ matrix.image }}
+        run: docker build -f "build/$IMAGE.Dockerfile" -t "guard-spec-$IMAGE:scan" .
+      - name: Report every finding
+        env:
+          IMAGE: ${{ matrix.image }}
+        run: trivy image --format sarif --output image.sarif "guard-spec-$IMAGE:scan"
+      - uses: github/codeql-action/upload-sarif@1fc58d04a4d4374f921bdac573c3811c240f9c26 # v4
+        if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        with:
+          sarif_file: image.sarif
+          category: trivy-image-${{ matrix.image }}
+      - name: Fail on a vulnerability that has a fix
+        env:
+          IMAGE: ${{ matrix.image }}
+        run: trivy image --ignore-unfixed --exit-code 1 "guard-spec-$IMAGE:scan"
+
+  released:
+    name: Images of the latest release
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write   # one "security" issue per release with findings
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: scripts/install-trivy.sh "$RUNNER_TEMP/bin" && echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Scan
+        id: scan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          tag=$(gh release list --exclude-pre-releases --exclude-drafts --limit 50 --json tagName,isLatest \
+            --jq '[.[] | select(.tagName | startswith("v"))] | (map(select(.isLatest)) + .)[0].tagName')
+          version=${tag#v}
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          reports=""
+          for image in gateway gateway-full control-plane; do
+            ref="ghcr.io/$OWNER/guard-spec-$image:$version"
+            if ! docker manifest inspect "$ref" >/dev/null 2>&1; then
+              echo "$ref: not published, skipped"
+              continue
+            fi
+            trivy image --format json --output "$image.json" "$ref"
+            reports="$reports $image.json"
+          done
+          set +e
+          # shellcheck disable=SC2086 # one argument per report
+          python3 scripts/vuln-report.py "Known vulnerabilities in the v$version images" $reports > body.md
+          echo "found=$?" >> "$GITHUB_OUTPUT"
+          cat body.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Open, update or close the issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.scan.outputs.version }}
+          FOUND: ${{ steps.scan.outputs.found }}
+        run: |
+          export TITLE="Known vulnerabilities in the v$VERSION images"
+          gh label create security --color B60205 --description "Security issue or vulnerability" 2>/dev/null || true
+          number=$(gh issue list --state open --label security --limit 200 --json number,title \
+            | jq -r '[.[] | select(.title == env.TITLE)][0].number // empty')
+          if [ "$FOUND" = 1 ]; then
+            if [ -n "$number" ]; then
+              gh issue edit "$number" --body-file body.md
+            else
+              gh issue create --title "$TITLE" --label security --body-file body.md
+            fi
+            exit 1
+          elif [ "$FOUND" = 0 ] && [ -n "$number" ]; then
+            gh issue close "$number" --comment "The daily scan of the v$VERSION images found no known vulnerabilities."
+          fi

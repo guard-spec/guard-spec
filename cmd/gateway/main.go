@@ -66,6 +66,9 @@ func main() {
 		fmt.Println("gateway", version.String())
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "health" {
+		os.Exit(runHealth(os.Args[2:], os.Getenv, os.Stderr))
+	}
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
 

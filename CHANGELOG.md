@@ -9,6 +9,55 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ## [Unreleased]
 
+### Security
+
+- No known CVE ships: a new workflow (`vuln-scan.yml`) scans every lockfile
+  (Go, npm, uv) and the gateway and control-plane images on every pull
+  request, on `main` and every day, and fails on any finding that has a
+  fixed version; the daily run also scans the images of the latest release
+  and opens an issue labelled `security` for its findings. Fix times for
+  known vulnerabilities are in SECURITY.md (critical 48 hours, high 7 days).
+  Exceptions that do not apply go in `.vex/guard-spec.openvex.json` with the
+  reason. govulncheck is pinned in `tools/go.mod`; Dependabot now also
+  covers uv, `tools/` and the base image digests (daily).
+  ([docs/security/vulnerabilities.md](docs/security/vulnerabilities.md))
+- The gateway image is built on Chainguard `glibc-dynamic` (Wolfi) instead
+  of Debian `bookworm-slim`, and the control-plane image on Chainguard
+  `static` instead of distroless: the v0.3.1 gateway image has 327 known
+  OS-package vulnerabilities (1 critical, 47 high, most without a Debian
+  fix), the new one none. Neither image has a shell, a package manager or
+  curl any more.
+
+### Added
+
+- `gateway health [path]`: the image's health check without curl (HTTP 200
+  from `/readyz`, or the path given, on `LISTEN_ADDR`).
+- `models init`: the container entry point that pulls what
+  `DETECTOR_LAYERS` needs, warning on a failed pull, or exiting 1 with
+  `DETECTOR_REQUIRE_ML=true` / `MODELS_REQUIRED=true` / `-required`; it
+  replaces the shell scripts of compose `models-init` and the Helm
+  `models-pull` init container.
+- `doctor copy-migrations DEST [SRC]`, for the Helm migrations job.
+- `doctor` check `advisories`: fails when a published Guard Spec security
+  advisory affects the running version (`-skip advisories` without internet
+  access; `DOCTOR_ADVISORIES_URL` for a mirror).
+- Helm: `gateway.image.shell` (default `true`, for the released 0.3.x
+  images); `false` for images without a shell.
+
+### Fixed
+
+- `models list` in the images failed with "open models/manifest.yaml: not a
+  directory" (in `/app`, `models` is the binary) instead of using its
+  built-in manifest.
+
+### Upgrade notes
+
+- With the release that ships the new images, the deployment files switch to
+  the subcommands above: compose health checks and `models-init`, the Helm
+  init containers (and `gateway.image.shell` goes), the ECS health check.
+  Custom manifests or scripts that run `sh`, `curl` or `cp` inside the
+  gateway or control-plane image must do the same.
+
 ## [0.3.1] - 2026-11-07
 
 ### Security

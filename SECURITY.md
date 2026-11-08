@@ -86,6 +86,31 @@ unless you prefer otherwise, and request a CVE where it applies. Please give us
 the time above before disclosing publicly; we will agree a date with you if a
 fix needs longer.
 
+## Known vulnerabilities in dependencies and images
+
+No release ships with a known vulnerability that has a fix. Every pull
+request, every push to `main` and a daily scheduled run scan the Go, npm and
+Python lockfiles and the gateway and control-plane images with Trivy, and
+govulncheck checks the Go code; a finding with a fixed version fails CI. The
+daily run also scans the images of the latest release and opens an issue
+labelled `security` for what it finds. Details:
+[docs/security/vulnerabilities.md](docs/security/vulnerabilities.md).
+
+When a vulnerability is published in something a release contains:
+
+| Severity (CVSS)  | Patch release with the fix |
+| ---------------- | -------------------------- |
+| Critical         | within 48 hours            |
+| High             | within 7 days              |
+| Medium or low    | in the next release, at most 30 days |
+
+The clock starts when a fixed version of the dependency or base image is
+available. A vulnerability that does not affect Guard Spec (the code is not
+reachable, or the component is not used) is recorded with the reason in
+[`.vex/guard-spec.openvex.json`](.vex/guard-spec.openvex.json) instead, and
+the advisory lists it. `doctor` reports a published Guard Spec advisory that
+affects the running version.
+
 ## Verifying releases
 
 [docs/security/verifying-releases.md](docs/security/verifying-releases.md)

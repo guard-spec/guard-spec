@@ -37,11 +37,14 @@ COPY --from=builder /opt/onnx/lib/libonnxruntime.so /lib/
 COPY --from=builder /opt/onnx/LICENSE.onnxruntime /src/LICENSE /src/NOTICE /src/THIRD_PARTY_LICENSES.md /src/models/manifest.yaml /
 
 # --- runtime image (default target) ---
-FROM debian:bookworm-slim@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl \
-    && rm -rf /var/lib/apt/lists/*
+# Chainguard glibc-dynamic (Wolfi): glibc, libgcc, libstdc++ and CA
+# certificates only, rebuilt daily with fixes; no shell, package manager or
+# curl. Debian bookworm-slim carried hundreds of OS CVEs without a fix; this
+# base has none at the pinned digest (Dependabot bumps it). The binaries are
+# built on Debian 12 (glibc 2.36) and run on the newer glibc of Wolfi. The
+# HEALTHCHECK, compose and Kubernetes use the binaries' own subcommands
+# (gateway health, models init, doctor copy-migrations) instead of scripts.
+FROM cgr.dev/chainguard/glibc-dynamic:latest@sha256:aab5cd0b4cc5edd9c87b6e7aa9ddaa3fb6ffcec559b9e5473c55bbc937b65399
 
 # ONNX Runtime CPU shared library (MIT), loaded by internal/onnx via dlopen.
 COPY --from=builder /opt/onnx/lib/libonnxruntime.so /usr/local/lib/
@@ -58,7 +61,7 @@ COPY --from=builder /src/models/manifest.yaml ./manifest.yaml
 COPY --from=builder /src/LICENSE /src/NOTICE /src/THIRD_PARTY_LICENSES.md /usr/share/doc/guard-spec/
 
 EXPOSE 8080 9090
-HEALTHCHECK --interval=10s --timeout=3s --start-period=30s CMD curl -fsS http://localhost:8080/readyz || exit 1
+HEALTHCHECK --interval=10s --timeout=3s --start-period=30s CMD ["/app/gateway", "health"]
 
 USER nobody
 ENTRYPOINT ["./gateway"]

@@ -1,0 +1,8 @@
+{
+  "@context": "https://openvex.dev/ns/v0.2.0",
+  "@id": "https://github.com/guard-spec/guard-spec/blob/main/.vex/guard-spec.openvex.json",
+  "author": "The Guard Spec Authors",
+  "timestamp": "2026-11-08T00:00:00Z",
+  "version": 1,
+  "statements": []
+}

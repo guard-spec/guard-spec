@@ -138,6 +138,11 @@ gateway:
     repository: ghcr.io/guard-spec/guard-spec-gateway
     tag: ""  # defaults to the chart appVersion
     pullPolicy: IfNotPresent
+    # true: the image has a shell (the released 0.3.x images), so the models
+    # and migrations init containers run small scripts. false: images built
+    # from this checkout, which have no shell; the init containers use the
+    # binaries' own subcommands (models init, doctor copy-migrations).
+    shell: true
   service:
     type: ClusterIP
     port: 8080

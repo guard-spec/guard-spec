@@ -15,6 +15,7 @@ statement depends on a setting, the setting is named.
 | Document | Covers |
 |---|---|
 | This page | Architecture, data flow, stored data and retention, secrets, encryption |
+| [Vulnerability management](vulnerabilities.md) | How no known CVE ships: daily scans of code, lockfiles and released images, the CI gate, VEX, base images, fix times |
 | [Verifying a release](verifying-releases.md) | cosign signatures of the images and archives, SBOMs, SLSA provenance, with the commands and their output for v0.2.0 |
 | [Security risks and hardening](../security-risks.md) | The threat model: risks that remain in a deployment, what reduces each, and a hardening checklist |
 | [SECURITY.md](../../SECURITY.md) | Reporting a vulnerability, supported versions, response targets |
@@ -210,9 +211,11 @@ reader can confirm that a known text was sent by that org within 6 hours).
 | SSO provider | OIDC authorization flow | SSO logins |
 | Alert channels | Alert metadata: event type, severity, ids, categories, scores. No prompt text | Matching alert rules |
 | OTLP collector | Spans without prompt text; `traceparent` to the upstream only with `OTEL_PROPAGATE_UPSTREAM=true` | Tracing on |
-| Hugging Face (or `MODELS_MIRROR`) | Model downloads, checked against SHA-256 pins | `models pull` only; `gateway-full` needs none |
+| Hugging Face (or `MODELS_MIRROR`) | Model downloads, checked against SHA-256 pins | `models pull` / `models init` only; `gateway-full` needs none |
+| GitHub API (or `DOCTOR_ADVISORIES_URL`) | A GET of the project's published security advisories, with no identifier of the install | When you run `doctor`; `-skip advisories` turns it off |
 
-There is no telemetry or call home.
+There is no telemetry or call home: the services never contact anything you
+did not configure.
 
 ## Threat model
 

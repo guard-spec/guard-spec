@@ -3,6 +3,15 @@
 //	go run ./cmd/models pull   [flags] [name[@version] ...]
 //	go run ./cmd/models verify [flags] [name[@version] ...]
 //	go run ./cmd/models list   [flags] [--available]
+//	models init [flags] [name[@version] ...]
+//
+// init is the container entry point that prepares the model volume (compose
+// models-init, the Helm models-pull init container): without names it pulls
+// what DETECTOR_LAYERS needs (l3: every recommended model; l2 only: L2_MODEL
+// or guardspec-classifier; l1 only: nothing). A failed pull exits 0 with a
+// warning, so the gateway starts on the layers it can load, unless -required
+// (default: DETECTOR_REQUIRE_ML=true or MODELS_REQUIRED=true), which exits 1.
+// The gateway image has no shell; this replaces the scripts that did this.
 //
 // Flags: -dir models/cache, -manifest models/manifest.yaml (the copy built
 // into the binary when that file does not exist), -models a,b@v (same as the
@@ -23,7 +32,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/fs"
 	"net/http"
 	"os"
 	"os/signal"
@@ -41,7 +49,7 @@ const defaultManifest = "models/manifest.yaml"
 
 type options struct {
 	dir, manifest, only, mirror string
-	available                   bool
+	available, required         bool
 	refs                        []string
 	manifestSet                 bool
 }
@@ -86,6 +94,8 @@ func parseArgs(cmd string, args []string) (options, error) {
 	fset.StringVar(&o.only, "models", "", "comma-separated model references, name or name@version (default: the recommended version of every non-optional model)")
 	fset.StringVar(&o.mirror, "mirror", os.Getenv("MODELS_MIRROR"), "base URL tried before Hugging Face: <mirror>/<name>/<version>/<file> (env MODELS_MIRROR)")
 	fset.BoolVar(&o.available, "available", false, "list: the models in the manifest instead of the installed ones")
+	fset.BoolVar(&o.required, "required", envTrue("DETECTOR_REQUIRE_ML") || envTrue("MODELS_REQUIRED"),
+		"init: exit 1 when a model cannot be pulled (env DETECTOR_REQUIRE_ML or MODELS_REQUIRED)")
 	for {
 		if err := fset.Parse(args); err != nil {
 			return o, err
@@ -112,7 +122,9 @@ func parseArgs(cmd string, args []string) (options, error) {
 
 func loadManifest(o options) (*onnx.Manifest, error) {
 	if !o.manifestSet {
-		if _, err := os.Stat(o.manifest); errors.Is(err, fs.ErrNotExist) {
+		// Any stat error falls back to the built-in copy: in the images /app/models
+		// is the binary itself, so models/manifest.yaml fails with ENOTDIR.
+		if _, err := os.Stat(o.manifest); err != nil {
 			m, err := onnx.ParseManifest(models.Manifest)
 			if err != nil {
 				return nil, fmt.Errorf("built-in manifest: %w", err)
@@ -152,37 +164,29 @@ func run(ctx context.Context, cmd string, o options, m *onnx.Manifest, out io.Wr
 		}
 		return 0, nil
 	case "pull":
-		sel, explicit, err := selectModels(m, o.refs)
+		return pull(ctx, o, m, o.refs, out)
+	case "init":
+		refs := o.refs
+		if len(refs) == 0 {
+			var need bool
+			refs, need = initRefs(os.Getenv)
+			if !need {
+				_, _ = fmt.Fprintf(out, "models-init: DETECTOR_LAYERS=%s needs no model\n", os.Getenv("DETECTOR_LAYERS"))
+				return 0, nil
+			}
+		}
+		code, err := pull(ctx, o, m, refs, out)
+		if code == 0 && err == nil {
+			return 0, nil
+		}
 		if err != nil {
-			return 1, err
+			fmt.Fprintln(os.Stderr, "error:", err)
 		}
-		token := os.Getenv("HF_TOKEN")
-		p := &onnx.Puller{
-			Client: &http.Client{Timeout: 60 * time.Minute},
-			Token:  token,
-			Mirror: o.mirror,
-			Log:    func(f string, a ...any) { _, _ = fmt.Fprintf(out, f+"\n", a...) },
-		}
-		failed := false
-		for _, mod := range sel {
-			if mod.Optional && !explicit {
-				_, _ = fmt.Fprintf(out, "%s: skipped, optional (pull it with: models pull %s)\n", mod.Ref(), mod.Ref())
-				continue
-			}
-			if mod.Gated && token == "" && !explicit {
-				_, _ = fmt.Fprintf(out, "%s: skipped, %s is gated (accept its terms on huggingface.co and set HF_TOKEN)\n", mod.Ref(), mod.Repo)
-				continue
-			}
-			if err := p.Pull(ctx, mod, o.dir); err != nil {
-				fmt.Fprintln(os.Stderr, "error:", err)
-				failed = true
-				continue
-			}
-			_, _ = fmt.Fprintf(out, "%s: ok (%s)\n", mod.Ref(), mod.Dir(o.dir))
-		}
-		if failed {
+		if o.required {
+			fmt.Fprintln(os.Stderr, "models-init: a model could not be pulled and models are required (DETECTOR_REQUIRE_ML / MODELS_REQUIRED / -required)")
 			return 1, nil
 		}
+		fmt.Fprintln(os.Stderr, "models-init: some models could not be pulled; the gateway runs without them (see /readyz and docs/models.md)")
 		return 0, nil
 	case "verify":
 		sel, explicit, err := selectModels(m, o.refs)
@@ -213,6 +217,71 @@ func run(ctx context.Context, cmd string, o options, m *onnx.Manifest, out io.Wr
 		return 2, nil
 	}
 }
+
+// pull downloads the selected models into o.dir. The exit code is 1 when one
+// of them failed.
+func pull(ctx context.Context, o options, m *onnx.Manifest, refs []string, out io.Writer) (int, error) {
+	sel, explicit, err := selectModels(m, refs)
+	if err != nil {
+		return 1, err
+	}
+	token := os.Getenv("HF_TOKEN")
+	p := &onnx.Puller{
+		Client: &http.Client{Timeout: 60 * time.Minute},
+		Token:  token,
+		Mirror: o.mirror,
+		Log:    func(f string, a ...any) { _, _ = fmt.Fprintf(out, f+"\n", a...) },
+	}
+	failed := false
+	for _, mod := range sel {
+		if mod.Optional && !explicit {
+			_, _ = fmt.Fprintf(out, "%s: skipped, optional (pull it with: models pull %s)\n", mod.Ref(), mod.Ref())
+			continue
+		}
+		if mod.Gated && token == "" && !explicit {
+			_, _ = fmt.Fprintf(out, "%s: skipped, %s is gated (accept its terms on huggingface.co and set HF_TOKEN)\n", mod.Ref(), mod.Repo)
+			continue
+		}
+		if err := p.Pull(ctx, mod, o.dir); err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			failed = true
+			continue
+		}
+		_, _ = fmt.Fprintf(out, "%s: ok (%s)\n", mod.Ref(), mod.Dir(o.dir))
+	}
+	if failed {
+		return 1, nil
+	}
+	return 0, nil
+}
+
+// initRefs returns the models that DETECTOR_LAYERS (default l1,l2,l3) needs.
+// need is false when no ML layer is on. nil refs with need true means the
+// recommended version of every non-optional model.
+func initRefs(getenv func(string) string) (refs []string, need bool) {
+	layers := getenv("DETECTOR_LAYERS")
+	if strings.TrimSpace(layers) == "" {
+		layers = "l1,l2,l3"
+	}
+	has := map[string]bool{}
+	for _, l := range strings.Split(layers, ",") {
+		has[strings.ToLower(strings.TrimSpace(l))] = true
+	}
+	switch {
+	case has["l3"]:
+		return nil, true
+	case has["l2"]:
+		l2 := strings.TrimSpace(getenv("L2_MODEL"))
+		if l2 == "" {
+			l2 = "guardspec-classifier"
+		}
+		return []string{l2}, true
+	default:
+		return nil, false
+	}
+}
+
+func envTrue(name string) bool { return strings.EqualFold(strings.TrimSpace(os.Getenv(name)), "true") }
 
 func modelSize(mod *onnx.ManifestModel) int64 {
 	var size int64
@@ -315,10 +384,12 @@ func installState(mod *onnx.ManifestModel, d string) string {
 }
 
 func usage(w io.Writer) {
-	_, _ = fmt.Fprintln(w, `usage: models <pull|verify|list> [flags] [name[@version] ...]
+	_, _ = fmt.Fprintln(w, `usage: models <pull|init|verify|list> [flags] [name[@version] ...]
 
   models pull                              recommended version of every non-optional model
   models pull guardspec-classifier@v3b     one version, into <dir>/<name>/<version>/
+  models init [name[@version] ...]         container entry point: pull what DETECTOR_LAYERS needs; a failure
+                                           only warns unless -required (DETECTOR_REQUIRE_ML / MODELS_REQUIRED)
   models verify [name[@version] ...]       check the SHA-256 of installed files
   models list                              installed versions
   models list --available                  versions in the manifest
@@ -327,7 +398,8 @@ flags:
   -dir DIR        model directory (default models/cache)
   -manifest FILE  manifest (default models/manifest.yaml, else the built-in copy)
   -models a,b@v   same as naming them as arguments
-  -mirror URL     tried before Hugging Face: URL/<name>/<version>/<file> (env MODELS_MIRROR)`)
+  -mirror URL     tried before Hugging Face: URL/<name>/<version>/<file> (env MODELS_MIRROR)
+  -required       init: exit 1 when a model cannot be pulled`)
 }
 
 func fatal(err error) {
