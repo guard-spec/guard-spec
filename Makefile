@@ -106,6 +106,18 @@ benchmark: onnx-deps
 	$(ONNX_ENV) BENCH_CACHE=$(BENCH_CACHE) uv run --project bench --frozen $(if $(PROMPTGUARD),--extra promptguard) \
 	  python bench/run.py --update-doc docs/benchmark.md $(if $(PROMPTGUARD),--promptguard)
 
+# Long inputs (docs/benchmark.md "Long documents", docs/sizing.md "Long
+# inputs"): builds bench/long's corpus (sources pinned in bench/long/corpus.yaml)
+# into $(BENCH_CACHE)/long/$(PROFILE), then runs cmd/benchlong on it. Results:
+# bench/results/long-<host>.{json,md}. PROFILE=quick (about 1.6M tokens) or
+# full (about 9.5M). BENCH_LONG_FLAGS passes more flags (e.g. -host, -conc).
+# To measure your own texts without Python: go run -tags onnx ./cmd/benchlong -docs <dir of .txt>.
+PROFILE ?= quick
+.PHONY: bench-long
+bench-long: onnx-deps
+	BENCH_CACHE=$(BENCH_CACHE) uv run --project bench --frozen python bench/long/build.py --profile $(PROFILE)
+	$(ONNX_ENV) $(GO) run -tags onnx ./cmd/benchlong -corpus $(BENCH_CACHE)/long/$(PROFILE) -profile $(PROFILE) $(BENCH_LONG_FLAGS)
+
 onnxbench: onnx-deps
 	$(ONNX_ENV) $(GO) run -tags onnx ./cmd/onnxbench -model models/local/guardspec-classifier-v3b
 
