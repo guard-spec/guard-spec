@@ -626,6 +626,7 @@ in a second table.
 | `SPOTLIGHT` | `off` | Mark tool results for the model: `off`, `delimit`, `datamark` |
 | `INDIRECT_BLOCK_THRESHOLD` | `0.85` | Block threshold for tool results, documents and tool descriptions, in (0, 0.85] |
 | `INDIRECT_ACTION` | `block` | What happens to a tool result or document over the threshold: `block` refuses the request; `redact` replaces that block with `[removed by Guard Spec: prompt injection detected in tool output]` (`is_error: true` on a `tool_result`) and lets the request go on, with `input:redacted=<n>` in the audit row and a `detection.flagged` event (`decision: redact`). Tool descriptions always block. An org can override it (`indirect_action` in guard settings) |
+| `TOOL_CODE_CORROBORATION` | `on` | Tool results and documents that look like source code, configuration, a diff, a stack trace or a log (six or more lines, 60% of them code-like) are blocked only when L1 (a rule, not just keywords) or L3 agrees with the classifier (L2), which over-scores such text. `off` lets L2 alone block them again, as before 0.4.2. User, system and tool-description text is never affected; without the model layers it changes nothing. On the long path (`MAX_SCAN_TOKENS`) the rule applies to each token window, where L3 does not run, so only L1 can agree. See [Security model](#security-model-and-limitations) |
 | `SCAN_HISTORY` | `latest` | `/v1/messages` and `/v1/responses`: `latest` classifies the trailing turn (after the last assistant message, or the last item the model produced), takes earlier tool results from the scan cache, and does not classify earlier user text again; `full` classifies every turn. Chat completions always classify every turn |
 | `RESPONSES_SERVER_STATE` | `refuse` | `/v1/responses` requests that refer to conversation state the upstream keeps (`previous_response_id`, `conversation`, `item_reference` input items) carry turns the gateway never sees in the request and cannot scan again: `refuse` answers them with 400 (`server_state_refused`); `allow` passes them and tags the audit row `input:server_state=1`. See [Security model](#security-model-and-limitations) |
 | `UNSCANNED_PARTS` | `log` | Parts of a request the gateway forwards but cannot read, so they are not checked for injection: images, files (PDFs and others) and audio, and parts with no text of a type it does not know. `log` forwards them and tags the audit row `input:unscanned_<kind>=<n>`; `block` refuses the request (400 `unscanned_content`) and sends nothing upstream; `allow` forwards them with a metric only. An org can only make it stricter (`unscanned_parts` in guard settings). See [Content the gateway cannot read](#content-the-gateway-cannot-read) |
@@ -1510,6 +1511,16 @@ What it does **not** protect against:
   turn by turn. Treat it as
   one layer of defence; keep least-privilege tools, human confirmation for
   risky actions and output handling in your application.
+- **Injections hidden in code or logs that only the classifier sees.**
+  The classifier over-scores code, configs and logs, so a tool result or
+  document that looks like code blocks only when L1 or L3 agrees
+  (`TOOL_CODE_CORROBORATION`, on by default). An injection in a code
+  comment or log line that L1 does not recognise then passes: on eval/
+  attacks embedded in 2 KB code and log hosts, detection falls from 0.86
+  to 0.83 (dev payloads) and from 0.81 to 0.75 (holdout payloads). Even so,
+  8–15% of benign code and log tool results are still refused with the model
+  layers (eval/codelog and a larger 832-file set); use
+  `INDIRECT_ACTION=redact` to let an agent go on when that happens.
 - **Harmful but non-injection requests.** It is not a content moderation or
   toxicity filter. It does not judge whether a request or an answer is
   harmful, biased or false.

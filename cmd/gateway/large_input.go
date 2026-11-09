@@ -360,6 +360,9 @@ type scanSizes struct {
 type pendingText struct {
 	text    string
 	history bool // from an earlier turn
+	// adjust is the scanner's per-window adjustment for the text's source
+	// (code corroboration), so that the long path scores it as Scan will.
+	adjust inference.ChunkAdjust
 }
 
 // scanRun is how a request's texts are scanned.
@@ -417,23 +420,23 @@ func (gw gateway) admitScan(g *textGuard, s scanSizes, forceLarge bool) (scanRun
 	}
 	var short []string
 	var long []inference.LongInput
-	add := func(text string, threshold float64, history bool) {
+	add := func(text string, threshold float64, history bool, adjust inference.ChunkAdjust) {
 		if inference.FitsShort(text) {
 			if !history {
 				short = append(short, text)
 			}
 			return
 		}
-		long = append(long, inference.LongInput{Text: text, Threshold: threshold, Uncounted: history})
+		long = append(long, inference.LongInput{Text: text, Threshold: threshold, Uncounted: history, Adjust: adjust})
 	}
 	if s.joined != "" {
-		add(s.joined, lim.direct, false)
+		add(s.joined, lim.direct, false, nil)
 	}
 	for _, t := range s.alone {
-		add(t, lim.direct, false)
+		add(t, lim.direct, false, nil)
 	}
 	for _, u := range s.untrusted {
-		add(u.text, lim.indirect, u.history)
+		add(u.text, lim.indirect, u.history, u.adjust)
 	}
 	short = append(short, s.tools...)
 	shortTokens, err := gw.tokensOf(short, lim.maxTokens)

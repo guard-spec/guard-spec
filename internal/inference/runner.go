@@ -135,10 +135,30 @@ const shortParallel = 4
 // A text past the short path's limit (FitsShort) is refused with
 // ErrInputTooLong, unless ctx carries a LongScan: then it takes the long path.
 func (r *Runner) Scan(ctx context.Context, text string) (Scores, error) {
+	return r.ScanAdjusted(ctx, text, nil)
+}
+
+// ChunkAdjust may change the injection score of one chunk (on the long path,
+// one window) before the worst one is taken; chunk is the text the detector
+// saw.
+type ChunkAdjust func(chunk string, s Score) Score
+
+// Apply is a(chunk, s), or s when a is nil.
+func (a ChunkAdjust) Apply(chunk string, s Score) Score {
+	if a == nil {
+		return s
+	}
+	return a(chunk, s)
+}
+
+// ScanAdjusted is Scan with adjust applied to each chunk's injection score
+// (nil: none), before the worst chunk is taken and, on the long path, before
+// early exit compares it with the threshold.
+func (r *Runner) ScanAdjusted(ctx context.Context, text string, adjust ChunkAdjust) (Scores, error) {
 	chunks, err := chunkText(text, 512, 448)
 	if errors.Is(err, ErrInputTooLong) {
 		if ls := longScanFrom(ctx); ls != nil {
-			return r.scanLongText(ctx, ls, text)
+			return r.scanLongText(ctx, ls, LongInput{Text: text, Adjust: adjust})
 		}
 	}
 	if err != nil {
@@ -157,6 +177,9 @@ func (r *Runner) Scan(ctx context.Context, text string) (Scores, error) {
 		scores, err := runChunkedParallel(gctx, r.injection, chunks)
 		if err != nil {
 			return fmt.Errorf("injection model: %w", err)
+		}
+		if adjust != nil {
+			scores = adjustChunks(chunks, scores, adjust)
 		}
 		injScores = scores
 		return nil
@@ -263,11 +286,26 @@ func runChunkedParallel(ctx context.Context, m ModelBackend, chunks []string) ([
 	return all, nil
 }
 
+// adjustChunks applies adjust to the scores of runChunked(Parallel), in chunk
+// order. A backend returns one injection score per chunk (FusedBackend, the
+// regex detector); with any other count the scores are left alone.
+func adjustChunks(chunks []string, scores []Score, adjust ChunkAdjust) []Score {
+	if len(scores) != len(chunks) {
+		return scores
+	}
+	out := make([]Score, len(scores))
+	for i, s := range scores {
+		out[i] = adjust(chunks[i], s)
+	}
+	return out
+}
+
 // scanLongText scores one text on the long path, or finds it scored there.
-func (r *Runner) scanLongText(ctx context.Context, ls *LongScan, text string) (Scores, error) {
-	res, ok := ls.lookup(text)
+func (r *Runner) scanLongText(ctx context.Context, ls *LongScan, x LongInput) (Scores, error) {
+	text := x.Text
+	res, ok := ls.lookup(x)
 	if !ok {
-		out, err := r.scanLong(ctx, ls, []LongInput{{Text: text}})
+		out, err := r.scanLong(ctx, ls, []LongInput{x})
 		if err != nil {
 			return Scores{}, err
 		}

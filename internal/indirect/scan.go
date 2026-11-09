@@ -35,11 +35,27 @@ type Verdict struct {
 }
 
 // Scanner scores untrusted text with the gateway's injection detector.
-type Scanner struct{ Runner *inference.Runner }
+type Scanner struct {
+	Runner *inference.Runner
+	// NoCodeCorroboration turns code corroboration off for tool results and
+	// documents (TOOL_CODE_CORROBORATION=off; corroborate.go).
+	NoCodeCorroboration bool
+}
+
+// Adjust is the per-chunk adjustment Score applies to text from src: code
+// corroboration for tool results and documents, unless turned off; nil
+// otherwise. The gateway passes it to the long path (inference.LongInput)
+// when it scores such texts ahead.
+func (s Scanner) Adjust(src Source) inference.ChunkAdjust {
+	if (src == SourceTool || src == SourceDocument) && !s.NoCodeCorroboration {
+		return CorroborateCode
+	}
+	return nil
+}
 
 // Score classifies sanitized text that came from src.
 func (s Scanner) Score(ctx context.Context, text string, src Source) (Verdict, error) {
-	scores, err := s.Runner.Scan(ctx, text)
+	scores, err := s.Runner.ScanAdjusted(ctx, text, s.Adjust(src))
 	if err != nil {
 		return Verdict{}, err
 	}

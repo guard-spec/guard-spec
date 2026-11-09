@@ -13,6 +13,9 @@ type Detail struct {
 	Category   string             // top category, "" when nothing matched
 	Categories map[string]float64 // per-category scores
 	Rules      []string           // fired rule ids
+	// Floor is the lower bound a floor layer or a decisive L1 verdict set
+	// on the score (fusion.Result.Floor); 0 when none did.
+	Floor float64
 }
 
 // Scorer is what FusedBackend runs: a *fusion.Fuser, or a detector that can

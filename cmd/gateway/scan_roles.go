@@ -49,6 +49,11 @@ type scanConfig struct {
 	// EmbeddingsScan is EMBEDDINGS_SCAN=on: the input of /v1/embeddings is
 	// classified as untrusted content. Off by default.
 	EmbeddingsScan bool
+	// NoCodeCorroboration is TOOL_CODE_CORROBORATION=off: a code-like tool
+	// result or document chunk blocks on the classifier alone, as before
+	// 0.4.2 (internal/indirect/corroborate.go). On by default; no org
+	// override.
+	NoCodeCorroboration bool
 	// WindowTurns and WindowBytes are CONVERSATION_WINDOW_TURNS and
 	// CONVERSATION_WINDOW_BYTES: the conversation window joins the most
 	// recent user turns, at most this many and this many bytes, and scores
@@ -95,8 +100,8 @@ func defaultScanConfig() scanConfig {
 
 // loadScanConfig reads SCAN_ROLES, SPOTLIGHT, INDIRECT_BLOCK_THRESHOLD,
 // INDIRECT_ACTION, SCAN_TOOL_PREFIXES, SCAN_HISTORY, RESPONSES_SERVER_STATE,
-// EMBEDDINGS_SCAN, CONVERSATION_WINDOW_TURNS, CONVERSATION_WINDOW_BYTES,
-// UNSCANNED_PARTS and MAX_SCAN_TOKENS.
+// EMBEDDINGS_SCAN, TOOL_CODE_CORROBORATION, CONVERSATION_WINDOW_TURNS,
+// CONVERSATION_WINDOW_BYTES, UNSCANNED_PARTS and MAX_SCAN_TOKENS.
 func loadScanConfig(env func(string) string) (scanConfig, error) {
 	cfg := defaultScanConfig()
 	var err error
@@ -147,6 +152,13 @@ func loadScanConfig(env func(string) string) (scanConfig, error) {
 		cfg.EmbeddingsScan = true
 	default:
 		return scanConfig{}, errors.New("EMBEDDINGS_SCAN must be on or off")
+	}
+	switch v := strings.ToLower(strings.TrimSpace(env("TOOL_CODE_CORROBORATION"))); v {
+	case "", "on":
+	case "off":
+		cfg.NoCodeCorroboration = true
+	default:
+		return scanConfig{}, errors.New("TOOL_CODE_CORROBORATION must be on or off")
 	}
 	for _, w := range []struct {
 		name string
@@ -591,7 +603,7 @@ var errAlreadyLarge = fmt.Errorf("large request: %w", inference.ErrInputTooLong)
 
 // scoreRequestAs is scoreRequest, as a large request when forceLarge.
 func (gw gateway) scoreRequestAs(g *textGuard, forceLarge bool) (v requestVerdict, err error) {
-	scanner := indirect.Scanner{Runner: gw.runner}
+	scanner := indirect.Scanner{Runner: gw.runner, NoCodeCorroboration: gw.baseScanConfig().NoCodeCorroboration}
 	cache, gen := gw.cache, int64(0)
 	if !g.useCache {
 		cache = nil
@@ -649,7 +661,8 @@ func (gw gateway) scoreRequestAs(g *textGuard, forceLarge bool) (v requestVerdic
 			if _, hit := view.get(longKeys[i]); hit {
 				break
 			}
-			sizes.untrusted = append(sizes.untrusted, pendingText{text: p.text, history: p.history})
+			sizes.untrusted = append(sizes.untrusted, pendingText{text: p.text, history: p.history,
+				adjust: scanner.Adjust(p.source)})
 			if p.history {
 				sizes.historyBytes += len(p.text)
 			} else {
