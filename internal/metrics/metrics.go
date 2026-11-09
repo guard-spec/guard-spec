@@ -221,11 +221,11 @@ var (
 	})
 
 	// ScanQueueWait is how long large-input requests waited for the lane, by
-	// outcome: admitted, timeout (429 after LARGE_SCAN_QUEUE_TIMEOUT) and
-	// full (429 at once: the queue was full).
+	// outcome: admitted, timeout (429 after LARGE_SCAN_QUEUE_TIMEOUT), full
+	// (429 at once: the queue was full) and canceled (the wait was cut short).
 	ScanQueueWait = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Namespace: namespace, Subsystem: "gateway", Name: "scan_queue_wait_seconds",
-		Help:    "Wait for the large-input lane by outcome (admitted, timeout, full).",
+		Help:    "Wait for the large-input lane by outcome (admitted, timeout, full, canceled).",
 		Buckets: latencyBuckets,
 	}, []string{"outcome"})
 )
