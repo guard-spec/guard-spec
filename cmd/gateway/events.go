@@ -27,7 +27,8 @@ const (
 	layerSanitizer = "sanitizer" // hidden characters or anomaly score
 	layerIndirect  = "indirect"  // tool results, documents, tool descriptions
 	layerPolicy    = "policy"
-	layerScan      = "scan" // the /guardrail/scan endpoints
+	layerScan      = "scan"      // the /guardrail/scan endpoints
+	layerUnscanned = "unscanned" // UNSCANNED_PARTS=block: images, files, audio
 )
 
 // decisionRedact is the decision of a detection.flagged event for a request

@@ -62,6 +62,9 @@ type scanConfig struct {
 	// input_pii_kinds (input_pii_protect.go); "" is off.
 	PIIAction string
 	PIIKinds  []string
+	// Unscanned is UNSCANNED_PARTS with the org's stricter unscanned_parts:
+	// allow, log (the default) or block (unscanned.go).
+	Unscanned string
 }
 
 // Values of SCAN_HISTORY.
@@ -82,12 +85,13 @@ func defaultScanConfig() scanConfig {
 	return scanConfig{Roles: indirect.DefaultRoles, Spotlight: indirect.ModeOff,
 		IndirectThreshold: indirect.BlockThreshold, IndirectAction: indirect.ActionBlock, History: historyLatest,
 		ServerState: serverStateRefuse, WindowTurns: indirect.DefaultWindowTurns,
-		WindowBytes: indirect.DefaultWindowBytes}
+		WindowBytes: indirect.DefaultWindowBytes, Unscanned: indirect.UnscannedLog}
 }
 
 // loadScanConfig reads SCAN_ROLES, SPOTLIGHT, INDIRECT_BLOCK_THRESHOLD,
 // INDIRECT_ACTION, SCAN_TOOL_PREFIXES, SCAN_HISTORY, RESPONSES_SERVER_STATE,
-// EMBEDDINGS_SCAN, CONVERSATION_WINDOW_TURNS and CONVERSATION_WINDOW_BYTES.
+// EMBEDDINGS_SCAN, CONVERSATION_WINDOW_TURNS, CONVERSATION_WINDOW_BYTES and
+// UNSCANNED_PARTS.
 func loadScanConfig(env func(string) string) (scanConfig, error) {
 	cfg := defaultScanConfig()
 	var err error
@@ -150,6 +154,9 @@ func loadScanConfig(env func(string) string) (scanConfig, error) {
 			}
 			*w.dst = n
 		}
+	}
+	if cfg.Unscanned, err = indirect.ParseUnscannedMode(env("UNSCANNED_PARTS")); err != nil {
+		return scanConfig{}, err
 	}
 	if err := indirect.ValidWindow(cfg.WindowTurns, cfg.WindowBytes); err != nil {
 		return scanConfig{}, fmt.Errorf("CONVERSATION_WINDOW_TURNS, CONVERSATION_WINDOW_BYTES: %w", err)
@@ -214,6 +221,7 @@ func (gw gateway) scanConfigFor(orgID uuid.UUID) (scanConfig, error) {
 	cfg.WindowTurns, cfg.WindowBytes = s.Window(cfg.WindowTurns, cfg.WindowBytes)
 	cfg.InputPII = s.PII()
 	cfg.PIIAction, cfg.PIIKinds = s.PIIAction(), s.InputPIIKinds
+	cfg.Unscanned = s.Unscanned(cfg.Unscanned)
 	return cfg, nil
 }
 

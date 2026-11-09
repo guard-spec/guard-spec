@@ -384,6 +384,11 @@ type requestEntry struct {
 	// InputPII counts the personal data in the request text by kind, never
 	// the values; nil when the org has the check off (input_pii.go).
 	InputPII outputguard.Counts
+	// Unscanned counts the parts the detectors could not read, by kind
+	// (unscanned.go): input.unscanned.* for policies, and audit tags unless
+	// UNSCANNED_PARTS is allow (UnscannedQuiet).
+	Unscanned      map[string]int
+	UnscannedQuiet bool
 	// PIIAction and PIIProtected: what the org's input_pii_action replaced
 	// before the request went upstream, by kind (input_pii_protect.go).
 	PIIAction    string
@@ -521,6 +526,9 @@ func outputTags(counts outputguard.Counts) []string {
 func auditTags(e requestEntry) []string {
 	tags := outputTags(e.Output)
 	tags = append(tags, piiTags(e.InputPII)...)
+	if !e.UnscannedQuiet {
+		tags = append(tags, unscannedTags(e.Unscanned)...)
+	}
 	tags = append(tags, piiProtectTags(e.PIIAction, e.PIIProtected)...)
 	if e.Redacted > 0 {
 		tags = append(tags, fmt.Sprintf("input:redacted=%d", e.Redacted))
@@ -657,6 +665,9 @@ type textGuard struct {
 	// found in user text, tool results and documents, by kind (input_pii.go).
 	detectPII bool
 	pii       outputguard.Counts
+	// unscanned counts the images, files and audio forwarded without being
+	// read, by kind (unscanned.go).
+	unscanned map[string]int
 	// pseudo replaces personal data before the request goes upstream (the
 	// org's input_pii_action, input_pii_protect.go); nil: off.
 	pseudo *outputguard.Pseudonymizer
@@ -749,6 +760,9 @@ func (g *textGuard) guardContent(m map[string]any) error {
 			}
 			raw, present := p["text"]
 			if !present {
+				// An image, a file or audio: forwarded, never read.
+				kind, _ := p["type"].(string)
+				g.noteUnscanned(kind)
 				continue
 			}
 			// Anything but a string would reach the upstream unscanned.
@@ -942,6 +956,16 @@ func proxyHandler(gw gateway, f apiFormat) fiber.Handler {
 				entry.Trigger = guard.blocked
 			}
 			return guardError(c, err)
+		}
+		countUnscanned(scanCfg.Unscanned, guard.unscanned)
+		entry.Unscanned, entry.UnscannedQuiet = guard.unscanned, scanCfg.Unscanned == indirect.UnscannedAllow
+		if scanCfg.Unscanned == indirect.UnscannedBlock && len(guard.unscanned) > 0 {
+			kinds, n := unscannedVars(guard.unscanned)
+			slog.Info("blocked unscanned content", "kinds", kinds, "parts", n)
+			entry.Detected = layerUnscanned
+			entry.Scores.Injection.Label = "unscanned_content" // the refusal's reason in the request log
+			return c.Status(fiber.StatusBadRequest).
+				JSON(errorBody(unscannedMessage(guard.unscanned), "invalid_request_error", "unscanned_content"))
 		}
 
 		// Classify: user, system and tool-call text together, each tool result
@@ -1412,6 +1436,7 @@ func policyVars(entry requestEntry, body map[string]any, bodyBytes int) *policy.
 		ConversationScore:  entry.Conversation,
 	}
 	vars.InputPIIKinds, vars.InputPIICount = piiVars(entry.InputPII)
+	vars.UnscannedKinds, vars.UnscannedCount = unscannedVars(entry.Unscanned)
 	vars.ScoreL1, vars.ScoreL2, vars.ScoreL3 = vars.InjectionScore, -1, -1
 	if d := entry.Scores.Injection.Detail; d != nil {
 		vars.ScoreL1, vars.ScoreL2, vars.ScoreL3, vars.InjectionCat = d.L1, d.L2, d.L3, d.Category
