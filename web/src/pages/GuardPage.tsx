@@ -11,12 +11,14 @@ import {
   DEFAULT_SCAN_ROLES,
   PII_KINDS,
   SCAN_ROLES,
+  UNSCANNED_MODES,
   WINDOW_BYTES,
   WINDOW_TURNS,
   type GuardSettings,
   type IndirectAction,
   type ScanRole,
   type SpotlightMode,
+  type UnscannedMode,
 } from '../types';
 
 type ThresholdField = 'injection_threshold' | 'indirect_threshold';
@@ -268,6 +270,37 @@ export function GuardPage() {
               <div id="pii-kinds-help" className="small muted">{t('guard.piiKinds.help')}</div>
             </fieldset>
           ) : null}
+        </fieldset>
+        <fieldset>
+          <legend>{t('guard.unscanned.legend')}</legend>
+          <div className="field">
+            <label htmlFor="unscanned-parts">{t('guard.unscanned')}</label>
+            <select
+              id="unscanned-parts"
+              value={draft.unscanned_parts ?? ''}
+              disabled={!writable}
+              aria-describedby="unscanned-parts-help"
+              onChange={(e) => {
+                const v = e.target.value as UnscannedMode | '';
+                const { unscanned_parts: _old, ...rest } = draft;
+                setDraft(v ? { ...rest, unscanned_parts: v } : rest);
+              }}
+            >
+              <option value="">{t('guard.unscanned.default')}</option>
+              {UNSCANNED_MODES.map((m) => (
+                <option key={m} value={m}>
+                  {t(`guard.unscanned.${m}`)}
+                </option>
+              ))}
+            </select>
+            <div id="unscanned-parts-help" className="stack-sm">
+              <div className="small muted">{t('guard.unscanned.help')}</div>
+              <div className="small muted" data-testid="unscanned-mode-help">
+                {t(`guard.unscanned.${draft.unscanned_parts ?? 'default'}Help`)}
+              </div>
+              <div className="small muted">{t('guard.unscanned.extract')}</div>
+            </div>
+          </div>
         </fieldset>
         <fieldset>
           <legend>{t('panel.detectors.thresholds')}</legend>

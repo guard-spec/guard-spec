@@ -11,6 +11,7 @@ import { ApiError } from '../api';
 import { ACTIONS, type AuditRow, type StoredContent } from '../types';
 import { normLabel, ruleNames } from './dashboard';
 import { ReportDialog } from './ReportDialog';
+import { auditTagLabel, blockReason, parseAuditTags, unscannedOf } from './auditTags';
 
 export function RequestLogPage() {
   const { api, t } = useApp();
@@ -74,10 +75,24 @@ export function RequestLogPage() {
               → {r.route_target}
             </span>
           ) : null}
+          {unscannedOf(r).map((u) => (
+            <span key={u.kind} className="badge badge-warn nowrap" data-testid="unscanned-tag">
+              {t(`audit.tag.unscanned.${u.kind}`, { n: u.n })}
+            </span>
+          ))}
         </span>
       ),
     },
-    { key: 'label', header: t('audit.label'), cell: (r) => normLabel(r.injection_label) ?? '—' },
+    {
+      key: 'label',
+      header: t('audit.label'),
+      cell: (r) =>
+        blockReason(r) === 'unscanned_content' ? (
+          <span title={t('audit.reason.unscanned_content')}>unscanned_content</span>
+        ) : (
+          (normLabel(r.injection_label) ?? '—')
+        ),
+    },
     { key: 'score', header: t('audit.score'), className: 'col-wide-only', cell: (r) => r.injection_score.toFixed(2) },
     {
       key: 'rule',
@@ -170,6 +185,12 @@ export function RequestLogPage() {
               {open.route_target ? ` → ${open.route_target}` : ''}
               {open.repeat_count ? ` · ${t('audit.repeats', { n: open.repeat_count })}` : ''}
             </dd>
+            {blockReason(open) ? (
+              <>
+                <dt>{t('audit.blockReason')}</dt>
+                <dd data-testid="block-reason">{t(`audit.reason.${blockReason(open) ?? 'unscanned_content'}`)}</dd>
+              </>
+            ) : null}
             <dt>{t('audit.model')}</dt>
             <dd className="mono">{open.model ?? '—'}</dd>
             <dt>{t('audit.rule')}</dt>
@@ -199,6 +220,20 @@ export function RequestLogPage() {
               {open.had_bidi ? 'bidi' : ''}
               {!open.had_tag_chars && !open.had_bidi ? '—' : ''}
             </dd>
+            {open.pii_entities?.length ? (
+              <>
+                <dt>{t('audit.tags')}</dt>
+                <dd>
+                  <span className="name-line wrap" data-testid="audit-tags">
+                    {parseAuditTags(open.pii_entities).map((tag) => (
+                      <span key={tag.raw} className={tag.type === 'other' ? 'mono small' : 'badge'} title={tag.raw}>
+                        {auditTagLabel(t, tag)}
+                      </span>
+                    ))}
+                  </span>
+                </dd>
+              </>
+            ) : null}
             <dt>{t('audit.latency')}</dt>
             <dd>{open.latency_ms !== null ? `${open.latency_ms} ms` : '—'}</dd>
             {open.request_sha256 ? (

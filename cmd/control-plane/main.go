@@ -1086,6 +1086,10 @@ func listRequests(db *pgxpool.Pool) fiber.Handler {
 			// How many identical refused requests the row stands for when
 			// retries were folded into it (migration 019); null for one.
 			RepeatCount *int `json:"repeat_count"`
+			// Tags is the pii_entities column: kinds and counts the gateway
+			// noted, such as input:pii_email=1 or input:unscanned_image=2,
+			// never values.
+			Tags []string `json:"pii_entities"`
 			// HasContent: the row stores the prompt or the answer. The
 			// content itself is read one row at a time, with its own
 			// permission and a logged reason (POST .../requests/{id}/content).
@@ -1126,6 +1130,7 @@ func listRequests(db *pgxpool.Pool) fiber.Handler {
 				        COALESCE(injection_score, 0), COALESCE(toxicity_score, 0), COALESCE(anomaly_score, 0),
 				        COALESCE(had_tag_chars, false), COALESCE(had_bidi, false), latency_ms,
 				        request_sha256, request_bytes, response_sha256, response_bytes, route_target, repeat_count,
+				        COALESCE(pii_entities, '{}'),
 				        (request_content IS NOT NULL OR response_content IS NOT NULL), created_at
 				 FROM requests WHERE org_id = $1`+filter+cond+ks.orderLimit(pageReq{Limit: pg.Limit, Enveloped: true}),
 				args...)
@@ -1138,7 +1143,7 @@ func listRequests(db *pgxpool.Pool) fiber.Handler {
 				if err := rows.Scan(&r.ID, &r.Model, &r.Action, &r.RuleID, &r.InjectionLabel, &r.InjectionScore, &r.ToxicityScore,
 					&r.AnomalyScore, &r.HadTagChars, &r.HadBidi, &r.LatencyMs,
 					&r.RequestSHA256, &r.RequestBytes, &r.ResponseSHA256, &r.ResponseBytes, &r.RouteTarget, &r.RepeatCount,
-					&r.HasContent, &r.CreatedAt); err != nil {
+					&r.Tags, &r.HasContent, &r.CreatedAt); err != nil {
 					return err
 				}
 				reqs = append(reqs, r)

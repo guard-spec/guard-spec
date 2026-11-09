@@ -32,6 +32,8 @@ export const FALLBACK_SCHEMA: PolicySchema = {
     { name: 'mcp.is_tool_response', type: 'bool' },
     { name: 'input.pii.kinds', type: 'list', values: ['email', 'phone', 'card', 'cccd', 'ipv4'] },
     { name: 'input.pii.count', type: 'int' },
+    { name: 'input.unscanned.kinds', type: 'list', values: ['image', 'file', 'audio', 'other'] },
+    { name: 'input.unscanned.count', type: 'int' },
   ],
   operators: {
     double: ['=', '!=', '>', '>=', '<', '<='],

@@ -197,9 +197,16 @@ func init() {
 		UpstreamDuration, UpstreamErrors, PolicyErrors, RouteSelections, OutputActions, RateLimited,
 		HTTPRequests, HTTPDuration, RetentionRuns, RetentionDeleted, RetentionTableDeleted,
 		EventsDropped, EventsWritten, AlertsFired, Deliveries, DeliveryLatency,
-		ScanCacheLookups, ScanCacheErrors,
+		ScanCacheLookups, ScanCacheErrors, UnscannedParts,
 	)
 }
+
+// UnscannedParts counts images, files and audio the gateway forwards (or
+// refuses) without reading them, by kind and UNSCANNED_PARTS mode.
+var UnscannedParts = prometheus.NewCounterVec(prometheus.CounterOpts{
+	Namespace: namespace, Subsystem: "gateway", Name: "unscanned_parts_total",
+	Help: "Request parts the detectors cannot read (image, file, audio, other), by kind and action (allow, log, block).",
+}, []string{"kind", "action"})
 
 var tenantLabels atomic.Bool
 

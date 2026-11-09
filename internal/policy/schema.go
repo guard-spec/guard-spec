@@ -52,6 +52,8 @@ var fieldDescriptions = map[string]string{
 	"mcp.is_tool_response":  "The request carries a tool (MCP) result message.",
 	"input.pii.kinds":       "Kinds of personal data in the request text (user turns, tool results, documents; not system prompts): email, phone, card, cccd, ipv4. Pattern checks, not names or addresses. Empty unless the org turned on Detect personal data in requests.",
 	"input.pii.count":       "How many values of personal data input.pii.kinds counts, all kinds together; 0 unless the org turned the check on.",
+	"input.unscanned.kinds": "Kinds of parts the gateway forwards but cannot read, so they are not checked for injection: image, file, audio, other. Counted in the turns the gateway scans.",
+	"input.unscanned.count": "How many such parts the request has, all kinds together.",
 }
 
 var categoryValues = []string{"direct_injection", "indirect_injection", "jailbreak", "prompt_extraction",
@@ -63,6 +65,7 @@ var fieldValues = map[string][]string{
 	"indirect.source":       {"tool", "document", "tool_description"},
 	"injection.source_role": {"user", "system", "assistant", "tool", "tool_description", "conversation"},
 	"input.pii.kinds":       {"email", "phone", "card", "cccd", "ipv4"}, // outputguard.PIIKinds
+	"input.unscanned.kinds": {"image", "file", "audio", "other"},        // indirect.UnscannedKinds
 }
 
 // typeName maps a CEL type to the schema's type name.

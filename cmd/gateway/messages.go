@@ -365,8 +365,12 @@ func (g *textGuard) guardBlocks(blocks []any) error {
 			// wherever they are.
 			err = g.guardServerToolResult(b, nil)
 		default:
-			// text, and any block with a text field; images have none.
-			// Blocks of other types pass with only their text field scanned.
+			// text, and any block with a text field. Images, files and
+			// audio have none: they are forwarded unread and counted
+			// (unscanned.go).
+			if _, hasText := b["text"]; !hasText {
+				g.noteUnscanned(kind)
+			}
 			err = g.guardStrings(b, "text")
 		}
 		if err != nil {
@@ -445,6 +449,7 @@ func (g *textGuard) guardDocument(b map[string]any) error {
 	case "content":
 		return g.guardNested(src, "content")
 	}
+	g.noteUnscanned("document") // a PDF or an image: base64, url or file
 	return nil
 }
 

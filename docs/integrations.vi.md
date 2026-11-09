@@ -613,6 +613,76 @@ API*, cách này chạy với mọi upstream). Node OpenAI của n8n báo một 
 node HTTP Request thì giữ lại lý do đó.
 Các bước: [examples/n8n](../examples/n8n/README.md).
 
+## File, PDF và ảnh
+
+Bộ phát hiện của gateway chỉ đọc văn bản. Ảnh, PDF hay file khác, hoặc âm thanh
+trong request (`image_url`, `file`, `input_audio` trên chat completions; block
+`image` và `document` có source `base64`, `url` hoặc `file` trên
+`/v1/messages`; `input_image`, `input_file`, `input_audio` trên
+`/v1/responses`) được chuyển nguyên tới model, và model đọc được chúng: model
+vision đọc chữ trong ảnh, nhà cung cấp đưa văn bản của PDF cho model. Vì vậy
+một chỉ dẫn giấu trong những file đó không được chấm điểm. Gateway không trích
+văn bản PDF và không chạy OCR. Mặc định (`UNSCANNED_PARTS=log`) gateway cho
+các phần này qua và đếm chúng trong dòng audit (`input:unscanned_file=1`, ...),
+để bạn thấy ứng dụng nào gửi chúng; chi tiết ở
+[README: Phần gateway không đọc được](../README.vi.md#phần-gateway-không-đọc-được).
+Muốn nội dung được kiểm tra thì phải đổi thứ ứng dụng gửi đi:
+
+**1. Gửi văn bản đã trích, không gửi file.** Trích văn bản trong ứng dụng
+(`pdftotext` hoặc `pdfplumber` cho PDF có lớp văn bản, OCR cho PDF scan và
+ảnh chụp) rồi gửi văn bản đó thay cho file. Giữ kèm những metadata model cần,
+như tên file, tiêu đề, số trang. Khi đó gateway quét đúng thứ model đọc. Trên
+`/v1/messages`, block `document` có source dạng text được quét như tài liệu
+không tin cậy, giống kết quả tool:
+
+```json
+{"type": "document",
+ "source": {"type": "text", "media_type": "text/plain", "data": "<văn bản đã trích>"},
+ "title": "contract-2026-031.pdf", "context": "Khách hàng tải lên; trang 1-12"}
+```
+
+Trên chat completions và `/v1/responses`, đặt văn bản vào tin nhắn, hoặc trả
+về như kết quả tool khi một tool của agent đọc file (kết quả tool được quét
+như nội dung không tin cậy và theo `INDIRECT_ACTION`). Văn bản trong tin nhắn
+user được chấm như văn bản của chính người dùng, không phải tài liệu; nội dung
+của bên thứ ba nên nằm trong kết quả tool hoặc block `document` của Anthropic.
+
+**2. Quét lúc tải lên.** Quét văn bản đã trích một lần, khi file được tải lên
+hoặc đưa vào index, bằng `POST /guardrail/scan` với `documents[]`
+(`"source": "file"`; tối đa 64 tài liệu và tổng 128 KiB mỗi lần gọi, nên chia
+file lớn ra nhiều lần gọi), và từ chối hoặc cách ly file có tài liệu trả về
+`blocked`:
+
+```bash
+curl -s $GUARDSPEC_URL/guardrail/scan -H "Authorization: Bearer $GUARDSPEC_API_KEY" \
+  -H 'Content-Type: application/json' -d '{
+  "documents": [{"id": "contract-2026-031.pdf#p1", "source": "file", "content": "<văn bản trang 1>"}]
+}' | jq '.documents[] | {id, blocked, verdict}'
+```
+
+Cách này bắt được file bị cài cắm trước khi có người dùng tới, nhưng chỉ kiểm
+tra văn bản đã trích. Nếu ứng dụng vẫn gửi file gốc cho model, model có thể
+đọc được thứ mà bước trích bỏ sót (chữ trắng hoặc rất nhỏ, chữ trong ảnh nhúng
+trong PDF, nội dung mà một parser khác đọc ra khác). Khi điều đó quan trọng,
+hãy gửi chính văn bản đã quét (cách 1).
+
+**3. Ảnh.** Khi ảnh mang chữ từ nguồn không tin cậy (ảnh chụp màn hình, biểu
+mẫu scan, ảnh từ web), chạy OCR rồi quét kết quả như trên. Cách này có ích
+nhưng chưa đủ: model vision đọc được chữ mờ, nhỏ hoặc cách điệu mà OCR bỏ sót,
+và một ảnh có thể mang chỉ dẫn không hề ở dạng chữ. Khi trong ngữ cảnh có ảnh
+không tin cậy, hãy giới hạn những gì agent làm được: ít tool, quyền hẹp, và
+người xác nhận các thao tác rủi ro (gửi dữ liệu ra ngoài, thanh toán, xoá, đổi
+quyền).
+
+**4. Bắt buộc áp dụng.** Khi ứng dụng đã gửi văn bản, đặt
+`UNSCANNED_PARTS=block` trên gateway, hoặc `"unscanned_parts": "block"` trong
+guard settings của tổ chức, để phần file, ảnh hay âm thanh bị từ chối (400
+`unscanned_content`) thay vì tới model mà không được đọc. Muốn chặt hơn chỉ
+cho một số ứng dụng, giữ `log` và thêm luật như
+`"file" in input.unscanned.kinds` với hành động `block` vào policy của project
+chứa key của các ứng dụng đó (ví dụ trong
+[README](../README.vi.md#phần-gateway-không-đọc-được)).
+
 ## Công cụ khác
 
 Mọi client đều chạy được khi nó (1) cho phép bạn đặt base URL, (2) gửi key
