@@ -9,7 +9,7 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ## [Unreleased]
 
-## [0.4.2]
+## [0.4.2] - 2026-11-09
 
 ### Fixed
 
@@ -1035,7 +1035,8 @@ First release.
 - List endpoints still answer the older `{"data": [...]}` shape when called
   without `limit` and `cursor`; use the paginated form.
 
-[Unreleased]: https://github.com/guard-spec/guard-spec/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/guard-spec/guard-spec/compare/v0.4.2...HEAD
+[0.4.2]: https://github.com/guard-spec/guard-spec/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/guard-spec/guard-spec/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/guard-spec/guard-spec/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/guard-spec/guard-spec/compare/v0.3.0...v0.3.1
