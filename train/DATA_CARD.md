@@ -70,8 +70,9 @@ never dropped by the ratio balancing, and they pass the same leakage guard (see 
 v5 (2026-11-09, task RF-437128e9, todo T2) adds benign tool output and long documents as hard negatives
 and attack rows embedded in such text as positives. It fixes the gap `eval/codelog` and `bench/long`
 measure (the classifier blocks DDL, Dockerfiles, Vietnamese log lines and other repetitive structured
-text). This section describes the data builder only; how rows are cut into model windows and mixed into
-the epoch is T3, and model results are in `MODEL_CARD.md` once a v5 model exists.
+text). This section describes the data builder only; how rows are cut into model windows and labelled
+per window (`train/windows.py`) and how they are mixed into the epoch is in `MODEL_CARD.md` ("v5"), with
+the model results once a v5 model exists.
 
 ```sh
 cd train && GUARD_BUILD_OUT=<dir outside the repo> uv run --frozen python data/build_v5.py   # --profile quick: 1/4

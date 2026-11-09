@@ -10,6 +10,152 @@ tags: [prompt-injection, jailbreak, guardrail, onnx, int8]
 
 Copyright The Guard Spec Authors. Licensed under the Apache License 2.0.
 
+## v5 (in preparation): window-level training, recipe and decision rule
+
+v5 (task RF-437128e9) targets the gap `eval/codelog` and `eval/embedded` measure: v3b blocks repetitive
+structured tool output (DDL, Dockerfiles, Vietnamese log lines), and on attacks hidden in code and logs
+the fused model layers detect fewer than L1 alone. This section is the recipe and the pre-registered
+decision rule, committed before any v5 training run. **No v5 model has been trained yet and there are
+no v5 results**; they go here once the arms have run.
+
+Same architecture, base model and revision, tokenizer, labels and recipe as v3b and v4
+(`intfloat/multilingual-e5-small` @ `614241f`, sigmoid head over the 8 labels, risk = 1 − p(benign),
+max_len 256, AdamW 5e-5, batch 32, 5 epochs, weight decay 0.01, warmup 0.06, gradient clip 1.0, BCE,
+VI augmentation 0.15 no-diacritics / 0.15 teencode, realistic formal Vietnamese ×2, early stopping on
+validation loss with patience 1, seed 20261105, MPS). What changes is the data (`DATA_CARD.md`, "v5
+data") and the unit of training: a window instead of a truncated row.
+
+### Window-level training
+
+Before v5 a row was truncated to its first 256 tokens. The gateway never truncates: `internal/onnx`
+tokenizes a text once without special tokens, cuts the content tokens into windows of 254 tokens
+(256 − [CLS] − [SEP]) that overlap by 64 (a new window every 190 tokens; the last window ends at the
+last token), scores every window and takes the worst one. `train/windows.py` cuts every training and
+validation row the same way, from the same `tokenizer.json`, and each window is one example
+(`[CLS] + window + [SEP]`). A row of at most 254 tokens is one window, the same input as before.
+
+**Parity with Go.** `internal/onnx/testdata/window_parity.json` holds nine texts (empty, short, EN and
+VI prose, Go and Python code, a Vietnamese log with repeated lines and CRLF, emoji / CJK / NFD
+Vietnamese / zero-width characters, whitespace runs; 1 to 9 windows) with the tokenizer's ids and byte
+offsets and Go's windows (content-token range and the byte span of `TokenWindow`).
+`TestWindowParityFixture` (no build tag, runs in CI) checks that `longWindows` and `chunk` cut the
+stored windows; `TestWindowParityTokenizer` (`-tags onnx`, needs a `tokenizer.json` under `models/`,
+skipped in CI where no model is pulled) checks the tokenizer's ids, offsets and special tokens against
+the file and regenerates it with `GUARDSPEC_WRITE_WINDOW_PARITY=1`; `train/tests/test_windows.py`
+checks the Python windows and, when the `tokenizers` package and the base model's `tokenizer.json` are
+present, the Python tokenizer's ids and byte offsets (Python reports character offsets;
+`windows.char_to_byte_offsets` converts them). Both the packaged v3b `tokenizer.json` and the base
+model's give the stored ids.
+
+**Labels per window** (`windows.label_windows`). For a v5 `embedded` row, the payload tokens are the
+tokens whose byte span overlaps the payload's `byte_spans` (both halves of a `split_adjacent` payload
+count together), and a window's share is the payload tokens inside it over all payload tokens of the row:
+
+| share of the payload's tokens in the window | window label |
+|---|---|
+| ≥ 60% | the row's labels: payload labels ∪ `indirect_injection` |
+| 30% to < 60% | dropped (not trained on) |
+| > 0 and < 30% | `benign` if it holds at most 4 payload tokens (a few words carry no instruction), else dropped |
+| 0 (host text only) | `benign` |
+
+Benign rows (hard negatives, `twin` hosts without the payload, every benign public or owner row) give
+benign windows. An attack row without spans (public and owner rows: whole-row labels) keeps its first
+window only, which is what training on truncated rows did; its other windows are dropped (830 windows
+of 306 rows in the public `train.jsonl`, whose 393 rows above 254 tokens are 1.2% of it).
+Dropped windows are still scored at text level in validation, since the gateway scores them.
+
+Counts with the full v5 build: `v5_train` 15,841 rows → 17,304 training windows (12,931 one-window
+rows, 3,643 payload windows, 722 host windows, 8 fragment windows; 291 partial windows dropped; every
+embedded row keeps at least one attack window); `val_v5` 2,267 rows → 2,477 labelled windows (39
+dropped). The public `train.jsonl` gives 31,643 windows from 31,522 rows. One epoch of arm B is about
+51k windows (≈ 1,600 steps).
+
+**Augmentation.** The VI augmentation rewrites a window's text (a one-window row: the row's text, as
+before) and re-tokenizes it. When the rewritten text no longer fits in 254 tokens it is truncated if the
+labels hold for the whole row (as before), and otherwise (a window of an embedded row, whose label
+depends on where the payload sits) the window is used unaugmented.
+
+**Validation.** Every arm validates on the same rows: the v4-A build's `val`, `val_hard`,
+`val_vi_variants`, `val_v3`, `val_v4`, plus `v5_val` (set A, 12% of its groups) and `val_v5` (set B).
+Early stopping uses the window-level validation loss (labelled windows); `train.py` also writes the
+best epoch's text-level scores (worst window per row, as `Classifier.Score`) to
+`<run>/val_scores.jsonl` for the rule. `val_v5_holdout` (set C) is never read by `train.py`,
+`export.py` or `select_v5.py`. `export.py --v5-dir` calibrates on the same validation files, scored
+window by window.
+
+### Arms
+
+| arm | training data |
+|---|---|
+| A | v3b training data (`build_data.py` with `GUARD_V4_DATA=0` and owner batch 1) + `v5_train` |
+| B | v4-A training data (owner batch 1 + 2) + `v5_train` |
+| C | A with the repeated-line hard negatives (`kind: log_vi_repeat`, 431 rows) twice per epoch |
+
+### Decision rule (pre-registered)
+
+Written on 2026-11-09 with the training code, before any v5 training run and before any v5 score.
+`select_v5.py` applies it and writes `reports/train_arms_v5.json`; the thresholds are constants there.
+
+**Validation (selects; L2 alone).** For each arm, from `val_scores.jsonl` (best epoch, PyTorch FP32,
+text-level risk = 1 − p(benign) of the worst window): *t* = the risk threshold at benign FPR ≤ 1% on the
+original validation (`val`, `val_hard`, `val_vi_variants`, `val_v3`, `val_v4`). On `val_v5` at *t*: benign
+FPR (code/log/prose hard negatives) and attack TPR (embedded attacks).
+
+- **Q1 No loss on the original data.** Original-validation TPR at *t* ≥ the best arm's − 0.01, and
+  original-validation AUC ≥ the best arm's − 0.002.
+- **Order.** Arms meeting Q1 first; then higher `val_v5` (TPR − FPR) at *t*, differences under 0.005
+  counting as ties; tie: higher original-validation TPR at *t*; tie: lower validation loss.
+
+**Gates (the spec; gateway path, dev slices only).** Each arm exported with `export.py --v5-dir`,
+calibrated with `cmd/calibrate fit -write` on the validation above, scored with
+`cmd/eval -detector fusion-ml` (L1+L2+L3, logistic fusion); v3b with its shipped calibration and L1 with
+`-detector fusion`, by the same binaries on the same machine. Only `slices.dev` of each report is read:
+the hold-out halves of eval/ stay unseen.
+
+- **G1 eval/.** `eval/data` dev TPR at FPR ≤ 1% (direct path) ≥ v3b's.
+- **G2 code/log false positives.** `eval/codelog` dev FPR at 0.85 (tool path, code corroboration off)
+  ≤ 3%.
+- **G3 embedded attacks.** `eval/embedded` dev TPR at 0.85 (tool path, corroboration off) ≥ v3b's and ≥
+  L1 alone (RF-437128e9 T1: on this set L1 alone caught 0.851 dev / 0.771 holdout, v3b fused without
+  corroboration 0.807 / 0.779).
+
+**Decision.** v5 is the first arm in validation order that meets Q1, G1, G2 and G3. If none does, v5 is
+not recommended; the arm meeting most of Q1 and G1–G3 (tie: validation order) is reported as a
+shadow-mode candidate only. After the decision, and only for the chosen (or candidate) arm, the
+hold-outs are scored once for this card: `val_v5_holdout`, the hold-out slices of eval/, codelog and
+embedded (with corroboration on and off), the owner hold-outs, `val_v3_holdout`,
+`val_realistic_holdout`, `val_v4_holdout` and `probe_v4`. They do not change the arm. Switching the
+default from v3b stays the owner's decision after shadow mode.
+
+### Reproduce
+
+```sh
+cd train && uv sync --frozen
+GUARD_BUILD_OUT=<v5> uv run --frozen python data/build_v5.py          # DATA_CARD.md, v5 data
+GUARD_V5_OUT=<v5> \
+GUARD_OWNER_TRAIN_V3B=<owner>/user_train.jsonl GUARD_OWNER_HOLDOUT_V3B=<owner>/user_holdout.jsonl \
+GUARD_OWNER_TRAIN_V4=<owner>/user2_train.jsonl GUARD_OWNER_HOLDOUT_V4=<owner>/user2_holdout.jsonl \
+GUARD_OTPKYC_TRAIN=<otpkyc_train.jsonl> GUARD_OTPKYC_PROBE=<otpkyc_probe.jsonl> \
+  ./run_arms_v5.sh            # stages: data, train (A, B, C), select, gates, select
+```
+
+`run_arms_v5.sh` keeps everything in `$GUARD_V5_WORK` (default `train/runs/v5`, gitignored): the two
+data builds (`data-v3b`, `data-v4A`), one run directory per arm, the gate reports and `logs/`
+(`run.log` with the stage times, `train_<arm>.log`, …). It is resumable: run it again after an
+interruption and it skips finished stages; a training run continues from its last finished epoch
+(`<run>/resume.pt`, removed when the run completes). One stage alone: `./run_arms_v5.sh train`
+(`ARMS="B"` for one arm), `select`, `gates`. The gates need Go, `make onnx-deps`, the L3 model and v3b
+under `models/`, and `eval/embedded` with `cmd/eval -corroboration` (task RF-437128e9 T1); without them
+the report says "gates pending" and no arm is chosen. One arm by hand:
+
+```sh
+uv run --frozen python train.py --data-dir <work>/data-v4A --train <work>/data-v3b/train.jsonl \
+  --v5-dir <v5> --run-dir <work>/A [--oversample-kind log_vi_repeat=2] [--resume]
+uv run --frozen python export.py --data-dir <work>/data-v4A --v5-dir <v5> --run-dir <work>/A --out-dir <model>
+```
+
+Smoke run (code check, minutes): `train.py ... --subset 4000 --max-steps 150 --epochs 2`.
+
 ## v4 (2026-11-07): candidate, not the default
 
 v4 targets Vietnamese false positives (teencode, no diacritics, ordinary instructions that use
