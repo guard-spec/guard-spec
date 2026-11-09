@@ -36,7 +36,10 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   memberships (the role is kept for a reactivation), revokes the API keys the
   user created and, for an account the org owns, revokes its sessions and
   disables it when the org is its only one; the only owner cannot be
-  deactivated.
+  deactivated. A reactivation enables the account again only if that
+  deactivation disabled it and nobody disabled it since.
+- SAML identities can be linked from **My account** like OIDC ones, so an
+  account with a password can move to SAML (RF-39437a0f).
 - Roles from identity provider groups (RF-39437a0f):
   `/v1/organizations/:orgId/group-roles` maps a SCIM group, or a value of a
   SAML provider's groups attribute, to `viewer`, `member` or `admin`; the

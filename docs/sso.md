@@ -284,9 +284,9 @@ SSO login links the identity by email only when the provider has
 
 An existing account SCIM linked (already a member, or in a claimed domain)
 keeps its password and email. If it has a password, a SAML login with the
-same email is refused with `account_exists`, and a SAML identity cannot be
-linked from the profile: such users keep signing in with their password, or
-an instance administrator removes the password.
+same email is refused with `account_exists`: the user signs in with the
+password once and links the provider from **My account** (as for OIDC).
+After that, SAML signs in to the same account.
 
 ## 5. Roles from groups
 

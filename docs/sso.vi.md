@@ -285,9 +285,9 @@ nhập SSO đầu tiên chỉ liên kết identity theo email khi nhà cung cấ
 
 Tài khoản sẵn có mà SCIM liên kết (đã là thành viên, hoặc thuộc tên miền đã
 nhận) giữ nguyên mật khẩu và email. Nếu tài khoản có mật khẩu, đăng nhập SAML
-cùng email bị từ chối với `account_exists`, và identity SAML không liên kết
-được từ trang hồ sơ: những người này tiếp tục đăng nhập bằng mật khẩu, hoặc
-quản trị viên instance gỡ mật khẩu.
+cùng email bị từ chối với `account_exists`: người dùng đăng nhập bằng mật
+khẩu một lần rồi liên kết nhà cung cấp ở **Tài khoản của tôi** (như với
+OIDC). Từ đó, SAML đăng nhập vào đúng tài khoản này.
 
 ## 5. Role theo nhóm
 

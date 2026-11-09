@@ -524,7 +524,9 @@ hoặc `displayName`, `name`…; nhóm từ `saml_groups_attribute` hoặc `grou
 OIDC (liên kết, `auto_provision`, `domain_join`, mã dùng một lần,
 `POST /v1/auth/oidc/exchange`). Phiên có login method `saml:<provider id>`,
 dùng được trong `allowed_login_methods` và được `sso_satisfies_mfa` tính là
-SSO.
+SSO. Tài khoản có mật khẩu liên kết identity SAML từ trang hồ sơ giống OIDC
+(`link/start` trả URL của IdP, ACS chuyển về `/ui/account?link_code=...`,
+rồi `link/complete`).
 
 **SCIM 2.0.** Base URL `<PUBLIC_BASE_URL>/v1/scim/v2` dùng chung cho mọi tổ
 chức; token cho biết là tổ chức nào. Owner tạo token bằng
@@ -540,8 +542,11 @@ bằng `domain_join`. Deactivate (`active: false`) gỡ membership ngay (giữ r
 `scim_revoke_keys`; key tạo trước migration 025 không có người tạo nên không
 bị thu hồi), và với tài khoản thuộc tổ chức (do SCIM tạo hoặc thuộc tên miền
 đã nhận) thì thu hồi mọi phiên và vô hiệu hoá tài khoản nếu nó không ở tổ
-chức nào khác; owner duy nhất thì bị từ chối (409). `DELETE` deactivate rồi
-xoá bản ghi SCIM, không xoá tài khoản. Tài khoản do SCIM tạo cần
+chức nào khác; owner duy nhất thì bị từ chối (409). Kích hoạt lại trả membership với role
+nhóm ánh xạ; nếu không khớp nhóm nào thì là `member` khi tổ chức có ánh xạ
+nhóm SCIM, ngược lại là role cũ; chỉ bật lại tài khoản nếu chính lần
+deactivate đã vô hiệu hoá nó và chưa ai vô hiệu hoá lại sau đó. `DELETE`
+deactivate rồi xoá bản ghi SCIM, không xoá tài khoản. Tài khoản do SCIM tạo cần
 `trust_email_for_linking` ở nhà cung cấp SSO để đăng nhập lần đầu.
 
 **Role theo nhóm** (`GET`/`PUT /v1/organizations/:orgId/group-roles`, admin

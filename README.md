@@ -2205,8 +2205,11 @@ login is refused with `email_not_verified`. From there it is the OIDC flow:
 the same linking and provisioning rules, `domain_join`, the one-time code and
 `POST /v1/auth/oidc/exchange`, so 2FA and the org's rules still apply. The
 session's login method is `saml:<provider id>`, which `allowed_login_methods`
-accepts and `sso_satisfies_mfa` counts as SSO. A SAML identity cannot be
-linked from the profile (`link/start` answers 404 for a SAML provider).
+accepts and `sso_satisfies_mfa` counts as SSO. An account with a password
+links a SAML identity from its profile as with OIDC: `link/start` returns
+the IdP's URL, the ACS sends the browser to `/ui/account?link_code=<code>`
+(or `?link_error=<code>`), and `link/complete` with the same user's token
+binds it.
 Single logout is not supported. A refused login redirects to
 `/ui/#/auth/callback?error=<code>` (codes in
 [docs/sso.md](docs/sso.md#troubleshooting)), and the control plane logs the
@@ -2277,8 +2280,11 @@ Deactivation (`active: false` by PUT or PATCH):
 - is refused with 409 `mutability` for the org's only owner.
 
 Reactivation (`active: true`) gives the membership back with the role the
-user's SCIM groups map to, else the role they had (an owner stays owner), and
-re-enables an account the deactivation disabled. `DELETE /Users/:id`
+user's SCIM groups map to; when none matches, `member` if the org maps SCIM
+groups, else the role they had (an owner stays owner). It re-enables an
+account the deactivation disabled, unless an administrator disabled it again
+since. `POST /Users` with `active: false` for an existing member removes the
+membership as a deactivation does. `DELETE /Users/:id`
 deactivates an active user the same way, then removes the SCIM record: the
 account itself is not deleted (it stays disabled if the deactivation disabled
 it).
@@ -2294,9 +2300,9 @@ unique per provider.
   external id. Once the org has such a mapping, an active SCIM user's role is
   the highest role mapped to their groups, or `member` when none matches; it
   is recomputed when their groups change, a group is renamed or deleted, and
-  for every active SCIM user when the mappings are saved. Reactivation uses
-  the mapped role when one matches. Without any SCIM mapping, roles are left
-  alone.
+  for every active SCIM user when the mappings are saved, and on
+  reactivation. Without any SCIM mapping, roles are left alone. Changes are
+  logged as `member.role_from_group` (`source` `scim` or `saml`).
 - `provider_id` a SAML provider: values of that provider's groups attribute.
   At every login through it, in each organization the user is already a
   member of (including one `domain_join` just added) that maps at least one
