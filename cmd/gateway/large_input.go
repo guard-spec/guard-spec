@@ -66,11 +66,12 @@ const (
 	historyBytesPerToken = 8 * 4
 )
 
-// defaultLargeConcurrency is a quarter of the CPUs, at least one. Long-path
-// scans are CPU-bound batch work: a quarter of the cores keeps three
-// quarters for the short path, which serves most requests and is what users
-// wait on interactively, while large requests still make progress.
-func defaultLargeConcurrency() int { return max(1, runtime.NumCPU()/4) }
+// defaultLargeConcurrency is a quarter of the CPUs the process may use
+// (GOMAXPROCS, which follows a container's CPU limit), at least one.
+// Long-path scans are CPU-bound batch work: a quarter of the cores keeps
+// three quarters for the short path, which serves most requests and is what
+// users wait on interactively, while large requests still make progress.
+func defaultLargeConcurrency() int { return max(1, runtime.GOMAXPROCS(0)/4) }
 
 // largeConfig is the large-input lane's configuration.
 type largeConfig struct {
