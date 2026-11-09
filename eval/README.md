@@ -10,6 +10,7 @@ detection number we publish should come from this set.
 - `baseline-regex.json`: metrics of the legacy regex detector, kept for comparison.
 - `baseline-onnx.json`: metrics of `fusion-ml:l1,l2,l3/logreg` (L1 rules, L2 classifier, L3 embeddings; needs `-tags onnx` and the models). Only the onnx CI job reads it, and it skips when the models are absent.
 - `fingerprints.txt`: leakage guard for training (see below).
+- `codelog/`: benign code/log tool output; `embedded/`: these rows hidden in code/log hosts (sections below).
 - `LICENSES.md`: sources, licenses and row counts (generated).
 
 ## Schema
@@ -102,7 +103,21 @@ Category groups use all benign rows of the same language as negatives. Variant
 groups use benign rows of the same variant when there are any; EN `leet` and
 VI `translated` use all benign rows of the language.
 
-`-baseline` fails when, in any group of the baseline, a TPR or AUC falls, or an
+When the rows carry a dev/holdout split (an id ending in a hex digit, or a
+`split` field as in `embedded/`), the report also has `slices`: `dev`,
+`holdout`, `<lang>/dev`, `<lang>/holdout` and, for `embedded/`,
+`position:<position>`. A slice's benign rows are the benign rows of the same
+split (and position), and its `at_fpr_1pct` uses the slice's own threshold
+(`threshold_fpr_1pct` in the slice). Baselines written before slices existed
+have none and are compared on their groups only.
+
+`-path tool -corroboration off` scores tool results with code corroboration
+off, as `TOOL_CODE_CORROBORATION=off` does in the gateway (the flag defaults to
+that variable, else `on`); the report's detector name then ends in
+`/no-corroboration`, so it is only compared with a baseline of the same
+setting.
+
+`-baseline` fails when, in any group (or slice) of the baseline, a TPR or AUC falls, or an
 FPR rises, by more than `-max-regression` (default 0.02), or when the row count
 changed (rebuild the baseline with the data).
 
@@ -212,6 +227,62 @@ it getting worse. **Training pipelines must drop rows whose fingerprint is in
 code/log negatives for training should come from other sources than this
 repository's files and these log templates: overlapping slices of the same
 file do not share a fingerprint.
+
+## Attacks hidden in code and logs (`embedded/`)
+
+`embedded/embedded.jsonl` hides every row of `data/` (1,171 attacks, 1,005
+benign) in one 2 KB host from `codelog/`, at one of nine positions a coding
+or CI agent reads past: a line `comment`, a `docstring` (Python `"""`, Go and
+TypeScript `/** */`), a `yaml_value`, a `json_field`, a `log_message` (a new
+log line in the format of its neighbour), a `csv_field`, a `diff_added` line,
+or the `start` or `end` of the host. The attacks measure detection of
+injections in tool output; the benign rows, embedded the same way, measure
+the false positives of the same construction. Run it on the tool path:
+
+```sh
+go run ./cmd/eval -data eval/embedded -path tool -baseline eval/embedded/baseline.json
+go run -tags onnx ./cmd/eval -detector fusion-ml -data eval/embedded -path tool -baseline eval/embedded/baseline-onnx.json
+go run -tags onnx ./cmd/eval -detector fusion-ml -data eval/embedded -path tool -corroboration off -baseline eval/embedded/baseline-onnx-no-corroboration.json
+python3 eval/embedded/build.py     # rebuild (standard library and git only)
+```
+
+Rows use the schema above plus `kind` and `size` (the host's), `position`,
+`split`, `payload_id` and `host_id`; `lang`, `label`, `category` and
+`variant` are the payload's. `split` is the payload's split (its `data/` id),
+not the embedded row's, so a model tuned on dev payloads is judged on holdout
+payloads it has never seen in any host. The position, the host (among the
+2 KB hosts that can carry the position) and the line are drawn from a seed
+and the payload id. `build.py` reads `data/` and `codelog/` from git at a
+pinned commit (`87addfa`), never from `train/`; bump it and refresh the
+baselines when either set changes. Training pipelines must drop rows whose
+fingerprint is in `embedded/fingerprints.txt`, as for the other sets.
+
+Baselines: `baseline.json` (`fusion`, L1 only; checked by the eval
+workflow), `baseline-onnx.json` (L1+L2+L3, corroboration on) and
+`baseline-onnx-no-corroboration.json` (the same with
+`TOOL_CODE_CORROBORATION=off`), both checked by the onnx CI job when models
+are present. Code corroboration only changes chunks L2 scores, so L1 alone
+scores the same with it off and one L1 baseline covers both.
+
+At 0.85 on the tool path, v3b classifier, dev / holdout payloads (score ≥ 0.85;
+the gateway rule, which adds the anomaly score, is within 0.01):
+
+| detector | TPR dev | TPR holdout | FPR dev | FPR holdout |
+|---|---|---|---|---|
+| `fusion` (L1 only) | 0.851 | 0.771 | 0.020 | 0.029 |
+| `fusion-ml` L1+L2+L3, corroboration on (default) | 0.782 | 0.719 | 0.028 | 0.057 |
+| `fusion-ml` L1+L2+L3, corroboration off | 0.807 | 0.779 | 0.105 | 0.151 |
+
+Corroboration costs 2.5 points of detection on dev payloads and 6.0 on
+holdout, and removes two thirds of the false positives (0.128 to 0.043). With or without
+it the model layers detect no more than L1 alone on this set: the logistic
+fusion pulls some L1 detections below 0.85 when L2 and L3 score the
+surrounding code low. Positions differ a lot: payloads in a `docstring`, at the `start` of a
+host, in a `csv_field` or a `json_field` are caught least (0.60–0.73 with
+corroboration), comments and log lines most (0.83–0.85); `yaml_value` benign
+rows are the worst false positives (0.115 with corroboration, 0.404
+without). TPR at FPR ≤ 1% is low everywhere (0.37–0.39 with the models,
+0.28–0.30 with L1): a few benign hosts score as high as most attacks.
 
 ## Leakage guard: `fingerprints.txt`
 

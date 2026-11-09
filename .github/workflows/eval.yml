@@ -28,6 +28,12 @@ jobs:
       - name: Code/log hard negatives vs baseline
         run: go run ./cmd/eval -data eval/codelog -path tool -baseline eval/codelog/baseline.json -max-regression 0.02
 
+      # eval/ attacks and benign rows hidden in code/log hosts (eval/embedded),
+      # with dev/holdout slices. L1 has no L2 score to corroborate, so one
+      # baseline covers TOOL_CODE_CORROBORATION on and off.
+      - name: Embedded attacks vs baseline
+        run: go run ./cmd/eval -data eval/embedded -path tool -baseline eval/embedded/baseline.json -max-regression 0.02
+
       - name: Upload eval report
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

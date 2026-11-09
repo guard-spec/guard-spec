@@ -76,8 +76,10 @@ jobs:
              { [ -f models/local/guardspec-classifier-v1/config.json ] || [ -f models/local/guardspec-classifier-v0/config.json ]; }; then
             go run -tags onnx ./cmd/eval -detector fusion-ml -baseline eval/baseline-onnx.json -max-regression 0.02
             go run -tags onnx ./cmd/eval -detector fusion-ml -data eval/codelog -path tool -baseline eval/codelog/baseline-onnx.json -max-regression 0.02
+            go run -tags onnx ./cmd/eval -detector fusion-ml -data eval/embedded -path tool -baseline eval/embedded/baseline-onnx.json -max-regression 0.02
+            go run -tags onnx ./cmd/eval -detector fusion-ml -data eval/embedded -path tool -corroboration off -baseline eval/embedded/baseline-onnx-no-corroboration.json -max-regression 0.02
           else
-            echo "models absent: skipping eval/baseline-onnx.json and eval/codelog/baseline-onnx.json"
+            echo "models absent: skipping eval/baseline-onnx.json, eval/codelog/baseline-onnx.json and eval/embedded/baseline-onnx*.json"
           fi
 
   integration:
