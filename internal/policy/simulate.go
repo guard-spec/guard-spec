@@ -216,6 +216,13 @@ func VarsFromMap(m map[string]any) (*Vars, error) {
 				return nil, fmt.Errorf("%s must not be negative", name)
 			}
 			v.InputPIICount = int(f)
+		case "input.unscanned.kinds":
+			v.UnscannedKinds = l
+		case "input.unscanned.count":
+			if f < 0 {
+				return nil, fmt.Errorf("%s must not be negative", name)
+			}
+			v.UnscannedCount = int(f)
 		default:
 			return nil, fmt.Errorf("field %s cannot be simulated", name)
 		}

@@ -94,6 +94,11 @@ type Vars struct {
 	// kinds. Empty and 0 unless the org turned the check on; never values.
 	InputPIIKinds []string
 	InputPIICount int
+
+	// Parts the gateway forwards but cannot read (input.unscanned.*): the
+	// kinds (image, file, audio, other) and how many, in the turns it scans.
+	UnscannedKinds []string
+	UnscannedCount int
 }
 
 // toActivation converts Vars to the map cel.Program.ContextEval expects.
@@ -120,6 +125,8 @@ func (v *Vars) toActivation() map[string]any {
 		"mcp.is_tool_response":  v.IsMCPResponse,
 		"input.pii.kinds":       stringList(v.InputPIIKinds),
 		"input.pii.count":       int64(v.InputPIICount),
+		"input.unscanned.kinds": stringList(v.UnscannedKinds),
+		"input.unscanned.count": int64(v.UnscannedCount),
 		"toxicity.score":        0.0,
 		"pii.entities":          []string{},
 		"topic.categories":      []string{},
@@ -177,6 +184,8 @@ var fieldTypes = map[string]*cel.Type{
 	"mcp.is_tool_response":  cel.BoolType,
 	"input.pii.kinds":       listOfStrings,
 	"input.pii.count":       cel.IntType,
+	"input.unscanned.kinds": listOfStrings,
+	"input.unscanned.count": cel.IntType,
 }
 
 // removedFields were offered to rules, but no detector ever produced them, so

@@ -143,6 +143,10 @@ type Settings struct {
 	// InputPIIKinds limits the action to these kinds (outputguard.PIIKinds);
 	// empty: every kind.
 	InputPIIKinds []string `json:"input_pii_kinds,omitempty"`
+	// UnscannedParts is what to do with images, files and audio the gateway
+	// cannot read (UNSCANNED_PARTS): allow, log or block. It can only make
+	// the gateway stricter (see Unscanned).
+	UnscannedParts *string `json:"unscanned_parts,omitempty"`
 }
 
 // PII reports whether the org turned the personal-data check of request text
@@ -279,6 +283,11 @@ func ParseSettings(raw []byte) (Settings, error) {
 	for _, k := range s.InputPIIKinds {
 		if !slices.Contains(outputguard.PIIKinds, k) {
 			return Settings{}, fmt.Errorf("guard settings: unknown input_pii_kinds entry %q (have %s)", k, strings.Join(outputguard.PIIKinds, ", "))
+		}
+	}
+	if u := s.UnscannedParts; u != nil {
+		if _, ok := unscannedRank[*u]; !ok {
+			return Settings{}, fmt.Errorf("guard settings: unscanned_parts must be allow, log or block")
 		}
 	}
 	// The org sets a size; turning the window off is conversation_window.
