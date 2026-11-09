@@ -1,0 +1,178 @@
+# Long-input benchmark corpus (bench/long/build.py, docs/benchmark.md
+# "Long documents"). Only this file is committed: the builder downloads each
+# source at the pinned revision into $BENCH_CACHE/long/src (default
+# bench/.cache, gitignored), checks the SHA-256 of what it extracted, and
+# writes the documents to $BENCH_CACHE/long/<profile>/docs.jsonl.
+#
+# Every source was checked for its terms (see `license` and `terms` below).
+# Dropped sources are listed at the end with the reason.
+#
+# sha256 is the SHA-256 of the extracted UTF-8 text of the source (after the
+# extraction in build.py), so a changed upstream file or a changed extractor
+# is caught. An empty value means "not pinned yet": the builder prints the
+# value to pin and goes on.
+
+version: 1
+
+# Token counts use the classifier's own tokenizer (guardspec-classifier v3b,
+# models/manifest.yaml), content tokens without special tokens, as
+# internal/onnx counts them.
+tokenizer:
+  model: guardspec-classifier@v3b
+  sha256: 2b95ee17661f8dfbbceaba374f6d277a6b5d8e1898c070a16331622024f58c67
+
+sources:
+  wikipedia-en:
+    lang: en
+    genre: wiki
+    kind: hf-parquet
+    repo: wikimedia/wikipedia
+    revision: b04c8d1ceb2f5cd4588862100d08de323dccfbaa
+    file: 20231101.en/train-00000-of-00041.parquet
+    file_sha256: 382e7f6f09e488b24793a7f7cfc659879d5a22da2cf2efec6491665f0c019677
+    row_group: 0 # the first 1,000 articles; only this part of the file is read
+    license: CC-BY-SA-3.0 / GFDL
+    terms: Dataset card license field; used locally for measurement, never redistributed.
+    sha256: 9c92f5572783e80a11d2c7e06ac5ec595313ab2a84eadc35d4a1378696d14177
+  wikipedia-vi:
+    lang: vi
+    genre: wiki
+    kind: hf-parquet
+    repo: wikimedia/wikipedia
+    revision: b04c8d1ceb2f5cd4588862100d08de323dccfbaa
+    file: 20231101.vi/train-00000-of-00004.parquet
+    file_sha256: ec53cc9899be9287b10785c794745eeef94b2df52970ba2ebd1808bfa8d1599a
+    row_group: 0
+    license: CC-BY-SA-3.0 / GFDL
+    terms: Dataset card license field; used locally for measurement, never redistributed.
+    sha256: 6744dbf69f5197f09de08e10460597f279abd49d12a70b5899612338ca6f546b
+  uscode-en:
+    lang: en
+    genre: legal
+    kind: http-html
+    # United States Code, 2023 main edition, from GovInfo (U.S. Government
+    # Publishing Office). Works of the U.S. Government are not subject to
+    # copyright (17 U.S.C. 105).
+    urls:
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title17/html/USCODE-2023-title17.htm
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title35/html/USCODE-2023-title35.htm
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title11/html/USCODE-2023-title11.htm
+    license: Public domain (17 U.S.C. 105)
+    terms: GovInfo content is public domain U.S. Government work; bulk use is allowed.
+    sha256: 3b6e79e4f0e49db563f5a9a7b1d0016057a05f494a02476c57e28490f5e838dd
+  gostd-en:
+    lang: en
+    genre: code
+    kind: http-text
+    # Go standard library at the go1.23.4 tag (BSD-3-Clause, golang/go LICENSE).
+    base: https://raw.githubusercontent.com/golang/go/go1.23.4/
+    paths:
+      - src/net/http/server.go
+      - src/net/http/transport.go
+      - src/runtime/proc.go
+      - src/runtime/mgc.go
+      - src/go/types/expr.go
+      - src/math/big/nat.go
+      - src/encoding/json/decode.go
+      - src/crypto/tls/handshake_server.go
+      - src/database/sql/sql.go
+      - src/net/http/h2_bundle.go
+      - src/cmd/link/internal/ld/elf.go
+      - src/cmd/compile/internal/ssa/rewritegeneric.go
+      - src/cmd/compile/internal/ssa/rewriteAMD64.go
+    license: BSD-3-Clause
+    terms: Source code at a pinned tag, fetched from GitHub raw file URLs; used locally, never redistributed.
+    sha256: 419562a15ef8da87a5c5c4bad4aa7a5ae27e4ad6476ed044e6da8d10db1bb869
+  wikisource-vi-literature:
+    lang: vi
+    genre: literature
+    kind: mediawiki
+    api: https://vi.wikisource.org/w/api.php
+    # Works whose authors died in the 19th century; each page carries {{PD-old}}
+    # at the pinned revision, which the builder checks.
+    require_template: PD-old
+    revisions:
+      206607: Truyện Kiều (Nguyễn Du)
+      106606: Dương Từ - Hà Mậu (Nguyễn Đình Chiểu)
+      106607: Ngư Tiều y thuật vấn đáp (Nguyễn Đình Chiểu)
+    license: Public domain (PD-old)
+    terms: Wikimedia API with a descriptive User-Agent, per the Wikimedia User-Agent policy.
+    sha256: 31e2baa692a1845fb4eed30a24a4dad4d797d41b77af5eedb60c72daf5d79f0c
+  wikisource-vi-legal:
+    lang: vi
+    genre: legal
+    kind: mediawiki
+    api: https://vi.wikisource.org/w/api.php
+    # Vietnamese laws. Legal normative documents are not protected by
+    # copyright in Viet Nam (Law on Intellectual Property, Article 15); each
+    # page carries {{PVCC-CPVN}} at the pinned revision, which the builder checks.
+    require_template: PVCC-CPVN
+    revisions:
+      136234: Luật Doanh nghiệp 2005
+      199539: Luật Thương mại 2005
+      111231: Luật Đất đai 2003
+      198701: Luật Thi hành án dân sự 2008
+      126727: Luật Tố tụng hành chính 2010
+      175413: Luật Các tổ chức tín dụng 2010
+      112144: Luật Bảo vệ môi trường 2005
+      139826: Luật Chứng khoán 2006
+    license: Public domain (Viet Nam IP Law art. 15; PVCC-CPVN)
+    terms: Wikimedia API with a descriptive User-Agent, per the Wikimedia User-Agent policy.
+    sha256: 29e96b3cdfad5e349bafccf08b85b7905a7f2842c79475fc4c4c1a00bbea5eb3
+
+# Synthetic genres: generated by build.py from a fixed seed (project-written,
+# Apache-2.0). "hardneg" is benign text about prompt injection and security.
+synthetic:
+  seed: 20261109
+  genres: [logs, json, csv, email, chat, hardneg]
+  langs: [en, vi]
+
+# Attack payloads: attack rows of the eval/ hold-out half only (eval/README.md:
+# ids whose last hex digit is 8-f), never train/ data.
+payloads:
+  files: [eval/data/en.jsonl, eval/data/vi.jsonl]
+  holdout_last_hex: "89abcdef"
+  min_chars: 40
+  max_chars: 600
+
+profiles:
+  quick:
+    # About 0.86M tokens of benign documents plus 0.7M in attack variants.
+    sizes:
+      wiki: [20000, 50000, 100000]
+      default: [20000, 50000]
+      synthetic: [20000]
+    docs_per_size: 1
+    payloads_per_lang: 12
+    host_tokens: 2000
+    segment_host_bytes: 28000
+  full:
+    # About 7.6M tokens of benign documents plus 1.9M in attack variants.
+    sizes:
+      wiki: [20000, 50000, 100000, 200000, 500000]
+      default: [20000, 50000, 100000, 200000, 500000]
+      synthetic: [20000, 50000, 100000, 200000]
+    # Sizes a source has too little text for are skipped (Vietnamese
+    # literature stops at 50k tokens, Vietnamese laws at 100k).
+    docs_per_size: 1
+    payloads_per_lang: 32
+    host_tokens: 2000
+    segment_host_bytes: 28000
+
+# SHA-256 of docs.jsonl per profile: a rebuild must give the same file.
+outputs:
+  quick: b38614e21008f05254c4223640be8f12317f752cc03c8b263f10f32c2a58e78a
+  full: a5dcef89f18809a1681c0a002ceb828444e6def8a0b3c36d802068aa88c94bf3
+
+dropped:
+  - source: Project Gutenberg (gutenberg.org)
+    reason: >-
+      The robot access policy (gutenberg.org/policy/robot_access.html) says the
+      site is for human users only and allows automated downloads only through
+      a full mirror or the bulk harvest endpoint; fetching a few books by ID is
+      neither, so the source is dropped.
+  - source: Commercial Vietnamese legal portals (e.g. thuvienphapluat.vn)
+    reason: >-
+      Their terms were not verified to allow automated download, so they are
+      not used; the Vietnamese laws come from vi.wikisource instead (public
+      domain by law, see above).
