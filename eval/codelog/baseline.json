@@ -1,0 +1,143 @@
+{
+  "detector": "fusion/tool",
+  "rows": 310,
+  "threshold_fpr_1pct": 0.9741,
+  "latency": {
+    "all": {
+      "p50_us": 987.42,
+      "p95_us": 5013.92,
+      "p99_us": 5446.92
+    },
+    "en": {
+      "p50_us": 987.42,
+      "p95_us": 5016.13,
+      "p99_us": 5451.92
+    },
+    "vi": {
+      "p50_us": 995.92,
+      "p95_us": 4977.83,
+      "p99_us": 5028.38
+    }
+  },
+  "groups": {
+    "all": {
+      "n_attack": 0,
+      "n_benign": 310,
+      "at_fpr_1pct": {
+        "fpr": 0.0097
+      },
+      "at_0.85": {
+        "fpr": 0.0613
+      },
+      "at_0.60": {
+        "fpr": 0.0774
+      },
+      "gateway_rule": {
+        "fpr": 0.0613
+      },
+      "rejected": 0
+    },
+    "en": {
+      "n_attack": 0,
+      "n_benign": 263,
+      "at_fpr_1pct": {
+        "fpr": 0.0114
+      },
+      "at_0.85": {
+        "fpr": 0.0722
+      },
+      "at_0.60": {
+        "fpr": 0.0913
+      },
+      "gateway_rule": {
+        "fpr": 0.0722
+      },
+      "rejected": 0
+    },
+    "en/benign": {
+      "n_attack": 0,
+      "n_benign": 263,
+      "at_fpr_1pct": {
+        "fpr": 0.0114
+      },
+      "at_0.85": {
+        "fpr": 0.0722
+      },
+      "at_0.60": {
+        "fpr": 0.0913
+      },
+      "gateway_rule": {
+        "fpr": 0.0722
+      },
+      "rejected": 0
+    },
+    "en/variant:orig": {
+      "n_attack": 0,
+      "n_benign": 263,
+      "at_fpr_1pct": {
+        "fpr": 0.0114
+      },
+      "at_0.85": {
+        "fpr": 0.0722
+      },
+      "at_0.60": {
+        "fpr": 0.0913
+      },
+      "gateway_rule": {
+        "fpr": 0.0722
+      },
+      "rejected": 0
+    },
+    "vi": {
+      "n_attack": 0,
+      "n_benign": 47,
+      "at_fpr_1pct": {
+        "fpr": 0
+      },
+      "at_0.85": {
+        "fpr": 0
+      },
+      "at_0.60": {
+        "fpr": 0
+      },
+      "gateway_rule": {
+        "fpr": 0
+      },
+      "rejected": 0
+    },
+    "vi/benign": {
+      "n_attack": 0,
+      "n_benign": 47,
+      "at_fpr_1pct": {
+        "fpr": 0
+      },
+      "at_0.85": {
+        "fpr": 0
+      },
+      "at_0.60": {
+        "fpr": 0
+      },
+      "gateway_rule": {
+        "fpr": 0
+      },
+      "rejected": 0
+    },
+    "vi/variant:orig": {
+      "n_attack": 0,
+      "n_benign": 47,
+      "at_fpr_1pct": {
+        "fpr": 0
+      },
+      "at_0.85": {
+        "fpr": 0
+      },
+      "at_0.60": {
+        "fpr": 0
+      },
+      "gateway_rule": {
+        "fpr": 0
+      },
+      "rejected": 0
+    }
+  }
+}
