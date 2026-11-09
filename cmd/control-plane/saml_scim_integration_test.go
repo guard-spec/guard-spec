@@ -482,3 +482,135 @@ func TestSCIMSoleOwnerAndLinking(t *testing.T) {
 		t.Errorf("outsider joined: %q", r)
 	}
 }
+
+func TestSAMLProfileLink(t *testing.T) {
+	h := newSAMLHarness(t, "")
+	email := uniqueEmail()
+	user := h.passwordUser(email, "link-password-123")
+	token, err := h.sessionToken(user)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nameID := "linked-" + uuid.NewString()
+	// A login with the same email is refused: the account has a password.
+	reqID, cookie := h.start("/ui/")
+	if v := h.acs(h.idp.response(t, h.sp, assertionOpts{inResponseTo: reqID, nameID: nameID, email: email}), cookie); v.Get("error") != "account_exists" {
+		t.Fatalf("login before link: %v", v)
+	}
+	// The owner links from the profile; the response needs no browser cookie.
+	out := h.expect(200, "POST", "/v1/auth/identities/"+h.id+"/link/start", token, "")
+	to, _ := url.Parse(str(out["url"]))
+	raw, _ := base64.StdEncoding.DecodeString(to.Query().Get("SAMLRequest"))
+	xml, err := io.ReadAll(flate.NewReader(bytes.NewReader(raw)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := etree.NewDocument()
+	if err := doc.ReadFromBytes(xml); err != nil {
+		t.Fatal(err)
+	}
+	linkReq := doc.Root().SelectAttrValue("ID", "")
+	form := url.Values{"SAMLResponse": {h.idp.response(t, h.sp, assertionOpts{inResponseTo: linkReq, nameID: nameID, email: email})}}.Encode()
+	r := httptest.NewRequest("POST", "/v1/auth/saml/"+h.id+"/acs", strings.NewReader(form))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := h.app.Test(r, -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path, query, _ := strings.Cut(resp.Header.Get("Location"), "?")
+	v, _ := url.ParseQuery(query)
+	if resp.StatusCode != 302 || path != accountPath || v.Get("link_code") == "" {
+		t.Fatalf("link acs: %d %q", resp.StatusCode, resp.Header.Get("Location"))
+	}
+	// Someone else cannot complete it.
+	other, _ := h.user("other-password-123")
+	h.expect(409, "POST", "/v1/auth/identities/link/complete", other, `{"code":"`+v.Get("link_code")+`"}`)
+	h.expect(200, "POST", "/v1/auth/identities/link/complete", token, `{"code":"`+v.Get("link_code")+`"}`)
+	// Now the SAML login signs in to the same account.
+	saml, _ := h.login(assertionOpts{nameID: nameID, email: email})
+	me := h.expect(200, "GET", "/v1/auth/me", saml, "")
+	if me["id"] != user.String() {
+		t.Errorf("logged in as %v, want %s", me["id"], user)
+	}
+	// Members lists show the method as saml:<id>.
+	org, _, owner := h.org(auth.RoleOwner)
+	h.addMember(org, user, auth.RoleMember)
+	list := h.expect(200, "GET", "/v1/organizations/"+org.String()+"/members", owner, "")
+	raw2, _ := json.Marshal(list)
+	if !strings.Contains(string(raw2), `"saml:`+h.id+`"`) {
+		t.Errorf("members: %s", raw2)
+	}
+}
+
+func TestSCIMLifecycleEdges(t *testing.T) {
+	h := newCPHarness(t, func(s *appSettings) { s.publicURL = "http://cp.test" })
+	ctx := context.Background()
+	org, _, owner := h.org(auth.RoleOwner)
+	tok, _ := h.scimToken(org, owner)
+
+	// An existing member provisioned as inactive loses the membership.
+	_, member := h.user("member-password-1")
+	h.addMember(org, member, auth.RoleAdmin)
+	var memberEmail string
+	if err := h.db.QueryRow(ctx, `SELECT email FROM users WHERE id = $1`, member).Scan(&memberEmail); err != nil {
+		t.Fatal(err)
+	}
+	inactive := h.scimExpect(201, "POST", "/Users", tok, `{"userName":"`+memberEmail+`","active":false}`)
+	if inactive["active"] != false || h.role(member, org) != "" {
+		t.Errorf("inactive create: %v, role %q", inactive, h.role(member, org))
+	}
+	// Reactivated without a mapping: the role they had.
+	h.scimExpect(200, "PATCH", "/Users/"+str(inactive["id"]), tok, `{"Operations":[{"op":"replace","value":{"active":true}}]}`)
+	if r := h.role(member, org); r != "admin" {
+		t.Errorf("reactivated without mappings: %q", r)
+	}
+
+	// With SCIM mappings a reactivated user outside mapped groups is a member.
+	h.expect(200, "PUT", "/v1/organizations/"+org.String()+"/group-roles", owner,
+		`{"items":[{"provider_id":null,"group_key":"admins","role":"admin"}]}`)
+	h.scimExpect(200, "PATCH", "/Users/"+str(inactive["id"]), tok, `{"Operations":[{"op":"replace","path":"active","value":false}]}`)
+	h.scimExpect(200, "PATCH", "/Users/"+str(inactive["id"]), tok, `{"Operations":[{"op":"replace","path":"active","value":true}]}`)
+	if r := h.role(member, org); r != "member" {
+		t.Errorf("reactivated with mappings: %q", r)
+	}
+
+	// A path-less replace of members replaces them.
+	a := h.scimExpect(201, "POST", "/Users", tok, `{"userName":"`+uniqueEmail()+`"}`)
+	b := h.scimExpect(201, "POST", "/Users", tok, `{"userName":"`+uniqueEmail()+`"}`)
+	g := h.scimExpect(201, "POST", "/Groups", tok, `{"displayName":"admins","members":[{"value":"`+str(a["id"])+`"}]}`)
+	h.scimExpect(200, "PATCH", "/Groups/"+str(g["id"]), tok,
+		`{"Operations":[{"op":"replace","value":{"members":[{"value":"`+str(b["id"])+`"}]}}]}`)
+	got := h.scimExpect(200, "GET", "/Groups/"+str(g["id"]), tok, "")
+	members, _ := got["members"].([]any)
+	if len(members) != 1 || str(members[0].(map[string]any)["value"]) != str(b["id"]) {
+		t.Errorf("members after replace: %v", got["members"])
+	}
+
+	// A SCIM-created account disabled by deactivation stays disabled when an
+	// administrator disabled it again in between.
+	c := h.scimExpect(201, "POST", "/Users", tok, `{"userName":"`+uniqueEmail()+`"}`)
+	var cu uuid.UUID
+	if err := tenant.WithOrg(ctx, h.db, org, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT user_id FROM scim_users WHERE id = $1`, str(c["id"])).Scan(&cu)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	h.scimExpect(200, "PATCH", "/Users/"+str(c["id"]), tok, `{"Operations":[{"op":"replace","path":"active","value":false}]}`)
+	disabled := func() bool {
+		var d bool
+		if err := h.db.QueryRow(ctx, `SELECT disabled_at IS NOT NULL FROM users WHERE id = $1`, cu).Scan(&d); err != nil {
+			t.Fatal(err)
+		}
+		return d
+	}
+	if !disabled() {
+		t.Fatal("deactivation did not disable the SCIM-created account")
+	}
+	if _, err := h.db.Exec(ctx, `UPDATE users SET disabled_at = NOW() + interval '1 second' WHERE id = $1`, cu); err != nil {
+		t.Fatal(err)
+	}
+	h.scimExpect(200, "PATCH", "/Users/"+str(c["id"]), tok, `{"Operations":[{"op":"replace","path":"active","value":true}]}`)
+	if !disabled() {
+		t.Error("reactivation undid an administrator's disabling")
+	}
+}

@@ -303,30 +303,43 @@ func (id *identity) samlStart(c *fiber.Ctx) error {
 		slog.Error("saml provider unavailable", "provider", pid, "err", err)
 		return auth.Deny(c, fiber.StatusServiceUnavailable, "sso_unavailable", "this sign-in provider is not configured correctly")
 	}
-	doc, err := p.sp.BuildAuthRequestDocumentNoSig()
-	if err != nil {
-		return serverError(c, err)
-	}
-	reqID := doc.Root().SelectAttrValue("ID", "")
-	if reqID == "" {
-		return serverError(c, errors.New("saml: the AuthnRequest has no ID"))
-	}
-	to, err := p.sp.BuildAuthURLRedirect("", doc)
-	if err != nil {
-		return serverError(c, err)
-	}
 	browser, err := randomToken()
 	if err != nil {
 		return serverError(c, err)
 	}
-	if _, err := id.db.Exec(c.Context(),
-		`INSERT INTO saml_requests (request_id, provider_id, redirect, browser_hash, expires_at)
-		 VALUES ($1, $2, $3, $4, NOW() + $5::interval)`, reqID, pid, redirect, tenant.HashKey(browser), samlStateTTL); err != nil {
+	to, err := id.beginSAML(c.Context(), p, redirect, nil, browser)
+	if err != nil {
 		return serverError(c, err)
 	}
-	_, _ = id.db.Exec(c.Context(), `DELETE FROM saml_requests WHERE expires_at < NOW()`)
 	c.Cookie(id.samlBrowserCookie(browser, int(samlStateTTL.Seconds())))
 	return c.Redirect(to, fiber.StatusFound)
+}
+
+// beginSAML stores a pending AuthnRequest and returns the IdP URL to send the
+// browser to. A login is bound to the browser (browser, the cookie value); a
+// profile link (linkUser set, browser "") is bound to its user when it is
+// completed instead, as an OIDC link is.
+func (id *identity) beginSAML(ctx context.Context, p *samlProvider, redirect string, linkUser *uuid.UUID, browser string) (string, error) {
+	doc, err := p.sp.BuildAuthRequestDocumentNoSig()
+	if err != nil {
+		return "", err
+	}
+	reqID := doc.Root().SelectAttrValue("ID", "")
+	if reqID == "" {
+		return "", errors.New("saml: the AuthnRequest has no ID")
+	}
+	to, err := p.sp.BuildAuthURLRedirect("", doc)
+	if err != nil {
+		return "", err
+	}
+	if _, err := id.db.Exec(ctx,
+		`INSERT INTO saml_requests (request_id, provider_id, redirect, browser_hash, link_user_id, expires_at)
+		 VALUES ($1, $2, $3, $4, $5, NOW() + $6::interval)`,
+		reqID, p.row.ID, redirect, hashOrEmpty(browser), linkUser, samlStateTTL); err != nil {
+		return "", err
+	}
+	_, _ = id.db.Exec(ctx, `DELETE FROM saml_requests WHERE expires_at < NOW()`)
+	return to, nil
 }
 
 // samlBrowserCookie binds a login to the browser. The IdP posts the response
@@ -458,8 +471,12 @@ func (id *identity) samlACS(c *fiber.Ctx) error {
 		return ssoError(c, "sso_unavailable")
 	}
 	method := p.row.method()
+	var linkUser *uuid.UUID // set once the response answers a profile link
 	fail := func(code, reason string) error {
 		slog.Warn("saml login refused", "provider", pid, "code", code, "reason", reason)
+		if linkUser != nil {
+			return c.Redirect(accountPath+"?link_error="+url.QueryEscape(code), fiber.StatusFound)
+		}
 		logUserEvent(ctx, id.db, uuid.Nil, "login.failed", clientIP(c), map[string]any{"method": method, "reason": code})
 		return ssoError(c, code)
 	}
@@ -479,7 +496,7 @@ func (id *identity) samlACS(c *fiber.Ctx) error {
 		var browserHash string
 		err := id.db.QueryRow(ctx,
 			`DELETE FROM saml_requests WHERE request_id = $1 AND provider_id = $2 AND expires_at > NOW()
-			 RETURNING redirect, browser_hash`, l.inResponseTo, pid).Scan(&redirect, &browserHash)
+			 RETURNING redirect, browser_hash, link_user_id`, l.inResponseTo, pid).Scan(&redirect, &browserHash, &linkUser)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return fail("invalid_state", "InResponseTo names no pending request")
 		}
@@ -488,7 +505,9 @@ func (id *identity) samlACS(c *fiber.Ctx) error {
 		}
 		// The response must come back to the browser that started the login:
 		// otherwise an attacker could log a victim into the attacker's account.
-		if browser == "" || subtle.ConstantTimeCompare([]byte(tenant.HashKey(browser)), []byte(browserHash)) != 1 {
+		// A profile link is bound to its user when it is completed instead.
+		if linkUser == nil && (browser == "" ||
+			subtle.ConstantTimeCompare([]byte(tenant.HashKey(browser)), []byte(browserHash)) != 1) {
 			return fail("invalid_state", "the login was started in another browser")
 		}
 	} else if !p.row.SAMLAllowIdPInitiated {
@@ -509,6 +528,22 @@ func (id *identity) samlACS(c *fiber.Ctx) error {
 
 	if !domainAllowed(p.row, l.email, "") {
 		return fail("domain_not_allowed", "domain "+emailDomain(l.email))
+	}
+	if linkUser != nil {
+		// Not linked yet: whoever's browser this is may not be linkUser (an
+		// attacker can send a victim the IdP's URL). The UI completes the link
+		// with the code and its own token; the user must match.
+		code, err := randomToken()
+		if err != nil {
+			return serverError(c, err)
+		}
+		if _, err := id.db.Exec(ctx,
+			`INSERT INTO oidc_codes (code_hash, user_id, method, redirect, expires_at, purpose, provider_id, subject, email)
+			 VALUES ($1, $2, $3, $4, NOW() + $5::interval, 'link', $6, $7, $8)`,
+			tenant.HashKey(code), *linkUser, method, accountPath, oidcCodeTTL, pid, l.subject, l.email); err != nil {
+			return serverError(c, err)
+		}
+		return c.Redirect(accountPath+"?link_code="+url.QueryEscape(code), fiber.StatusFound)
 	}
 	user, err := id.ssoUser(ctx, p.row, l.subject, l.email, l.name)
 	var ue *errSSO

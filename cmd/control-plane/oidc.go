@@ -377,6 +377,22 @@ func (id *identity) linkStart(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": errProviderUnavailable.Error()})
 	}
+	user := auth.UserID(c)
+	if row, err := id.loadProvider(c.Context(), pid); err == nil && row.Type == "saml" {
+		sp, err := id.samlSP(c.Context(), pid)
+		if errors.Is(err, errProviderUnavailable) {
+			return c.Status(404).JSON(fiber.Map{"error": err.Error()})
+		}
+		if err != nil {
+			slog.Error("saml provider unavailable", "provider", pid, "err", err)
+			return auth.Deny(c, fiber.StatusServiceUnavailable, "sso_unavailable", "this sign-in provider is not configured correctly")
+		}
+		to, err := id.beginSAML(c.Context(), sp, accountPath, &user, "")
+		if err != nil {
+			return serverError(c, err)
+		}
+		return c.JSON(fiber.Map{"url": to})
+	}
 	p, err := id.provider(c.Context(), pid)
 	if errors.Is(err, errProviderUnavailable) {
 		return c.Status(404).JSON(fiber.Map{"error": err.Error()})
@@ -385,7 +401,6 @@ func (id *identity) linkStart(c *fiber.Ctx) error {
 		slog.Error("sso provider unavailable", "provider", pid, "err", err)
 		return auth.Deny(c, fiber.StatusServiceUnavailable, "sso_unavailable", "this sign-in provider is not configured correctly")
 	}
-	user := auth.UserID(c)
 	to, err := id.beginAuth(c.Context(), p, accountPath, &user, "")
 	if err != nil {
 		return serverError(c, err)

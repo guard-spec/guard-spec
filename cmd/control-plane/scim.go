@@ -473,6 +473,7 @@ func (s *scimAPI) createUser(c *fiber.Ctx) error {
 	if err := json.Unmarshal(c.Body(), &in); err != nil {
 		return s.fail(c, scimError(400, "invalidSyntax", "the body is not a SCIM User"))
 	}
+	var effect deactivation
 	email := in.email()
 	if in.UserName == nil || strings.TrimSpace(*in.UserName) == "" || len(*in.UserName) > scimNameMax {
 		return s.fail(c, scimError(400, "invalidValue", "userName is required"))
@@ -536,9 +537,19 @@ func (s *scimAPI) createUser(c *fiber.Ctx) error {
 			}
 			return err
 		}
-		if active {
+		switch {
+		case active:
 			if _, err := tx.Exec(ctx, `INSERT INTO org_memberships (user_id, org_id, role) VALUES ($1, $2, $3::org_role)
 				ON CONFLICT DO NOTHING`, user, org, scimDefaultRole); err != nil {
+				return err
+			}
+		case member:
+			// An existing member provisioned as inactive loses the membership,
+			// as a deactivation would take it.
+			if _, err := tx.Exec(ctx, `UPDATE scim_users SET active = true, suspended_role = NULL WHERE id = $1`, sid); err != nil {
+				return err
+			}
+			if effect, err = s.deactivate(ctx, tx, org, sid); err != nil {
 				return err
 			}
 		}
@@ -546,6 +557,9 @@ func (s *scimAPI) createUser(c *fiber.Ctx) error {
 		return err
 	})
 	if err != nil {
+		return s.fail(c, err)
+	}
+	if err := s.afterDeactivate(c, u.UserID, effect); err != nil {
 		return s.fail(c, err)
 	}
 	s.activity(c, "scim.user_created", u.UserID.String(), map[string]any{"user_name": u.UserName, "active": u.Active})
@@ -830,13 +844,16 @@ func (s *scimAPI) deactivate(ctx context.Context, tx pgx.Tx, org, sid uuid.UUID)
 			return d, err
 		}
 		if others == 0 {
-			tag, err := tx.Exec(ctx, `UPDATE users SET disabled_at = NOW() WHERE id = $1 AND disabled_at IS NULL`, user)
-			if err != nil {
+			var at time.Time
+			err := tx.QueryRow(ctx, `UPDATE users SET disabled_at = NOW() WHERE id = $1 AND disabled_at IS NULL
+				RETURNING disabled_at`, user).Scan(&at)
+			switch {
+			case errors.Is(err, pgx.ErrNoRows): // already disabled by someone else: theirs to undo
+			case err != nil:
 				return d, err
-			}
-			if tag.RowsAffected() > 0 {
+			default:
 				d.disabled = true
-				if _, err := tx.Exec(ctx, `UPDATE scim_users SET disabled_account = true WHERE id = $1`, sid); err != nil {
+				if _, err := tx.Exec(ctx, `UPDATE scim_users SET account_disabled_at = $2 WHERE id = $1`, sid, at); err != nil {
 					return d, err
 				}
 			}
@@ -862,34 +879,45 @@ func (s *scimAPI) afterDeactivate(c *fiber.Ctx, user uuid.UUID, d deactivation) 
 }
 
 // reactivate gives a SCIM user their membership back, with the role their
-// groups map to, else the role they had.
+// groups map to; without a match, the default role when the org maps SCIM
+// groups (the directory decides), else the role they had. An owner stays one.
 func (s *scimAPI) reactivate(ctx context.Context, tx pgx.Tx, org, sid uuid.UUID) error {
 	var user uuid.UUID
 	var role *string
-	var disabledAccount bool
-	if err := tx.QueryRow(ctx, `SELECT user_id, suspended_role::text, disabled_account FROM scim_users WHERE id = $1`, sid).
-		Scan(&user, &role, &disabledAccount); err != nil {
+	var disabledAt *time.Time
+	if err := tx.QueryRow(ctx, `SELECT user_id, suspended_role::text, account_disabled_at FROM scim_users WHERE id = $1`, sid).
+		Scan(&user, &role, &disabledAt); err != nil {
 		return err
 	}
 	r := scimDefaultRole
 	if role != nil {
 		r = *role
 	}
-	if mapped, ok, err := s.groupRole(ctx, tx, org, sid); err != nil {
-		return err
-	} else if ok && r != string(auth.RoleOwner) {
-		r = mapped
+	if r != string(auth.RoleOwner) {
+		mapped, ok, err := s.groupRole(ctx, tx, org, sid)
+		if err != nil {
+			return err
+		}
+		if ok {
+			r = mapped
+		} else if m, err := scimMapped(ctx, tx, org); err != nil {
+			return err
+		} else if m {
+			r = scimDefaultRole
+		}
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO org_memberships (user_id, org_id, role) VALUES ($1, $2, $3::org_role)
 		ON CONFLICT DO NOTHING`, user, org, r); err != nil {
 		return err
 	}
-	if disabledAccount {
-		if _, err := tx.Exec(ctx, `UPDATE users SET disabled_at = NULL WHERE id = $1`, user); err != nil {
+	if disabledAt != nil {
+		// Only the disabling this org's deactivation did: an administrator
+		// who disabled the account since keeps it disabled.
+		if _, err := tx.Exec(ctx, `UPDATE users SET disabled_at = NULL WHERE id = $1 AND disabled_at = $2`, user, *disabledAt); err != nil {
 			return err
 		}
 	}
-	_, err := tx.Exec(ctx, `UPDATE scim_users SET active = true, suspended_role = NULL, disabled_account = false WHERE id = $1`, sid)
+	_, err := tx.Exec(ctx, `UPDATE scim_users SET active = true, suspended_role = NULL, account_disabled_at = NULL WHERE id = $1`, sid)
 	return err
 }
 
@@ -1187,13 +1215,9 @@ func (s *scimAPI) syncRoles(ctx context.Context, tx pgx.Tx, org uuid.UUID, sids 
 	if len(sids) == 0 {
 		return nil
 	}
-	var mapped bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM org_group_roles WHERE org_id = $1 AND provider_id IS NULL)`,
-		org).Scan(&mapped); err != nil {
+	mapped, err := scimMapped(ctx, tx, org)
+	if err != nil || !mapped {
 		return err
-	}
-	if !mapped {
-		return nil
 	}
 	for _, sid := range sids {
 		role, ok, err := s.groupRole(ctx, tx, org, sid)
@@ -1203,13 +1227,31 @@ func (s *scimAPI) syncRoles(ctx context.Context, tx pgx.Tx, org uuid.UUID, sids 
 		if !ok {
 			role = scimDefaultRole
 		}
-		if _, err := tx.Exec(ctx, `UPDATE org_memberships m SET role = $3::org_role FROM scim_users s
-			WHERE s.id = $1 AND s.active AND m.user_id = s.user_id AND m.org_id = $2 AND m.role <> 'owner'
-			  AND m.role <> $3::org_role`, sid, org, role); err != nil {
+		var user uuid.UUID
+		var old string
+		err = tx.QueryRow(ctx, `UPDATE org_memberships m SET role = $3::org_role
+			FROM scim_users s, (SELECT user_id, role FROM org_memberships WHERE org_id = $2 FOR UPDATE) o
+			WHERE s.id = $1 AND s.active AND m.user_id = s.user_id AND m.org_id = $2 AND o.user_id = m.user_id
+			  AND m.role <> 'owner' AND m.role <> $3::org_role
+			RETURNING m.user_id, o.role::text`, sid, org, role).Scan(&user, &old)
+		if errors.Is(err, pgx.ErrNoRows) {
+			continue
+		}
+		if err != nil {
 			return err
 		}
+		writeActivity(ctx, s.db, activityEntry{Org: &org, Action: "member.role_from_group", Target: user.String(),
+			Details: map[string]any{"from": old, "to": role, "source": "scim"}})
 	}
 	return nil
+}
+
+// scimMapped reports whether the org maps any SCIM group to a role.
+func scimMapped(ctx context.Context, tx pgx.Tx, org uuid.UUID) (bool, error) {
+	var mapped bool
+	err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM org_group_roles WHERE org_id = $1 AND provider_id IS NULL)`,
+		org).Scan(&mapped)
+	return mapped, err
 }
 
 func (s *scimAPI) groupMemberIDs(ctx context.Context, tx pgx.Tx, gid uuid.UUID) ([]uuid.UUID, error) {
@@ -1371,6 +1413,15 @@ func (s *scimAPI) patchGroup(c *fiber.Ctx) error {
 						ids, err := memberIDs(ctx, tx, org, v.Members)
 						if err != nil {
 							return err
+						}
+						if kind == "replace" {
+							old, err := s.groupMemberIDs(ctx, tx, cur.ID)
+							if err != nil {
+								return err
+							}
+							if err := s.removeMembers(ctx, tx, org, cur.ID, old); err != nil {
+								return err
+							}
 						}
 						if err := s.addMembers(ctx, tx, org, cur.ID, ids); err != nil {
 							return err
@@ -1601,7 +1652,8 @@ func getGroupRoles(db *pgxpool.Pool) fiber.Handler {
 }
 
 // putGroupRoles replaces the org's group mappings. A SAML mapping names an
-// enabled SAML provider; roles are viewer, member or admin.
+// SAML provider (a disabled one's mappings apply again once it is enabled);
+// roles are viewer, member or admin.
 func putGroupRoles(db *pgxpool.Pool) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		org := orgID(c)

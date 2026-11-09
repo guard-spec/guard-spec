@@ -29,12 +29,16 @@ ALTER TABLE identity_providers
         OR (type <> 'saml' AND client_id IS NOT NULL AND client_secret_env IS NOT NULL));
 
 -- A SAML login in progress (SP-initiated): the AuthnRequest id, which the
--- response must answer (InResponseTo), bound to the browser that started it.
+-- response must answer (InResponseTo), bound to the browser that started it
+-- (or, for a profile link, to the user).
 CREATE TABLE saml_requests (
     request_id   TEXT PRIMARY KEY CONSTRAINT saml_requests_id CHECK (char_length(request_id) BETWEEN 1 AND 128),
     provider_id  UUID NOT NULL REFERENCES identity_providers(id) ON DELETE CASCADE,
     redirect     TEXT NOT NULL DEFAULT '/ui/',
     browser_hash TEXT NOT NULL,
+    -- A profile link (POST /auth/identities/:id/link/start): bound to this
+    -- user when it is completed, not to the browser.
+    link_user_id UUID REFERENCES users(id) ON DELETE CASCADE,
     expires_at   TIMESTAMPTZ NOT NULL,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -69,7 +73,9 @@ CREATE INDEX idx_scim_tokens_org ON scim_tokens (org_id, created_at);
 -- The users an organization's SCIM client manages. active false: the user
 -- was deactivated; their membership is removed and its role kept here for a
 -- reactivation. created: SCIM created the account (rather than linking an
--- existing one). disabled_account: deactivation also disabled the account.
+-- existing one). account_disabled_at: deactivation also disabled the account,
+-- at that time; a reactivation enables it again only if nobody disabled it
+-- since.
 CREATE TABLE scim_users (
     id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     org_id           UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -79,7 +85,7 @@ CREATE TABLE scim_users (
     active           BOOLEAN NOT NULL DEFAULT true,
     suspended_role   org_role,
     created          BOOLEAN NOT NULL DEFAULT false,
-    disabled_account BOOLEAN NOT NULL DEFAULT false,
+    account_disabled_at TIMESTAMPTZ,
     created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT scim_users_org_user UNIQUE (org_id, user_id)
