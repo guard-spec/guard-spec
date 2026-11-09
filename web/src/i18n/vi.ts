@@ -313,6 +313,11 @@ export const vi: Messages = {
   'guard.unscanned.blockHelp': 'Từ chối với HTTP 400 và mã unscanned_content trước khi gửi gì lên upstream. Client gửi hình ảnh hay tệp sẽ không dùng được nữa.',
   'guard.unscanned.extract':
     'Muốn nội dung này được kiểm tra, hãy trích văn bản ngay trong ứng dụng của bạn (OCR, văn bản của PDF, bản chép lời) rồi gửi dưới dạng phần văn bản: gateway quét văn bản.',
+  'guard.scanTokens.legend': 'Input lớn',
+  'guard.scanTokens': 'Số token tối đa được quét cho mỗi request',
+  'guard.scanTokens.default': 'Mặc định của gateway (MAX_SCAN_TOKENS, hoặc giới hạn hiện tại khi chưa đặt)',
+  'guard.scanTokens.help':
+    'Request có nhiều token cần quét hơn sẽ bị từ chối với HTTP 413 trước khi gửi gì lên upstream. Thiết lập này chỉ có thể hạ MAX_SCAN_TOKENS của gateway; nó không bao giờ cho qua request vượt giới hạn của gateway.',
 
   'keys.title': 'Khóa API',
   'keys.new': 'Khóa API mới',

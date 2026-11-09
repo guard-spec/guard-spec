@@ -312,6 +312,11 @@ export const en = {
   'guard.unscanned.blockHelp': 'Refused with HTTP 400 and the code unscanned_content before anything goes upstream. Clients that send images or files stop working.',
   'guard.unscanned.extract':
     'To have such content checked, extract its text in your application (OCR, the text of a PDF, a transcript) and send it as a text part: the gateway scans text.',
+  'guard.scanTokens.legend': 'Large inputs',
+  'guard.scanTokens': 'Most tokens scanned per request',
+  'guard.scanTokens.default': "Gateway default (MAX_SCAN_TOKENS, or today's limits when it is unset)",
+  'guard.scanTokens.help':
+    "A request with more tokens to scan is refused with HTTP 413 before anything goes upstream. This can only lower the gateway's MAX_SCAN_TOKENS; it never lets through a request past the gateway's limits.",
 
   'keys.title': 'API keys',
   'keys.new': 'New API key',
