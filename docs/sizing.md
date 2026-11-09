@@ -133,24 +133,37 @@ for each run.
 
 | Hardware | Source | ms per window (intra 1) | Tokens/s, intra 1, K = 4 | Tokens/s, ORT default, K = 4 | Tokens scanned in 10 s (best) | CPU-s per 1k tokens | 20k-token document (best) |
 |---|---|---:|---:|---:|---:|---:|---:|
-| 2 vCPU | to be measured by [`bench-long.yml`](../.github/workflows/bench-long.yml) (ubuntu-24.04, `taskset -c 0,1`) | | | | | | |
-| 4 vCPU | to be measured by [`bench-long.yml`](../.github/workflows/bench-long.yml) (ubuntu-24.04) | | | | | | |
+| 2 vCPU (AMD EPYC 9V74) | GitHub ubuntu-24.04 runner, `taskset -c 0,1`, quick profile, 2026-11-09 | 60.3 | 2,879 (K = 2) | 4,571 (K = 2) | about 50,000 | 0.41 (intra 1), 0.79 (default) | 3.7 to 4.2 s |
+| 4 vCPU (AMD EPYC 7763) | GitHub ubuntu-24.04 runner, full profile, 2026-11-09 | 101.0 | 3,106 | 2,784 | about 31,000 | 0.69 (intra 1), 1.41 (default) | 6.0 to 6.9 s |
 | Apple M3 Max, 14 cores | M3 Max, local, indicative (2026-11-09, quick profile) | 61.8 | 9,209 | 17,551 | about 175,000 | 0.42 (intra 1), 0.57 (default) | 1.1 to 1.2 s |
-| 8 vCPU | estimated | | about 18,000 | | about 180,000 | | about 1.1 s |
-| 16 vCPU | estimated | | about 37,000 | | about 370,000 | | about 0.6 s |
+| 8 vCPU (x86) | estimated | | about 6,000 | | about 60,000 | | about 3 s |
+| 16 vCPU (x86) | estimated | | about 12,000 | | about 120,000 | | about 1.5 s |
 | GPU | not measured (task RF-b74de2b9) | | | | | | |
 
+- The two runner rows are measured, but on different CPUs (GitHub assigns
+  the host): the 2 vCPU job got a newer EPYC 9V74, the 4 vCPU job an EPYC
+  7763 that also ran the full corpus, so the 2 vCPU row is faster. Shared
+  cloud vCPUs vary by 1.5 to 2 times between runs; read them as a range.
+- x86 cloud vCPUs are 3 to 4 times slower per core than an M3 Max here
+  (about 780 tokens/s per vCPU at intra 1, K = 4, on the 4 vCPU runner
+  against about 2,300 per M3 Max core).
 - The 8 and 16 vCPU rows are estimates, not measurements: they scale the
-  M3 Max rate per busy core (about 2,300 tokens/s per core at intra 1, K = 4)
-  linearly with cores, which assumes K and `INFERENCE_MAX_CONCURRENCY` grow
-  with the cores. Cloud vCPUs are usually hyperthreads and slower per core
-  than an M3 Max: replace these rows with your own run.
+  4 vCPU runner's rate per vCPU linearly, which assumes K and
+  `INFERENCE_MAX_CONCURRENCY` grow with the cores. Replace them with your
+  own run.
+- For a 10 s scanning budget this means roughly 30k to 50k tokens per
+  request on 2 to 4 vCPU, 60k on 8 and 120k on 16 (estimated); 200k tokens
+  in 10 s needs about 32 dedicated vCPUs or a GPU (not measured yet).
 - CPU per token barely changes with K or intra: more parallelism cuts the
   wall time of one document, not its cost. A server scanning documents for
   several users at once gets the same total throughput from intra 1 and
   many concurrent runs as from fewer, wider runs.
 - The full per-run tables (L2 alone, every K, wall time per document) are in
-  [`bench/results/long-m3max-local.md`](../bench/results/long-m3max-local.md).
+  [`bench/results/long-m3max-local.md`](../bench/results/long-m3max-local.md),
+  [`long-gh-ubuntu-24.04-4vcpu.md`](../bench/results/long-gh-ubuntu-24.04-4vcpu.md)
+  and [`long-gh-ubuntu-24.04-2vcpu.md`](../bench/results/long-gh-ubuntu-24.04-2vcpu.md).
+  The runner runs predate the 0.4.2 code/log fixes, so their false-positive
+  tables show the 0.4.1 detector; latency is unaffected.
 
 ### Measure long inputs on your hardware
 

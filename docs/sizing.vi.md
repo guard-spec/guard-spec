@@ -136,24 +136,36 @@ mỗi lần chạy.
 
 | Phần cứng | Nguồn | ms mỗi cửa sổ (intra 1) | Token/s, intra 1, K = 4 | Token/s, mặc định ORT, K = 4 | Token quét được trong 10 s (tốt nhất) | CPU-s mỗi 1k token | Tài liệu 20k token (tốt nhất) |
 |---|---|---:|---:|---:|---:|---:|---:|
-| 2 vCPU | sẽ đo bằng [`bench-long.yml`](../.github/workflows/bench-long.yml) (ubuntu-24.04, `taskset -c 0,1`) | | | | | | |
-| 4 vCPU | sẽ đo bằng [`bench-long.yml`](../.github/workflows/bench-long.yml) (ubuntu-24.04) | | | | | | |
+| 2 vCPU (AMD EPYC 9V74) | runner GitHub ubuntu-24.04, `taskset -c 0,1`, profile quick, 2026-11-09 | 60.3 | 2,879 (K = 2) | 4,571 (K = 2) | khoảng 50,000 | 0.41 (intra 1), 0.79 (mặc định) | 3.7 đến 4.2 s |
+| 4 vCPU (AMD EPYC 7763) | runner GitHub ubuntu-24.04, profile full, 2026-11-09 | 101.0 | 3,106 | 2,784 | khoảng 31,000 | 0.69 (intra 1), 1.41 (mặc định) | 6.0 đến 6.9 s |
 | Apple M3 Max, 14 core | M3 Max, máy local, chỉ mang tính tham khảo (2026-11-09, profile quick) | 61.8 | 9,209 | 17,551 | khoảng 175,000 | 0.42 (intra 1), 0.57 (mặc định) | 1.1 đến 1.2 s |
-| 8 vCPU | ước tính | | khoảng 18,000 | | khoảng 180,000 | | khoảng 1.1 s |
-| 16 vCPU | ước tính | | khoảng 37,000 | | khoảng 370,000 | | khoảng 0.6 s |
+| 8 vCPU (x86) | ước tính | | khoảng 6,000 | | khoảng 60,000 | | khoảng 3 s |
+| 16 vCPU (x86) | ước tính | | khoảng 12,000 | | khoảng 120,000 | | khoảng 1.5 s |
 | GPU | chưa đo (task RF-b74de2b9) | | | | | | |
 
-- Các dòng 8 và 16 vCPU là ước tính, không phải số đo: chúng nhân tốc độ của
-  M3 Max trên mỗi core bận (khoảng 2,300 token/s mỗi core ở intra 1, K = 4)
-  tuyến tính theo số core, với giả định K và `INFERENCE_MAX_CONCURRENCY` tăng
-  theo số core. vCPU trên cloud thường là hyperthread và chậm hơn một core M3
-  Max: hãy thay các dòng này bằng lần đo của bạn.
+- Hai dòng runner là số đo, nhưng trên CPU khác nhau (GitHub tự chọn máy):
+  job 2 vCPU được EPYC 9V74 đời mới hơn, job 4 vCPU được EPYC 7763 và còn chạy
+  cả corpus full, nên dòng 2 vCPU nhanh hơn. vCPU cloud dùng chung dao động
+  1,5 đến 2 lần giữa các lần chạy; hãy đọc như một khoảng.
+- vCPU x86 trên cloud chậm hơn mỗi core M3 Max 3 đến 4 lần ở đây (khoảng 780
+  token/s mỗi vCPU ở intra 1, K = 4 trên runner 4 vCPU, so với khoảng 2,300
+  mỗi core M3 Max).
+- Các dòng 8 và 16 vCPU là ước tính, không phải số đo: chúng nhân tốc độ mỗi
+  vCPU của runner 4 vCPU tuyến tính theo số core, với giả định K và
+  `INFERENCE_MAX_CONCURRENCY` tăng theo số core. Hãy thay bằng lần đo của bạn.
+- Với ngân sách quét 10 s: khoảng 30k đến 50k token mỗi request trên 2 đến 4
+  vCPU, 60k trên 8 và 120k trên 16 (ước tính); 200k token trong 10 s cần khoảng
+  32 vCPU riêng hoặc GPU (chưa đo).
 - CPU cho mỗi token gần như không đổi theo K hay intra: song song nhiều hơn
   rút ngắn thời gian của một tài liệu, không giảm chi phí của nó. Một server
   quét tài liệu cho nhiều người cùng lúc đạt cùng tổng throughput với intra 1
   và nhiều lần chạy đồng thời như với ít lần chạy rộng hơn.
 - Bảng đầy đủ của từng lần chạy (riêng L2, mọi K, thời gian từng tài liệu)
-  nằm trong [`bench/results/long-m3max-local.md`](../bench/results/long-m3max-local.md).
+  nằm trong [`bench/results/long-m3max-local.md`](../bench/results/long-m3max-local.md),
+  [`long-gh-ubuntu-24.04-4vcpu.md`](../bench/results/long-gh-ubuntu-24.04-4vcpu.md)
+  và [`long-gh-ubuntu-24.04-2vcpu.md`](../bench/results/long-gh-ubuntu-24.04-2vcpu.md).
+  Các lần chạy trên runner diễn ra trước bản sửa code/log của 0.4.2, nên bảng
+  chặn nhầm trong đó là của detector 0.4.1; latency không bị ảnh hưởng.
 
 ### Đo input dài trên phần cứng của bạn
 
