@@ -1,0 +1,143 @@
+{
+  "detector": "fusion-ml:l1,l2,l3/logreg/tool",
+  "rows": 310,
+  "threshold_fpr_1pct": 0.9947,
+  "latency": {
+    "all": {
+      "p50_us": 360207.58,
+      "p95_us": 2027565.21,
+      "p99_us": 2605675.46
+    },
+    "en": {
+      "p50_us": 368014.63,
+      "p95_us": 1934027,
+      "p99_us": 2683646.75
+    },
+    "vi": {
+      "p50_us": 306019.38,
+      "p95_us": 2564286.17,
+      "p99_us": 2605675.46
+    }
+  },
+  "groups": {
+    "all": {
+      "n_attack": 0,
+      "n_benign": 310,
+      "at_fpr_1pct": {
+        "fpr": 0.0097
+      },
+      "at_0.85": {
+        "fpr": 0.0806
+      },
+      "at_0.60": {
+        "fpr": 0.1032
+      },
+      "gateway_rule": {
+        "fpr": 0.0806
+      },
+      "rejected": 0
+    },
+    "en": {
+      "n_attack": 0,
+      "n_benign": 263,
+      "at_fpr_1pct": {
+        "fpr": 0.0114
+      },
+      "at_0.85": {
+        "fpr": 0.0913
+      },
+      "at_0.60": {
+        "fpr": 0.1141
+      },
+      "gateway_rule": {
+        "fpr": 0.0913
+      },
+      "rejected": 0
+    },
+    "en/benign": {
+      "n_attack": 0,
+      "n_benign": 263,
+      "at_fpr_1pct": {
+        "fpr": 0.0114
+      },
+      "at_0.85": {
+        "fpr": 0.0913
+      },
+      "at_0.60": {
+        "fpr": 0.1141
+      },
+      "gateway_rule": {
+        "fpr": 0.0913
+      },
+      "rejected": 0
+    },
+    "en/variant:orig": {
+      "n_attack": 0,
+      "n_benign": 263,
+      "at_fpr_1pct": {
+        "fpr": 0.0114
+      },
+      "at_0.85": {
+        "fpr": 0.0913
+      },
+      "at_0.60": {
+        "fpr": 0.1141
+      },
+      "gateway_rule": {
+        "fpr": 0.0913
+      },
+      "rejected": 0
+    },
+    "vi": {
+      "n_attack": 0,
+      "n_benign": 47,
+      "at_fpr_1pct": {
+        "fpr": 0
+      },
+      "at_0.85": {
+        "fpr": 0.0213
+      },
+      "at_0.60": {
+        "fpr": 0.0426
+      },
+      "gateway_rule": {
+        "fpr": 0.0213
+      },
+      "rejected": 0
+    },
+    "vi/benign": {
+      "n_attack": 0,
+      "n_benign": 47,
+      "at_fpr_1pct": {
+        "fpr": 0
+      },
+      "at_0.85": {
+        "fpr": 0.0213
+      },
+      "at_0.60": {
+        "fpr": 0.0426
+      },
+      "gateway_rule": {
+        "fpr": 0.0213
+      },
+      "rejected": 0
+    },
+    "vi/variant:orig": {
+      "n_attack": 0,
+      "n_benign": 47,
+      "at_fpr_1pct": {
+        "fpr": 0
+      },
+      "at_0.85": {
+        "fpr": 0.0213
+      },
+      "at_0.60": {
+        "fpr": 0.0426
+      },
+      "gateway_rule": {
+        "fpr": 0.0213
+      },
+      "rejected": 0
+    }
+  }
+}

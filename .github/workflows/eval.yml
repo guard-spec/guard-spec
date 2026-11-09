@@ -23,6 +23,11 @@ jobs:
       - name: Detector eval vs baseline
         run: go run ./cmd/eval -baseline eval/baseline.json -max-regression 0.02 -json eval-report.json
 
+      # Benign code, configs, diffs and logs as tool output (eval/codelog):
+      # every row is benign, so this catches false-positive regressions.
+      - name: Code/log hard negatives vs baseline
+        run: go run ./cmd/eval -data eval/codelog -path tool -baseline eval/codelog/baseline.json -max-regression 0.02
+
       - name: Upload eval report
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

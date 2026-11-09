@@ -84,9 +84,19 @@ func NewRunnerWith(injection ModelBackend) *Runner {
 	}
 }
 
+// ChunkAdjust may change the injection score of one chunk before the
+// chunks are combined; chunk is the text the detector saw.
+type ChunkAdjust func(chunk string, s Score) Score
+
 // Scan runs all 4 models concurrently and returns aggregated scores.
 // Chunking with sliding window is applied before each model call.
 func (r *Runner) Scan(ctx context.Context, text string) (Scores, error) {
+	return r.ScanAdjusted(ctx, text, nil)
+}
+
+// ScanAdjusted is Scan with adjust applied to each chunk's injection score
+// (nil: none), before the worst chunk is taken.
+func (r *Runner) ScanAdjusted(ctx context.Context, text string, adjust ChunkAdjust) (Scores, error) {
 	chunks, err := chunkText(text, 512, 448)
 	if err != nil {
 		return Scores{}, err
@@ -101,7 +111,7 @@ func (r *Runner) Scan(ctx context.Context, text string) (Scores, error) {
 	g, gctx := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
-		scores, err := runChunked(gctx, r.injection, chunks)
+		scores, err := runChunkedAdjusted(gctx, r.injection, chunks, adjust)
 		if err != nil {
 			return fmt.Errorf("injection model: %w", err)
 		}
@@ -175,11 +185,20 @@ func runeStart(s string, i int) int {
 }
 
 func runChunked(ctx context.Context, m ModelBackend, chunks []string) ([]Score, error) {
+	return runChunkedAdjusted(ctx, m, chunks, nil)
+}
+
+func runChunkedAdjusted(ctx context.Context, m ModelBackend, chunks []string, adjust ChunkAdjust) ([]Score, error) {
 	var all []Score
 	for _, chunk := range chunks {
 		scores, err := m.Run(ctx, chunk)
 		if err != nil {
 			return nil, err
+		}
+		if adjust != nil {
+			for i := range scores {
+				scores[i] = adjust(chunk, scores[i])
+			}
 		}
 		all = append(all, scores...)
 	}

@@ -13,6 +13,9 @@ type Detail struct {
 	Category   string             // top category, "" when nothing matched
 	Categories map[string]float64 // per-category scores
 	Rules      []string           // fired rule ids
+	// Floor is the lower bound a floor layer or a decisive L1 verdict set
+	// on the score (fusion.Result.Floor); 0 when none did.
+	Floor float64
 }
 
 // Scorer is what FusedBackend runs: a *fusion.Fuser, or a detector that can
@@ -37,7 +40,7 @@ func (b FusedBackend) Run(ctx context.Context, text string) ([]Score, error) {
 		Confidence: float32(r.Score),
 		Detail: &Detail{
 			L1: r.Layers[fusion.L1], L2: r.Layers[fusion.L2], L3: r.Layers[fusion.L3],
-			Category: r.Category, Categories: r.Categories, Rules: r.Rules,
+			Category: r.Category, Categories: r.Categories, Rules: r.Rules, Floor: r.Floor,
 		},
 	}}, nil
 }

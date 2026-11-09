@@ -9,6 +9,60 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-11-09
+
+### Fixed
+
+- **Code and logs in tool output were refused as prompt injection** with the
+  model layers installed (the `gateway-full` image). The classifier (L2)
+  scores repetitive structured text, such as SQL DDL, Dockerfiles, YAML, shell
+  scripts and Vietnamese log lines, as an attack, so a coding or CI agent
+  that read such a file through the gateway was refused: on 832 benign
+  tool results (slices of source files, configs, diffs, stack traces and
+  logs, 0.5 to 24 KB; a local set, not in the repository), 35% of the
+  requests were blocked, Vietnamese logs 72%
+  (RF-476b4d30). Two changes bring that to 15% (Vietnamese logs 22%):
+  - **Code corroboration** (`TOOL_CODE_CORROBORATION`, on by default): a
+    2 KB chunk of a tool result or document that looks like code, a config,
+    a diff, a stack trace or a log (six or more non-blank lines, 60% of them
+    code-like) is blocked only when another layer agrees with L2: an L1 rule
+    with a raw score of at least 0.5 (every decisive rule is), L3 at 0.6 or
+    more, or a floor (decisive L1, the org's own block exemplar). Otherwise
+    its score falls to the larger of the L1 and L3 scores and the audit row
+    lists `indirect.code_uncorroborated`. User, system and tool-description
+    text is never affected; without the model layers nothing changes
+    (RF-99cb5874).
+  - **L1 keyword score scaled by length**: words such as "system", "token"
+    or "người dùng" added a small score to texts where no rule fired, which
+    every 2 KB window of code or logs reached in full and the fusion read as
+    evidence. Beyond 40 words it is now scaled by length (RF-476b4d30).
+
+### Security
+
+- **Trade-off:** an injection hidden in code or logs that only the
+  classifier catches now passes. On eval/ attack rows embedded in 2 KB code
+  and log hosts, detection at the block threshold fell from 0.857 to
+  0.827 (dev payloads, -3.0 points) and from 0.810 to 0.747 (holdout
+  payloads, -6.3 points).
+  Attacks L1 recognises (overrides with their payload, exfiltration
+  wording) still block, and eval/ is unchanged at 0.85 on both the direct
+  and tool paths (gateway decision on the tool path: dev TPR 0.932 / FPR
+  0.012, holdout 0.947 / 0.022). Set `TOOL_CODE_CORROBORATION=off` to restore the 0.4.1
+  behaviour where blocking more benign tool output is acceptable. A
+  retrained classifier with code and log negatives is the real fix.
+
+### Added
+
+- `eval/codelog/`: 310 benign code, config, diff, stack trace, log, JSON and
+  CSV tool outputs (EN/VI) with L1 and model baselines, checked in CI, so
+  false positives on tool output cannot grow unnoticed. Its model-layer
+  false-positive rate is 26% on 0.4.1 and 8% now.
+
+### Upgrade notes
+
+- No migration, no API change. To keep the 0.4.1 behaviour, set
+  `TOOL_CODE_CORROBORATION=off`.
+
 ## [0.4.1] - 2026-11-09
 
 ### Security
@@ -981,7 +1035,8 @@ First release.
 - List endpoints still answer the older `{"data": [...]}` shape when called
   without `limit` and `cursor`; use the paginated form.
 
-[Unreleased]: https://github.com/guard-spec/guard-spec/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/guard-spec/guard-spec/compare/v0.4.2...HEAD
+[0.4.2]: https://github.com/guard-spec/guard-spec/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/guard-spec/guard-spec/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/guard-spec/guard-spec/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/guard-spec/guard-spec/compare/v0.3.0...v0.3.1
