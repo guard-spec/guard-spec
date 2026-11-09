@@ -58,8 +58,10 @@ trước khi dùng.
   rule có ngưỡng, giãn tần suất, giờ yên lặng và tùy chọn riêng từng người
   ([Cảnh báo và thông báo](#cảnh-báo-và-thông-báo)).
 - **Đăng nhập cho doanh nghiệp:** SSO bằng OpenID Connect (có sẵn Google, dùng
-  được mọi nhà cung cấp OIDC như Entra ID, Okta, Keycloak), tự gia nhập theo
-  tên miền, tự tạo tài khoản khi đăng nhập lần đầu.
+  được mọi nhà cung cấp OIDC như Entra ID, Okta, Keycloak) và SAML 2.0, tự gia
+  nhập theo tên miền, tự tạo tài khoản khi đăng nhập lần đầu, cấp phát và thu
+  hồi tài khoản bằng SCIM 2.0, role theo nhóm của IdP
+  ([SSO, SAML và SCIM](#sso-saml-và-scim)).
 - **Xác thực hai lớp (2FA):** TOTP kèm mã khôi phục; tổ chức có thể bắt buộc
   2FA, giới hạn cách đăng nhập, rút ngắn phiên; khóa tạm khi nhập sai nhiều
   lần; xem và thu hồi phiên đăng nhập.
@@ -486,6 +488,76 @@ dụng), Thiết lập bảo vệ, Khóa API, Dự án, Mẫu tham chiếu và N
 Chi tiết ở mục [Admin UI](README.md#admin-ui).
 
 ![Luồng xử lý, giao diện tối](docs/images/admin-flow-dark-vi.png)
+
+## SSO, SAML và SCIM
+
+Hướng dẫn từng bước cho Okta, Microsoft Entra ID, Google Workspace và
+Keycloak nằm ở [docs/sso.vi.md](docs/sso.vi.md); tham chiếu đầy đủ ở mục
+[Identity, SSO and two-factor authentication](README.md#identity-sso-and-two-factor-authentication)
+của README tiếng Anh.
+
+**SAML 2.0.** Quản trị viên instance thêm nhà cung cấp `type: "saml"` tại
+`/v1/admin/identity-providers` bằng metadata XML của IdP (`saml_metadata`,
+tối đa 256 KiB) thay cho client id và secret. Metadata phải có
+`SingleSignOnService` với binding **HTTP-Redirect** và chứng chỉ ký. Câu trả
+lời có `saml_sp`, các giá trị điền vào IdP, suy ra từ `PUBLIC_BASE_URL`:
+
+| Giá trị | URL |
+|---|---|
+| SP entity id (audience) | `<PUBLIC_BASE_URL>/v1/auth/saml/<id>/metadata` |
+| ACS (HTTP-POST) | `<PUBLIC_BASE_URL>/v1/auth/saml/<id>/acs` |
+| Metadata của SP | `<PUBLIC_BASE_URL>/v1/auth/saml/<id>/metadata` |
+
+Đăng nhập khởi tạo từ Guard Spec: `GET /v1/auth/saml/<id>/start` gửi
+AuthnRequest không ký, lưu id của nó 10 phút và gắn với trình duyệt bằng
+cookie `gs_saml`. ACS chỉ nhận response khi: response hoặc assertion được ký
+bằng chứng chỉ trong metadata, có đúng một assertion (không hỗ trợ assertion
+mã hoá); issuer, `Destination`, `Recipient` và audience đúng; thời gian hợp lệ
+(lệch 2 phút cho `NotBefore`); `InResponseTo` khớp một request do chính trình
+duyệt này bắt đầu; assertion chưa từng được dùng. Response không có
+`InResponseTo` (khởi tạo từ IdP) chỉ được nhận khi bật
+`saml_allow_idp_initiated`, mặc định tắt. Email lấy từ
+`saml_email_attribute` hoặc các tên thông dụng (`email`, `mail`, claim
+emailaddress…), rồi tới NameID nếu là email; tên từ `saml_name_attribute`
+hoặc `displayName`, `name`…; nhóm từ `saml_groups_attribute` hoặc `groups`,
+`memberOf`, claim groups của Microsoft, `Role`, `role`. Phần còn lại giống
+OIDC (liên kết, `auto_provision`, `domain_join`, mã dùng một lần,
+`POST /v1/auth/oidc/exchange`). Phiên có login method `saml:<provider id>`,
+dùng được trong `allowed_login_methods` và được `sso_satisfies_mfa` tính là
+SSO.
+
+**SCIM 2.0.** Base URL `<PUBLIC_BASE_URL>/v1/scim/v2` dùng chung cho mọi tổ
+chức; token cho biết là tổ chức nào. Owner tạo token bằng
+`POST /v1/organizations/:orgId/scim/tokens` (token `gss_...` chỉ hiện một lần,
+lưu dạng SHA-256, tối đa 20 token còn hiệu lực) và thu hồi bằng
+`DELETE .../scim/tokens/:id`; admin xem danh sách. Hỗ trợ `Users` và `Groups`
+(GET, POST, PUT, PATCH, DELETE), bộ lọc `attribute eq "value"`, các dạng PATCH
+của Okta (không có path, `members[value eq "..."]`) và Entra ID (`"True"` /
+`"False"`, op viết hoa). Email mới tạo tài khoản không mật khẩu; tài khoản sẵn
+có chỉ được liên kết khi đã là thành viên hoặc thuộc tên miền tổ chức nhận
+bằng `domain_join`. Deactivate (`active: false`) gỡ membership ngay (giữ role
+để kích hoạt lại), thu hồi API key người đó tạo trong tổ chức (trừ khi tắt
+`scim_revoke_keys`; key tạo trước migration 025 không có người tạo nên không
+bị thu hồi), và với tài khoản thuộc tổ chức (do SCIM tạo hoặc thuộc tên miền
+đã nhận) thì thu hồi mọi phiên và vô hiệu hoá tài khoản nếu nó không ở tổ
+chức nào khác; owner duy nhất thì bị từ chối (409). `DELETE` deactivate rồi
+xoá bản ghi SCIM, không xoá tài khoản. Tài khoản do SCIM tạo cần
+`trust_email_for_linking` ở nhà cung cấp SSO để đăng nhập lần đầu.
+
+**Role theo nhóm** (`GET`/`PUT /v1/organizations/:orgId/group-roles`, admin
+xem, owner sửa): ánh xạ nhóm SCIM (`provider_id` null, theo display name hoặc
+external id) hoặc giá trị nhóm của một nhà cung cấp SAML sang `viewer`,
+`member` hoặc `admin`. Role cao nhất khớp được sẽ thắng, owner không bao giờ
+bị đổi. Khi tổ chức đã có ánh xạ, IdP quyết định: người không còn nhóm nào
+khớp về `member` (ngay lập tức với SCIM, ở lần đăng nhập kế tiếp với SAML).
+Đăng nhập SAML chỉ đổi role ở các tổ chức người đó đã là thành viên.
+
+Nhật ký hoạt động có thêm `scim.user_created`, `scim.user_updated`,
+`scim.user_deactivated`, `scim.user_reactivated`, `scim.user_deleted`,
+`scim.group_created`, `scim.group_updated`, `scim.group_deleted`,
+`scim.token_created`, `scim.token_revoked`, `scim.group_roles_updated` và
+`member.role_from_group`; đăng nhập SAML thất bại là `login.failed` với method
+`saml:<id>`.
 
 ## Cảnh báo và thông báo
 

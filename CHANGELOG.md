@@ -9,6 +9,63 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ## [Unreleased]
 
+### Added
+
+- SAML 2.0 single sign-on (RF-39437a0f): identity providers of type `saml`,
+  added at `/v1/admin/identity-providers` with the IdP's metadata XML
+  (HTTP-Redirect binding; the entity id and signing certificates come from
+  it). Guard Spec is the service provider at
+  `<PUBLIC_BASE_URL>/v1/auth/saml/<id>/metadata` (entity id and SP metadata)
+  and `.../acs`; the provider's answer lists them as `saml_sp`. The ACS
+  checks the signature (Response or assertion, exactly one assertion),
+  issuer, destination, recipient, audience and validity (2 minutes of skew),
+  requires `InResponseTo` to answer a request started by the same browser,
+  and refuses a replayed assertion. IdP-initiated logins are off by default
+  (`saml_allow_idp_initiated`). Email, name and groups attributes are
+  configurable, with the usual names as defaults. Sessions have the login
+  method `saml:<provider id>` for `allowed_login_methods`. No encrypted
+  assertions and no single logout.
+  ([docs/sso.md](docs/sso.md))
+- SCIM 2.0 provisioning (RF-39437a0f): `Users` and `Groups` under
+  `<PUBLIC_BASE_URL>/v1/scim/v2`, with per-organization bearer tokens
+  (`gss_…`, shown once, stored as SHA-256; owners create and revoke them at
+  `/v1/organizations/:orgId/scim/tokens`). `eq` filters and the PATCH forms
+  Okta and Microsoft Entra ID send. A new email creates an account without a
+  password; an existing account is linked only if it is already a member or
+  in a domain the org claims with `domain_join`. Deactivation removes the
+  memberships (the role is kept for a reactivation), revokes the API keys the
+  user created and, for an account the org owns, revokes its sessions and
+  disables it when the org is its only one; the only owner cannot be
+  deactivated.
+- Roles from identity provider groups (RF-39437a0f):
+  `/v1/organizations/:orgId/group-roles` maps a SCIM group, or a value of a
+  SAML provider's groups attribute, to `viewer`, `member` or `admin`; the
+  highest match wins and owners never change. Once an org maps groups, users
+  whose groups match no mapping fall back to `member` (SCIM at once, SAML at
+  the next login); a SAML login changes roles only where the user is already
+  a member.
+- Org security setting `scim_revoke_keys` (default on): a SCIM deactivation
+  revokes the API keys the user created in the org.
+- API keys record who created them (`api_keys.created_by`).
+- Activity log actions `scim.user_*`, `scim.group_*`, `scim.token_created`,
+  `scim.token_revoked`, `scim.group_roles_updated` and
+  `member.role_from_group`.
+
+### Upgrade notes
+
+- Migration 025 adds the SAML and SCIM tables, `identity_providers` SAML
+  columns (`client_id` and `client_secret_env` become nullable),
+  `org_security.scim_revoke_keys` and `api_keys.created_by`. API keys created
+  before it have no creator, so a SCIM deactivation never revokes them:
+  review an org's existing keys when you turn SCIM on.
+- SAML and SCIM need `PUBLIC_BASE_URL` (https in production); the URLs the
+  identity provider is configured with derive from it.
+- Users that SCIM creates have no password: their first SSO login links by
+  email only when the provider has `trust_email_for_linking`
+  ([docs/sso.md](docs/sso.md#sign-in-for-scim-provisioned-users)).
+- Mapping groups to roles hands role decisions to the identity provider:
+  roles set by hand in that org are overwritten, also downwards.
+
 ## [0.4.0] - 2026-11-08
 
 ### Security
