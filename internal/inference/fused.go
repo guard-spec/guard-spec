@@ -27,19 +27,7 @@ type FusedBackend struct{ F Scorer }
 
 // Run implements ModelBackend.
 func (b FusedBackend) Run(ctx context.Context, text string) ([]Score, error) {
-	r := b.F.Score(ctx, text)
-	label := "BENIGN"
-	if r.Category != "" {
-		label = r.Category
-	}
-	return []Score{{
-		Label:      label,
-		Confidence: float32(r.Score),
-		Detail: &Detail{
-			L1: r.Layers[fusion.L1], L2: r.Layers[fusion.L2], L3: r.Layers[fusion.L3],
-			Category: r.Category, Categories: r.Categories, Rules: r.Rules,
-		},
-	}}, nil
+	return []Score{FusedScore(b.F.Score(ctx, text))}, nil
 }
 
 // NewRegexRunner returns a Runner with the legacy regex detector (L1 v1),

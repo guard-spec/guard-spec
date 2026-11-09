@@ -1,0 +1,473 @@
+// Copyright 2026 The Guard Spec Authors
+// SPDX-License-Identifier: Apache-2.0
+
+package inference
+
+import (
+	"context"
+	"fmt"
+	"sync"
+
+	"github.com/guard-spec/guard-spec/internal/inference/fusion"
+)
+
+// The long path scores texts past the short path's limit (16 chunks of about
+// 2 KB, see Scan): only when the operator raised MAX_SCAN_TOKENS, and only
+// inside the gateway's large-input lane. Inputs that fit the short path never
+// take it, so their scores do not change.
+//
+// With the classifier installed (ml.Live) a long text is tokenized once and
+// cut into the classifier's token windows (256 tokens overlapping by 64);
+// each window is fused from L1 on its text and L2 on its tokens, L3 left out,
+// and the text's score is the largest window score. Without it, the text is
+// cut into the short path's chunks, with no cap, and each chunk is scored
+// without L3. Every window is scored unless its text is already decided: a
+// window at or above the text's Threshold refuses the request whatever the
+// other windows score, so they are skipped (early exit).
+
+// Limiter bounds concurrent model runs (*onnx.Limiter).
+type Limiter interface {
+	Acquire(ctx context.Context) error
+	Release()
+	Cap() int
+}
+
+// LongInput is one text for the long path.
+type LongInput struct {
+	Text string
+	// Threshold stops scoring the text once a window's score reaches it:
+	// the request is refused anyway. 0 scores every window. Callers set it
+	// only when reaching it blocks the request (not in redact mode).
+	Threshold float64
+	// Uncounted leaves the text's tokens out of MaxTokens: earlier turns,
+	// which have a byte limit of their own.
+	Uncounted bool
+}
+
+// LongOptions tune the long path.
+type LongOptions struct {
+	// Limiter bounds the model runs (the large-input lane's own limiter)
+	// and how many batches run at once; nil: one at a time, unbounded.
+	Limiter Limiter
+	// BatchSize is the number of windows per model run (default 16).
+	BatchSize int
+	// MaxTokens refuses the texts with ErrInputTooLong when they hold more
+	// tokens together, before any model runs; 0: no cap; negative: no
+	// token left (any counted token refuses).
+	MaxTokens int
+}
+
+// DefaultLongBatch is the default LongOptions.BatchSize.
+const DefaultLongBatch = 16
+
+// LongStats counts the work of a long scan.
+type LongStats struct {
+	Tokens     int // content tokens of the texts
+	Counted    int // of those, the tokens MaxTokens counts (not Uncounted)
+	Windows    int // windows of the texts
+	Scored     int // windows fused
+	Duplicates int // windows not scored again: an identical one was
+	Skipped    int // windows not scored: their text was already decided
+}
+
+// Add sums two LongStats.
+func (s LongStats) Add(o LongStats) LongStats {
+	return LongStats{Tokens: s.Tokens + o.Tokens, Counted: s.Counted + o.Counted, Windows: s.Windows + o.Windows,
+		Scored: s.Scored + o.Scored, Duplicates: s.Duplicates + o.Duplicates, Skipped: s.Skipped + o.Skipped}
+}
+
+// Count adds a text's tokens and reports whether MaxTokens still holds.
+func (s *LongStats) Count(x LongInput, tokens int, o LongOptions) bool {
+	s.Tokens += tokens
+	if !x.Uncounted {
+		s.Counted += tokens
+	}
+	return o.MaxTokens == 0 || s.Counted <= max(o.MaxTokens, 0)
+}
+
+// LongResult is the long path's verdict on one text.
+type LongResult struct {
+	Score Score
+	// EarlyExit: some windows were skipped because the score reached the
+	// threshold. The score is then a lower bound, not to be cached.
+	EarlyExit bool
+}
+
+// LongDetector is a Scorer with a long path of its own (ml.Live).
+type LongDetector interface {
+	ScoreLong(ctx context.Context, in []LongInput, o LongOptions) ([]LongResult, LongStats, error)
+	// CountTokens is the number of tokens MAX_SCAN_TOKENS counts for text.
+	CountTokens(text string) (int, error)
+}
+
+// EstimateTokens is the token count used without a tokenizer: 4 bytes per
+// token, as for request.tokens in policies and the short path's chunks.
+func EstimateTokens(text string) int { return (len(text) + 3) / 4 }
+
+// FusedScore is the injection Score of a fused result.
+func FusedScore(r fusion.Result) Score {
+	label := "BENIGN"
+	if r.Category != "" {
+		label = r.Category
+	}
+	return Score{
+		Label:      label,
+		Confidence: float32(r.Score),
+		Detail: &Detail{
+			L1: r.Layers[fusion.L1], L2: r.Layers[fusion.L2], L3: r.Layers[fusion.L3],
+			Category: r.Category, Categories: r.Categories, Rules: r.Rules,
+		},
+	}
+}
+
+// RunLongBatches runs the batches of a long scan on up to workers goroutines,
+// in order. A unit (a window or a chunk) belongs to one or more texts
+// (owners[unit]); thresholds[text] > 0 decides a text once one of its units
+// scores at least that much. Before a batch runs, its units whose texts are
+// all decided are dropped (early exit). run scores the units of a batch and
+// returns their scores in order; it bounds its own model runs. RunLongBatches
+// returns which units were scored, or the first error, which stops the rest.
+func RunLongBatches(ctx context.Context, workers int, owners [][]int, thresholds []float64, batches [][]int,
+	run func(ctx context.Context, units []int) ([]float64, error)) ([]bool, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var (
+		mu       sync.Mutex
+		decided  = make([]bool, len(thresholds))
+		scored   = make([]bool, len(owners))
+		firstErr error
+	)
+	open := func(units []int) []int {
+		mu.Lock()
+		defer mu.Unlock()
+		var out []int
+		for _, u := range units {
+			for _, t := range owners[u] {
+				if !decided[t] {
+					out = append(out, u)
+					break
+				}
+			}
+		}
+		return out
+	}
+	settle := func(units []int, scores []float64) {
+		mu.Lock()
+		defer mu.Unlock()
+		for i, u := range units {
+			scored[u] = true
+			for _, t := range owners[u] {
+				if th := thresholds[t]; th > 0 && scores[i] >= th {
+					decided[t] = true
+				}
+			}
+		}
+	}
+	fail := func(err error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if firstErr == nil {
+			firstErr = err
+			cancel()
+		}
+	}
+	jobs := make(chan []int)
+	var wg sync.WaitGroup
+	for range min(max(1, workers), max(1, len(batches))) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for b := range jobs {
+				units := open(b)
+				if len(units) == 0 || ctx.Err() != nil {
+					continue
+				}
+				scores, err := run(ctx, units)
+				if err == nil && len(scores) != len(units) {
+					err = fmt.Errorf("inference: %d scores for %d windows", len(scores), len(units))
+				}
+				if err != nil {
+					fail(err)
+					continue
+				}
+				settle(units, scores)
+			}
+		}()
+	}
+feed:
+	for _, b := range batches {
+		select {
+		case jobs <- b:
+		case <-ctx.Done():
+			break feed
+		}
+	}
+	close(jobs)
+	wg.Wait()
+	if firstErr != nil {
+		return nil, firstErr
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return scored, nil
+}
+
+// ScoreLongChunks is the long path without token windows: each text is cut
+// into the short path's chunks, with no cap, and score runs on each distinct
+// chunk, at most Limiter.Cap() at a time. Tokens are estimated (4 bytes each).
+func ScoreLongChunks(ctx context.Context, score func(ctx context.Context, text string) (Score, error),
+	in []LongInput, o LongOptions) ([]LongResult, LongStats, error) {
+	var st LongStats
+	var chunks []string
+	var owners [][]int
+	index := map[string]int{}
+	units := make([][]int, len(in)) // per text, its chunks in order
+	thresholds := make([]float64, len(in))
+	for i, x := range in {
+		thresholds[i] = x.Threshold
+		if !st.Count(x, EstimateTokens(x.Text), o) {
+			return nil, st, ErrInputTooLong
+		}
+		for _, c := range chunkAll(x.Text, shortWindowChars, shortStrideChars) {
+			st.Windows++
+			u, ok := index[c]
+			if ok {
+				st.Duplicates++
+			} else {
+				u = len(chunks)
+				index[c] = u
+				chunks = append(chunks, c)
+				owners = append(owners, nil)
+			}
+			if n := len(owners[u]); n == 0 || owners[u][n-1] != i {
+				owners[u] = append(owners[u], i)
+			}
+			units[i] = append(units[i], u)
+		}
+	}
+	batches := make([][]int, len(chunks))
+	for u := range chunks {
+		batches[u] = []int{u}
+	}
+	res := make([]Score, len(chunks))
+	workers := 1
+	if o.Limiter != nil {
+		workers = o.Limiter.Cap()
+	}
+	scored, err := RunLongBatches(ctx, workers, owners, thresholds, batches,
+		func(ctx context.Context, us []int) ([]float64, error) {
+			if o.Limiter != nil {
+				if err := o.Limiter.Acquire(ctx); err != nil {
+					return nil, err
+				}
+				defer o.Limiter.Release()
+			}
+			out := make([]float64, len(us))
+			for i, u := range us {
+				s, err := score(ctx, chunks[u])
+				if err != nil {
+					return nil, err
+				}
+				res[u] = s
+				out[i] = float64(s.Confidence)
+			}
+			return out, nil
+		})
+	if err != nil {
+		return nil, st, err
+	}
+	for _, ok := range scored {
+		if ok {
+			st.Scored++
+		} else {
+			st.Skipped++
+		}
+	}
+	out := make([]LongResult, len(in))
+	for i, us := range units {
+		out[i] = aggregateLong(us, scored, func(u int) Score { return res[u] })
+	}
+	return out, st, nil
+}
+
+// aggregateLong is a text's result from its units, in order: the highest
+// score (the first of equal ones), and EarlyExit when a unit was skipped.
+func aggregateLong(units []int, scored []bool, score func(int) Score) LongResult {
+	var out LongResult
+	first := true
+	for _, u := range units {
+		if !scored[u] {
+			out.EarlyExit = true
+			continue
+		}
+		if s := score(u); first || s.Confidence > out.Score.Confidence {
+			out.Score, first = s, false
+		}
+	}
+	return out
+}
+
+// chunkAll is chunkText without the cap.
+func chunkAll(text string, winChars, strideChars int) []string {
+	if len(text) <= winChars {
+		return []string{text}
+	}
+	var chunks []string
+	for start := 0; ; start = runeStart(text, start+strideChars) {
+		end := runeStart(text, min(start+winChars, len(text)))
+		chunks = append(chunks, text[start:end])
+		if end == len(text) {
+			return chunks
+		}
+	}
+}
+
+// longKey carries a LongScan in a context.
+type longKey struct{}
+
+// LongScan lets Scan take the long path for texts past the short path's
+// limit, within one request: the gateway makes one after the request was
+// admitted to the large-input lane. Texts scored ahead with Prescore are
+// served from it; others are scored when Scan meets them. MaxTokens in its
+// options is the budget of the whole request.
+type LongScan struct {
+	opts LongOptions
+
+	mu     sync.Mutex
+	done   map[string]LongResult
+	stats  LongStats
+	budget int // tokens left; only with opts.MaxTokens > 0
+}
+
+// NewLongScan returns an empty LongScan.
+func NewLongScan(o LongOptions) *LongScan {
+	return &LongScan{opts: o, done: map[string]LongResult{}, budget: o.MaxTokens}
+}
+
+// WithLongScan returns ctx carrying ls.
+func WithLongScan(ctx context.Context, ls *LongScan) context.Context {
+	return context.WithValue(ctx, longKey{}, ls)
+}
+
+func longScanFrom(ctx context.Context) *LongScan {
+	ls, _ := ctx.Value(longKey{}).(*LongScan)
+	return ls
+}
+
+// Stats is the work done so far.
+func (ls *LongScan) Stats() LongStats {
+	ls.mu.Lock()
+	defer ls.mu.Unlock()
+	return ls.stats
+}
+
+// Prescore scores texts on the long path together, so their windows share
+// batches and duplicates are scored once; Scan then finds them.
+func (r *Runner) Prescore(ctx context.Context, ls *LongScan, in []LongInput) error {
+	var todo []LongInput
+	ls.mu.Lock()
+	seen := map[string]bool{}
+	for _, x := range in {
+		if _, ok := ls.done[x.Text]; !ok && !seen[x.Text] {
+			seen[x.Text] = true
+			todo = append(todo, x)
+		}
+	}
+	ls.mu.Unlock()
+	if len(todo) == 0 {
+		return nil
+	}
+	_, err := r.scanLong(ctx, ls, todo)
+	return err
+}
+
+// scanLong scores texts within ls's budget and keeps the results.
+func (r *Runner) scanLong(ctx context.Context, ls *LongScan, in []LongInput) ([]LongResult, error) {
+	o := ls.opts
+	ls.mu.Lock()
+	if o.MaxTokens > 0 {
+		o.MaxTokens = ls.budget
+		if o.MaxTokens == 0 {
+			o.MaxTokens = -1 // spent: any counted token refuses
+		}
+	}
+	ls.mu.Unlock()
+	res, st, err := r.ScanLong(ctx, in, o)
+	ls.mu.Lock()
+	defer ls.mu.Unlock()
+	ls.stats = ls.stats.Add(st)
+	if err != nil {
+		return nil, err
+	}
+	ls.budget -= st.Counted
+	for i, x := range in {
+		ls.done[x.Text] = res[i]
+	}
+	return res, nil
+}
+
+// lookup returns the result of a text scored on the long path before.
+func (ls *LongScan) lookup(text string) (LongResult, bool) {
+	ls.mu.Lock()
+	defer ls.mu.Unlock()
+	r, ok := ls.done[text]
+	return r, ok
+}
+
+// longBackend is a ModelBackend with a long path of its own.
+type longBackend interface {
+	scoreLong(ctx context.Context, in []LongInput, o LongOptions) ([]LongResult, LongStats, error)
+	countTokens(text string) (int, error)
+}
+
+// ScanLong scores texts on the long path (see the comment at the top of this
+// file) with the injection backend.
+func (r *Runner) ScanLong(ctx context.Context, in []LongInput, o LongOptions) ([]LongResult, LongStats, error) {
+	if o.BatchSize <= 0 {
+		o.BatchSize = DefaultLongBatch
+	}
+	if lb, ok := r.injection.(longBackend); ok {
+		return lb.scoreLong(ctx, in, o)
+	}
+	return ScoreLongChunks(ctx, func(ctx context.Context, text string) (Score, error) {
+		s, err := r.injection.Run(ctx, text)
+		if err != nil {
+			return Score{}, err
+		}
+		return maxScore(s), nil
+	}, in, o)
+}
+
+// CountTokens is the number of tokens MAX_SCAN_TOKENS counts for text: the
+// classifier's tokens when it is installed, else EstimateTokens.
+func (r *Runner) CountTokens(text string) (int, error) {
+	if lb, ok := r.injection.(longBackend); ok {
+		return lb.countTokens(text)
+	}
+	return EstimateTokens(text), nil
+}
+
+func (b FusedBackend) scoreLong(ctx context.Context, in []LongInput, o LongOptions) ([]LongResult, LongStats, error) {
+	if d, ok := b.F.(LongDetector); ok {
+		return d.ScoreLong(ctx, in, o)
+	}
+	score := func(ctx context.Context, text string) (Score, error) {
+		return FusedScore(b.F.Score(ctx, text)), nil
+	}
+	if w, ok := b.F.(interface {
+		ScoreWithout(ctx context.Context, text string, slot int) fusion.Result
+	}); ok {
+		score = func(ctx context.Context, text string) (Score, error) {
+			return FusedScore(w.ScoreWithout(ctx, text, fusion.L3)), nil
+		}
+	}
+	return ScoreLongChunks(ctx, score, in, o)
+}
+
+func (b FusedBackend) countTokens(text string) (int, error) {
+	if d, ok := b.F.(LongDetector); ok {
+		return d.CountTokens(text)
+	}
+	return EstimateTokens(text), nil
+}

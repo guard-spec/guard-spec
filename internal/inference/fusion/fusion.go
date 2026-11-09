@@ -141,6 +141,14 @@ func (f *Fuser) SetCascade(c *Cascade) { f.cascade = c }
 // not run, that request falls back to max.
 func (f *Fuser) SetCombiner(lr *LogReg) { f.combine = lr }
 
+// Without returns a copy of f with the slot's layer removed; the copy keeps
+// f's calibrations, cascade, combiner and L1 floor until they are set on it.
+func (f *Fuser) Without(slot int) *Fuser {
+	c := *f
+	c.layers[slot] = nil
+	return &c
+}
+
 // Has reports whether a layer is installed in the slot.
 func (f *Fuser) Has(slot int) bool { return f.layers[slot] != nil }
 
@@ -188,47 +196,109 @@ const minCategoryScore = 0.3
 // fails is reported as Missing and left out; the result then rests on the
 // layers that ran. With no layer at all the score is 0.
 func (f *Fuser) Score(ctx context.Context, text string) Result {
-	var (
-		out  [numLayers]LayerResult
-		errs [numLayers]error
-		ran  [numLayers]bool
-	)
-	run := func(slot int) {
-		start := time.Now()
-		out[slot], errs[slot] = f.layers[slot].Score(ctx, text)
-		metrics.DetectorDuration.WithLabelValues(layerNames[slot]).Observe(time.Since(start).Seconds())
-		ran[slot] = true
-	}
+	return f.score(ctx, text, -1)
+}
+
+// ScoreWithout is Score with the layer in slot left out for this text: it is
+// reported as Missing, and with the combiner the text falls back to max when
+// the slot has a weight (as when a layer fails). The long path
+// (inference.Runner.ScanLong) leaves out L3 this way.
+func (f *Fuser) ScoreWithout(ctx context.Context, text string, slot int) Result {
+	return f.score(ctx, text, slot)
+}
+
+// pass holds one text's layer verdicts before fusion.
+type pass struct {
+	out  [numLayers]LayerResult
+	errs [numLayers]error
+	ran  [numLayers]bool
+	skip bool // the cascade found L1 decisive
+}
+
+func (f *Fuser) runLayer(ctx context.Context, p *pass, slot int, text string) {
+	start := time.Now()
+	p.out[slot], p.errs[slot] = f.layers[slot].Score(ctx, text)
+	metrics.DetectorDuration.WithLabelValues(layerNames[slot]).Observe(time.Since(start).Seconds())
+	p.ran[slot] = true
+}
+
+// first runs L1 and decides the cascade.
+func (f *Fuser) first(ctx context.Context, text string) pass {
+	var p pass
 	if f.layers[L1] != nil {
-		run(L1)
+		f.runLayer(ctx, &p, L1, text)
 	}
-	skip := false
-	if c := f.cascade; c != nil && ran[L1] && errs[L1] == nil {
-		p := f.cal[L1].Apply(out[L1].Score)
-		skip = p >= c.High || p <= c.Low
+	if c := f.cascade; c != nil && p.ran[L1] && p.errs[L1] == nil {
+		cal := f.cal[L1].Apply(p.out[L1].Score)
+		p.skip = cal >= c.High || cal <= c.Low
 	}
-	if !skip {
+	return p
+}
+
+// score is Score with the layer in slot without left out (-1: none).
+func (f *Fuser) score(ctx context.Context, text string, without int) Result {
+	p := f.first(ctx, text)
+	if !p.skip {
 		var rest []int
 		for slot := L1 + 1; slot < numLayers; slot++ {
-			if f.layers[slot] != nil {
+			if f.layers[slot] != nil && slot != without {
 				rest = append(rest, slot)
 			}
 		}
 		if len(rest) == 1 {
-			run(rest[0])
+			f.runLayer(ctx, &p, rest[0], text)
 		} else if len(rest) > 1 {
 			var wg sync.WaitGroup
 			for _, slot := range rest {
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
-					run(slot)
+					f.runLayer(ctx, &p, slot, text)
 				}()
 			}
 			wg.Wait()
 		}
 	}
+	return f.fuse(p.out, p.errs, p.ran, p.skip)
+}
 
+// Partial is a text whose L1 verdict is known and whose L2 verdict the
+// caller gets itself, in a batch with other texts (the long path). Begin
+// makes one; Finish fuses it.
+type Partial struct{ p pass }
+
+// Begin runs L1 on text and decides the cascade: the first half of Score,
+// for a caller that runs L2 itself.
+func (f *Fuser) Begin(ctx context.Context, text string) Partial {
+	return Partial{p: f.first(ctx, text)}
+}
+
+// L1Raw is the raw L1 score of a Partial (0 when L1 did not run or failed).
+// The long path scores windows with an L1 signal first.
+func (pt Partial) L1Raw() float64 {
+	if !pt.p.ran[L1] || pt.p.errs[L1] != nil {
+		return 0
+	}
+	return pt.p.out[L1].Score
+}
+
+// WantsL2 reports whether Finish needs an L2 verdict for pt: L2 is installed
+// and the cascade did not find L1 decisive.
+func (f *Fuser) WantsL2(pt Partial) bool { return f.layers[L2] != nil && !pt.p.skip }
+
+// Finish fuses a Partial with the L2 verdict the caller got: lr, or err when
+// L2 failed (left out, as a failed layer is in Score). They are ignored when
+// WantsL2 is false. L3 is left out, as with ScoreWithout(ctx, text, L3).
+func (f *Fuser) Finish(pt Partial, lr LayerResult, err error) Result {
+	p := pt.p
+	if f.WantsL2(pt) {
+		p.out[L2], p.errs[L2], p.ran[L2] = lr, err, true
+	}
+	return f.fuse(p.out, p.errs, p.ran, p.skip)
+}
+
+// fuse combines one text's layer verdicts.
+func (f *Fuser) fuse(out [numLayers]LayerResult, errs [numLayers]error, ran [numLayers]bool, skip bool) Result {
 	res := Result{Categories: map[string]float64{}, Cascaded: skip}
 	best := -1.0
 	for slot := range f.layers {
