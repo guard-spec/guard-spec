@@ -94,7 +94,9 @@ func TestLargeInputWithModels(t *testing.T) {
 func TestShortLatencyUnderLargeLoadWithModels(t *testing.T) {
 	runner := liveRunner(t)
 	up := newFakeUpstream(t, okUpstream)
-	h := largeGateway(t, up.URL, 1_000_000, laneConfig(defaultLargeConcurrency()), func(gw *gateway) { gw.runner = runner })
+	lane := laneConfig(defaultLargeConcurrency())
+	lane.QueueTimeout = 10 * time.Minute // the race detector slows the large scans down
+	h := largeGateway(t, up.URL, 1_000_000, lane, func(gw *gateway) { gw.runner = runner })
 	short := func(n int) []time.Duration {
 		var mu sync.Mutex
 		var out []time.Duration
