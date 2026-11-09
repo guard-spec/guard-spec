@@ -160,6 +160,18 @@ func putOrgSecurity(db *pgxpool.Pool) fiber.Handler {
 		if err := json.Unmarshal(c.Body(), &s); err != nil {
 			return c.Status(400).JSON(fiber.Map{"error": "invalid body"})
 		}
+		// An absent allowed_login_methods keeps the stored restriction; only
+		// an explicit null lifts it. Otherwise saving another setting from a
+		// client that leaves the field out would silently allow every method.
+		var fields map[string]json.RawMessage
+		_ = json.Unmarshal(c.Body(), &fields)
+		if _, given := fields["allowed_login_methods"]; !given {
+			cur, err := loadOrgSecurity(c.Context(), db, org)
+			if err != nil {
+				return serverError(c, err)
+			}
+			s.AllowedLoginMethods = cur.AllowedLoginMethods
+		}
 		var invalid error
 		if err := s.validate(c.Context(), db); err != nil {
 			invalid = err
