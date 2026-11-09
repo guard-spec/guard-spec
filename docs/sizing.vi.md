@@ -118,6 +118,59 @@ và trong lúc chờ upstream, gateway không tốn CPU.
   [`deploy/helm/guard-spec/examples/`](../deploy/helm/guard-spec/examples/)
   và [README, Kubernetes](../README.md#kubernetes).
 
+## Input dài
+
+Một văn bản dài tốn CPU tỷ lệ với độ dài của nó: gateway cắt văn bản thành
+các chunk 2,048 byte (văn bản không tin cậy được cắt trước thành các đoạn
+24 KiB) và classifier chấm từng chunk theo cửa sổ 256 token. Hiện nay một
+request mang tối đa 128 KiB văn bản không tin cậy (khoảng 30k token) và một
+tin nhắn tối đa 16 chunk; các số dưới đây cho biết tài liệu lớn hơn sẽ tốn
+bao nhiêu. Chất lượng phát hiện trên văn bản dài (false positive tăng theo độ
+dài) nằm ở [benchmark, Tài liệu dài](benchmark.vi.md#tài-liệu-dài).
+
+Đo bằng `make bench-long` (`cmd/benchlong`, bộ phát hiện `l1,l2`, lần lượt
+từng tài liệu, K chunk của một tài liệu được chấm song song; tài liệu
+Wikipedia 20k token tiếng Anh và tiếng Việt). `intra` là
+`INFERENCE_INTRA_OP_THREADS`; "mặc định ORT" để ONNX Runtime dùng mọi core cho
+mỗi lần chạy.
+
+| Phần cứng | Nguồn | ms mỗi cửa sổ (intra 1) | Token/s, intra 1, K = 4 | Token/s, mặc định ORT, K = 4 | Token quét được trong 10 s (tốt nhất) | CPU-s mỗi 1k token | Tài liệu 20k token (tốt nhất) |
+|---|---|---:|---:|---:|---:|---:|---:|
+| 2 vCPU | sẽ đo bằng [`bench-long.yml`](../.github/workflows/bench-long.yml) (ubuntu-24.04, `taskset -c 0,1`) | | | | | | |
+| 4 vCPU | sẽ đo bằng [`bench-long.yml`](../.github/workflows/bench-long.yml) (ubuntu-24.04) | | | | | | |
+| Apple M3 Max, 14 core | M3 Max, máy local, chỉ mang tính tham khảo (2026-11-09, profile quick) | 61.8 | 9,209 | 17,551 | khoảng 175,000 | 0.42 (intra 1), 0.57 (mặc định) | 1.1 đến 1.2 s |
+| 8 vCPU | ước tính | | khoảng 18,000 | | khoảng 180,000 | | khoảng 1.1 s |
+| 16 vCPU | ước tính | | khoảng 37,000 | | khoảng 370,000 | | khoảng 0.6 s |
+| GPU | chưa đo (task RF-b74de2b9) | | | | | | |
+
+- Các dòng 8 và 16 vCPU là ước tính, không phải số đo: chúng nhân tốc độ của
+  M3 Max trên mỗi core bận (khoảng 2,300 token/s mỗi core ở intra 1, K = 4)
+  tuyến tính theo số core, với giả định K và `INFERENCE_MAX_CONCURRENCY` tăng
+  theo số core. vCPU trên cloud thường là hyperthread và chậm hơn một core M3
+  Max: hãy thay các dòng này bằng lần đo của bạn.
+- CPU cho mỗi token gần như không đổi theo K hay intra: song song nhiều hơn
+  rút ngắn thời gian của một tài liệu, không giảm chi phí của nó. Một server
+  quét tài liệu cho nhiều người cùng lúc đạt cùng tổng throughput với intra 1
+  và nhiều lần chạy đồng thời như với ít lần chạy rộng hơn.
+- Bảng đầy đủ của từng lần chạy (riêng L2, mọi K, thời gian từng tài liệu)
+  nằm trong [`bench/results/long-m3max-local.md`](../bench/results/long-m3max-local.md).
+
+### Đo input dài trên phần cứng của bạn
+
+```bash
+make bench-long                    # PROFILE=quick: about 1.6M tokens, about 7 minutes on an M3 Max
+make bench-long PROFILE=full       # about 9.5M tokens
+# your own documents, no Python needed: one .txt file per document
+go run -tags onnx ./cmd/benchlong -docs ./my-docs -lang vi -host my-server
+```
+
+`make bench-long` cần [uv](https://docs.astral.sh/uv/) cho bộ dựng corpus và
+tải các nguồn công khai đã ghim một lần vào `bench/.cache`. Cả hai cách đều
+ghi `bench/results/long-<host>.json` và `.md`; cách `-docs` báo phân bố điểm,
+false positive và latency trên văn bản của bạn (không có tấn công nên không có
+tỷ lệ phát hiện). Ghim core bằng `taskset -c 0,1` và đặt
+`INFERENCE_MAX_CONCURRENCY` tương ứng, như dòng 2 vCPU.
+
 ## Ổ đĩa
 
 - Model: khoảng 135 MB (nhẹ) hoặc 270 MB (đầy đủ) cho mỗi phiên bản được giữ,

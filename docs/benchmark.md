@@ -18,6 +18,7 @@ detectors run with their published defaults.
 - [Detectors](#detectors)
 - [Results](#results)
 - [Discussion](#discussion)
+- [Long documents](#long-documents)
 
 ## Summary
 
@@ -337,7 +338,8 @@ User prompts only. Labels depend on the chatbot's system prompt (a request that 
 - **L3 does not help on these sets.** L1+L2+L3 and L1+L2 are within noise on
   `eval/`, `deepset` and `jailbreak-classification`, and L3 is lower on SPML at
   1% FPR (84.5% against 89.2%). It adds 0.5–1.3 ms per row at p50.
-- **Long inputs.** Guard Spec scores every 512-token chunk of a long input;
+- **Long inputs.** Guard Spec scores every 2,048-byte chunk of a long input,
+  each in 256-token windows (see [Long documents](#long-documents));
   the long role-play prompts of `jailbreak-classification` take 42 ms at p50
   and 510 ms at p95 with the model layers (ProtectAI: 330 ms and 1.16 s, but
   it reads only the first 512 tokens).
@@ -369,6 +371,104 @@ User prompts only. Labels depend on the chatbot's system prompt (a request that 
   the README's "TPR at block" (0.939), which counts the detector score only.
 - Language labels of the public sets come from a simple marker rule, not a
   language-identification model.
+
+## Long documents
+
+The tables above score short prompts. Retrieved documents, tool results and
+pasted files are longer, and a detector that takes the **maximum over a
+text's windows** gets more chances to fire as the text grows. This section
+measures that, with `make bench-long` (`bench/long/`, `cmd/benchlong`).
+
+**Setup.** The corpus is built from pinned public sources (Wikipedia EN/VI,
+the U.S. Code, Go source code, Vietnamese public-domain literature and laws
+from vi.wikisource; licences in
+[`bench/long/corpus.yaml`](../bench/long/corpus.yaml)), plus seeded synthetic
+logs, JSON, CSV, e-mail threads, chat transcripts and hard negatives (benign
+text about prompt injection). Texts of one genre are joined to 20k, 50k,
+100k, 200k and 500k tokens. Attack documents put one payload from the
+**hold-out half of `eval/`** into a 2k-token host (a 28 KB one for the
+segment boundary): at the start, the end, a random place, across a 256-token
+window, a 2,048-byte chunk or a 24 KiB segment boundary, split in two halves
+(adjacent, or about 1,500 tokens apart), hidden with zero-width or Unicode tag
+characters, or shaped as a code comment or a JSON field; `control` is the
+payload alone. Every text goes through the gateway's sanitizer. Two paths:
+
+- `l2`: the classifier alone on every 256-token window (64-token overlap),
+  Platt-calibrated as in the fusion;
+- `l1,l2/logreg` (and `l1/max`): the gateway's fused score on every
+  2,048-byte chunk, cut as the gateway cuts untrusted text but without its
+  16-chunk cap. This is the score the 0.85 block threshold applies to.
+
+T(n) is the threshold that keeps a benign text of n units (windows or chunks)
+under 1% false positives: the larger of a block-bootstrap q99 of the maximum
+over n contiguous benign units and a GEV fit on the logit of 16-unit block
+maxima.
+
+**First run: quick profile, local and indicative.** Apple M3 Max, ONNX
+Runtime 1.31.1, `guardspec-classifier-v3b`, 2026-11-09, run from the
+branch that added the benchmark; 26 benign documents (0.86M tokens), 12
+payloads per language. Small samples: one 100k document per language, and
+12 attacks per cell (one attack is 8 points). Full tables:
+[`bench/results/long-m3max-local.md`](../bench/results/long-m3max-local.md).
+The 4 vCPU and 2 vCPU runs on GitHub's runners come from
+[`bench-long.yml`](../.github/workflows/bench-long.yml) after merge.
+
+False positives of benign text at the 0.85 block threshold (`l1,l2`):
+
+| | EN | VI (provisional) |
+|---|---:|---:|
+| One chunk (n = 1) | 7.8% | 2.9% |
+| 16 chunks (about 7k tokens) | 26.1% | 13.9% |
+| 64 chunks (about 26k tokens) | 49.8% | 38.4% |
+| 20k-token documents (9 per language) | 44.4% | 33.3% |
+| 50k-token documents (3) | 66.7% | 66.7% |
+| 100k-token documents (1) | 100% | 100% |
+| T(1) / T(16) / T(64) | 0.961 / 0.985 / 0.987 | 0.942 / 0.998 / 1.000 |
+
+The classifier alone (`l2`, per 256-token window) shows the same growth:
+4.2% of English windows reach 0.85, 20.4% of 16-window stretches and 64.8% of
+256-window ones (Vietnamese 1.1%, 5.9%, 27.2%).
+
+Detection of a payload in a 2k-token host (`l1,l2`, gateway decision, EN / VI):
+
+| Variant | EN | VI |
+|---|---:|---:|
+| `control` (payload alone) | 100% | 91.7% |
+| start / end / random place | 50.0% / 41.7% / 33.3% | 50.0% / 58.3% / 33.3% |
+| across a window / chunk / segment boundary | 100% / 58.3% / 50.0% | 50.0% / 41.7% / 66.7% |
+| split, adjacent / far apart | 33.3% / 8.3% | 16.7% / 25.0% |
+| zero-width / tag characters | 41.7% / 100% (anomaly) | 58.3% / 100% (anomaly) |
+| code comment / JSON field | 91.7% / 91.7% | 66.7% / 91.7% |
+
+**What this means.**
+
+- **Benign long text is not safe at 0.85 today.** Ordinary prose (Wikipedia,
+  the U.S. Code, Vietnamese literature) has 0.4% to 2.4% of its chunks at or
+  above 0.85, and some genres far more:
+  51.6% of Go source chunks, 78.8% of the synthetic Vietnamese log chunks and
+  5.7% of the English hard negatives score at or above 0.85 with `l1,l2`
+  (the rules alone flag 60% of hard-negative chunks: they quote attack
+  phrases). Since a document is flagged when any chunk is, a 50k-token
+  document is flagged more often than not.
+- **No threshold fixes it.** T(n) climbs to 0.99 and beyond within 16 chunks:
+  a threshold that keeps long benign text under 1% false positives would
+  also miss most attacks. The fix has to come from the model (training on
+  code, logs and long documents) or from aggregation other than the maximum,
+  not from the threshold.
+- **A payload inside benign text is often missed.** The same payloads that
+  are caught alone (100% EN) are caught 33% to 50% of the time when they sit
+  in the middle of a chunk of prose. They are caught when they stand on their
+  own lines (code comment, JSON field) or fill most of a window.
+- **Split payloads far apart are not caught by design**: no window sees both
+  halves (8.3% / 25.0%).
+- **Tag-character payloads** are invisible to the model after the sanitizer
+  strips them; the sanitizer's anomaly score blocks all of them.
+- Vietnamese numbers are provisional: the Vietnamese corpus has fewer and
+  less varied sources (no code; laws, literature, Wikipedia and synthetic text).
+
+Reproduce: `make bench-long` (quick) or `make bench-long PROFILE=full`; see
+[sizing, Long inputs](sizing.md#long-inputs) for running it on your own
+hardware or your own documents.
 
 The results will also appear on [guardspec.io/docs](https://guardspec.io/docs/),
 which is built from this page.

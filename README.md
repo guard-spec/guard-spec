@@ -1453,8 +1453,9 @@ Each row is a single run.
 | L1 + L2 + L3 (v3b), cascade | 5.4 / 16.1 / 19.6 ms | 6.7 / 20.0 / 24.0 ms |
 
 **One model run per request** (`cmd/onnxbench`, 200 requests per row, a text
-of exactly that many tokens; 2,048 tokens are scored as several overlapping
-512-token windows). "Conc 4" is four concurrent requests: on 4 vCPUs each run
+of exactly that many tokens; anything longer than 256 tokens is scored as
+several 256-token windows overlapping by 64 tokens, the window both models
+use: v3b's `max_len` and L3's `l3WindowTokens`). "Conc 4" is four concurrent requests: on 4 vCPUs each run
 already uses every core, so latency grows about 4x and throughput stays flat.
 
 | Layer | Tokens | Conc | amd64 p50 / p95 / p99 | amd64 req/s | arm64 p50 / p95 / p99 | arm64 req/s |

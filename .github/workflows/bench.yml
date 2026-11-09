@@ -9,7 +9,7 @@ name: Bench
 #   - cmd/eval: sanitizer + detector per row of eval/ (2,176 rows), one row at
 #     a time, for L1 only, L1+L2, L1+L2+L3 and L1+L2+L3 with the cascade;
 #   - cmd/onnxbench: one model run per request (L2 classifier, L3 embedder)
-#     at 64 to 2048 tokens (2048 is split into 512-token windows), with 1
+#     at 64 to 2048 tokens (longer than 256 is split into 256-token windows), with 1
 #     and 4 concurrent requests.
 #
 # GitHub-hosted runners are shared VMs: read the numbers as indicative.

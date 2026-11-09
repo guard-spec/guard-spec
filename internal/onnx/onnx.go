@@ -609,6 +609,50 @@ func (c *Classifier) Risk(ctx context.Context, texts []string) ([]float32, error
 	return out, nil
 }
 
+// WindowScore is one window of a text scored by ScoreWindows.
+type WindowScore struct {
+	// Start and End are the window's content tokens, [Start, End) in the
+	// text's token sequence (special tokens and Options.Prefix not counted).
+	Start, End int
+	// Probs are the window's per-label probabilities, in Labels order.
+	Probs []float32
+}
+
+// ScoreWindows scores text window by window, with the same windowing as
+// Score (MaxLength, Stride and the MaxChunks cap), and returns every window
+// in text order. The per-label worst case over the windows (minimum for the
+// benign label, maximum for the others) is what Score returns for the text.
+func (c *Classifier) ScoreWindows(ctx context.Context, text string) ([]WindowScore, error) {
+	activate := softmax
+	if c.head == HeadSigmoid {
+		activate = sigmoid
+	}
+	var out []WindowScore
+	step := c.m.maxLen - len(c.m.prefix) - len(c.m.suffix) - c.m.stride
+	err := c.m.run(ctx, []string{text}, func(b batchOut) error {
+		if len(b.shape) != 2 || int(b.shape[0]) != len(b.wins) || int(b.shape[1]) != len(c.labels) {
+			return fmt.Errorf("onnx: classifier output shape %v, want [%d %d]", b.shape, len(b.wins), len(c.labels))
+		}
+		nl := len(c.labels)
+		for r, w := range b.wins {
+			for len(out) <= w.pos {
+				out = append(out, WindowScore{})
+			}
+			start := w.pos * step
+			out[w.pos] = WindowScore{
+				Start: start,
+				End:   start + len(w.ids) - len(c.m.prefix) - len(c.m.suffix),
+				Probs: activate(b.data[r*nl : (r+1)*nl]),
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // TokenCount is the number of content tokens (no special tokens) in text.
 func (c *Classifier) TokenCount(text string) (int, error) { return c.m.tokenCount(text) }
 

@@ -1,0 +1,128 @@
+name: Bench long inputs
+
+# Long-input benchmark (docs/benchmark.md "Long documents", docs/sizing.md
+# "Long inputs") on GitHub-hosted ubuntu-24.04 runners: bench/long/build.py
+# builds the corpus (public sources pinned in bench/long/corpus.yaml, seeded
+# synthetic genres, payloads from the eval/ hold-out half), then
+# cmd/benchlong measures score distributions, false positives and the
+# thresholds T(n) as a text grows, detection of payloads hidden in long
+# text, and latency / CPU per document. The released classifier
+# (guardspec-classifier v3b) is pulled by cmd/models and checked against
+# models/manifest.yaml.
+#
+# Two rows of the hardware table in docs/sizing.md:
+#   - 4 vCPU: the whole runner, with the chosen profile;
+#   - 2 vCPU: the same runner pinned to two cores (taskset -c 0,1,
+#     INFERENCE_MAX_CONCURRENCY=2), quick profile.
+#
+# Manual only (Actions > Bench long inputs > Run workflow, or
+# `gh workflow run bench-long.yml -f profile=full`). Results: the job summary
+# and the bench-long-* artifacts (bench/results/long-*.json and .md); commit
+# them through a pull request to publish them. GitHub-hosted runners are
+# shared VMs: read the latency numbers as indicative.
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: Corpus profile for the 4 vCPU row (quick about 1.6M tokens, full about 9.5M)
+        type: choice
+        options: [full, quick]
+        default: full
+      layers:
+        description: Fused layer sets, separated by ';' (add l1,l2,l3 to include L3)
+        type: string
+        default: l1;l1,l2
+
+permissions: read-all
+
+jobs:
+  bench-long:
+    name: Bench long inputs (${{ matrix.vcpu }} vCPU)
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - vcpu: 4
+            pin: ""
+            conc: 1,2,4
+          - vcpu: 2
+            pin: taskset -c 0,1
+            conc: 1,2
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    env:
+      CGO_ENABLED: "1"
+      CGO_LDFLAGS: -L${{ github.workspace }}/.onnx/lib
+      ONNXRUNTIME_LIB: ${{ github.workspace }}/.onnx/lib/libonnxruntime.so
+      MODEL_DIR: ${{ github.workspace }}/models
+      BENCH_CACHE: ${{ github.workspace }}/bench/.cache
+      PROFILE: ${{ matrix.vcpu == 4 && inputs.profile || 'quick' }}
+      HOST_LABEL: gh-ubuntu-24.04-${{ matrix.vcpu }}vcpu
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      # ONNX Runtime + libtokenizers.a, pinned by SHA-256 in build/onnx-deps.sh;
+      # the archives cached by ci.yml are reused when present.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/dl/onnx-deps
+          key: onnx-deps-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('build/onnx-deps.sh') }}
+      - run: make onnx-deps
+        env:
+          ONNX_DEPS_CACHE: ${{ runner.temp }}/dl/onnx-deps
+      # Hugging Face at the pinned revision, else the GitHub Release mirror;
+      # every file is checked against models/manifest.yaml.
+      - name: Pull models
+        run: |
+          set -- guardspec-classifier@v3b
+          case "$LAYERS" in *l3*) set -- "$@" multilingual-e5-small ;; esac
+          go run ./cmd/models pull -dir models/cache "$@"
+        env:
+          LAYERS: ${{ inputs.layers }}
+      # uv from PyPI at a pinned version; bench/uv.lock pins every Python package.
+      - name: Install uv
+        run: pipx install uv==0.10.10
+      - name: Build the corpus
+        run: uv run --project bench --frozen python bench/long/build.py --profile "$PROFILE"
+      - name: Build cmd/benchlong
+        run: go build -tags onnx -o bin/benchlong ./cmd/benchlong
+      - name: Bench
+        env:
+          PIN: ${{ matrix.pin }}
+          CONC: ${{ matrix.conc }}
+          LAYERS: ${{ inputs.layers }}
+          VCPU: ${{ matrix.vcpu }}
+        run: |
+          set -eu
+          if [ "$VCPU" = 2 ]; then export INFERENCE_MAX_CONCURRENCY=2; fi
+          $PIN ./bin/benchlong -corpus "$BENCH_CACHE/long/$PROFILE" -profile "$PROFILE" \
+            -host "$HOST_LABEL" -conc "$CONC" -layers "$LAYERS"
+      - name: Summary
+        if: always()
+        run: |
+          f=bench/results/long-$HOST_LABEL.md
+          if [ -f "$f" ]; then
+            {
+              echo "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+              echo
+              cat "$f"
+              echo
+              echo "<details><summary>lscpu</summary>"
+              echo
+              echo '```'
+              lscpu
+              echo '```'
+              echo "</details>"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: bench-long-${{ matrix.vcpu }}vcpu
+          path: bench/results/long-gh-ubuntu-24.04-${{ matrix.vcpu }}vcpu.*
+          if-no-files-found: error
