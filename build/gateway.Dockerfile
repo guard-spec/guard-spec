@@ -6,6 +6,13 @@
 # libonnxruntime.so is shipped in the image and loaded at run time
 # (ONNXRUNTIME_LIB). Versions and SHA-256 values live in build/onnx-deps.sh.
 
+# Default for the `onnx-cache` build context: empty. CI passes
+#   --build-context onnx-cache=<dir> --build-arg ONNX_DEPS_CACHE=/onnx-cache
+# with the archives from actions/cache, so a GitHub Releases outage does not
+# fail the build; onnx-deps.sh still checks every SHA-256. Releases and local
+# builds pass neither and download as before.
+FROM scratch AS onnx-cache
+
 FROM golang:1.26.10-bookworm@sha256:23ce71337b726608afb1bc00986e630a05034a87a87ea1fc2cd1ae5cf33387eb AS builder
 ARG TARGETOS=linux
 ARG TARGETARCH
@@ -14,7 +21,9 @@ ARG VERSION=dev
 
 WORKDIR /src
 COPY build/onnx-deps.sh /tmp/onnx-deps.sh
-RUN sh /tmp/onnx-deps.sh /opt/onnx "$TARGETOS" "${TARGETARCH:-$(uname -m)}"
+ARG ONNX_DEPS_CACHE
+RUN --mount=type=bind,from=onnx-cache,target=/onnx-cache \
+    sh /tmp/onnx-deps.sh /opt/onnx "$TARGETOS" "${TARGETARCH:-$(uname -m)}"
 
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download

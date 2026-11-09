@@ -34,6 +34,7 @@ statement depends on a setting, the setting is named.
 - [Audit log integrity](#audit-log-integrity)
 - [Threat model](#threat-model)
 - [Verifying a release](#verifying-a-release)
+- [Tool downloads in CI](#tool-downloads-in-ci)
 
 ## Architecture
 
@@ -370,3 +371,19 @@ and, from the release after v0.3.0, by SLSA build provenance
 (`guard-spec_<version>.intoto.jsonl`).
 The commands, what each check proves and their output for v0.2.0 are in
 [Verifying a release](verifying-releases.md).
+
+## Tool downloads in CI
+
+CI downloads pinned tools and libraries (ONNX Runtime and libtokenizers,
+Trivy, Helm, kubeconform, kind), each checked against a SHA-256 committed
+in the repository (`build/onnx-deps.sh`, `scripts/install-trivy.sh`,
+`.github/workflows/ci.yml`). So that an outage of GitHub Releases does not
+fail CI, `ci.yml` and `vuln-scan.yml` keep these files in the GitHub Actions
+cache, keyed by tool, version and SHA-256. The cache only replaces the
+download: `scripts/fetch-verified.sh` and `build/onnx-deps.sh` give a cached
+file the same SHA-256 check as a downloaded one, ignore it on a mismatch and
+download again. A cache entry written by a pull request is visible only to
+that pull request, never to `main` (GitHub scopes caches by branch; `main`'s
+entries are readable from pull requests, not the other way round), and even
+a tampered entry cannot change what is used, only cost a download. Releases
+(`release.yml`) use no cache: they always download and check.

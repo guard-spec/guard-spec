@@ -10,6 +10,14 @@
 #                               github.com/daulet/tokenizers (MIT), linked statically
 #
 # os is linux or darwin, arch is amd64 or arm64 (default: this machine).
+#
+# ONNX_DEPS_CACHE=<dir> (CI only: a directory restored by actions/cache, or
+# mounted into the gateway image build): an archive there named
+# <sha256>-<file name> is used instead of the download when its SHA-256
+# matches the pin below; otherwise it is downloaded and checked as usual, and
+# put there when the directory is writable. Unset (releases), nothing changes.
+# Same logic as scripts/fetch-verified.sh, kept here because the Dockerfile
+# copies only this file.
 set -eu
 
 ORT_VERSION=1.31.1
@@ -46,12 +54,28 @@ sha256() {
 }
 
 fetch() { # url sha256 out
+  if [ -n "${ONNX_DEPS_CACHE:-}" ]; then
+    cached=$ONNX_DEPS_CACHE/$2-${1##*/}
+    if [ -f "$cached" ]; then
+      cp "$cached" "$3"
+      if [ "$(sha256 "$3")" = "$2" ]; then
+        echo "${1##*/} from $ONNX_DEPS_CACHE, sha256 ok"
+        return 0
+      fi
+      echo "ignoring $cached: sha256 mismatch" >&2
+      rm -f "$3"
+    fi
+  fi
   # A release download hit four 504s in 7 s (v0.1.0-rc.3): retry for longer.
   curl -fsSL --retry 6 --retry-delay 10 --retry-max-time 300 -o "$3" "$1"
   got=$(sha256 "$3")
   if [ "$got" != "$2" ]; then
     echo "sha256 mismatch for $1: got $got, want $2" >&2
     rm -f "$3"; exit 1
+  fi
+  # Best effort: the cache is a read-only mount inside docker builds.
+  if [ -n "${ONNX_DEPS_CACHE:-}" ]; then
+    { mkdir -p "$ONNX_DEPS_CACHE" && cp "$3" "$ONNX_DEPS_CACHE/$2-${1##*/}"; } 2>/dev/null || true
   fi
 }
 
