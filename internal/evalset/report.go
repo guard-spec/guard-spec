@@ -47,6 +47,10 @@ type Report struct {
 	ThresholdFPR1 *float64           `json:"threshold_fpr_1pct,omitempty"`
 	Latency       map[string]Latency `json:"latency"`
 	Groups        map[string]Metrics `json:"groups"`
+	// Slices are the dev/holdout splits (SplitOf), when the rows have them.
+	// Baselines written before slices existed lack the field and are
+	// compared on groups only.
+	Slices map[string]SliceMetrics `json:"slices,omitempty"`
 }
 
 func ptr(x float64) *float64 {
@@ -109,6 +113,7 @@ func BuildReport(detector string, results []Result) Report {
 	for k, g := range groups {
 		rep.Groups[k] = metricsFor(g, thr)
 	}
+	rep.Slices = buildSlices(results)
 	for _, k := range []string{"all", "en", "vi"} {
 		var ds []time.Duration
 		for _, r := range results {
@@ -208,6 +213,7 @@ func (r Report) WriteTable(w io.Writer) {
 			f(m.AtFPR1.TPR), f(m.AtFPR1.FPR), f(m.At085.TPR), f(m.At085.FPR),
 			f(m.At060.TPR), f(m.At060.FPR), f(m.Gateway.TPR), f(m.Gateway.FPR))
 	}
+	r.writeSlices(w)
 	for _, k := range []string{"all", "en", "vi"} {
 		l := r.Latency[k]
 		_, _ = fmt.Fprintf(w, "latency %-3s p50=%.1fus p95=%.1fus p99=%.1fus\n", k, l.P50Micros, l.P95Micros, l.P99Micros)
@@ -232,31 +238,43 @@ func Compare(base, cur Report, maxDrop float64) []string {
 		out = append(out, fmt.Sprintf("dataset changed: baseline has %d rows, current %d; regenerate the baseline", base.Rows, cur.Rows))
 	}
 	for _, k := range base.SortedGroups() {
-		b := base.Groups[k]
 		c, ok := cur.Groups[k]
 		if !ok {
 			out = append(out, fmt.Sprintf("%s: group missing", k))
 			continue
 		}
-		higher := func(name string, bv, cv *float64) {
-			if bv != nil && (cv == nil || *bv-*cv > maxDrop+1e-9) {
-				out = append(out, fmt.Sprintf("%s: %s fell %s -> %s", k, name, f(bv), f(cv)))
-			}
-		}
-		lower := func(name string, bv, cv *float64) {
-			if bv != nil && (cv == nil || *cv-*bv > maxDrop+1e-9) {
-				out = append(out, fmt.Sprintf("%s: %s rose %s -> %s", k, name, f(bv), f(cv)))
-			}
-		}
-		higher("roc_auc", b.AUC, c.AUC)
-		higher("tpr@fpr1%", b.AtFPR1.TPR, c.AtFPR1.TPR)
-		lower("fpr@fpr1%", b.AtFPR1.FPR, c.AtFPR1.FPR)
-		higher("tpr@0.85", b.At085.TPR, c.At085.TPR)
-		lower("fpr@0.85", b.At085.FPR, c.At085.FPR)
-		higher("tpr@0.60", b.At060.TPR, c.At060.TPR)
-		lower("fpr@0.60", b.At060.FPR, c.At060.FPR)
-		higher("gateway tpr", b.Gateway.TPR, c.Gateway.TPR)
-		lower("gateway fpr", b.Gateway.FPR, c.Gateway.FPR)
+		out = compareMetrics(out, k, base.Groups[k], c, maxDrop)
 	}
+	for _, k := range base.sortedSlices() {
+		c, ok := cur.Slices[k]
+		if !ok {
+			out = append(out, fmt.Sprintf("slice %s: missing", k))
+			continue
+		}
+		out = compareMetrics(out, "slice "+k, base.Slices[k].Metrics, c.Metrics, maxDrop)
+	}
+	return out
+}
+
+func compareMetrics(out []string, k string, b, c Metrics, maxDrop float64) []string {
+	higher := func(name string, bv, cv *float64) {
+		if bv != nil && (cv == nil || *bv-*cv > maxDrop+1e-9) {
+			out = append(out, fmt.Sprintf("%s: %s fell %s -> %s", k, name, f(bv), f(cv)))
+		}
+	}
+	lower := func(name string, bv, cv *float64) {
+		if bv != nil && (cv == nil || *cv-*bv > maxDrop+1e-9) {
+			out = append(out, fmt.Sprintf("%s: %s rose %s -> %s", k, name, f(bv), f(cv)))
+		}
+	}
+	higher("roc_auc", b.AUC, c.AUC)
+	higher("tpr@fpr1%", b.AtFPR1.TPR, c.AtFPR1.TPR)
+	lower("fpr@fpr1%", b.AtFPR1.FPR, c.AtFPR1.FPR)
+	higher("tpr@0.85", b.At085.TPR, c.At085.TPR)
+	lower("fpr@0.85", b.At085.FPR, c.At085.FPR)
+	higher("tpr@0.60", b.At060.TPR, c.At060.TPR)
+	lower("fpr@0.60", b.At060.FPR, c.At060.FPR)
+	higher("gateway tpr", b.Gateway.TPR, c.Gateway.TPR)
+	lower("gateway fpr", b.Gateway.FPR, c.Gateway.FPR)
 	return out
 }
