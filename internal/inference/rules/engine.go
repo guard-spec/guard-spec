@@ -5,7 +5,11 @@
 // A rule fires on a sequence of terms that occur in order, in one sentence,
 // with at most Gap words between them: "ignore" + "previous" + "instructions",
 // "bỏ qua" + "chỉ thị" + "trước đó". Single keywords never fire a rule on their
-// own; they only add a small ranking score (at most 0.17).
+// own; they only add a small ranking score (at most 0.17), scaled down by
+// length beyond cueSpan words: a 2 KB window of source code, a config file or
+// a log holds five distinct cue words ("system", "data", "token", "config",
+// "người dùng") by chance, and the fusion combiner reads the ranking score
+// as evidence.
 //
 // Hard-benign suppressors (general patterns, not eval sentences):
 //   - meta: the match sits in a sentence that asks about or discusses
@@ -74,6 +78,7 @@ const (
 	baseScore       = 0.02 // no cue at all
 	cueStep         = 0.03 // per distinct cue word, for ranking only
 	maxCues         = 5
+	cueSpan         = 40 // words; a longer text's cue count is scaled by cueSpan/words
 	maxDecodeLen    = 4096
 	hiddenBoostMin  = 0.5 // a rule at least this strong in hidden content gets ii.hidden.boost
 	hiddenBoost     = 0.1
@@ -254,7 +259,13 @@ func (e *Engine) combine(d *doc, hits []hit) Result {
 				cues++
 			}
 		}
-		return Result{Score: baseScore + cueStep*float64(min(cues, maxCues))}
+		n := float64(min(cues, maxCues))
+		if len(d.toks) > cueSpan {
+			// A long text holds every cue word somewhere by chance:
+			// count their density, not the vocabulary.
+			n *= cueSpan / float64(len(d.toks))
+		}
+		return Result{Score: baseScore + cueStep*n}
 	}
 	sort.SliceStable(hits, func(i, j int) bool { return hits[i].w > hits[j].w })
 	res := Result{Categories: map[string]float64{}, Category: hits[0].cat}
