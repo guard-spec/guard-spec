@@ -23,6 +23,9 @@ data:
 
 train:
   max_len: 256
+  # v5: window-level training (windows.py): rows are cut into the gateway's windows, max_len tokens with the
+  # special tokens, neighbours overlapping by `stride` tokens (internal/onnx defaultStride).
+  stride: 64
   batch_size: 32
   epochs: 5
   lr: 5.0e-5
