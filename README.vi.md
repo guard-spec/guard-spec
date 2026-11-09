@@ -497,9 +497,9 @@ từ chối chúng.
   chối cả request với HTTP 400, không gửi gì lên upstream (chat completions và
   `/v1/responses`: dạng lỗi OpenAI với `code` `unscanned_content`;
   `/v1/messages`: dạng lỗi Anthropic, `invalid_request_error`), thông báo nêu
-  các loại tìm thấy, dòng audit ghi lại việc chặn; `allow` cho qua như trước,
+  các loại tìm thấy, dòng audit ghi lại việc chặn (`detected` là `unscanned`, nhãn `unscanned_content`); `allow` cho qua như trước,
   chỉ đếm metric. Mọi chế độ đều đếm vào
-  `guardspec_unscanned_parts_total{kind,action}`.
+  `guardspec_gateway_unscanned_parts_total{kind,action}`.
 - **Theo tổ chức.** `unscanned_parts` trong guard settings
   (`PUT /v1/organizations/:orgId/guard-settings`) chỉ làm gateway chặt hơn
   (`allow` < `log` < `block`; giá trị chặt hơn thắng), giống

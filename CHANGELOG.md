@@ -29,7 +29,7 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   content are not counted. Organizations can make it stricter with
   `unscanned_parts` in guard settings; rules and the Simulator get
   `input.unscanned.kinds` and `input.unscanned.count`; metric
-  `guardspec_unscanned_parts_total{kind,action}`. No migration. The gateway
+  `guardspec_gateway_unscanned_parts_total{kind,action}`. No migration. The gateway
   still does not extract PDF text or run OCR:
   [Files, PDFs and images](docs/integrations.md#files-pdfs-and-images)
   describes sending extracted text instead.

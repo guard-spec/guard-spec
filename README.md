@@ -2052,11 +2052,12 @@ refuse them.
     the upstream. Chat completions and `/v1/responses` answer in the OpenAI
     shape with `code` `unscanned_content`; `/v1/messages` in the Anthropic
     shape (`invalid_request_error`). The message names the kinds found. The
-    audit row records the block.
+    audit row records the block (`detected` `unscanned`, label
+    `unscanned_content`).
   - `allow`: forwarded as before, counted in the metric only.
 
   Every mode counts the parts in
-  `guardspec_unscanned_parts_total{kind,action}`.
+  `guardspec_gateway_unscanned_parts_total{kind,action}`.
 - **Per organization.** `unscanned_parts` in guard settings
   (`PUT /v1/organizations/:orgId/guard-settings`) can only make the gateway
   stricter (`allow` < `log` < `block`; the stricter value wins), like
@@ -2112,11 +2113,7 @@ Keep that port on the internal network.
 | `scan_cache_lookups_total` | `layer` (`memory`, `redis`, `postgres`), `result` (`hit`, `miss`, `error`), per key |
 | `scan_cache_errors_total` | `layer` (`redis`, `postgres`), `op` (`get`, `set`): failed or timed-out shared cache calls |
 | `tenant_requests_total` (with `METRICS_TENANT_LABELS=true`) | `org_id`, `decision` |
-
-The gateway also exports `guardspec_unscanned_parts_total` with labels `kind`
-(`image`, `file`, `audio`, `other`) and `action` (`allow`, `log`, `block`):
-parts it forwarded, or refused, without reading them
-([Content the gateway cannot read](#content-the-gateway-cannot-read)).
+| `unscanned_parts_total` | `kind` (`image`, `file`, `audio`, `other`), `action` (`allow`, `log`, `block`): parts forwarded, or refused, without being read ([Content the gateway cannot read](#content-the-gateway-cannot-read)) |
 
 The control plane exports `guardspec_control_plane_requests_total`,
 `guardspec_control_plane_request_duration_seconds`,
