@@ -320,13 +320,15 @@ export function RelativeTime({ value }: { value: string | null | undefined }) {
   );
 }
 
-export function CopyButton({ text }: { text: string }) {
+/** label names what is copied, for screen readers, when several copy buttons share a view. */
+export function CopyButton({ text, label }: { text: string; label?: string }) {
   const { t } = useApp();
   const [done, setDone] = useState(false);
   return (
     <button
       type="button"
       className="btn"
+      aria-label={label ? `${done ? t('common.copied') : t('common.copy')}: ${label}` : undefined}
       onClick={async () => {
         try {
           await navigator.clipboard.writeText(text);

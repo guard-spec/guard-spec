@@ -35,11 +35,11 @@ type memberRow struct {
 	Disabled     bool       `json:"disabled"`
 }
 
-// loginMethodsSQL lists a user's login methods: password, google, oidc:<id>.
+// loginMethodsSQL lists a user's login methods: password, google, oidc:<id>, saml:<id>.
 const loginMethodsSQL = `ARRAY(
 	SELECT 'password' WHERE u.hashed_password IS NOT NULL
 	UNION ALL
-	SELECT DISTINCT CASE WHEN p.type = 'google' THEN 'google' ELSE 'oidc:' || p.id::text END
+	SELECT DISTINCT CASE p.type WHEN 'google' THEN 'google' WHEN 'saml' THEN 'saml:' || p.id::text ELSE 'oidc:' || p.id::text END
 	FROM user_identities i JOIN identity_providers p ON p.id = i.provider_id WHERE i.user_id = u.id)`
 
 const mfaEnabledSQL = `EXISTS (SELECT 1 FROM user_mfa mf WHERE mf.user_id = u.id AND mf.enabled_at IS NOT NULL)`

@@ -15,6 +15,7 @@ import (
 	"github.com/guard-spec/guard-spec/internal/auth"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	dsig "github.com/russellhaering/goxmldsig"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -51,12 +52,15 @@ type identity struct {
 
 	oidcMu    sync.Mutex
 	providers map[uuid.UUID]*oidcProvider
+	samlSPs   map[uuid.UUID]*samlProvider
+	// samlClock replaces the real clock in SAML checks (tests).
+	samlClock *dsig.Clock
 }
 
 func newIdentity(db *pgxpool.Pool, secret []byte, s *appSettings) *identity {
 	id := &identity{db: db, secret: secret, sessions: auth.NewSessions(db), box: s.mfaBox,
 		publicURL: strings.TrimRight(s.publicURL, "/"), client: s.oidcClient, now: time.Now,
-		providers: map[uuid.UUID]*oidcProvider{}}
+		providers: map[uuid.UUID]*oidcProvider{}, samlSPs: map[uuid.UUID]*samlProvider{}}
 	id.lookup = id.sessions
 	if s.sessionLookup != nil {
 		id.lookup = s.sessionLookup

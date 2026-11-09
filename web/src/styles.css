@@ -3044,3 +3044,45 @@ fieldset.plain {
 .react-flow__node {
   cursor: pointer;
 }
+
+/* SAML and SCIM: values for the identity provider, provisioning */
+.sp-values {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0 0;
+}
+.sp-values dt {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+.sp-values dd {
+  margin: 0;
+}
+.inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: -4px 0 12px;
+}
+.inline-actions code {
+  word-break: break-all;
+}
+.saml-metadata {
+  min-height: 140px;
+  font-size: 12px;
+}
+.scim-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 8px 0 0;
+}
+.plain-fieldset {
+  border: none;
+  padding: 0;
+  margin: 0 0 12px;
+  min-width: 0;
+}

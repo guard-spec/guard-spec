@@ -32,6 +32,12 @@ export const CODES: Record<string, MessageKey> = {
   exchange_failed: 'authErr.exchange_failed',
   provider_error: 'authErr.provider_error',
   sso_unavailable: 'authErr.sso_unavailable',
+  // SAML assertion consumer service (cmd/control-plane/saml.go)
+  invalid_response: 'authErr.invalid_response',
+  replayed: 'authErr.replayed',
+  idp_initiated_disabled: 'authErr.idp_initiated_disabled',
+  not_provisioned: 'authErr.not_provisioned',
+  last_login_method: 'authErr.last_login_method',
   link_expired: 'authErr.link_expired',
   link_wrong_user: 'authErr.link_wrong_user',
   identity_in_use: 'authErr.identity_in_use',
@@ -60,6 +66,21 @@ export function errorCode(e: unknown): string | null {
     if (e.status === 429) return 'too_many_attempts';
   }
   return null;
+}
+
+/**
+ * Codes of the SSO callback (#/auth/callback?error=) that mean something
+ * else there: "expired" is a SAML assertion out of its validity period, not
+ * an expired 2FA step.
+ */
+export const CALLBACK_CODES: Record<string, MessageKey> = {
+  expired: 'authErr.assertion_expired',
+};
+
+/** The message of an SSO callback ?error= code. */
+export function callbackErrorText(code: string, t: Translate): string {
+  const key = CALLBACK_CODES[code];
+  return key ? t(key) : authErrorText(code, t);
 }
 
 export function authErrorText(e: unknown, t: Translate): string {

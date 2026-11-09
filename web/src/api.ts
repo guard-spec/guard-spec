@@ -18,6 +18,8 @@ import type {
   ConnectionTest,
   CreatedApiKey,
   CreatedInvite,
+  CreatedScimToken,
+  GroupRole,
   DashboardStats,
   DashboardWindow,
   ExportProblem,
@@ -45,6 +47,7 @@ import type {
   PolicySchema,
   Project,
   Role,
+  ScimTokenList,
   ShadowDirection,
   ShadowDisagreement,
   ShadowSummary,
@@ -247,6 +250,16 @@ export class ApiClient {
     return `${this.baseUrl}/auth/oidc/${enc(providerId)}/start?redirect=${enc(redirect)}`;
   }
 
+  /** Where the browser goes to sign in with a SAML provider (a redirect to the IdP with an AuthnRequest). */
+  samlStartUrl(providerId: string, redirect = '/ui/'): string {
+    return `${this.baseUrl}/auth/saml/${enc(providerId)}/start?redirect=${enc(redirect)}`;
+  }
+
+  /** The start URL of a login provider: SAML or OIDC (Google included). */
+  loginStartUrl(p: Pick<LoginProvider, 'id' | 'type'>, redirect = '/ui/'): string {
+    return p.type === 'saml' ? this.samlStartUrl(p.id, redirect) : this.oidcStartUrl(p.id, redirect);
+  }
+
   getMe(): Promise<Me> {
     return this.request('GET', '/auth/me');
   }
@@ -361,6 +374,32 @@ export class ApiClient {
   /** allowed_login_methods is sent only when it changes (null: unrestricted). */
   putOrgSecurity(orgId: UUID, s: Partial<OrgSecurity>): Promise<OrgSecurity> {
     return this.request('PUT', `/organizations/${enc(orgId)}/security`, { body: s });
+  }
+
+  /** SCIM bearer tokens of the org, the SCIM base URL and what was provisioned (admin). */
+  async listScimTokens(orgId: UUID): Promise<ScimTokenList> {
+    const r = (await this.request<Partial<ScimTokenList> | null>('GET', `/organizations/${enc(orgId)}/scim/tokens`)) ?? {};
+    return { items: listOf(r), base_url: r.base_url ?? '', users: r.users ?? 0, groups: r.groups ?? 0 };
+  }
+
+  /** A new SCIM token (owner); the token is in the answer once. */
+  createScimToken(orgId: UUID, input: { name: string; expires_at?: string }): Promise<CreatedScimToken> {
+    return this.request('POST', `/organizations/${enc(orgId)}/scim/tokens`, { body: input });
+  }
+
+  revokeScimToken(orgId: UUID, id: UUID): Promise<void> {
+    return this.request('DELETE', `/organizations/${enc(orgId)}/scim/tokens/${enc(id)}`);
+  }
+
+  /** IdP group to role mappings (admin). */
+  async getGroupRoles(orgId: UUID): Promise<GroupRole[]> {
+    return listOf<GroupRole>(await this.request('GET', `/organizations/${enc(orgId)}/group-roles`));
+  }
+
+  /** Replaces every mapping (owner); answers the stored list. */
+  async putGroupRoles(orgId: UUID, items: GroupRole[]): Promise<GroupRole[]> {
+    const body = { items: items.map(({ provider_id, group_key, role }) => ({ provider_id, group_key, role })) };
+    return listOf<GroupRole>(await this.request('PUT', `/organizations/${enc(orgId)}/group-roles`, { body }));
   }
 
   listActivity(orgId: UUID, q: ListQuery): Promise<unknown> {

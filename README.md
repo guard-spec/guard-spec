@@ -82,8 +82,9 @@ before you rely on it.
   thresholds, throttling, quiet hours and per-person preferences
   ([Alerts and notifications](#alerts-and-notifications)).
 - **Enterprise sign-in:** single sign-on with OpenID Connect (Google preset,
-  any OIDC provider such as Entra ID, Okta or Keycloak), domain join and
-  just-in-time provisioning.
+  any OIDC provider such as Entra ID, Okta or Keycloak) and SAML 2.0, domain
+  join, just-in-time provisioning, SCIM 2.0 provisioning and deprovisioning,
+  and roles from IdP groups ([setup guide](docs/sso.md)).
 - **Two-factor authentication:** TOTP with recovery codes; an organization
   can require 2FA, restrict login methods and shorten sessions; lockout after
   repeated wrong codes; sessions can be listed and revoked.
@@ -687,7 +688,7 @@ in a second table.
 | `<SECRET>_FILE`, `vault:` values | — | Any secret setting can come from a file (`NAME_FILE`) or HashiCorp Vault KV v2 (`NAME=vault:<mount>/<path>#<key>`, with `VAULT_ADDR`, `VAULT_TOKEN` or `VAULT_TOKEN_FILE`, `SECRETS_VAULT_TTL` default `5m`). See [Secrets](docs/security/README.md#where-secrets-come-from) |
 | `GATEWAY_TLS_CERT_FILE`, `GATEWAY_TLS_KEY_FILE`, `GATEWAY_TLS_CA_FILE` | empty | Client certificate and CA for the gateway's admin listener (mutual TLS); `GATEWAY_URL` then `https://...:8443` |
 | `AUDIT_SIGNING_KEY` | empty | Ed25519 seed, 32 random bytes in base64: signs the heads of the activity log's hash chains every `AUDIT_ANCHOR_INTERVAL` (default `1h`, at least `1m`). See [Audit log integrity](docs/security/README.md#audit-log-integrity) |
-| `PUBLIC_BASE_URL` | empty (dev: `http://localhost:18081`) | External origin of the control plane, such as `https://guard.example.com`. SSO callbacks go to `<PUBLIC_BASE_URL>/v1/auth/oidc/<provider id>/callback`; SSO is unavailable without it |
+| `PUBLIC_BASE_URL` | empty (dev: `http://localhost:18081`) | External origin of the control plane, such as `https://guard.example.com`. SSO callbacks go to `<PUBLIC_BASE_URL>/v1/auth/oidc/<provider id>/callback`; the SAML entity id, ACS and metadata URLs are `<PUBLIC_BASE_URL>/v1/auth/saml/<provider id>/...` and the SCIM base URL `<PUBLIC_BASE_URL>/v1/scim/v2`. SSO is unavailable without it; changing it changes the URLs the identity providers are configured with |
 | `OIDC_SECRET_*` | empty | Client secrets of SSO providers; each provider names its variable in `client_secret_env` |
 | `METRICS_ADDR` | `:9091` | Metrics listener; `off` disables it |
 | `AUDIT_RETENTION_DAYS` | `90` | Delete audit rows older than this; `0` keeps them |
@@ -781,7 +782,9 @@ needs `Authorization: Bearer <token from /v1/auth/login>`. Roles are `owner`,
 | `POST /auth/mfa/verify` (`{mfa_token, code}`) | none (rate limited; 5 attempts per `mfa_token`; 429 `mfa_locked` after 10 wrong codes for the user) |
 | `GET /auth/providers` (enabled SSO providers) | none |
 | `GET /auth/oidc/:id/start?redirect=/ui/...`, `GET /auth/oidc/:id/callback` | none (browser redirects) |
-| `POST /auth/oidc/exchange` (`{code}`) | none (rate limited) |
+| `POST /auth/oidc/exchange` (`{code}`; also ends a SAML login) | none (rate limited) |
+| `GET /auth/saml/:id/metadata` (SP metadata), `GET /auth/saml/:id/start?redirect=/ui/...`, `POST /auth/saml/:id/acs` | none (browser redirects; rate limited) |
+| `/scim/v2/ServiceProviderConfig`, `/ResourceTypes`, `/Schemas`, `/Users[/:id]`, `/Groups[/:id]` (see [SCIM](#identity-sso-and-two-factor-authentication)) | an organization's SCIM token (`Authorization: Bearer gss_...`; 600 requests a minute per address) |
 | `POST /auth/mfa/totp/setup`, `POST /auth/mfa/totp/confirm` | any user, or an enrollment `mfa_token` |
 | `GET /auth/me`, `POST /auth/logout`, `GET /auth/sessions`, `DELETE /auth/sessions/:id`, `POST /auth/password` | any user |
 | `POST /auth/mfa/recovery-codes/regenerate`, `DELETE /auth/mfa` (`{code}`) | any user |
@@ -800,7 +803,10 @@ needs `Authorization: Bearer <token from /v1/auth/login>`. Roles are `owner`,
 | `GET /organizations/:orgId` (includes `default_upstream_id`) | viewer |
 | `PATCH /organizations/:orgId` (`audit_store_content`) | admin |
 | `GET`, `PUT /organizations/:orgId/guard-settings` | viewer, admin |
-| `GET`, `PUT /organizations/:orgId/security` (2FA requirement, login methods, domain join, session lifetime) | admin, owner |
+| `GET`, `PUT /organizations/:orgId/security` (2FA requirement, login methods, domain join, session lifetime, `scim_revoke_keys`) | admin, owner |
+| `GET /organizations/:orgId/scim/tokens` (tokens without their value, `base_url`, number of SCIM users and groups) | admin |
+| `POST /organizations/:orgId/scim/tokens` (`{name, expires_at}`; the token is in the answer once), `DELETE .../scim/tokens/:id` | owner |
+| `GET`, `PUT /organizations/:orgId/group-roles` (IdP group to role mappings) | admin, owner |
 | `GET /organizations/:orgId/members?q=&role=` | admin |
 | `PUT`, `DELETE /organizations/:orgId/members/:userId`, `POST .../revoke-sessions` (owners: owner only; the last owner stays) | admin |
 | `POST /organizations/:orgId/members/:userId/reset-mfa` | owner |
@@ -2107,12 +2113,15 @@ user belongs to (403 `not_sole_authority` otherwise).
 (`{"mfa_enroll_required": true, "mfa_token"}`; that token can only call the 2FA
 setup endpoints) and refuses existing sessions without 2FA (403
 `mfa_required`); `sso_satisfies_mfa` lets SSO sessions pass;
-`allowed_login_methods` (`password`, `google`, `oidc:<provider id>`; unset
-allows all) refuses sessions of other methods (403
+`allowed_login_methods` (`password`, `google`, `oidc:<provider id>`,
+`saml:<provider id>`; null allows all, and a body without the field keeps
+the stored value) refuses sessions of other methods (403
 `login_method_not_allowed`); `session_lifetime_hours` (1-12) shortens
 sessions for this org; `domain_join` adds SSO users of a verified email domain
 on first login, with a role up to admin. A domain can be joined only if the
 instance administrator listed it in the provider's `allowed_domains`.
+`scim_revoke_keys` (default on) revokes the API keys a user created in the org
+when the org's SCIM client deactivates them.
 
 **SSO** (OpenID Connect, Google as a preset). An instance administrator
 (`users.is_instance_admin`; the bootstrap admin, which is the earliest owner
@@ -2140,12 +2149,189 @@ link URL sent to a victim links nothing). A manual link never runs
 `domain_join`. New users are created only with `auto_provision` and an
 allowed domain. Emails are stored lower-cased.
 
+**SAML 2.0.** Guard Spec is a SAML service provider next to OIDC. An instance
+administrator adds a provider of type `saml` at `/v1/admin/identity-providers`
+with the identity provider's metadata instead of a client id and secret:
+`{"type":"saml","display_name":"Okta","saml_metadata":"<md:EntityDescriptor ...>","allowed_domains":["example.com"],"auto_provision":true,"saml_groups_attribute":"groups"}`.
+The metadata (at most 256 KiB; an `EntityDescriptor`, or the first one of an
+`EntitiesDescriptor`) must have an `IDPSSODescriptor` with a
+`SingleSignOnService` for the **HTTP-Redirect** binding and at least one
+signing certificate (a `KeyDescriptor` with `use="signing"` or no `use`);
+`issuer` is taken from its `entityID`, and `client_id`, `client_secret_env` and
+`scopes` are not used. `allowed_domains`, `auto_provision`,
+`trust_email_for_linking` and `enabled` work as for OIDC. The provider's answer
+(and the list) carries `saml_sp`, the values to enter at the identity
+provider, derived from `PUBLIC_BASE_URL`:
+
+| `saml_sp` field | Value |
+|---|---|
+| `entity_id` (SP entity id, the audience) | `<PUBLIC_BASE_URL>/v1/auth/saml/<id>/metadata` |
+| `acs_url` (Assertion Consumer Service, HTTP-POST) | `<PUBLIC_BASE_URL>/v1/auth/saml/<id>/acs` |
+| `metadata_url` (SP metadata: `AuthnRequestsSigned="false"`, `WantAssertionsSigned="true"`, NameID formats persistent and emailAddress) | `<PUBLIC_BASE_URL>/v1/auth/saml/<id>/metadata` |
+
+| Provider field | Default | Meaning |
+|---|---|---|
+| `saml_metadata` | required | The IdP metadata XML: entity id, SSO URL, signing certificates. Paste it again when the IdP rotates its certificate |
+| `saml_allow_idp_initiated` | `false` | Accept responses without `InResponseTo` (a login started from the IdP's dashboard). Such a response cannot be bound to a browser; see the [security notes](docs/sso.md#security-notes) |
+| `saml_email_attribute` | empty | Attribute holding the email. Empty: the first of `email`, `mail`, `emailaddress`, `Email`, `http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress`, `urn:oid:0.9.2342.19200300.100.1.3`; then the NameID when it is an email |
+| `saml_name_attribute` | empty | Attribute holding the display name. Empty: the first of `displayName`, `name`, `http://schemas.microsoft.com/identity/claims/displayname`, `http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name`, `urn:oid:2.16.840.1.113730.3.1.241`, `cn` |
+| `saml_groups_attribute` | empty | Attribute holding the groups (see group roles below). Empty: the first of `groups`, `memberOf`, `http://schemas.microsoft.com/ws/2008/06/identity/claims/groups`, `Role`, `role` the assertion has; at most 200 values of at most 256 characters |
+
+The login is SP-initiated: the UI navigates to
+`GET /v1/auth/saml/<id>/start?redirect=/ui/...`, which stores the AuthnRequest
+id for 10 minutes, binds it to the browser with an HttpOnly `gs_saml` cookie
+(SameSite=None and Secure when `PUBLIC_BASE_URL` is `https://`, Lax over
+http), and redirects to the IdP with an unsigned AuthnRequest (HTTP-Redirect,
+NameIDPolicy persistent). The IdP posts the response to the ACS, which accepts
+it only if:
+
+- the Response or the assertion is signed by a certificate of the metadata
+  (only the signed element is read, which defeats XML signature wrapping) and
+  the response holds exactly one assertion; encrypted assertions are not
+  supported;
+- the status is Success, the issuer is the metadata's entity id, the
+  `Destination` (when present) and the `Recipient` are the ACS URL, and an
+  `AudienceRestriction` names the SP entity id;
+- the assertion's `NotBefore` (with 2 minutes of skew) and `NotOnOrAfter`
+  hold, and the `SubjectConfirmationData` has not expired;
+- `InResponseTo` names a pending request of this provider started by this
+  browser (the cookie); a response without it is accepted only with
+  `saml_allow_idp_initiated`;
+- the assertion id was not used before (`saml_assertions` keeps it until the
+  assertion expires).
+
+The NameID (at most 255 characters) is the subject: identities match on
+(provider, NameID), so the IdP must send a stable one. Without an email the
+login is refused with `email_not_verified`. From there it is the OIDC flow:
+the same linking and provisioning rules, `domain_join`, the one-time code and
+`POST /v1/auth/oidc/exchange`, so 2FA and the org's rules still apply. The
+session's login method is `saml:<provider id>`, which `allowed_login_methods`
+accepts and `sso_satisfies_mfa` counts as SSO. An account with a password
+links a SAML identity from its profile as with OIDC: `link/start` returns
+the IdP's URL, the ACS sends the browser to `/ui/account?link_code=<code>`
+(or `?link_error=<code>`), and `link/complete` with the same user's token
+binds it.
+Single logout is not supported. A refused login redirects to
+`/ui/#/auth/callback?error=<code>` (codes in
+[docs/sso.md](docs/sso.md#troubleshooting)), and the control plane logs the
+reason (`saml login refused`).
+
+**SCIM 2.0 provisioning** (RFC 7643, RFC 7644). An organization's identity
+provider creates, updates, deactivates and deletes the org's users and groups
+at `<PUBLIC_BASE_URL>/v1/scim/v2`, the same base URL for every organization:
+the bearer token names the org. An owner creates a token with
+`POST /v1/organizations/:orgId/scim/tokens` `{"name":"Okta","expires_at":null}`;
+the answer carries `token` (`gss_` and 43 characters) once, and only its
+SHA-256 and a 12-character prefix are stored. An org has at most 20 active
+tokens (409). `GET .../scim/tokens` (admin) lists them with `last_used_at`,
+the `base_url` and the number of SCIM users and groups;
+`DELETE .../scim/tokens/:id` (owner) revokes one at once. A missing, revoked
+or expired token gets 401. Errors are SCIM errors
+(`{"schemas":[...Error],"status","scimType","detail"}`).
+
+| SCIM endpoint (under `/v1/scim/v2`) | Notes |
+|---|---|
+| `GET /ServiceProviderConfig`, `GET /ResourceTypes`, `GET /Schemas` | PATCH and filter supported; bulk, sort, ETag and password change not |
+| `GET /Users?filter=&startIndex=&count=` | filter on `userName`, `externalId`, `id` or `emails.value`; `count` 100 by default, at most 200 |
+| `POST /Users`; `GET`, `PUT`, `PATCH`, `DELETE /Users/:id` | see below |
+| `GET /Groups?filter=&startIndex=&count=&excludedAttributes=members` | filter on `displayName`, `externalId` or `id` |
+| `POST /Groups`; `GET`, `PUT`, `PATCH`, `DELETE /Groups/:id` | members must be SCIM users of the org, at most 1000 per request |
+
+Filters are `attribute eq "value"` only (400 `invalidFilter` otherwise).
+Guard Spec keeps a user's `userName`, `externalId`, display name
+(`displayName`, else `name.formatted`, else `name.givenName` and
+`name.familyName`) and `active`; other attributes (the enterprise extension,
+phone numbers…) are accepted and ignored. The account email is `userName`
+when it is an email, else the primary (then the first) email. `active` may be
+a boolean or `"True"` / `"False"` (Entra ID). PATCH takes `add` and
+`replace` with a path (`active`, `userName`, `externalId`, `displayName`,
+`name.formatted`, any case) or without a path and an object value (Okta);
+`remove` is accepted and ignored. PUT changes only the attributes it carries.
+For groups, PATCH takes `add`, `remove` (without a value: all members) and
+`replace` on `members`, `remove` on `members[value eq "<id>"]` (Okta),
+`replace` on `displayName` or `externalId`, and an object value without a path
+(its members are added); it answers the group, or 204 when the request has
+`attributes` or `excludedAttributes=members`.
+
+`POST /Users` creates an account without a password for a new email (the
+person signs in with SSO). An existing account is linked only if it is
+already a member of the org or the org claims its email domain with a
+`domain_join` rule; otherwise 409 `uniqueness` (invite it, or claim the
+domain), so an org cannot take over or lock out someone else's account. A
+`userName` is unique per org (409). A provisioned user joins with the
+`member` role (an existing member keeps theirs) until group mappings change
+it. Only for an account SCIM created does a new email `userName` change the
+account's email and a new display name change its name. A SCIM-created
+account has no password and no SSO identity, so its first SSO login links by
+email only when the provider has `trust_email_for_linking`; otherwise the
+login is refused with `account_exists` (see the
+[setup guide](docs/sso.md#sign-in-for-scim-provisioned-users)).
+
+Deactivation (`active: false` by PUT or PATCH):
+
+- removes the user's org and project memberships at once (the next request
+  is refused) and keeps the role for a reactivation;
+- revokes the API keys the user created in the org, unless the org's
+  `scim_revoke_keys` is off; keys created before migration 025 have no
+  creator (`api_keys.created_by`) and are never revoked this way;
+- for an account the org owns (SCIM created it, or the org claims its domain
+  with `domain_join`), revokes every session, and disables the account when it
+  belongs to no other organization; other accounts keep their sessions and
+  their other memberships;
+- is refused with 409 `mutability` for the org's only owner.
+
+Reactivation (`active: true`) gives the membership back with the role the
+user's SCIM groups map to; when none matches, `member` if the org maps SCIM
+groups, else the role they had (an owner stays owner). It re-enables an
+account the deactivation disabled, unless an administrator disabled it again
+since. `POST /Users` with `active: false` for an existing member removes the
+membership as a deactivation does. `DELETE /Users/:id`
+deactivates an active user the same way, then removes the SCIM record: the
+account itself is not deleted (it stays disabled if the deactivation disabled
+it).
+
+**Group roles** (`GET /v1/organizations/:orgId/group-roles`, admin; `PUT`
+replaces the whole list, owner):
+`{"items":[{"provider_id":null,"group_key":"guardspec-admins","role":"admin"},{"provider_id":"<SAML provider id>","group_key":"guardspec-viewers","role":"viewer"}]}`.
+At most 100 mappings; `role` is `viewer`, `member` or `admin` (never
+`owner`); `group_key` (1 to 256 characters) matches case-insensitively and is
+unique per provider.
+
+- `provider_id` null: the org's SCIM groups, matched by display name or
+  external id. Once the org has such a mapping, an active SCIM user's role is
+  the highest role mapped to their groups, or `member` when none matches; it
+  is recomputed when their groups change, a group is renamed or deleted, and
+  for every active SCIM user when the mappings are saved, and on
+  reactivation. Without any SCIM mapping, roles are left alone. Changes are
+  logged as `member.role_from_group` (`source` `scim` or `saml`).
+- `provider_id` a SAML provider: values of that provider's groups attribute.
+  At every login through it, in each organization the user is already a
+  member of (including one `domain_join` just added) that maps at least one
+  group of this provider, the role becomes the highest mapped role the
+  assertion lists, or `member` when none matches or the assertion has no
+  groups. Organizations without a mapping for the provider are not touched,
+  and a login never adds a membership.
+
+In both cases an owner is never changed, and the IdP decides: a mapped role
+replaces the current one even when it is lower, and leaving the admins group
+takes the access away (at once with SCIM, at the next login with SAML).
+SAML role changes are logged as `member.role_from_group`.
+
 **Activity log.** Member, invite, API key, policy, upstream, security and
 config changes and 2FA resets are recorded per org
 (`GET /v1/organizations/:orgId/activity`); SSO provider and instance user
 changes, logins (success and failure) and the user's own 2FA events at
 `GET /v1/admin/activity`. Details never hold secrets; a failed login keeps
-the email masked (`a***@example.com`).
+the email masked (`a***@example.com`). A refused SAML login is `login.failed`
+with `method` `saml:<id>` and the error code as `reason`. SCIM changes are in
+the org's log with the token as the actor (`scim_token_id` in the details):
+`scim.user_created`, `scim.user_updated`, `scim.user_deactivated` and
+`scim.user_deleted` (with `keys_revoked` and `account_disabled`; a
+deactivation also `sessions_revoked`), `scim.user_reactivated`,
+`scim.group_created`, `scim.group_updated`, `scim.group_deleted`; and so are
+`scim.token_created`, `scim.token_revoked`, `scim.group_roles_updated` and
+`member.role_from_group` (a SAML login changed a role; `from`, `to`,
+`provider_id`).
 
 **Bootstrap.** `ADMIN_EMAIL`/`ADMIN_PASSWORD` create the first owner and
 instance administrator once. A later start does nothing if an instance
@@ -2346,6 +2532,8 @@ important one: **`eval/` is never used for tuning**. Design notes are in
 [DESIGN.md](DESIGN.md), [docs/arch-flow.html](docs/arch-flow.html) and
 [docs/adr/](docs/adr/). Alerts and notifications (Telegram, Slack, Teams,
 PagerDuty, Opsgenie, webhooks, A2A, email, in-app) are described in [docs/alerts.md](docs/alerts.md).
+Setting up SAML SSO and SCIM provisioning with Okta, Microsoft Entra ID,
+Google Workspace and Keycloak is described in [docs/sso.md](docs/sso.md).
 Bypass and false-positive reports, and how they reach the training data, are
 described in [docs/red-team.md](docs/red-team.md).
 Planned work is in [ROADMAP.md](ROADMAP.md).

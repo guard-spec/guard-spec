@@ -6,6 +6,7 @@ toolchain go1.26.10
 
 require (
 	github.com/antlr4-go/antlr/v4 v4.13.1
+	github.com/beevik/etree v1.7.0
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/daulet/tokenizers v1.27.0
 	github.com/gofiber/fiber/v2 v2.52.16
@@ -17,6 +18,8 @@ require (
 	github.com/prometheus/client_golang v1.25.0
 	github.com/prometheus/client_model v0.6.3
 	github.com/redis/go-redis/v9 v9.23.0
+	github.com/russellhaering/gosaml2 v0.12.0
+	github.com/russellhaering/goxmldsig v1.6.1
 	github.com/valyala/fasthttp v1.77.0
 	github.com/yalue/onnxruntime_go v1.38.0
 	github.com/yuin/goldmark v1.8.6
@@ -45,9 +48,10 @@ require (
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.3 // indirect
+	github.com/jonboulle/clockwork v0.5.0 // indirect
 	github.com/klauspost/compress v1.20.3 // indirect
-	github.com/kr/text v0.2.0 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
+	github.com/mattermost/xml-roundtrip-validator v0.1.0 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-runewidth v0.0.16 // indirect

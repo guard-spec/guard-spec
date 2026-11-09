@@ -318,6 +318,29 @@ func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins 
 	v1.Get("/auth/oidc/:id/start", perIP(30), id.oidcStart)
 	v1.Get("/auth/oidc/:id/callback", perIP(30), id.oidcCallback)
 	v1.Post("/auth/oidc/exchange", perIP(10), id.oidcExchange)
+	v1.Get("/auth/saml/:id/metadata", perIP(60), id.samlMetadata)
+	v1.Get("/auth/saml/:id/start", perIP(30), id.samlStart)
+	v1.Post("/auth/saml/:id/acs", perIP(30), id.samlACS)
+
+	// SCIM 2.0: the bearer token names the organization.
+	scimBase := strings.TrimRight(settings.publicURL, "/") + "/v1/scim/v2"
+	sc := &scimAPI{db: db, sessions: id.sessions, base: scimBase}
+	scim := v1.Group("/scim/v2", perIP(600), sc.authenticate)
+	scim.Get("/ServiceProviderConfig", sc.serviceProviderConfig)
+	scim.Get("/ResourceTypes", sc.resourceTypes)
+	scim.Get("/Schemas", sc.schemas)
+	scim.Get("/Users", sc.listUsers)
+	scim.Post("/Users", sc.createUser)
+	scim.Get("/Users/:id", sc.getUser)
+	scim.Put("/Users/:id", sc.replaceUser)
+	scim.Patch("/Users/:id", sc.patchUser)
+	scim.Delete("/Users/:id", sc.deleteUser)
+	scim.Get("/Groups", sc.listGroups)
+	scim.Post("/Groups", sc.createGroup)
+	scim.Get("/Groups/:id", sc.getGroup)
+	scim.Put("/Groups/:id", sc.replaceGroup)
+	scim.Patch("/Groups/:id", sc.patchGroup)
+	scim.Delete("/Groups/:id", sc.deleteGroup)
 	v1.Get("/providers/catalog", providerCatalogHandler)
 	v1.Get("/permissions", permissions)
 
@@ -390,6 +413,11 @@ func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins 
 	authed.Post("/organizations/:orgId/api-keys", admin, createAPIKey(db))
 	authed.Patch("/organizations/:orgId/api-keys/:keyId", admin, updateAPIKey(db))
 	authed.Delete("/organizations/:orgId/api-keys/:keyId", admin, revokeAPIKey(db))
+	authed.Get("/organizations/:orgId/scim/tokens", admin, listSCIMTokens(db, scimBase))
+	authed.Post("/organizations/:orgId/scim/tokens", owner, createSCIMToken(db))
+	authed.Delete("/organizations/:orgId/scim/tokens/:id", owner, revokeSCIMToken(db))
+	authed.Get("/organizations/:orgId/group-roles", admin, getGroupRoles(db))
+	authed.Put("/organizations/:orgId/group-roles", owner, putGroupRoles(db))
 
 	authed.Get("/organizations/:orgId/projects", viewer, listProjects(db))
 	authed.Post("/organizations/:orgId/projects", admin, createProject(db))
@@ -725,9 +753,9 @@ func createAPIKey(db *pgxpool.Pool) fiber.Handler {
 				return err
 			}
 			_, err := tx.Exec(c.Context(),
-				`INSERT INTO api_keys (key_hash, key_prefix, alias, org_id, project_id, expires_at, rpm_limit, tpm_limit)
-				 VALUES ($1, $2, $3, $4, $5, $6, $7::int, $8)`,
-				hash, prefix, req.Alias, id, req.ProjectID, req.ExpiresAt, req.RPMLimit.Value, req.TPMLimit.Value)
+				`INSERT INTO api_keys (key_hash, key_prefix, alias, org_id, project_id, expires_at, rpm_limit, tpm_limit, created_by)
+				 VALUES ($1, $2, $3, $4, $5, $6, $7::int, $8, $9)`,
+				hash, prefix, req.Alias, id, req.ProjectID, req.ExpiresAt, req.RPMLimit.Value, req.TPMLimit.Value, nullUUID(auth.UserID(c)))
 			return err
 		})
 		if errors.Is(err, errUnknownProject) {

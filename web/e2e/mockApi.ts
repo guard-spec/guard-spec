@@ -13,7 +13,9 @@ import { handleAlertsOrg, handleAlertsUser, seedAlerts, type AlertsState } from 
 import {
   isGroup,
   type ActivityEntry,
+  type GroupRole,
   type IdentityProvider,
+  type ScimToken,
   type InstanceUser,
   type Invite,
   type Me,
@@ -735,6 +737,43 @@ export interface IdentityState {
   users: InstanceUser[];
   idps: IdentityProvider[];
   sessions: SessionInfo[];
+  /** SCIM provisioning of the org (migration 025): tokens, counts, IdP group roles. */
+  scimTokens: ScimToken[];
+  scimUsers: number;
+  scimGroups: number;
+  groupRoles: GroupRole[];
+}
+
+/** The SAML metadata of the mock IdP (an EntityDescriptor with an IDPSSODescriptor). */
+export const SAML_METADATA = `<?xml version="1.0" encoding="UTF-8"?>
+<md:EntityDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata" entityID="https://idp.acme.example/saml/metadata">
+  <md:IDPSSODescriptor protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol">
+    <md:KeyDescriptor use="signing"><ds:KeyInfo xmlns:ds="http://www.w3.org/2000/09/xmldsig#"><ds:X509Data><ds:X509Certificate>MIIC</ds:X509Certificate></ds:X509Data></ds:KeyInfo></md:KeyDescriptor>
+    <md:SingleSignOnService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect" Location="https://idp.acme.example/saml/sso"/>
+  </md:IDPSSODescriptor>
+</md:EntityDescriptor>
+`;
+
+/** A SAML provider as GET /admin/identity-providers answers it (saml_sp needs PUBLIC_BASE_URL). */
+export function samlProvider(id: string, displayName: string, extra: Partial<IdentityProvider> = {}): IdentityProvider {
+  const base = `http://localhost:4173/v1/auth/saml/${id}`;
+  return {
+    id,
+    type: 'saml',
+    display_name: displayName,
+    issuer: /entityID="([^"]+)"/.exec(SAML_METADATA)?.[1] ?? '',
+    client_id: '',
+    client_secret_env: '',
+    scopes: [],
+    allowed_domains: [],
+    auto_provision: false,
+    trust_email_for_linking: false,
+    enabled: true,
+    saml_metadata: SAML_METADATA,
+    saml_allow_idp_initiated: false,
+    saml_sp: { entity_id: `${base}/metadata`, acs_url: `${base}/acs`, metadata_url: `${base}/metadata` },
+    ...extra,
+  };
 }
 
 const FIRST = ['An', 'Bình', 'Chi', 'Dũng', 'Emma', 'Farid', 'Giang', 'Hana', 'Ivan', 'Jade', 'Khoa', 'Lena', 'Minh', 'Noah', 'Oanh', 'Priya'];
@@ -806,7 +845,15 @@ export function seedIdentity(rich = false): IdentityState {
       session_lifetime_hours: 12,
       content_read_role: 'admin',
       content_view_reason: true,
+      scim_revoke_keys: true,
     },
+    scimTokens: [
+      { id: 'scim-1', name: 'Okta production', prefix: 'gss_q8Zt3kLm', created_at: '2026-10-02T09:00:00Z', last_used_at: '2026-11-04T07:58:00Z', expires_at: null, revoked_at: null },
+      { id: 'scim-2', name: 'Old connector', prefix: 'gss_A1b2C3d4', created_at: '2026-09-01T09:00:00Z', last_used_at: '2026-09-20T10:00:00Z', expires_at: null, revoked_at: '2026-10-01T09:00:00Z' },
+    ],
+    scimUsers: 12,
+    scimGroups: 3,
+    groupRoles: [{ id: 'gr-1', provider_id: null, group_key: 'Guard Spec Admins', role: 'admin' }],
     activity,
     users: members.map((m, i) => ({
       id: m.user_id,
@@ -1031,7 +1078,7 @@ export function shadowSummaryBody(window: ShadowWindow, empty = false): ShadowSu
 }
 
 const IDENTITY_PATH =
-  /^\/(auth\/(me|mfa|sessions|providers|oidc|identities|logout|password)|permissions|admin\/|providers\/catalog)|\/(members|security|activity)(\/|$)|\/upstreams\/[^/]+\/test$/;
+  /^\/(auth\/(me|mfa|sessions|providers|oidc|identities|logout|password)|permissions|admin\/|providers\/catalog)|\/(members|security|activity|scim|group-roles)(\/|$)|\/upstreams\/[^/]+\/test$/;
 
 export async function installMockApi(page: Page, state: MockState = seedState(), opts: MockOptions = {}): Promise<MockState> {
   const id = state.identity;
@@ -1130,10 +1177,17 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
     // Profile linking (N15): start answers {url}; the provider's callback sends
     // the browser to /ui/account?link_code=, which the UI completes with its token.
     if ((mm0 = /^\/auth\/identities\/([^/]+)\/link\/start$/.exec(path)) && method === 'POST') {
-      return json(200, { url: `/ui/account?link_code=${mm0[1] === 'okta' ? 'mock-link-okta' : 'mock-link-expired'}` });
+      const linkable = mm0[1] === 'okta' || id.idps.some((p) => p.id === mm0?.[1] && p.type === 'saml');
+      return json(200, { url: `/ui/account?link_code=${linkable ? `mock-link-${mm0[1] ?? ''}` : 'mock-link-expired'}` });
     }
     if (method === 'POST' && path === '/auth/identities/link/complete') {
       const code = (body as { code?: string }).code;
+      // A SAML provider: the ACS sends the browser back with the code, as OIDC does.
+      const saml = id.idps.find((p) => p.type === 'saml' && code === `mock-link-${p.id}`);
+      if (saml) {
+        id.me.identities.push({ provider_id: saml.id, provider: 'saml', display_name: saml.display_name, email: 'ada@idp.acme.example' });
+        return json(200, { provider_id: saml.id, linked: true, display_name: saml.display_name, email: 'ada@idp.acme.example' });
+      }
       if (code !== 'mock-link-okta') return json(400, { error: 'invalid, expired or already used code', code: 'link_expired' });
       id.me.identities.push({ provider_id: 'okta', provider: 'oidc', display_name: 'Okta', email: 'ada@acme.okta.example' });
       return json(200, { provider_id: 'okta', linked: true, display_name: 'Okta', email: 'ada@acme.okta.example' });
@@ -1180,7 +1234,15 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
       return json(200, listBody(rows.filter((e) => !action || e.action.startsWith(action)), url, false));
     }
     if (path === '/admin/identity-providers' && method === 'POST') {
-      const p = { ...(body as IdentityProvider), id: uuid() };
+      const b = body as IdentityProvider;
+      if (b.type === 'saml') {
+        // As validateSAML: the metadata is required and gives the issuer; saml_sp is in the answer.
+        if (!b.saml_metadata?.includes('IDPSSODescriptor')) return json(400, { error: 'saml_metadata is not SAML IdP metadata (an EntityDescriptor with an IDPSSODescriptor)' });
+        const p = samlProvider(uuid(), b.display_name, { ...b, issuer: /entityID="([^"]+)"/.exec(b.saml_metadata)?.[1] ?? '' });
+        id.idps.push(p);
+        return json(201, p);
+      }
+      const p = { ...b, id: uuid() };
       id.idps.push(p);
       return json(201, p);
     }
@@ -1188,7 +1250,7 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
       const p = id.idps.find((x) => x.id === mm0?.[1]);
       if (!p) return json(404, { error: 'not found' });
       if (method === 'PUT') {
-        Object.assign(p, body as IdentityProvider, { id: p.id });
+        Object.assign(p, body as IdentityProvider, { id: p.id, type: p.type, saml_sp: p.saml_sp });
         return json(200, p);
       }
       if (method === 'DELETE') {
@@ -1485,7 +1547,7 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
     }
 
     // Members, invites, security, activity (identity contract §3–§5): admin and up.
-    if (opts.role === 'viewer' && /^\/(members|security|activity|invites)(\/|$)/.test(sub)) return json(403, { error: 'requires role admin' });
+    if (opts.role === 'viewer' && /^\/(members|security|activity|invites|scim|group-roles)(\/|$)/.test(sub)) return json(403, { error: 'requires role admin' });
     if (sub === '/members' && method === 'GET') {
       const q = (url.searchParams.get('q') ?? '').toLowerCase();
       const role = url.searchParams.get('role');
@@ -1529,6 +1591,40 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
       // allowed_login_methods is kept when absent (N15), null means unrestricted.
       id.security = { ...id.security, ...(body as Partial<OrgSecurity>) };
       return json(200, id.security);
+    }
+    // SCIM tokens and group roles (cmd/control-plane/scim.go): admin reads, owner writes.
+    if (/^\/(scim|group-roles)(\/|$)/.test(sub)) {
+      if (opts.role === 'member') return json(403, { error: 'requires role admin' });
+      if (method !== 'GET' && (opts.role ?? 'owner') !== 'owner') return json(403, { error: 'requires role owner' });
+    }
+    if (sub === '/scim/tokens' && method === 'GET') {
+      return json(200, { items: id.scimTokens, base_url: 'http://localhost:4173/v1/scim/v2', users: id.scimUsers, groups: id.scimGroups });
+    }
+    if (sub === '/scim/tokens' && method === 'POST') {
+      const b = body as { name?: string; expires_at?: string };
+      const name = (b.name ?? '').trim();
+      if (!name || name.length > 100) return json(400, { error: 'name must be 1 to 100 characters' });
+      if (b.expires_at && Date.parse(b.expires_at) <= Date.now()) return json(400, { error: 'expires_at must be in the future' });
+      const token = `gss_${uuid().replace(/-/g, '')}`;
+      const item: ScimToken = { id: uuid(), name, prefix: token.slice(0, 12), created_at: new Date().toISOString(), last_used_at: null, expires_at: b.expires_at ?? null, revoked_at: null };
+      id.scimTokens.unshift(item);
+      return json(201, { token, item });
+    }
+    if ((mm = /^\/scim\/tokens\/([^/]+)$/.exec(sub)) && method === 'DELETE') {
+      const tok = id.scimTokens.find((x) => x.id === mm?.[1]);
+      if (!tok) return json(404, { error: 'not found' });
+      tok.revoked_at ??= new Date().toISOString();
+      return json(204);
+    }
+    if (sub === '/group-roles' && method === 'GET') return json(200, { items: id.groupRoles });
+    if (sub === '/group-roles' && method === 'PUT') {
+      const items = (body as { items?: GroupRole[] }).items ?? [];
+      for (const [i, g] of items.entries()) {
+        if (!g.group_key.trim()) return json(400, { error: `items[${i}]: group_key must be 1 to 256 characters` });
+        if (g.provider_id !== null && id.idps.find((p) => p.id === g.provider_id)?.type !== 'saml') return json(400, { error: `items[${i}]: provider_id must name a SAML provider` });
+      }
+      id.groupRoles = items.map((g) => ({ ...g, id: uuid() }));
+      return json(200, { items: id.groupRoles });
     }
     if (sub === '/activity' && method === 'GET') {
       const actor = (url.searchParams.get('actor') ?? '').toLowerCase();
