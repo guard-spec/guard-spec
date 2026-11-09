@@ -51,7 +51,9 @@ const (
 )
 
 // IsSSOMethod reports whether a login method is an SSO one.
-func IsSSOMethod(m string) bool { return m == MethodGoogle || strings.HasPrefix(m, "oidc:") }
+func IsSSOMethod(m string) bool {
+	return m == MethodGoogle || strings.HasPrefix(m, "oidc:") || strings.HasPrefix(m, "saml:")
+}
 
 // dummyHash keeps login timing the same for unknown users.
 var dummyHash, _ = bcrypt.GenerateFromPassword([]byte("unknown-user"), bcrypt.DefaultCost)

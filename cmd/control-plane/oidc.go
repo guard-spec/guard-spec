@@ -77,22 +77,39 @@ type providerRow struct {
 	Enabled              bool      `json:"enabled"`
 	CreatedAt            time.Time `json:"created_at"`
 	UpdatedAt            time.Time `json:"updated_at"`
+
+	// SAML (type saml, saml.go): the IdP metadata, whether IdP-initiated
+	// logins are accepted, and the attributes holding the email, the display
+	// name and the groups ("" for the usual names).
+	SAMLMetadata          string `json:"saml_metadata,omitempty"`
+	SAMLAllowIdPInitiated bool   `json:"saml_allow_idp_initiated"`
+	SAMLEmailAttribute    string `json:"saml_email_attribute,omitempty"`
+	SAMLNameAttribute     string `json:"saml_name_attribute,omitempty"`
+	SAMLGroupsAttribute   string `json:"saml_groups_attribute,omitempty"`
+	// SAMLSP is what the IdP needs to know about Guard Spec; answers only.
+	SAMLSP *samlSPInfo `json:"saml_sp,omitempty"`
 }
 
-const providerColumns = `id, type, display_name, issuer, client_id, client_secret_env, scopes, allowed_domains,
-	auto_provision, trust_email_for_linking, enabled, created_at, updated_at`
+const providerColumns = `id, type, display_name, issuer, COALESCE(client_id, ''), COALESCE(client_secret_env, ''), scopes,
+	allowed_domains, auto_provision, trust_email_for_linking, enabled, created_at, updated_at, COALESCE(saml_metadata, ''),
+	saml_allow_idp_initiated, COALESCE(saml_email_attribute, ''), COALESCE(saml_name_attribute, ''),
+	COALESCE(saml_groups_attribute, '')`
 
 func scanProvider(row pgx.Row) (providerRow, error) {
 	var p providerRow
 	err := row.Scan(&p.ID, &p.Type, &p.DisplayName, &p.Issuer, &p.ClientID, &p.ClientSecretEnv, &p.Scopes,
-		&p.AllowedDomains, &p.AutoProvision, &p.TrustEmailForLinking, &p.Enabled, &p.CreatedAt, &p.UpdatedAt)
+		&p.AllowedDomains, &p.AutoProvision, &p.TrustEmailForLinking, &p.Enabled, &p.CreatedAt, &p.UpdatedAt,
+		&p.SAMLMetadata, &p.SAMLAllowIdPInitiated, &p.SAMLEmailAttribute, &p.SAMLNameAttribute, &p.SAMLGroupsAttribute)
 	return p, err
 }
 
 // method is the login method of a session from this provider.
 func (p providerRow) method() string {
-	if p.Type == "google" {
+	switch p.Type {
+	case "google":
 		return auth.MethodGoogle
+	case "saml":
+		return "saml:" + p.ID.String()
 	}
 	return "oidc:" + p.ID.String()
 }
@@ -124,13 +141,22 @@ func (p *providerRow) validate() error {
 			p.DisplayName = "Google"
 		}
 	case "oidc":
+	case "saml":
 	default:
-		return errors.New("type must be google or oidc")
+		return errors.New("type must be google, oidc or saml")
 	}
 	p.DisplayName = strings.TrimSpace(p.DisplayName)
 	if p.DisplayName == "" || len([]rune(p.DisplayName)) > 100 {
 		return errors.New("display_name must be 1 to 100 characters")
 	}
+	if err := p.validateDomains(); err != nil {
+		return err
+	}
+	if p.Type == "saml" {
+		return p.validateSAML()
+	}
+	p.SAMLMetadata, p.SAMLAllowIdPInitiated = "", false
+	p.SAMLEmailAttribute, p.SAMLNameAttribute, p.SAMLGroupsAttribute = "", "", ""
 	if len(p.Issuer) > 2048 {
 		return errors.New("issuer is too long")
 	}
@@ -154,6 +180,10 @@ func (p *providerRow) validate() error {
 			return fmt.Errorf("scope %q is not valid", s)
 		}
 	}
+	return nil
+}
+
+func (p *providerRow) validateDomains() error {
 	if p.AllowedDomains == nil {
 		p.AllowedDomains = []string{}
 	}
@@ -199,7 +229,7 @@ func (id *identity) provider(ctx context.Context, pid uuid.UUID) (*oidcProvider,
 	if err != nil {
 		return nil, err
 	}
-	if !row.Enabled {
+	if !row.Enabled || row.Type == "saml" {
 		return nil, errProviderUnavailable
 	}
 	if id.publicURL == "" {
@@ -803,6 +833,9 @@ func (id *identity) listProviders(c *fiber.Ctx) error {
 	if err != nil {
 		return serverError(c, err)
 	}
+	for i := range list {
+		id.withSP(&list[i])
+	}
 	return c.JSON(fiber.Map{"items": list, "next_cursor": nil, "total": len(list)})
 }
 
@@ -817,12 +850,16 @@ func (id *identity) createProvider(c *fiber.Ctx) error {
 	p, err := scanProvider(id.db.QueryRow(c.Context(),
 		`INSERT INTO identity_providers (type, display_name, issuer, client_id, client_secret_env, scopes,
 		   allowed_domains, auto_provision, trust_email_for_linking, enabled)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING `+providerColumns,
+		   , saml_metadata, saml_allow_idp_initiated, saml_email_attribute, saml_name_attribute, saml_groups_attribute)
+		 VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, ''), $6, $7, $8, $9, $10, NULLIF($11, ''), $12, NULLIF($13, ''),
+		   NULLIF($14, ''), NULLIF($15, '')) RETURNING `+providerColumns,
 		p.Type, p.DisplayName, p.Issuer, p.ClientID, p.ClientSecretEnv, p.Scopes, p.AllowedDomains,
-		p.AutoProvision, p.TrustEmailForLinking, p.Enabled))
+		p.AutoProvision, p.TrustEmailForLinking, p.Enabled, p.SAMLMetadata, p.SAMLAllowIdPInitiated,
+		p.SAMLEmailAttribute, p.SAMLNameAttribute, p.SAMLGroupsAttribute))
 	if err != nil {
 		return serverError(c, err)
 	}
+	id.withSP(&p)
 	logActivity(c, id.db, nil, "identity_provider.created", p.DisplayName, map[string]any{"id": p.ID, "type": p.Type})
 	return c.Status(201).JSON(p)
 }
@@ -851,15 +888,20 @@ func (id *identity) updateProvider(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": err.Error()})
 	}
 	p, err = scanProvider(id.db.QueryRow(c.Context(),
-		`UPDATE identity_providers SET display_name = $2, issuer = $3, client_id = $4, client_secret_env = $5,
-		   scopes = $6, allowed_domains = $7, auto_provision = $8, enabled = $9, trust_email_for_linking = $10,
-		   updated_at = NOW()
+		`UPDATE identity_providers SET display_name = $2, issuer = $3, client_id = NULLIF($4, ''),
+		   client_secret_env = NULLIF($5, ''), scopes = $6, allowed_domains = $7, auto_provision = $8, enabled = $9,
+		   trust_email_for_linking = $10, saml_metadata = NULLIF($11, ''), saml_allow_idp_initiated = $12,
+		   saml_email_attribute = NULLIF($13, ''), saml_name_attribute = NULLIF($14, ''),
+		   saml_groups_attribute = NULLIF($15, ''), updated_at = NOW()
 		 WHERE id = $1 RETURNING `+providerColumns,
 		pid, p.DisplayName, p.Issuer, p.ClientID, p.ClientSecretEnv, p.Scopes, p.AllowedDomains, p.AutoProvision, p.Enabled,
-		p.TrustEmailForLinking))
+		p.TrustEmailForLinking, p.SAMLMetadata, p.SAMLAllowIdPInitiated, p.SAMLEmailAttribute, p.SAMLNameAttribute,
+		p.SAMLGroupsAttribute))
 	if err != nil {
 		return serverError(c, err)
 	}
+	id.forgetSAML(pid)
+	id.withSP(&p)
 	logActivity(c, id.db, nil, "identity_provider.updated", p.DisplayName,
 		map[string]any{"id": p.ID, "enabled": p.Enabled, "auto_provision": p.AutoProvision,
 			"trust_email_for_linking": p.TrustEmailForLinking})
@@ -894,6 +936,7 @@ func (id *identity) deleteProvider(c *fiber.Ctx) error {
 	id.oidcMu.Lock()
 	delete(id.providers, pid)
 	id.oidcMu.Unlock()
+	id.forgetSAML(pid)
 	logActivity(c, id.db, nil, "identity_provider.deleted", pid.String(), map[string]any{"id": pid, "stranded_users": stranded})
 	return c.Status(204).Send(nil)
 }

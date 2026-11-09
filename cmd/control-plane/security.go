@@ -37,12 +37,16 @@ type orgSecurity struct {
 	// a reader give a reason, which the activity log keeps (default true).
 	ContentReadRole   string `json:"content_read_role"`
 	ContentViewReason *bool  `json:"content_view_reason"`
+	// SCIMRevokeKeys revokes the API keys a user created in the org when the
+	// org's SCIM client deactivates them (migration 025, default true).
+	SCIMRevokeKeys *bool `json:"scim_revoke_keys"`
 }
 
 // allLoginMethods lists password and every enabled provider's method.
 func allLoginMethods(ctx context.Context, db *pgxpool.Pool) ([]string, error) {
 	rows, err := db.Query(ctx,
-		`SELECT DISTINCT CASE WHEN type = 'google' THEN 'google' ELSE 'oidc:' || id::text END FROM identity_providers
+		`SELECT DISTINCT CASE type WHEN 'google' THEN 'google' WHEN 'saml' THEN 'saml:' || id::text ELSE 'oidc:' || id::text END
+		 FROM identity_providers
 		 WHERE enabled ORDER BY 1`)
 	if err != nil {
 		return nil, err
@@ -52,16 +56,18 @@ func allLoginMethods(ctx context.Context, db *pgxpool.Pool) ([]string, error) {
 }
 
 func loadOrgSecurity(ctx context.Context, db *pgxpool.Pool, org uuid.UUID) (orgSecurity, error) {
-	reason := true
-	s := orgSecurity{SessionLifetimeHours: 12, DomainJoin: []domainJoinRule{}, ContentReadRole: string(auth.RoleAdmin), ContentViewReason: &reason}
+	reason, revoke := true, true
+	s := orgSecurity{SessionLifetimeHours: 12, DomainJoin: []domainJoinRule{}, ContentReadRole: string(auth.RoleAdmin),
+		ContentViewReason: &reason, SCIMRevokeKeys: &revoke}
 	var methods []string
 	var joins []byte
 	err := tenant.WithOrg(ctx, db, org, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx,
 			`SELECT require_mfa, sso_satisfies_mfa, allowed_login_methods, domain_join, session_lifetime_hours,
-			        content_read_role, content_view_reason
+			        content_read_role, content_view_reason, scim_revoke_keys
 			 FROM org_security WHERE org_id = $1`, org).
-			Scan(&s.RequireMFA, &s.SSOSatisfiesMFA, &methods, &joins, &s.SessionLifetimeHours, &s.ContentReadRole, s.ContentViewReason)
+			Scan(&s.RequireMFA, &s.SSOSatisfiesMFA, &methods, &joins, &s.SessionLifetimeHours, &s.ContentReadRole,
+				s.ContentViewReason, s.SCIMRevokeKeys)
 	})
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return s, err
@@ -104,6 +110,10 @@ func (s *orgSecurity) validate(ctx context.Context, db *pgxpool.Pool) error {
 	if s.ContentViewReason == nil {
 		on := true
 		s.ContentViewReason = &on
+	}
+	if s.SCIMRevokeKeys == nil {
+		on := true
+		s.SCIMRevokeKeys = &on
 	}
 	known, err := allLoginMethods(ctx, db)
 	if err != nil {
@@ -184,15 +194,15 @@ func putOrgSecurity(db *pgxpool.Pool) fiber.Handler {
 		err = tenant.WithOrg(c.Context(), db, org, func(tx pgx.Tx) error {
 			_, err := tx.Exec(c.Context(),
 				`INSERT INTO org_security (org_id, require_mfa, sso_satisfies_mfa, allowed_login_methods, domain_join,
-				   session_lifetime_hours, content_read_role, content_view_reason)
-				 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+				   session_lifetime_hours, content_read_role, content_view_reason, scim_revoke_keys)
+				 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 				 ON CONFLICT (org_id) DO UPDATE SET require_mfa = EXCLUDED.require_mfa,
 				   sso_satisfies_mfa = EXCLUDED.sso_satisfies_mfa, allowed_login_methods = EXCLUDED.allowed_login_methods,
 				   domain_join = EXCLUDED.domain_join, session_lifetime_hours = EXCLUDED.session_lifetime_hours,
 				   content_read_role = EXCLUDED.content_read_role, content_view_reason = EXCLUDED.content_view_reason,
-				   updated_at = NOW()`,
+				   scim_revoke_keys = EXCLUDED.scim_revoke_keys, updated_at = NOW()`,
 				org, s.RequireMFA, s.SSOSatisfiesMFA, s.AllowedLoginMethods, joins, s.SessionLifetimeHours,
-				s.ContentReadRole, *s.ContentViewReason)
+				s.ContentReadRole, *s.ContentViewReason, *s.SCIMRevokeKeys)
 			return err
 		})
 		if err != nil {
@@ -202,7 +212,8 @@ func putOrgSecurity(db *pgxpool.Pool) fiber.Handler {
 			"require_mfa": s.RequireMFA, "sso_satisfies_mfa": s.SSOSatisfiesMFA,
 			"allowed_login_methods": s.AllowedLoginMethods, "domain_join": s.DomainJoin,
 			"session_lifetime_hours": s.SessionLifetimeHours,
-			"content_read_role": s.ContentReadRole, "content_view_reason": *s.ContentViewReason,
+			"content_read_role":      s.ContentReadRole, "content_view_reason": *s.ContentViewReason,
+			"scim_revoke_keys": *s.SCIMRevokeKeys,
 		})
 		out, err := loadOrgSecurity(c.Context(), db, org)
 		if err != nil {
