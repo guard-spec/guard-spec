@@ -60,7 +60,7 @@ flowchart LR
 - A VM inside the VPC with Docker for one-off tasks (migrations, app
   password), reached with IAP TCP forwarding, or a CI runner in the VPC.
 - A checkout of the release tag on that VM:
-  `git clone --branch v0.4.0 https://github.com/guard-spec/guard-spec.git`.
+  `git clone --branch v0.4.1 https://github.com/guard-spec/guard-spec.git`.
 
 ## Sizing
 
@@ -234,10 +234,10 @@ Registry remote repository that proxies `ghcr.io`:
 ```bash
 gcloud artifacts repositories create guard-spec --repository-format=docker --location=<region>
 gcloud auth configure-docker <region>-docker.pkg.dev
-crane copy ghcr.io/guard-spec/guard-spec-gateway-full:0.4.0 \
-  <region>-docker.pkg.dev/<project-id>/guard-spec/guard-spec-gateway-full:0.4.0
-crane copy ghcr.io/guard-spec/guard-spec-control-plane:0.4.0 \
-  <region>-docker.pkg.dev/<project-id>/guard-spec/guard-spec-control-plane:0.4.0
+crane copy ghcr.io/guard-spec/guard-spec-gateway-full:0.4.1 \
+  <region>-docker.pkg.dev/<project-id>/guard-spec/guard-spec-gateway-full:0.4.1
+crane copy ghcr.io/guard-spec/guard-spec-control-plane:0.4.1 \
+  <region>-docker.pkg.dev/<project-id>/guard-spec/guard-spec-control-plane:0.4.1
 ```
 
 ### Models
@@ -287,7 +287,7 @@ spec:
       serviceAccountName: guard-spec-gateway@<project-id>.iam.gserviceaccount.com
       timeoutSeconds: 300
       containers:
-        - image: <region>-docker.pkg.dev/<project-id>/guard-spec/guard-spec-gateway-full:0.4.0
+        - image: <region>-docker.pkg.dev/<project-id>/guard-spec/guard-spec-gateway-full:0.4.1
           ports:
             - containerPort: 8080
           resources:
@@ -347,7 +347,7 @@ spec:
     spec:
       serviceAccountName: guard-spec-control-plane@<project-id>.iam.gserviceaccount.com
       containers:
-        - image: <region>-docker.pkg.dev/<project-id>/guard-spec/guard-spec-control-plane:0.4.0
+        - image: <region>-docker.pkg.dev/<project-id>/guard-spec/guard-spec-control-plane:0.4.1
           ports:
             - containerPort: 8081
           resources:
