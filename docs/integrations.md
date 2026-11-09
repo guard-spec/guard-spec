@@ -605,6 +605,79 @@ off, which works with any upstream). n8n's OpenAI node reports a block as "Bad r
 parameters" without the gateway's reason; the HTTP Request node keeps it.
 Steps: [examples/n8n](../examples/n8n/README.md).
 
+## Files, PDFs and images
+
+The gateway's detector reads text. An image, a PDF or other file, or audio in
+a request (`image_url`, `file`, `input_audio` on chat completions; `image`
+and `document` blocks with a `base64`, `url` or `file` source on
+`/v1/messages`; `input_image`, `input_file`, `input_audio` on
+`/v1/responses`) goes to the model as it is, and the model reads it: a
+vision model reads the text in an image, and the provider gives the model a
+PDF's text. An instruction hidden in such a file is therefore not
+classified. The gateway does not extract PDF text or run OCR. By default
+(`UNSCANNED_PARTS=log`) it forwards these parts and counts them in the audit
+row (`input:unscanned_file=1`, ...), so you can see which applications send
+them; [README: Content the gateway cannot read](../README.md#content-the-gateway-cannot-read)
+has the details. To have the content checked, change what the application
+sends:
+
+**1. Send the extracted text, not the file.** Extract the text in your
+application (`pdftotext` or `pdfplumber` for PDFs with a text layer, OCR for
+scanned PDFs and photos) and send that text instead of the file. Keep the
+metadata the model needs, such as the file name, title and page numbers,
+with the text. The gateway then scans exactly what the model reads. On
+`/v1/messages`, a `document` block with a text source is scanned as an
+untrusted document, like a tool result:
+
+```json
+{"type": "document",
+ "source": {"type": "text", "media_type": "text/plain", "data": "<extracted text>"},
+ "title": "contract-2026-031.pdf", "context": "Uploaded by the customer; pages 1-12"}
+```
+
+On chat completions and `/v1/responses`, put the text in the message, or
+return it as a tool result when an agent's tool reads the file (tool results
+are scanned as untrusted content and follow `INDIRECT_ACTION`). Text in a
+user message is scored as the user's own text, not as a document; a tool
+result or an Anthropic `document` block is the better place for third-party
+content.
+
+**2. Scan at upload.** Scan the extracted text once, when the file is
+uploaded or indexed, with `POST /guardrail/scan` and `documents[]`
+(`"source": "file"`; at most 64 documents and 128 KiB in total per call, so
+split a large file over several calls), and reject or quarantine a file
+whose document comes back `blocked`:
+
+```bash
+curl -s $GUARDSPEC_URL/guardrail/scan -H "Authorization: Bearer $GUARDSPEC_API_KEY" \
+  -H 'Content-Type: application/json' -d '{
+  "documents": [{"id": "contract-2026-031.pdf#p1", "source": "file", "content": "<text of page 1>"}]
+}' | jq '.documents[] | {id, blocked, verdict}'
+```
+
+This catches a poisoned file before anyone uses it, but it checks the
+extracted text only. If the application still sends the original file to the
+model, the model can read what the extraction missed (white or tiny text,
+text in images inside the PDF, content that another parser reads
+differently). Send the text you scanned (pattern 1) when that matters.
+
+**3. Images.** When images carry text from untrusted sources (screenshots,
+scanned forms, images from the web), OCR them and scan the result as above.
+It helps, but it is not enough: a vision model reads faint, small or
+stylised text that OCR misses, and an image can carry an instruction that
+is not text at all. While untrusted images are in the context, limit what
+the agent can do: few tools with narrow permissions, and a person confirms
+risky actions (sending data out, payments, deleting, changing permissions).
+
+**4. Enforce it.** Once the application sends text, set
+`UNSCANNED_PARTS=block` on the gateway, or `"unscanned_parts": "block"` in an
+organization's guard settings, so that a file, image or audio part is refused
+(400 `unscanned_content`) instead of reaching the model unread. To be
+stricter for some applications only, keep `log` and add a rule such as
+`"file" in input.unscanned.kinds` with action `block` to a policy of the
+project their keys belong to (example in the
+[README](../README.md#content-the-gateway-cannot-read)).
+
 ## Other tools
 
 Any client works when it (1) lets you set the base URL, (2) sends the key as

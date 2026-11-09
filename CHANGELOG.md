@@ -11,6 +11,28 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ### Added
 
+- Unscanned content is visible and controllable (RF-c18516ae). Images, files
+  and audio in a request were forwarded to the model without a trace, so an
+  injection inside a PDF or an image was neither classified nor recorded:
+  chat completions `image_url`, `file` and `input_audio`; `/v1/messages`
+  `image`, and `document` with a `base64`, `url` or `file` source (also
+  inside `tool_result`); `/v1/responses` `input_image`, `input_file` and
+  `input_audio`. The new gateway setting `UNSCANNED_PARTS` decides what
+  happens to them: `log` (the default) forwards them and tags the audit row
+  `input:unscanned_image`, `_file`, `_audio` or `_other` `=<n>` (`other`: a
+  part with no text of a type the gateway does not know); `block` refuses
+  the request with 400 `unscanned_content`, in each API's own error shape,
+  and sends nothing upstream; `allow` forwards them with the metric only.
+  Parts are counted in the turns the gateway scans (the trailing turn with
+  `SCAN_HISTORY=latest` on `/v1/messages` and `/v1/responses`, every turn on
+  chat completions); text documents, `search_result` blocks and assistant
+  content are not counted. Organizations can make it stricter with
+  `unscanned_parts` in guard settings; rules and the Simulator get
+  `input.unscanned.kinds` and `input.unscanned.count`; metric
+  `guardspec_unscanned_parts_total{kind,action}`. No migration. The gateway
+  still does not extract PDF text or run OCR:
+  [Files, PDFs and images](docs/integrations.md#files-pdfs-and-images)
+  describes sending extracted text instead.
 - SAML 2.0 single sign-on (RF-39437a0f): identity providers of type `saml`,
   added at `/v1/admin/identity-providers` with the IdP's metadata XML
   (HTTP-Redirect binding; the entity id and signing certificates come from

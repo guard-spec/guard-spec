@@ -371,6 +371,7 @@ dùng nhất:
 | `OUTPUT_CANARY` | `off` | `block` hoặc `redact` khi canary bị lộ |
 | `OUTPUT_UNKNOWN_BLOCKS` | `refuse` | `/v1/messages` và `/v1/responses`: block, output item hoặc sự kiện stream có kiểu output guard không biết bị từ chối; `pass` cho qua không kiểm tra |
 | `RESPONSES_SERVER_STATE` | `refuse` | `/v1/responses`: request dùng trạng thái hội thoại lưu ở upstream (`previous_response_id`, `conversation`, `item_reference`) bị từ chối (400) vì gateway không quét được các lượt trước; `allow` cho qua và gắn `input:server_state=1` vào audit |
+| `UNSCANNED_PARTS` | `log` | Phần gateway chuyển tiếp nhưng không đọc được nên không quét injection (ảnh, file như PDF, âm thanh, và phần không có văn bản thuộc kiểu gateway không biết): `log` cho qua và gắn thẻ `input:unscanned_<loại>=<số>` vào audit; `block` từ chối cả request (400 `unscanned_content`), không gửi gì lên upstream; `allow` cho qua, chỉ đếm metric. Tổ chức chỉ được đặt chặt hơn (`unscanned_parts`). Xem [Phần gateway không đọc được](#phần-gateway-không-đọc-được) |
 | `EMBEDDINGS_SCAN` | `off` | `on`: chấm từng input của `/v1/embeddings` như tài liệu không tin cậy |
 | `AUDIT_STORE_CONTENT` | `false` | Lưu nội dung prompt/response vào audit |
 | `CONTENT_KEK` | rỗng | Khoá mã hoá khoá cho nội dung đã lưu (hoặc `CONTENT_KEK_FILE`, `CONTENT_KEK_VAULT_KEY` cho Vault Transit): nội dung được mã hoá bằng khoá riêng của từng org trước khi lưu. Đặt cùng giá trị cho control plane. Xem [Mã hoá](docs/security/README.vi.md#mã-hoá) |
@@ -414,6 +415,10 @@ tìm thấy trong văn bản của request) và `input.pii.count` (tổng số g
 mọi loại); hai trường cuối là `[]` và `0` nếu tổ chức chưa bật
 [dữ liệu cá nhân trong request](#dữ-liệu-cá-nhân-trong-request). Ví dụ:
 `"card" in input.pii.kinds || input.pii.count >= 5` với hành động `block`.
+`input.unscanned.kinds` (danh sách các loại `image`, `file`, `audio`, `other`)
+và `input.unscanned.count` (tổng số phần đó, mọi loại) mô tả các phần gateway
+chuyển tiếp nhưng không đọc được, trong những lượt nó quét; xem
+[Phần gateway không đọc được](#phần-gateway-không-đọc-được).
 Các trường `pii.entities`, `toxicity.score` và `topic.categories` đã bị bỏ:
 luật mới không được dùng chúng, còn luật đã lưu có dùng thì vẫn đọc `[]` hoặc
 `0` như trước. Chi tiết ở mục [APIs](README.md#apis).
@@ -463,6 +468,61 @@ kế tiếp.
   request 2 KB và khoảng 57 µs cho request 20 KB; p50 cả đường HTTP với L1 từ
   1,18 lên 1,20 ms (2 KB) và từ 11,08 lên 11,19 ms (20 KB). Khi tắt thì không
   chạy gì.
+
+### Phần gateway không đọc được
+
+Bộ phát hiện chỉ đọc văn bản. Ảnh, file và âm thanh trong request được chuyển
+tới model, và model đọc được chúng (model vision đọc chữ trong ảnh, văn bản
+của PDF tới được model), nên prompt injection nằm trong PDF hay ảnh không được
+chấm điểm. `UNSCANNED_PARTS` làm các phần này hiện ra trong audit và cho phép
+từ chối chúng.
+
+- **Tính những gì.** Chat completions: content part `image_url`, `file`
+  (`file_data` hoặc `file_id`) và `input_audio`. `/v1/messages`: block
+  `image`, và block `document` có `source` là `base64`, `url` hoặc `file`, kể
+  cả bên trong `tool_result`. `/v1/responses`: `input_image`, `input_file` và
+  `input_audio`. Các loại: `image`, `file`, `audio` và `other` (phần không có
+  văn bản thuộc kiểu gateway không biết, để không bỏ sót kiểu part mới của nhà
+  cung cấp).
+- **Không tính** (vì đã được quét, hoặc không phải input): part văn bản,
+  `document` có `source` là `text` hoặc `content`, `search_result`, nội dung
+  model tạo ra trong lượt assistant, reasoning mã hoá và chữ ký.
+- **Lượt nào.** Giống phạm vi quét: trên `/v1/messages` và `/v1/responses` với
+  `SCAN_HISTORY=latest` chỉ lượt cuối (`full`: mọi lượt); trên chat completions
+  mọi lượt, nên ứng dụng gửi lại một ảnh ở mỗi lượt sẽ có thẻ ở mỗi request.
+- **`UNSCANNED_PARTS`** (gateway, mặc định `log`): `log` cho qua và thêm vào
+  `pii_entities` của dòng audit các thẻ `input:unscanned_image=<số>`,
+  `input:unscanned_file=<số>`, `input:unscanned_audio=<số>`,
+  `input:unscanned_other=<số>` cạnh thẻ PII (không cần migration); `block` từ
+  chối cả request với HTTP 400, không gửi gì lên upstream (chat completions và
+  `/v1/responses`: dạng lỗi OpenAI với `code` `unscanned_content`;
+  `/v1/messages`: dạng lỗi Anthropic, `invalid_request_error`), thông báo nêu
+  các loại tìm thấy, dòng audit ghi lại việc chặn; `allow` cho qua như trước,
+  chỉ đếm metric. Mọi chế độ đều đếm vào
+  `guardspec_unscanned_parts_total{kind,action}`.
+- **Theo tổ chức.** `unscanned_parts` trong guard settings
+  (`PUT /v1/organizations/:orgId/guard-settings`) chỉ làm gateway chặt hơn
+  (`allow` < `log` < `block`; giá trị chặt hơn thắng), giống
+  `injection_threshold`.
+- **Luật.** `input.unscanned.kinds` và `input.unscanned.count` là trường của
+  luật (Simulator cũng nhận), nên luật có thể hẹp hơn chế độ chung. Ví dụ: giữ
+  `log` cho cả tổ chức nhưng chặn file với các key của một project (ứng dụng
+  công khai cho khách hàng):
+
+  ```bash
+  curl -s $CP/organizations/$ORG/policies -H "$AUTH" -H 'Content-Type: application/json' -d '{
+    "name": "no-files-public-app", "project_id": "<project id>",
+    "rules": [{"name": "files", "action": "block",
+      "condition": {"field": "input.unscanned.kinds", "operator": "contains", "value": "file"}}]}'
+  ```
+
+  `request.tenant_id` là tổ chức của key, nên policy của tổ chức vốn đã chỉ
+  áp dụng cho tenant đó; muốn tách riêng một số key thì dùng policy của
+  project. Luật `block` từ chối như mọi luật khác (`content_filter`), không
+  phải `unscanned_content`.
+- **Chưa làm.** Gateway không trích văn bản từ PDF và không chạy OCR. Hãy để
+  ứng dụng gửi văn bản thay cho file, hoặc quét văn bản trích được lúc tải lên;
+  xem [File, PDF và ảnh](docs/integrations.vi.md#file-pdf-và-ảnh).
 
 ### Giao diện quản trị
 
@@ -670,7 +730,15 @@ Guard Spec **không** bảo vệ trước:
   ngôn ngữ khác, tấn công nhiều lượt). Hãy coi nó là một lớp phòng thủ, vẫn
   giữ quyền tool tối thiểu và xác nhận của con người cho thao tác rủi ro.
 - Yêu cầu độc hại nhưng không phải injection (không phải bộ lọc nội dung).
-- Nội dung không phải văn bản (ảnh, âm thanh).
+- Nội dung gateway không đọc được: ảnh, file (PDF và các loại khác) và âm
+  thanh trong request được chuyển tới model mà không được chấm điểm, nên
+  injection bên trong không bị phát hiện; gateway không trích văn bản hay chạy
+  OCR. Nhưng chúng không còn vô hình: mặc định (`UNSCANNED_PARTS=log`) dòng
+  audit đếm chúng (`input:unscanned_<loại>=<số>`), `block` từ chối các request
+  đó, và luật có thể dựa vào `input.unscanned.kinds`
+  ([Phần gateway không đọc được](#phần-gateway-không-đọc-được)). Khi có thể,
+  hãy gửi văn bản đã trích thay cho file
+  ([File, PDF và ảnh](docs/integrations.vi.md#file-pdf-và-ảnh)).
 - Hành động của agent: gateway không thực thi hay cấp quyền cho tool call,
   không kiểm soát egress.
 - Link tới host trong allowlist, URL trần không có query string, và việc UI tự
