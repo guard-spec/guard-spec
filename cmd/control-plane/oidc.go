@@ -849,8 +849,8 @@ func (id *identity) createProvider(c *fiber.Ctx) error {
 	}
 	p, err := scanProvider(id.db.QueryRow(c.Context(),
 		`INSERT INTO identity_providers (type, display_name, issuer, client_id, client_secret_env, scopes,
-		   allowed_domains, auto_provision, trust_email_for_linking, enabled)
-		   , saml_metadata, saml_allow_idp_initiated, saml_email_attribute, saml_name_attribute, saml_groups_attribute)
+		   allowed_domains, auto_provision, trust_email_for_linking, enabled,
+		   saml_metadata, saml_allow_idp_initiated, saml_email_attribute, saml_name_attribute, saml_groups_attribute)
 		 VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, ''), $6, $7, $8, $9, $10, NULLIF($11, ''), $12, NULLIF($13, ''),
 		   NULLIF($14, ''), NULLIF($15, '')) RETURNING `+providerColumns,
 		p.Type, p.DisplayName, p.Issuer, p.ClientID, p.ClientSecretEnv, p.Scopes, p.AllowedDomains,

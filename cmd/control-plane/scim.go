@@ -1178,16 +1178,30 @@ func (s *scimAPI) groupRole(ctx context.Context, tx pgx.Tx, org, sid uuid.UUID) 
 }
 
 // syncRoles sets the role of active SCIM users to the highest role their
-// groups map to. A user whose groups map to nothing keeps their role; an
+// groups map to. Once the org maps SCIM groups to roles, the directory
+// decides: a user whose groups map to nothing (for example after leaving
+// the admins group) falls back to the default role, so a removal in the IdP
+// takes the access away. Without any SCIM mapping roles are left alone. An
 // owner is never changed.
 func (s *scimAPI) syncRoles(ctx context.Context, tx pgx.Tx, org uuid.UUID, sids []uuid.UUID) error {
+	if len(sids) == 0 {
+		return nil
+	}
+	var mapped bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM org_group_roles WHERE org_id = $1 AND provider_id IS NULL)`,
+		org).Scan(&mapped); err != nil {
+		return err
+	}
+	if !mapped {
+		return nil
+	}
 	for _, sid := range sids {
 		role, ok, err := s.groupRole(ctx, tx, org, sid)
 		if err != nil {
 			return err
 		}
 		if !ok {
-			continue
+			role = scimDefaultRole
 		}
 		if _, err := tx.Exec(ctx, `UPDATE org_memberships m SET role = $3::org_role FROM scim_users s
 			WHERE s.id = $1 AND s.active AND m.user_id = s.user_id AND m.org_id = $2 AND m.role <> 'owner'

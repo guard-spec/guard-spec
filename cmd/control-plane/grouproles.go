@@ -19,8 +19,12 @@ import (
 // A SAML login applies the mappings of the provider it came through to the
 // organizations the user already belongs to: the highest role whose group the
 // assertion lists becomes the user's role. A login never adds a membership
-// and never changes an owner; when no mapped group matches, the role stays.
-// SCIM groups are applied by scim.go.
+// and never changes an owner. Once an organization maps groups of the
+// provider, the IdP decides: a login whose groups match no mapping (the user
+// left the admins group, or the assertion lists no groups) gets the default
+// role, so a removal in the IdP takes the access away at the next login.
+// Organizations without a mapping for the provider are left alone. SCIM
+// groups are applied by scim.go.
 
 func lowerAll(in []string) []string {
 	out := make([]string, len(in))
@@ -60,8 +64,16 @@ func applySAMLGroupRoles(ctx context.Context, db *pgxpool.Pool, user, provider u
 			var ok bool
 			var err error
 			role, ok, err = mappedRole(ctx, tx, org, &provider, groups)
-			if err != nil || !ok {
+			if err != nil {
 				return err
+			}
+			if !ok {
+				var mapped bool
+				if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM org_group_roles WHERE org_id = $1 AND provider_id = $2)`,
+					org, provider).Scan(&mapped); err != nil || !mapped {
+					return err
+				}
+				role = scimDefaultRole
 			}
 			err = tx.QueryRow(ctx,
 				`UPDATE org_memberships m SET role = $3::org_role

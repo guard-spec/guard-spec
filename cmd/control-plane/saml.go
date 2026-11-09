@@ -519,10 +519,8 @@ func (id *identity) samlACS(c *fiber.Ctx) error {
 	if err != nil {
 		return serverError(c, err)
 	}
-	if len(l.groups) > 0 {
-		if err := applySAMLGroupRoles(ctx, id.db, user, pid, l.groups); err != nil {
-			slog.Error("saml: group roles", "provider", pid, "err", err)
-		}
+	if err := applySAMLGroupRoles(ctx, id.db, user, pid, l.groups); err != nil {
+		slog.Error("saml: group roles", "provider", pid, "err", err)
 	}
 	code, err := randomToken()
 	if err != nil {
