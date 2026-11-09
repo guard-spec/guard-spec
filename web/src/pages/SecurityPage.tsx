@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // The organization's sign-in policy (identity contract §3): required 2FA,
-// allowed login methods, domain join rules and the session lifetime.
+// allowed login methods, domain join rules, stored content access, what a
+// SCIM deactivation revokes, and the session lifetime.
 
 import { Plus, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
@@ -13,6 +14,7 @@ import { Badge, Forbidden, NotAvailable } from '../components/DataTable';
 import { ErrorBanner, Field, Loading, PageHeader, Toggle, useLoad } from '../components/ui';
 import { useApp, useOrg } from '../context';
 import type { MessageKey } from '../i18n';
+import { href, onLink } from '../router';
 import { ROLES, type LoginProvider, type OrgSecurity, type Role } from '../types';
 
 const DOMAIN_RE = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
@@ -35,6 +37,8 @@ export function securityBody(s: OrgSecurity, methodsTouched: boolean): Partial<O
     session_lifetime_hours: s.session_lifetime_hours,
     content_read_role: s.content_read_role ?? 'admin',
     content_view_reason: s.content_view_reason ?? true,
+    // Always sent: the control plane turns an omitted value back on.
+    scim_revoke_keys: s.scim_revoke_keys ?? true,
   };
   if (methodsTouched) body.allowed_login_methods = s.allowed_login_methods;
   return body;
@@ -225,6 +229,17 @@ export function SecurityPage() {
             checked={s.content_view_reason ?? true}
             onChange={(v) => set({ content_view_reason: v })}
           />
+        </fieldset>
+
+        <fieldset className="card" disabled={!writable}>
+          <legend>{t('sec.scim')}</legend>
+          <p className="muted small">
+            {t('sec.scimHelp')}{' '}
+            <a href={href('provisioning')} onClick={onLink('provisioning')}>
+              {t('sec.scimLink')}
+            </a>
+          </p>
+          <Toggle label={t('sec.scimRevokeKeys')} help={t('sec.scimRevokeKeysHelp')} checked={s.scim_revoke_keys ?? true} onChange={(v) => set({ scim_revoke_keys: v })} />
         </fieldset>
 
         <fieldset className="card" disabled={!writable}>

@@ -38,6 +38,7 @@ const SimulatorPage = lazy(() => import('./pages/SimulatorPage'));
 const AccountPage = lazy(() => import('./pages/AccountPage'));
 const AdminUsersPage = lazy(() => import('./pages/AdminUsersPage'));
 const IdentityProvidersPage = lazy(() => import('./pages/IdentityProvidersPage'));
+const ProvisioningPage = lazy(() => import('./pages/ProvisioningPage'));
 const AlertRulesPage = lazy(() => import('./alerts/RulesPage'));
 const ChannelsPage = lazy(() => import('./alerts/ChannelsPage'));
 const GroupsPage = lazy(() => import('./alerts/GroupsPage'));
@@ -61,6 +62,7 @@ const ORG_PAGES: Partial<Record<Route, ComponentType>> = {
   roles: RolesPage,
   keys: KeysPage,
   security: SecurityPage,
+  provisioning: ProvisioningPage,
   config: ConfigPage,
   organization: OrganizationPage,
   'alert-rules': AlertRulesPage,

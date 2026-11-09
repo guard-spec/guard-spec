@@ -517,14 +517,24 @@ export interface SessionInfo {
 /** GET /auth/providers: the buttons of the login page. */
 export interface LoginProvider {
   id: string;
-  type: 'oidc' | 'google';
+  type: IdentityProviderType;
   display_name: string;
+}
+
+export type IdentityProviderType = 'google' | 'oidc' | 'saml';
+
+/** What the SAML identity provider is configured with (answers only; needs PUBLIC_BASE_URL). */
+export interface SamlSpInfo {
+  entity_id: string;
+  acs_url: string;
+  metadata_url: string;
 }
 
 export interface IdentityProvider {
   id: string;
-  type: 'google' | 'oidc';
+  type: IdentityProviderType;
   display_name: string;
+  /** OIDC issuer; for SAML the IdP entity id, taken from the metadata by the control plane. */
   issuer: string;
   client_id: string;
   /** The name of the env var holding the secret; the secret itself never reaches the UI. */
@@ -535,9 +545,20 @@ export interface IdentityProvider {
   /** Lets this provider sign in to an existing password-less account with the same verified email (off by default). */
   trust_email_for_linking?: boolean;
   enabled: boolean;
+  /** SAML: the IdP metadata XML (at most SAML_METADATA_MAX bytes). */
+  saml_metadata?: string;
+  /** SAML: accept unsolicited (IdP-initiated) responses; off by default, they cannot be bound to a browser. */
+  saml_allow_idp_initiated?: boolean;
+  /** SAML attribute names; empty: the usual names (email, mail, displayName, groups, memberOf…). */
+  saml_email_attribute?: string;
+  saml_name_attribute?: string;
+  saml_groups_attribute?: string;
+  saml_sp?: SamlSpInfo;
 }
 
-export type IdentityProviderInput = Omit<IdentityProvider, 'id'>;
+export type IdentityProviderInput = Omit<IdentityProvider, 'id' | 'saml_sp'>;
+/** The control plane's limit on saml_metadata (256 KiB). */
+export const SAML_METADATA_MAX = 262144;
 export const CLIENT_SECRET_ENV_RE = /^OIDC_SECRET_[A-Z0-9_]{1,64}$/;
 export const GOOGLE_ISSUER = 'https://accounts.google.com';
 
@@ -558,6 +579,48 @@ export interface OrgSecurity {
   content_read_role?: Role;
   /** Readers must give a reason, which the activity log keeps (default true). */
   content_view_reason?: boolean;
+  /** A SCIM deactivation also revokes the API keys the user created in the org (default true). */
+  scim_revoke_keys?: boolean;
+}
+
+// ── SCIM provisioning and IdP group roles (migration 025) ──────────────────
+
+export interface ScimToken {
+  id: UUID;
+  name: string;
+  /** The first characters of the token (gss_…). */
+  prefix: string;
+  created_at: string;
+  last_used_at: string | null;
+  expires_at: string | null;
+  revoked_at: string | null;
+}
+
+/** GET /organizations/:orgId/scim/tokens. */
+export interface ScimTokenList {
+  items: ScimToken[];
+  /** The SCIM 2.0 base URL to give the directory (relative when PUBLIC_BASE_URL is not set). */
+  base_url: string;
+  /** Users and groups the directory provisioned. */
+  users: number;
+  groups: number;
+}
+
+/** POST /organizations/:orgId/scim/tokens: the token is shown once. */
+export interface CreatedScimToken {
+  token: string;
+  item: ScimToken;
+}
+
+export type GroupRoleValue = 'viewer' | 'member' | 'admin';
+export const GROUP_ROLE_VALUES: readonly GroupRoleValue[] = ['viewer', 'member', 'admin'];
+
+/** An IdP group mapped to an org role: provider_id null for a SCIM group, else a SAML provider. */
+export interface GroupRole {
+  id?: UUID;
+  provider_id: string | null;
+  group_key: string;
+  role: GroupRoleValue;
 }
 
 // ── User management (identity contract §4) ──────────────────────────────────

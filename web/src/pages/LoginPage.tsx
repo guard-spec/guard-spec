@@ -1,14 +1,15 @@
 // Copyright 2026 The Guard Spec Authors
 // SPDX-License-Identifier: Apache-2.0
 
-// Sign-in (identity contract §1, §2): email and password or an SSO provider,
+// Sign-in (identity contract §1, §2): email and password or an SSO provider
+// (OIDC, Google or SAML),
 // then a 2FA code or a forced 2FA enrollment. The SSO callback lands on
 // /ui/#/auth/callback?code=…; the code is exchanged once and removed from the
 // address bar.
 
-import { ArrowLeft, KeyRound, LogIn, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, Building2, KeyRound, LogIn, ShieldCheck } from 'lucide-react';
 import { useEffect, useReducer, useState, type FormEvent } from 'react';
-import { authErrorText } from '../auth/errors';
+import { authErrorText, callbackErrorText } from '../auth/errors';
 import { initialLogin, loginReducer, normalizeCode, parseCallbackHash, stepFor, type LoginStep } from '../auth/loginMachine';
 import { BrandMark } from '../components/BrandMark';
 import { RecoveryCodes } from '../components/RecoveryCodes';
@@ -34,6 +35,7 @@ function ProviderMark({ p }: { p: LoginProvider }) {
       </span>
     );
   }
+  if (p.type === 'saml') return <Building2 size={16} aria-hidden="true" />;
   return <KeyRound size={16} aria-hidden="true" />;
 }
 
@@ -55,7 +57,7 @@ export function LoginPage({
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
-  const [error, setError] = useState<string | null>(cb.error ? authErrorText(cb.error, t) : null);
+  const [error, setError] = useState<string | null>(cb.error ? callbackErrorText(cb.error, t) : null);
   const [busy, setBusy] = useState(false);
   const [providers, setProviders] = useState<LoginProvider[]>([]);
 
@@ -270,7 +272,7 @@ export function LoginPage({
                 <span>{t('login.or')}</span>
               </div>
               {providers.map((p) => (
-                <a key={p.id} className="btn btn-block btn-icon-text sso-button" href={api.oidcStartUrl(p.id, '/ui/')}>
+                <a key={p.id} className="btn btn-block btn-icon-text sso-button" href={api.loginStartUrl(p, '/ui/')}>
                   <ProviderMark p={p} />
                   <span>{t('login.continueWith', { name: p.display_name })}</span>
                 </a>

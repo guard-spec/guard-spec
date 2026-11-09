@@ -13,7 +13,7 @@ import type { ActivityEntry } from '../types';
 
 /** Action families of the filter (the action is "family.verb"). */
 /** Action families of the org log (?action=); sign-ins live in the instance log. */
-export const ORG_FAMILIES = ['member', 'invite', 'api_key', 'policy', 'upstream', 'guard_settings', 'config', 'security', 'mfa', 'identity_provider', 'user', 'org', 'project_member', 'identity', 'session', 'password', 'request'];
+export const ORG_FAMILIES = ['member', 'invite', 'api_key', 'policy', 'upstream', 'guard_settings', 'config', 'security', 'mfa', 'identity_provider', 'user', 'org', 'project_member', 'identity', 'session', 'password', 'request', 'scim'];
 /** The instance log (GET /admin/activity) also has the sign-ins. */
 export const INSTANCE_FAMILIES = ['login', ...ORG_FAMILIES];
 
@@ -24,7 +24,14 @@ export function actionTone(action: string): Tone {
   return 'neutral';
 }
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** A role a member got from an IdP group (member.role_from_group): the group's source, saml or scim. */
+export function groupRoleSource(e: Pick<ActivityEntry, 'action' | 'details'>): 'saml' | 'scim' | null {
+  if (e.action !== 'member.role_from_group') return null;
+  const s = (e.details as { source?: unknown } | null | undefined)?.source;
+  return s === 'saml' || s === 'scim' ? s : null;
+}
+
+const UUID_RE =/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** The target by name: the control plane's label (a user's email), never a bare id. */
 function TargetCell({ e }: { e: ActivityEntry }) {
@@ -93,11 +100,17 @@ export function ActivityLog({
     {
       key: 'action',
       header: t('act.action'),
-      cell: (e) => (
-        <Badge tone={actionTone(e.action)}>
-          <span className="mono">{e.action}</span>
-        </Badge>
-      ),
+      cell: (e) => {
+        const source = groupRoleSource(e);
+        return (
+          <div className="cell-stack">
+            <Badge tone={actionTone(e.action)}>
+              <span className="mono">{e.action}</span>
+            </Badge>
+            {source ? <span className="muted small">{t(source === 'saml' ? 'act.roleFromSamlGroup' : 'act.roleFromScimGroup')}</span> : null}
+          </div>
+        );
+      },
     },
     { key: 'target', header: t('act.target'), className: 'small col-target', cell: (e) => <TargetCell e={e} /> },
     { key: 'ip', header: t('act.ip'), className: 'mono small col-wide-only', cell: (e) => e.ip ?? '—' },

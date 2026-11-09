@@ -65,6 +65,7 @@ for (const theme of ['light', 'dark'] as const) {
           ['Members', 'members'],
           ['Roles and permissions', 'roles'],
           ['Security', 'security'],
+          ['SCIM provisioning', 'provisioning'],
           ['API keys', 'keys'],
           ['Simulator', 'simulator'],
           ['Users', 'admin-users'],
