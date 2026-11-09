@@ -35,7 +35,7 @@ run "defaults" {
   command = plan
 
   assert {
-    condition     = local.gateway_image == "ghcr.io/guard-spec/guard-spec-gateway-full:0.4.1"
+    condition     = local.gateway_image == "ghcr.io/guard-spec/guard-spec-gateway-full:0.4.2"
     error_message = "the gateway defaults to the gateway-full image of the release"
   }
   assert {

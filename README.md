@@ -30,7 +30,7 @@ answer for exfiltration links, personal data and a leaked canary before the
 answer reaches your users. It is written in Go, runs as two services next to Postgres, and has
 been built and evaluated for **English and Vietnamese**.
 
-Status: **v0.4.1, pre-1.0.** The API and the database schema can still
+Status: **v0.4.2, pre-1.0.** The API and the database schema can still
 change. Read [Security model and limitations](#security-model-and-limitations)
 before you rely on it.
 
@@ -327,7 +327,7 @@ scripts/quickstart.sh
    existing `.env` is never overwritten;
 2. runs `docker compose -f docker-compose.yml up -d` with
    `ghcr.io/guard-spec/guard-spec-gateway` and `-control-plane` at
-   `GUARDSPEC_VERSION` (default `0.4.1`). Before the gateway starts, the
+   `GUARDSPEC_VERSION` (default `0.4.2`). Before the gateway starts, the
    `models-init` service pulls the recommended models (about 270 MB, SHA-256
    verified) into `./models/cache`; on later starts it finds them and does
    nothing;
@@ -626,6 +626,7 @@ in a second table.
 | `SPOTLIGHT` | `off` | Mark tool results for the model: `off`, `delimit`, `datamark` |
 | `INDIRECT_BLOCK_THRESHOLD` | `0.85` | Block threshold for tool results, documents and tool descriptions, in (0, 0.85] |
 | `INDIRECT_ACTION` | `block` | What happens to a tool result or document over the threshold: `block` refuses the request; `redact` replaces that block with `[removed by Guard Spec: prompt injection detected in tool output]` (`is_error: true` on a `tool_result`) and lets the request go on, with `input:redacted=<n>` in the audit row and a `detection.flagged` event (`decision: redact`). Tool descriptions always block. An org can override it (`indirect_action` in guard settings) |
+| `TOOL_CODE_CORROBORATION` | `on` | Tool results and documents that look like source code, configuration, a diff, a stack trace or a log (six or more lines, 60% of them code-like) are blocked only when L1 (a rule, not just keywords) or L3 agrees with the classifier (L2), which over-scores such text. `off` lets L2 alone block them again, as before 0.4.2. User, system and tool-description text is never affected; without the model layers it changes nothing. On the long path (`MAX_SCAN_TOKENS`) the rule applies to each token window, where L3 does not run, so only L1 can agree. See [Security model](#security-model-and-limitations) |
 | `SCAN_HISTORY` | `latest` | `/v1/messages` and `/v1/responses`: `latest` classifies the trailing turn (after the last assistant message, or the last item the model produced), takes earlier tool results from the scan cache, and does not classify earlier user text again; `full` classifies every turn. Chat completions always classify every turn |
 | `RESPONSES_SERVER_STATE` | `refuse` | `/v1/responses` requests that refer to conversation state the upstream keeps (`previous_response_id`, `conversation`, `item_reference` input items) carry turns the gateway never sees in the request and cannot scan again: `refuse` answers them with 400 (`server_state_refused`); `allow` passes them and tags the audit row `input:server_state=1`. See [Security model](#security-model-and-limitations) |
 | `UNSCANNED_PARTS` | `log` | Parts of a request the gateway forwards but cannot read, so they are not checked for injection: images, files (PDFs and others) and audio, and parts with no text of a type it does not know. `log` forwards them and tags the audit row `input:unscanned_<kind>=<n>`; `block` refuses the request (400 `unscanned_content`) and sends nothing upstream; `allow` forwards them with a metric only. An org can only make it stricter (`unscanned_parts` in guard settings). See [Content the gateway cannot read](#content-the-gateway-cannot-read) |
@@ -719,7 +720,7 @@ URL tried before Hugging Face: `<mirror>/<name>/<version>/<file>`).
 | `GATEWAY_PORT`, `METRICS_PORT` | `8080`, `9090` | Host ports of the gateway |
 | `CONTROL_PLANE_PORT`, `CONTROL_PLANE_METRICS_PORT` | `18081`, `9091` | Host ports of the control plane |
 | `POSTGRES_PORT` | `5432` | Host port of Postgres (dev override only) |
-| `GUARDSPEC_VERSION` | `0.4.1` | Tag of the `ghcr.io/guard-spec/guard-spec-*` images in `docker-compose.yml` (the dev override builds from source instead) |
+| `GUARDSPEC_VERSION` | `0.4.2` | Tag of the `ghcr.io/guard-spec/guard-spec-*` images in `docker-compose.yml` (the dev override builds from source instead) |
 | `MODELS_UID`, `MODELS_GID` | `0` | Owner of files written by `models-init` and `models-pull` |
 | `QUICKSTART_TIMEOUT` | `600` | `scripts/quickstart.sh`: seconds to wait for `/readyz` |
 
@@ -1510,6 +1511,16 @@ What it does **not** protect against:
   turn by turn. Treat it as
   one layer of defence; keep least-privilege tools, human confirmation for
   risky actions and output handling in your application.
+- **Injections hidden in code or logs that only the classifier sees.**
+  The classifier over-scores code, configs and logs, so a tool result or
+  document that looks like code blocks only when L1 or L3 agrees
+  (`TOOL_CODE_CORROBORATION`, on by default). An injection in a code
+  comment or log line that L1 does not recognise then passes: on eval/
+  attacks embedded in 2 KB code and log hosts, detection falls from 0.86
+  to 0.83 (dev payloads) and from 0.81 to 0.75 (holdout payloads). Even so,
+  8–15% of benign code and log tool results are still refused with the model
+  layers (eval/codelog and a larger 832-file set); use
+  `INDIRECT_ACTION=redact` to let an agent go on when that happens.
 - **Harmful but non-injection requests.** It is not a content moderation or
   toxicity filter. It does not judge whether a request or an answer is
   harmful, biased or false.

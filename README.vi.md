@@ -30,7 +30,7 @@ câu trả lời của model (link rò rỉ dữ liệu, dữ liệu cá nhân, 
 trước khi đến người dùng. Viết bằng Go, chạy thành hai service cạnh Postgres,
 được xây dựng và đánh giá cho **tiếng Anh và tiếng Việt**.
 
-Trạng thái: **v0.4.1, trước 1.0.** API và schema cơ sở dữ liệu còn có thể
+Trạng thái: **v0.4.2, trước 1.0.** API và schema cơ sở dữ liệu còn có thể
 thay đổi. Hãy đọc phần [Mô hình bảo mật và giới hạn](#mô-hình-bảo-mật-và-giới-hạn)
 trước khi dùng.
 
@@ -366,6 +366,7 @@ dùng nhất:
 | `SCAN_ROLES` | `user,tool,tool_descriptions` | Phần nào của request được chấm điểm |
 | `INDIRECT_BLOCK_THRESHOLD` | `0.85` | Ngưỡng chặn cho nội dung tool/tài liệu |
 | `SPOTLIGHT` | `off` | Đánh dấu kết quả tool: `delimit`, `datamark` |
+| `TOOL_CODE_CORROBORATION` | `on` | Kết quả tool và tài liệu trông như mã nguồn, cấu hình, diff, stack trace hoặc log chỉ bị chặn khi L1 (một luật, không chỉ từ khoá) hoặc L3 đồng ý với bộ phân loại (L2), vốn chấm quá tay loại văn bản này. `off`: L2 một mình lại chặn được như trước 0.4.2. Không áp dụng cho văn bản người dùng, system và mô tả tool. Trên đường dài (`MAX_SCAN_TOKENS`) luật áp dụng cho từng cửa sổ token, nơi L3 không chạy, nên chỉ L1 có thể đồng ý |
 | `CONVERSATION_WINDOW_TURNS` / `CONVERSATION_WINDOW_BYTES` | `4` / `8192` | Cửa sổ hội thoại: ghép các lượt người dùng gần nhất (tối đa bấy nhiêu lượt và byte) rồi chấm điểm chung, để bắt chỉ dẫn bị chia nhỏ qua nhiều tin nhắn; `0` là tắt |
 | `OUTPUT_LINK_ALLOWLIST` | rỗng | Host được giữ ảnh/link trong câu trả lời |
 | `OUTPUT_CANARY` | `off` | `block` hoặc `redact` khi canary bị lộ |
@@ -790,6 +791,13 @@ Guard Spec **không** bảo vệ trước:
 - Tấn công mà nó không nhận ra (phát hiện mang tính xác suất; câu chữ mới,
   ngôn ngữ khác, tấn công nhiều lượt). Hãy coi nó là một lớp phòng thủ, vẫn
   giữ quyền tool tối thiểu và xác nhận của con người cho thao tác rủi ro.
+- Injection giấu trong mã nguồn hoặc log mà chỉ bộ phân loại (L2) thấy: vì
+  L2 chấm quá tay mã, cấu hình và log, kết quả tool hay tài liệu trông như mã
+  chỉ bị chặn khi L1 hoặc L3 đồng ý (`TOOL_CODE_CORROBORATION`, bật mặc định).
+  Với tấn công của eval/ nhúng vào mã/log 2 KB, tỷ lệ phát hiện giảm từ 0,86
+  xuống 0,83 (payload dev) và từ 0,81 xuống 0,75 (payload holdout). Dù vậy vẫn
+  còn 8–15% kết quả tool là mã/log vô hại bị chặn khi có lớp mô hình; dùng
+  `INDIRECT_ACTION=redact` để agent chạy tiếp.
 - Yêu cầu độc hại nhưng không phải injection (không phải bộ lọc nội dung).
 - Nội dung gateway không đọc được: ảnh, file (PDF và các loại khác) và âm
   thanh trong request được chuyển tới model mà không được chấm điểm, nên

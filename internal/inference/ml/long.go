@@ -186,7 +186,13 @@ func ScoreLong(ctx context.Context, f *fusion.Fuser, l2 *ClassifierLayer, in []i
 		}
 	}
 
-	scored, err := inference.RunLongBatches(ctx, workers, owners, thresholds, batches,
+	// A window's score as a text sees it: adjusted for a text with an
+	// Adjust (on the long path L3 is absent, so only L1 or a floor can
+	// corroborate a code-like window, see indirect.CorroborateCode).
+	scoreFor := func(u, t int) inference.Score {
+		return in[t].Adjust.Apply(units[u].text, inference.FusedScore(units[u].res))
+	}
+	scored, err := inference.RunLongBatchesOwned(ctx, workers, owners, thresholds, batches,
 		func(ctx context.Context, us []int) ([]float64, error) {
 			out := make([]float64, len(us))
 			if !f.WantsL2(units[us[0]].pt) {
@@ -220,6 +226,11 @@ func ScoreLong(ctx context.Context, f *fusion.Fuser, l2 *ClassifierLayer, in []i
 				out[i] = units[u].res.Score
 			}
 			return out, nil
+		}, func(u, t int, s float64) float64 {
+			if in[t].Adjust == nil {
+				return s
+			}
+			return float64(scoreFor(u, t).Confidence)
 		})
 	if err != nil {
 		return nil, st, err
@@ -236,17 +247,29 @@ func ScoreLong(ctx context.Context, f *fusion.Fuser, l2 *ClassifierLayer, in []i
 	out := make([]inference.LongResult, len(in))
 	for i, us := range perText {
 		var best *fusion.Result
+		var bestAdj inference.Score
 		for _, u := range us {
 			if !scored[u] {
 				out[i].EarlyExit = true
 				continue
 			}
-			if r := &units[u].res; best == nil || r.Score > best.Score {
-				best = r
+			r := &units[u].res
+			if in[i].Adjust == nil {
+				if best == nil || r.Score > best.Score {
+					best = r
+				}
+				continue
+			}
+			if s := scoreFor(u, i); best == nil || s.Confidence > bestAdj.Confidence {
+				best, bestAdj = r, s
 			}
 		}
-		if best != nil {
+		switch {
+		case best == nil:
+		case in[i].Adjust == nil:
 			out[i].Score = inference.FusedScore(*best)
+		default:
+			out[i].Score = bestAdj
 		}
 	}
 	return out, st, nil

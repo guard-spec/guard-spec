@@ -14,7 +14,7 @@ admin_ingress_cidrs     = ["10.0.0.0/16"]
 admin_email             = "admin@example.com"
 
 # Images and models
-image_tag       = "0.4.1"
+image_tag       = "0.4.2"
 gateway_image   = "ghcr.io/guard-spec/guard-spec-gateway-full"
 detector_layers = "l1,l2,l3"
 # l2_model      = "guardspec-classifier@v3b"

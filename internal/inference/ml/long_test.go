@@ -284,3 +284,42 @@ func TestScoreLongWithoutWindowsUsesChunks(t *testing.T) {
 		t.Fatalf("got %+v, stats %+v, L3 runs %d", got[0].Score, st, l3.n.Load())
 	}
 }
+
+// An Adjust on a text applies to each of its token windows (with the
+// window's text), before early exit and the max; a text without one sharing
+// the windows keeps their fused scores.
+func TestScoreLongAdjustPerWindow(t *testing.T) {
+	wc := newWindowFake()
+	f, l2, _ := longFuser(t, wc)
+	text := filler(300) + " EVIL " + filler(300)
+	var mu sync.Mutex
+	var seen []string
+	capAt := func(win string, s inference.Score) inference.Score {
+		mu.Lock()
+		seen = append(seen, win)
+		mu.Unlock()
+		s.Confidence = min(s.Confidence, 0.1)
+		return s
+	}
+	in := []inference.LongInput{{Text: text, Threshold: 0.85}, {Text: text, Threshold: 0.85, Adjust: capAt}}
+	got, _, err := ScoreLong(context.Background(), f, l2, in, inference.LongOptions{BatchSize: 4, Limiter: onnx.NewLimiter(1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[0].Score.Confidence < 0.85 {
+		t.Fatalf("unadjusted: %+v", got[0])
+	}
+	if got[1].Score.Confidence > 0.1 || got[1].EarlyExit {
+		t.Fatalf("adjusted: %+v", got[1])
+	}
+	wins, _, _ := wc.LongWindows(text)
+	spans := map[string]bool{}
+	for _, w := range wins {
+		spans[text[w.Start:w.End]] = true
+	}
+	for _, s := range seen {
+		if !spans[s] {
+			t.Fatalf("adjust saw %q, not a window's text", s)
+		}
+	}
+}

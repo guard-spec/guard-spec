@@ -42,7 +42,16 @@ type LongInput struct {
 	// Uncounted leaves the text's tokens out of MaxTokens: earlier turns,
 	// which have a byte limit of their own.
 	Uncounted bool
+	// Adjust, when set, changes each window's (or chunk's) score for this
+	// text, given the window's text, as ScanAdjusted does per chunk on the
+	// short path. Threshold (early exit) and the text's score use the
+	// adjusted scores. A window shared with a text without Adjust keeps its
+	// own score there.
+	Adjust ChunkAdjust
 }
+
+// adjusted is s as text x sees a unit with the given text.
+func (x LongInput) adjusted(unit string, s Score) Score { return x.Adjust.Apply(unit, s) }
 
 // LongOptions tune the long path.
 type LongOptions struct {
@@ -115,7 +124,7 @@ func FusedScore(r fusion.Result) Score {
 		Confidence: float32(r.Score),
 		Detail: &Detail{
 			L1: r.Layers[fusion.L1], L2: r.Layers[fusion.L2], L3: r.Layers[fusion.L3],
-			Category: r.Category, Categories: r.Categories, Rules: r.Rules,
+			Category: r.Category, Categories: r.Categories, Rules: r.Rules, Floor: r.Floor,
 		},
 	}
 }
@@ -129,6 +138,16 @@ func FusedScore(r fusion.Result) Score {
 // returns which units were scored, or the first error, which stops the rest.
 func RunLongBatches(ctx context.Context, workers int, owners [][]int, thresholds []float64, batches [][]int,
 	run func(ctx context.Context, units []int) ([]float64, error)) ([]bool, error) {
+	return RunLongBatchesOwned(ctx, workers, owners, thresholds, batches, run, nil)
+}
+
+// RunLongBatchesOwned is RunLongBatches where a unit's score can differ by
+// text: ownerScore(unit, text, score) is the score the threshold of text
+// compares (nil: score for every text). It is called after run returned the
+// unit's batch.
+func RunLongBatchesOwned(ctx context.Context, workers int, owners [][]int, thresholds []float64, batches [][]int,
+	run func(ctx context.Context, units []int) ([]float64, error),
+	ownerScore func(unit, text int, score float64) float64) ([]bool, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	var (
@@ -157,7 +176,11 @@ func RunLongBatches(ctx context.Context, workers int, owners [][]int, thresholds
 		for i, u := range units {
 			scored[u] = true
 			for _, t := range owners[u] {
-				if th := thresholds[t]; th > 0 && scores[i] >= th {
+				s := scores[i]
+				if ownerScore != nil {
+					s = ownerScore(u, t, s)
+				}
+				if th := thresholds[t]; th > 0 && s >= th {
 					decided[t] = true
 				}
 			}
@@ -257,7 +280,7 @@ func ScoreLongChunks(ctx context.Context, score func(ctx context.Context, text s
 	if o.Limiter != nil {
 		workers = o.Limiter.Cap()
 	}
-	scored, err := RunLongBatches(ctx, workers, owners, thresholds, batches,
+	scored, err := RunLongBatchesOwned(ctx, workers, owners, thresholds, batches,
 		func(ctx context.Context, us []int) ([]float64, error) {
 			out := make([]float64, len(us))
 			for i, u := range us {
@@ -269,6 +292,11 @@ func ScoreLongChunks(ctx context.Context, score func(ctx context.Context, text s
 				out[i] = float64(s.Confidence)
 			}
 			return out, nil
+		}, func(u, t int, s float64) float64 {
+			if in[t].Adjust == nil {
+				return s
+			}
+			return float64(in[t].adjusted(chunks[u], res[u]).Confidence)
 		})
 	if err != nil {
 		return nil, st, err
@@ -282,7 +310,7 @@ func ScoreLongChunks(ctx context.Context, score func(ctx context.Context, text s
 	}
 	out := make([]LongResult, len(in))
 	for i, us := range units {
-		out[i] = aggregateLong(us, scored, func(u int) Score { return res[u] })
+		out[i] = aggregateLong(us, scored, func(u int) Score { return in[i].adjusted(chunks[u], res[u]) })
 	}
 	return out, st, nil
 }
@@ -331,15 +359,24 @@ type LongScan struct {
 	opts LongOptions
 
 	mu     sync.Mutex
-	done   map[string]LongResult
+	done   map[longDone]LongResult
 	stats  LongStats
 	budget int // tokens left; only with opts.MaxTokens > 0
 }
 
 // NewLongScan returns an empty LongScan.
 func NewLongScan(o LongOptions) *LongScan {
-	return &LongScan{opts: o, done: map[string]LongResult{}, budget: o.MaxTokens}
+	return &LongScan{opts: o, done: map[longDone]LongResult{}, budget: o.MaxTokens}
 }
+
+// longDone keys a LongScan's results: the same text scored with and without
+// an Adjust has two results.
+type longDone struct {
+	text     string
+	adjusted bool
+}
+
+func doneKey(x LongInput) longDone { return longDone{x.Text, x.Adjust != nil} }
 
 // WithLongScan returns ctx carrying ls.
 func WithLongScan(ctx context.Context, ls *LongScan) context.Context {
@@ -366,7 +403,7 @@ func (r *Runner) Prescore(ctx context.Context, ls *LongScan, in []LongInput) err
 	var todo []LongInput
 	ls.mu.Lock()
 	for _, x := range in {
-		if _, ok := ls.done[x.Text]; !ok {
+		if _, ok := ls.done[doneKey(x)]; !ok {
 			todo = append(todo, x)
 		}
 	}
@@ -398,16 +435,17 @@ func (r *Runner) scanLong(ctx context.Context, ls *LongScan, in []LongInput) ([]
 	}
 	ls.budget -= st.Counted
 	for i, x := range in {
-		ls.done[x.Text] = res[i]
+		ls.done[doneKey(x)] = res[i]
 	}
 	return res, nil
 }
 
-// lookup returns the result of a text scored on the long path before.
-func (ls *LongScan) lookup(text string) (LongResult, bool) {
+// lookup returns the result of a text scored on the long path before, with
+// or without an Adjust.
+func (ls *LongScan) lookup(x LongInput) (LongResult, bool) {
 	ls.mu.Lock()
 	defer ls.mu.Unlock()
-	r, ok := ls.done[text]
+	r, ok := ls.done[doneKey(x)]
 	return r, ok
 }
 
