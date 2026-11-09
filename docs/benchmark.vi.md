@@ -18,6 +18,7 @@ trang này, và các detector khác chạy với cấu hình mặc định mà c
 - [Detector](#các-detector)
 - [Kết quả](#kết-quả)
 - [Thảo luận](#thảo-luận)
+- [Tài liệu dài](#tài-liệu-dài)
 
 ## Tóm tắt
 
@@ -343,7 +344,8 @@ Chỉ gồm prompt của người dùng. Nhãn phụ thuộc vào system prompt 
   mức nhiễu trên `eval/`, `deepset` và `jailbreak-classification`, còn L3 thấp
   hơn trên SPML ở FPR 1% (84.5% so với 89.2%). Nó thêm 0.5–1.3 ms mỗi dòng ở
   p50.
-- **Input dài.** Guard Spec chấm điểm từng chunk 512 token của một input dài;
+- **Input dài.** Guard Spec chấm điểm từng chunk 2,048 byte của một input
+  dài, mỗi chunk theo cửa sổ 256 token (xem [Tài liệu dài](#tài-liệu-dài));
   các prompt nhập vai dài của `jailbreak-classification` mất 42 ms ở p50 và
   510 ms ở p95 khi bật các lớp model (ProtectAI: 330 ms và 1.16 s, nhưng nó
   chỉ đọc 512 token đầu).
@@ -377,6 +379,103 @@ Chỉ gồm prompt của người dùng. Nhãn phụ thuộc vào system prompt 
   score của detector.
 - Nhãn ngôn ngữ của các bộ công khai đến từ một rule dấu hiệu đơn giản, không
   phải từ model nhận dạng ngôn ngữ.
+
+## Tài liệu dài
+
+Các bảng trên chấm prompt ngắn. Tài liệu truy xuất, kết quả tool và file dán
+vào thì dài hơn, và một bộ phát hiện lấy **giá trị lớn nhất trên các cửa sổ**
+của văn bản sẽ có nhiều cơ hội báo động hơn khi văn bản dài ra. Phần này đo
+điều đó bằng `make bench-long` (`bench/long/`, `cmd/benchlong`).
+
+**Cách đo.** Corpus được dựng từ các nguồn công khai đã ghim phiên bản
+(Wikipedia EN/VI, Bộ luật Hoa Kỳ (U.S. Code), mã nguồn Go, văn học và văn bản
+luật tiếng Việt thuộc phạm vi công cộng từ vi.wikisource; giấy phép trong
+[`bench/long/corpus.yaml`](../bench/long/corpus.yaml)), cộng với log, JSON,
+CSV, chuỗi email, đoạn chat và hard negative (văn bản lành tính nói về prompt
+injection) được sinh tổng hợp có seed. Văn bản cùng thể loại được nối thành
+20k, 50k, 100k, 200k và 500k token. Tài liệu tấn công đặt một payload lấy từ
+**nửa hold-out của `eval/`** vào một văn bản nền 2k token (28 KB cho ranh giới
+đoạn 24 KiB): ở đầu, ở cuối, ở vị trí ngẫu nhiên, vắt qua ranh giới cửa sổ 256
+token, chunk 2,048 byte hoặc đoạn 24 KiB, tách làm hai nửa (liền nhau, hoặc cách
+nhau khoảng 1,500 token), giấu bằng ký tự zero-width hoặc ký tự tag Unicode,
+hoặc đội lốt chú thích code hay trường JSON; `control` là payload đứng một
+mình. Mọi văn bản đều đi qua sanitizer của gateway. Hai đường đo:
+
+- `l2`: riêng classifier trên từng cửa sổ 256 token (chồng 64 token), đã hiệu
+  chỉnh Platt như trong fusion;
+- `l1,l2/logreg` (và `l1/max`): điểm fusion của gateway trên từng chunk 2,048
+  byte, cắt như gateway cắt văn bản không tin cậy nhưng bỏ giới hạn 16 chunk.
+  Threshold chặn 0.85 áp dụng cho điểm này.
+
+T(n) là threshold giữ false positive của một văn bản lành tính dài n đơn vị
+(cửa sổ hoặc chunk) dưới 1%: giá trị lớn hơn giữa q99 bootstrap theo khối của
+max trên n đơn vị liên tiếp và một phân phối GEV khớp trên logit của max theo
+khối 16 đơn vị.
+
+**Lần chạy đầu: profile quick, máy local, chỉ mang tính tham khảo.** Apple M3
+Max, ONNX Runtime 1.31.1, `guardspec-classifier-v3b`, 2026-11-09, chạy từ nhánh
+thêm benchmark này; 26 tài liệu lành tính (0.86M token), 12 payload mỗi ngôn
+ngữ. Mẫu nhỏ: một tài liệu 100k mỗi ngôn ngữ, 12 tấn công mỗi ô (một tấn công
+là 8 điểm phần trăm). Bảng đầy đủ:
+[`bench/results/long-m3max-local.md`](../bench/results/long-m3max-local.md).
+Các lần chạy 4 vCPU và 2 vCPU trên runner của GitHub sẽ có từ
+[`bench-long.yml`](../.github/workflows/bench-long.yml) sau khi merge.
+
+False positive trên văn bản lành tính ở threshold chặn 0.85 (`l1,l2`):
+
+| | EN | VI (tạm thời) |
+|---|---:|---:|
+| Một chunk (n = 1) | 7.8% | 2.9% |
+| 16 chunk (khoảng 7k token) | 26.1% | 13.9% |
+| 64 chunk (khoảng 26k token) | 49.8% | 38.4% |
+| Tài liệu 20k token (9 mỗi ngôn ngữ) | 44.4% | 33.3% |
+| Tài liệu 50k token (3) | 66.7% | 66.7% |
+| Tài liệu 100k token (1) | 100% | 100% |
+| T(1) / T(16) / T(64) | 0.961 / 0.985 / 0.987 | 0.942 / 0.998 / 1.000 |
+
+Riêng classifier (`l2`, mỗi cửa sổ 256 token) cũng tăng như vậy: 4.2% cửa sổ
+tiếng Anh đạt 0.85, 20.4% đoạn 16 cửa sổ và 64.8% đoạn 256 cửa sổ (tiếng Việt
+1.1%, 5.9%, 27.2%).
+
+Tỷ lệ phát hiện payload trong văn bản nền 2k token (`l1,l2`, quyết định của
+gateway, EN / VI):
+
+| Biến thể | EN | VI |
+|---|---:|---:|
+| `control` (payload một mình) | 100% | 91.7% |
+| đầu / cuối / vị trí ngẫu nhiên | 50.0% / 41.7% / 33.3% | 50.0% / 58.3% / 33.3% |
+| vắt qua ranh giới cửa sổ / chunk / đoạn | 100% / 58.3% / 50.0% | 50.0% / 41.7% / 66.7% |
+| tách đôi, liền nhau / cách xa | 33.3% / 8.3% | 16.7% / 25.0% |
+| zero-width / ký tự tag | 41.7% / 100% (anomaly) | 58.3% / 100% (anomaly) |
+| chú thích code / trường JSON | 91.7% / 91.7% | 66.7% / 91.7% |
+
+**Ý nghĩa.**
+
+- **Văn bản lành tính dài hiện chưa an toàn ở 0.85.** Văn xuôi thông thường
+  (Wikipedia, U.S. Code, văn học tiếng Việt) có 0.4% đến 2.4% chunk đạt 0.85
+  trở lên, và vài thể loại cao hơn nhiều: 51.6% chunk mã nguồn Go, 78.8% chunk
+  log tiếng Việt tổng hợp và 5.7% hard negative tiếng Anh đạt 0.85 với
+  `l1,l2` (riêng rule đánh dấu 60% chunk hard negative: chúng trích nguyên
+  văn cụm từ tấn công). Vì tài liệu bị đánh dấu khi bất kỳ chunk nào bị đánh
+  dấu, một tài liệu 50k token bị chặn nhiều hơn là không.
+- **Không threshold nào sửa được.** T(n) lên 0.99 và hơn nữa chỉ trong 16
+  chunk: threshold giữ false positive của văn bản dài dưới 1% cũng sẽ bỏ sót
+  phần lớn tấn công. Cách sửa phải đến từ model (huấn luyện trên code, log và
+  tài liệu dài) hoặc từ cách gộp điểm khác với max, không phải từ threshold.
+- **Payload nằm giữa văn bản lành tính thường bị bỏ sót.** Cùng những payload
+  bị bắt khi đứng một mình (100% EN) chỉ bị bắt 33% đến 50% khi nằm giữa một
+  chunk văn xuôi. Chúng bị bắt khi đứng riêng dòng (chú thích code, trường
+  JSON) hoặc chiếm phần lớn một cửa sổ.
+- **Payload tách đôi đặt xa nhau không bị bắt, theo thiết kế**: không cửa sổ
+  nào thấy cả hai nửa (8.3% / 25.0%).
+- **Payload bằng ký tự tag** vô hình với model sau khi sanitizer xóa chúng;
+  điểm anomaly của sanitizer chặn tất cả.
+- Số liệu tiếng Việt là tạm thời: corpus tiếng Việt có ít nguồn và kém đa
+  dạng hơn (không có code; chỉ luật, văn học, Wikipedia và văn bản tổng hợp).
+
+Tái lập: `make bench-long` (quick) hoặc `make bench-long PROFILE=full`; xem
+[định cỡ, Input dài](sizing.vi.md#input-dài) để chạy trên phần cứng hoặc tài
+liệu của bạn.
 
 Kết quả cũng sẽ xuất hiện trên [guardspec.io/docs](https://guardspec.io/docs/),
 được build từ trang này.

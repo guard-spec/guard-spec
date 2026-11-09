@@ -115,6 +115,59 @@ does not use the gateway's CPU while it waits.
   [`deploy/helm/guard-spec/examples/`](../deploy/helm/guard-spec/examples/)
   and [README, Kubernetes](../README.md#kubernetes).
 
+## Long inputs
+
+A long text costs CPU in proportion to its length: the gateway cuts it into
+2,048-byte chunks (untrusted text first into 24 KiB segments) and the
+classifier scores each chunk in 256-token windows. Today one request carries
+at most 128 KiB of untrusted text (about 30k tokens) and a single message at
+most 16 chunks; the numbers below say what larger documents would cost.
+How well the detector does on long text (false positives grow with length)
+is in [benchmark, Long documents](benchmark.md#long-documents).
+
+Measured with `make bench-long` (`cmd/benchlong`, the `l1,l2` detector, one
+document at a time, K chunks of a document scored in parallel; 20k-token
+Wikipedia documents in English and Vietnamese). `intra` is
+`INFERENCE_INTRA_OP_THREADS`; "ORT default" lets ONNX Runtime use every core
+for each run.
+
+| Hardware | Source | ms per window (intra 1) | Tokens/s, intra 1, K = 4 | Tokens/s, ORT default, K = 4 | Tokens scanned in 10 s (best) | CPU-s per 1k tokens | 20k-token document (best) |
+|---|---|---:|---:|---:|---:|---:|---:|
+| 2 vCPU | to be measured by [`bench-long.yml`](../.github/workflows/bench-long.yml) (ubuntu-24.04, `taskset -c 0,1`) | | | | | | |
+| 4 vCPU | to be measured by [`bench-long.yml`](../.github/workflows/bench-long.yml) (ubuntu-24.04) | | | | | | |
+| Apple M3 Max, 14 cores | M3 Max, local, indicative (2026-11-09, quick profile) | 61.8 | 9,209 | 17,551 | about 175,000 | 0.42 (intra 1), 0.57 (default) | 1.1 to 1.2 s |
+| 8 vCPU | estimated | | about 18,000 | | about 180,000 | | about 1.1 s |
+| 16 vCPU | estimated | | about 37,000 | | about 370,000 | | about 0.6 s |
+| GPU | not measured (task RF-b74de2b9) | | | | | | |
+
+- The 8 and 16 vCPU rows are estimates, not measurements: they scale the
+  M3 Max rate per busy core (about 2,300 tokens/s per core at intra 1, K = 4)
+  linearly with cores, which assumes K and `INFERENCE_MAX_CONCURRENCY` grow
+  with the cores. Cloud vCPUs are usually hyperthreads and slower per core
+  than an M3 Max: replace these rows with your own run.
+- CPU per token barely changes with K or intra: more parallelism cuts the
+  wall time of one document, not its cost. A server scanning documents for
+  several users at once gets the same total throughput from intra 1 and
+  many concurrent runs as from fewer, wider runs.
+- The full per-run tables (L2 alone, every K, wall time per document) are in
+  [`bench/results/long-m3max-local.md`](../bench/results/long-m3max-local.md).
+
+### Measure long inputs on your hardware
+
+```bash
+make bench-long                    # PROFILE=quick: about 1.6M tokens, about 7 minutes on an M3 Max
+make bench-long PROFILE=full       # about 9.5M tokens
+# your own documents, no Python needed: one .txt file per document
+go run -tags onnx ./cmd/benchlong -docs ./my-docs -lang en -host my-server
+```
+
+`make bench-long` needs [uv](https://docs.astral.sh/uv/) for the corpus
+builder and downloads its pinned public sources once into `bench/.cache`.
+Both write `bench/results/long-<host>.json` and `.md`; the `-docs` form reports
+the score distribution, false positives and latency of your texts (it has no
+attacks, so no detection rate). Pin cores with `taskset -c 0,1` and set
+`INFERENCE_MAX_CONCURRENCY` to match, as the 2 vCPU row does.
+
 ## Disk
 
 - Models: about 135 MB (light) or 270 MB (full) per version kept, plus older
