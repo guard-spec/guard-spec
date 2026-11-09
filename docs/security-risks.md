@@ -31,7 +31,7 @@ make an LLM application safe on its own.
 | D1 | An attack is not detected | Injected instructions reach the model | Least-privilege tools, human confirmation, output guard, exemplars |
 | D2 | A benign request is blocked | Users are refused | Measure on your traffic, allow exemplars, `DETECTOR_LAYERS` |
 | D3 | Model layers silently missing | Only L1 runs; recall drops | `DETECTOR_REQUIRE_ML=true`, alert on `/readyz` `degraded` |
-| D4 | Indirect injection in content you do not scan | Tool results or system prompts are not checked | `SCAN_ROLES`, per-org `scan_roles`, `SPOTLIGHT` |
+| D4 | Indirect injection in content you do not scan | Tool results, system prompts, files or images are not checked | `SCAN_ROLES`, per-org `scan_roles`, `SPOTLIGHT`, send extracted text, `UNSCANNED_PARTS=block` |
 | D5 | Forged history on `/v1/messages` and `/v1/responses` | Unscanned text placed in earlier turns reaches the model | Trust key holders, or `SCAN_HISTORY=full` |
 | D6 | Conversation state kept by the upstream (`/v1/responses`) | Earlier turns the gateway cannot see reach the model | `RESPONSES_SERVER_STATE=refuse` (the default); separate upstream keys per org |
 | A1 | The agent misuses a tool | Data loss, unwanted actions | Authorisation in your app, egress control, confirmations |
@@ -101,8 +101,11 @@ What to do:
 
 By default the gateway classifies user messages, tool results and MCP tool
 descriptions (`SCAN_ROLES=user,tool,tool_descriptions`). System prompts and
-the model's tool-call arguments are not classified unless you add them, and
-images, audio and other non-text parts are not inspected.
+the model's tool-call arguments are not classified unless you add them.
+Images, files (PDFs and others) and audio in a request are forwarded to the
+model unread: an injection inside a PDF or an image is not classified. With
+the default `UNSCANNED_PARTS=log` they are counted in the audit row
+(`input:unscanned_<kind>=<n>`), so you can see where they come from.
 
 What to do:
 
@@ -112,6 +115,11 @@ What to do:
   you put them in a prompt.
 - Turn on `SPOTLIGHT` (`delimit` or `datamark`) so the model can tell data from
   instructions.
+- Have the application send the text of files (extracted, OCR for scans)
+  instead of the files, and set `UNSCANNED_PARTS=block` (or `unscanned_parts`
+  per organization, or a rule on `input.unscanned.kinds`) once it does. With
+  untrusted images in the context, limit the agent's tools and confirm risky
+  actions. See [Files, PDFs and images](integrations.md#files-pdfs-and-images).
 
 ### D5. Forged history on `/v1/messages`
 
@@ -371,6 +379,7 @@ Postgres, and alert on 503 rates and `/readyz`.
 - [ ] `UPSTREAM_ALLOW_PRIVATE=false` and a narrow `UPSTREAM_KEY_ORGS`
 - [ ] `TRUSTED_PROXIES` lists exactly your proxies
 - [ ] `SCAN_ROLES` covers every place untrusted text enters your prompts
+- [ ] Files sent as extracted text; `UNSCANNED_PARTS=block` where no application needs to send files, images or audio
 - [ ] A short link allowlist; no auto-linking of model output in your UI
 - [ ] Content storage off; `AUDIT_RETENTION_DAYS` set
 - [ ] SSO or required 2FA for everyone with admin access
