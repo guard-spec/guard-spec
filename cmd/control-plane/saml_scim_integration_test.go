@@ -300,7 +300,7 @@ func (h *cpHarness) scimDo(method, path, token, body string) (int, map[string]an
 	if err != nil {
 		h.t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	data, _ := io.ReadAll(resp.Body)
 	out := map[string]any{}
 	if len(data) > 0 {
