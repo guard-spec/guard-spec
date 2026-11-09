@@ -876,6 +876,8 @@ export const vi: Messages = {
   'authErr.invalid_response': 'Phản hồi SAML của nhà cung cấp danh tính bị từ chối (chữ ký, audience, recipient hoặc thời hạn). Hãy nhờ quản trị viên kiểm tra cấu hình SAML.',
   'authErr.replayed': 'Phản hồi SAML này đã được dùng. Hãy đăng nhập lại từ đầu.',
   'authErr.idp_initiated_disabled': 'Nhà cung cấp này không cho phép đăng nhập bắt đầu từ phía nhà cung cấp danh tính. Hãy bắt đầu từ trang đăng nhập của Guard Spec.',
+  'authErr.not_provisioned': 'Chưa có tài khoản cho danh tính này và nhà cung cấp này không tự tạo tài khoản. Hãy xin quản trị viên một lời mời.',
+  'authErr.last_login_method': 'Đây là cách đăng nhập duy nhất của bạn. Hãy đặt mật khẩu hoặc liên kết nhà cung cấp khác trước.',
   'authErr.assertion_expired': 'Phản hồi của nhà cung cấp danh tính đã ngoài thời hạn hiệu lực. Hãy kiểm tra đồng hồ hệ thống rồi đăng nhập lại.',
   'sec.scim': 'Cấp phát SCIM',
   'sec.scimHelp': 'Điều xảy ra khi thư mục người dùng của bạn vô hiệu hóa một người. Token và vai trò theo nhóm nằm ở',

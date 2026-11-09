@@ -36,6 +36,8 @@ export const CODES: Record<string, MessageKey> = {
   invalid_response: 'authErr.invalid_response',
   replayed: 'authErr.replayed',
   idp_initiated_disabled: 'authErr.idp_initiated_disabled',
+  not_provisioned: 'authErr.not_provisioned',
+  last_login_method: 'authErr.last_login_method',
   link_expired: 'authErr.link_expired',
   link_wrong_user: 'authErr.link_wrong_user',
   identity_in_use: 'authErr.identity_in_use',

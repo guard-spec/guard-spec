@@ -103,7 +103,7 @@ describe('SAML providers', () => {
 
   it('explains the ACS refusals, and an expired assertion is not an expired 2FA step', () => {
     const t = translator('vi');
-    for (const code of ['invalid_response', 'replayed', 'idp_initiated_disabled']) {
+    for (const code of ['invalid_response', 'replayed', 'idp_initiated_disabled', 'not_provisioned', 'last_login_method']) {
       expect(CODES[code], code).toBeDefined();
       expect(callbackErrorText(code, t)).toBe(t(CODES[code] ?? 'authErr.sso_unavailable'));
     }

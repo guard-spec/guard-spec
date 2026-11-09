@@ -9,7 +9,7 @@ import { KeyRound, Link2, Monitor, ShieldCheck, ShieldOff, Unlink } from 'lucide
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { ApiError, isNotFound } from '../api';
 import { NotificationSettings } from '../alerts/NotificationSettings';
-import { authErrorText } from '../auth/errors';
+import { authErrorText, callbackErrorText } from '../auth/errors';
 import { isTotpCode } from '../auth/loginMachine';
 import { describeUserAgent } from '../auth/userAgent';
 import { Badge, DataTable, NotAvailable, type Column } from '../components/DataTable';
@@ -53,7 +53,7 @@ export default function AccountPage() {
     const p = takeLinkParams();
     if (!p) return;
     if (p.error) {
-      setLinkError(t('account.linkFailed', { error: authErrorText(p.error, t) }));
+      setLinkError(t('account.linkFailed', { error: callbackErrorText(p.error, t) }));
       return;
     }
     if (p.code) {

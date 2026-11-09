@@ -875,6 +875,8 @@ export const en = {
   'authErr.invalid_response': 'The identity provider’s SAML response was refused (signature, audience, recipient or validity). Ask an administrator to check the SAML settings.',
   'authErr.replayed': 'This SAML response was already used. Start the sign-in again.',
   'authErr.idp_initiated_disabled': 'Sign-in started at the identity provider is not allowed for this provider. Start from the Guard Spec sign-in page.',
+  'authErr.not_provisioned': 'There is no account for this identity, and this provider does not create accounts. Ask an administrator for an invite.',
+  'authErr.last_login_method': 'This is your only way to sign in. Set a password or link another provider first.',
   'authErr.assertion_expired': 'The identity provider’s answer is out of its validity period. Check the clocks and sign in again.',
   'sec.scim': 'SCIM provisioning',
   'sec.scimHelp': 'What happens when your directory deactivates a user. Tokens and group roles are on the',
