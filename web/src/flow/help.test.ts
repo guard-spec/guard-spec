@@ -51,6 +51,8 @@ describe('help metadata', () => {
     expect(fields.get('mcp.is_tool_response')).toBe('bool');
     expect(fields.get('input.pii.kinds')).toBe('list');
     expect(fields.get('input.pii.count')).toBe('int');
+    expect(fields.get('input.unscanned.kinds')).toBe('list');
+    expect(fields.get('input.unscanned.count')).toBe('int');
   });
 
   it('has help for every backend variable, and only for those', () => {
@@ -117,11 +119,13 @@ describe('help metadata', () => {
 
   it('groups fields in display order and searches descriptions', () => {
     const groups = groupFields(FALLBACK_SCHEMA.fields);
-    expect(groups.map((g) => g.group)).toEqual(['scores', 'anomaly', 'indirect', 'pii', 'request', 'mcp']);
+    expect(groups.map((g) => g.group)).toEqual(['scores', 'anomaly', 'indirect', 'pii', 'unscanned', 'request', 'mcp']);
     expect(groups.flatMap((g) => g.fields).length).toBe(FALLBACK_SCHEMA.fields.length);
     const describe = (n: string) => en[descKey(n)];
     expect(filterFields(FALLBACK_SCHEMA.fields, 'bidirectional', describe).map((f) => f.name)).toEqual(['anomaly.has_bidi']);
     expect(filterFields(FALLBACK_SCHEMA.fields, 'L2', describe).map((f) => f.name)).toContain('scores.l2');
     expect(filterFields(FALLBACK_SCHEMA.fields, '', describe)).toHaveLength(FALLBACK_SCHEMA.fields.length);
+    expect(groups.find((g) => g.group === 'unscanned')?.fields.map((f) => f.name)).toEqual(['input.unscanned.kinds', 'input.unscanned.count']);
+    expect(FALLBACK_SCHEMA.fields.find((f) => f.name === 'input.unscanned.kinds')?.values).toEqual(['image', 'file', 'audio', 'other']);
   });
 });

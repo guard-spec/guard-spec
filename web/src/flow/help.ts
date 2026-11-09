@@ -11,10 +11,10 @@
 import type { MessageKey } from '../i18n';
 import type { Action, FieldType, SchemaField } from '../types';
 
-export type FieldGroup = 'scores' | 'anomaly' | 'indirect' | 'pii' | 'request' | 'mcp';
+export type FieldGroup = 'scores' | 'anomaly' | 'indirect' | 'pii' | 'unscanned' | 'request' | 'mcp';
 
 /** The groups of the field picker and the Simulator, in display order. */
-export const FIELD_GROUPS: readonly FieldGroup[] = ['scores', 'anomaly', 'indirect', 'pii', 'request', 'mcp'];
+export const FIELD_GROUPS: readonly FieldGroup[] = ['scores', 'anomaly', 'indirect', 'pii', 'unscanned', 'request', 'mcp'];
 
 export interface VariableHelp {
   group: FieldGroup;
@@ -45,6 +45,8 @@ export const VARIABLES: Readonly<Record<string, VariableHelp>> = {
   'indirect.source': { group: 'indirect', example: 'indirect.source == "tool_description"' },
   'input.pii.kinds': { group: 'pii', example: '"card" in input.pii.kinds' },
   'input.pii.count': { group: 'pii', example: 'input.pii.count > 0', min: 0 },
+  'input.unscanned.kinds': { group: 'unscanned', example: '"image" in input.unscanned.kinds' },
+  'input.unscanned.count': { group: 'unscanned', example: 'input.unscanned.count > 0', min: 0 },
   'request.model': { group: 'request', example: 'request.model.startsWith("gpt-4")' },
   'request.tenant_id': { group: 'request', example: 'request.tenant_id == "00000000-0000-0000-0000-000000000001"' },
   'request.tokens': { group: 'request', example: 'request.tokens > 8000', min: 0 },
