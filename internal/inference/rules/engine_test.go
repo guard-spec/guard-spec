@@ -245,3 +245,24 @@ func BenchmarkScore(b *testing.B) {
 		e.Score(text)
 	}
 }
+
+// TestCueScoreScalesWithLength: cue words add a ranking score to a short
+// text, but a long text (a source file, a log) that holds them here and there
+// scores near the floor (RF-476b4d30).
+func TestCueScoreScalesWithLength(t *testing.T) {
+	e := New()
+	short := "Check the system config, the user token and the data directory."
+	s := e.Score(short)
+	if len(s.Rules) != 0 || s.Score < baseScore+2*cueStep {
+		t.Fatalf("short text: %+v, want a cue score without rules", s)
+	}
+	line := "func load(path string) (*Config, error) { data, err := os.ReadFile(path); if err != nil { return nil, err } }\n"
+	long := short + "\n" + strings.Repeat(line, 30)
+	l := e.Score(long)
+	if len(l.Rules) != 0 {
+		t.Fatalf("long text fired %v", l.Rules)
+	}
+	if l.Score >= baseScore+cueStep {
+		t.Errorf("long text scores %.3f, want below %.3f: cues are scaled by length", l.Score, baseScore+cueStep)
+	}
+}
