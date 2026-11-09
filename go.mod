@@ -22,7 +22,7 @@ require (
 	github.com/russellhaering/goxmldsig v1.6.1
 	github.com/valyala/fasthttp v1.77.0
 	github.com/yalue/onnxruntime_go v1.38.0
-	github.com/yuin/goldmark v1.8.6
+	github.com/yuin/goldmark v1.8.7
 	go.opentelemetry.io/otel v1.47.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.47.0
 	go.opentelemetry.io/otel/sdk v1.47.0
