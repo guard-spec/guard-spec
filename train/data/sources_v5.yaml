@@ -1,0 +1,421 @@
+# Sources of the v5 training data (train/data/build_v5.py, task RF-437128e9).
+#
+# Only this file is committed: build_v5.py downloads each source at the pinned
+# revision into $GUARD_V5_CACHE (default train/.cache/v5, gitignored), checks
+# the SHA-256 values below, and writes windows to $GUARD_BUILD_OUT, outside
+# the repository. No third-party text is written inside the repository.
+#
+# Pins:
+#   archive_sha256  SHA-256 of the downloaded archive. GitHub generates its
+#                   tarballs on demand; a mismatch is reported but not fatal,
+#                   because content_sha256 is the real check.
+#   content_sha256  SHA-256 of the selected, extracted text: sha256 over the
+#                   sorted lines "<path>\0<sha256 of the file's UTF-8 text>\n"
+#                   (for git-log sources, of the log text; for http-html and
+#                   mediawiki sources, of the extracted units joined by
+#                   "\n\x1e\n", as bench/long/build.py does). Fatal on mismatch.
+#   An empty value means "not pinned yet": the builder prints the value to pin.
+#
+# Template sets (DATA_CARD.md "v5"):
+#   A  set A: training + a 12% validation split by group (file / unit)
+#   B  val_v5: arm selection and calibration; other repositories, titles,
+#      works and generator templates than A
+#   C  val_v5_holdout: never used for selection; other repositories, titles,
+#      works and templates than A and B
+#
+# Licences were checked on each repository at the pinned tag (the licence
+# file named below must exist and contain `license_match`; the builder
+# refuses the source otherwise). Vendored or third-party directories are
+# excluded because their licences differ from the repository's.
+
+version: 1
+
+tokenizer:
+  # Base model of the classifier (MODEL_CARD.md), same vocabulary as the
+  # packaged v3b/v4 tokenizers. Content tokens, no special tokens.
+  repo: intfloat/multilingual-e5-small
+  revision: 614241f622f53c4eeff9890bdc4f31cfecc418b3
+  file: tokenizer.json
+  sha256: 0b44a9d7b51c3c62626640cda0e2c2f70fdacdc25bbbd68038369d14ebdf4c39
+
+sources:
+  # ---------------------------------------------------------------- set A
+  kubernetes:
+    set: A
+    kind: archive
+    url: https://codeload.github.com/kubernetes/kubernetes/tar.gz/9edcffcde5595e8a5b1a35f88c421764e575afce
+    tag: v1.31.0
+    commit: 9edcffcde5595e8a5b1a35f88c421764e575afce
+    license: Apache-2.0
+    license_file: LICENSE
+    license_match: Apache License
+    attribution: The Kubernetes Authors, https://github.com/kubernetes/kubernetes
+    exclude: '(^|/)(vendor|third_party|_output|node_modules)/|zz_generated|\.pb\.go$|generated\.go$|/testdata/'
+    select:
+      code_go: '^(pkg|cmd|plugin|staging/src/k8s\.io/[^/]+)/.*\.go$'
+      config: '\.(ya?ml|toml)$|(^|/)Dockerfile[^/]*$|\.dockerfile$'
+      shell: '^(hack|cluster|build|test)/.*\.sh$'
+    archive_sha256: 4bf401525f96359af0b845b2e19c1aa9a2ac8287c902da0604026c611b0127ce
+    content_sha256: 94e845e12c954af60d955901b9f95508183140aa54187259b069764886439e58
+  cpython:
+    set: A
+    kind: archive
+    url: https://codeload.github.com/python/cpython/tar.gz/0b05ead877f909b7efe712db758012d9dbece7ce
+    tag: v3.12.7
+    commit: 0b05ead877f909b7efe712db758012d9dbece7ce
+    license: PSF-2.0
+    license_file: LICENSE
+    license_match: PYTHON SOFTWARE FOUNDATION LICENSE VERSION 2
+    attribution: Python Software Foundation, https://github.com/python/cpython (Lib/)
+    exclude: '^Lib/(test|idlelib/idle_test|lib2to3/tests)/|/tests?/|^Lib/ensurepip/_bundled/'
+    select:
+      code_python: '^Lib/.*\.py$'
+      config: '^(\.github|\.azure-pipelines|Tools|Misc)/.*\.(ya?ml|toml)$|^\.pre-commit-config\.yaml$|^\.readthedocs\.yml$'
+      shell: '^(Tools|Mac|PC|Misc)/.*\.sh$|^\.github/.*\.sh$'
+    archive_sha256: 6df6491ceec4a36ab7cfa8328fbab296507e0a83813edc0890af8a0f443bfe55
+    content_sha256: cc39bab4ac35c56a46ee642452816aee2c7ceb64c428b9c4112bbc3f72d8990a
+  rust-library:
+    set: A
+    kind: archive
+    url: https://static.rust-lang.org/dist/rust-src-1.81.0.tar.xz
+    tag: 1.81.0 (rust-src component)
+    commit: eeb90cda1969383f56a2637cbd3037bdf598841c
+    root: rust-src/lib/rustlib/src/rust/
+    license: MIT OR Apache-2.0
+    license_file: library/core/Cargo.toml
+    license_match: MIT OR Apache-2.0
+    attribution: The Rust Project Developers, https://github.com/rust-lang/rust (library/)
+    exclude: '/tests?/|/benches/|^library/(stdarch|backtrace|portable-simd)/'
+    select:
+      code_rust: '^library/.*\.rs$'
+      config: '^library/.*Cargo\.toml$'
+    archive_sha256: a7d79e7d8bb541b3ba5881e693ad94133f4b7555681f8530c65270ed5341013e
+    content_sha256: 7db96dfce7b90624de7dba73638cbf1cfda445e9f951371ae125fb275cd318fe
+  nodejs-lib:
+    set: A
+    kind: archive
+    url: https://nodejs.org/dist/v20.17.0/node-v20.17.0.tar.xz
+    tag: v20.17.0
+    commit: efbec04208a3c8588d4e7f076c47d29dddf47976
+    license: MIT
+    license_file: LICENSE
+    license_match: Permission is hereby granted, free of charge
+    attribution: Node.js contributors, https://github.com/nodejs/node (lib/)
+    # lib/ only: deps/ and tools/ carry third-party code under other licences.
+    exclude: '^lib/internal/deps/|^lib/(punycode)\.js$'
+    select:
+      code_js: '^lib/.*\.(js|mjs)$'
+    archive_sha256: 9abf03ac23362c60387ebb633a516303637145cb3c177be3348b16880fd8b28c
+    content_sha256: 2b3184abd1c9bdfec8de21532ec8b3b0d40d62db64fdd5349708593c1d25eafa
+  postgres-regress:
+    set: A
+    kind: archive
+    url: https://ftp.postgresql.org/pub/source/v16.4/postgresql-16.4.tar.bz2
+    tag: REL_16_4
+    commit: 2caa85f4aae689e6f6721d7363b4c66a2a6417d6
+    license: PostgreSQL
+    license_file: COPYRIGHT
+    license_match: PostgreSQL Database Management System
+    attribution: The PostgreSQL Global Development Group, https://www.postgresql.org (src/test/regress/sql)
+    exclude: '^$'
+    select:
+      sql: '^src/test/regress/sql/.*\.sql$'
+    archive_sha256: 971766d645aa73e93b9ef4e3be44201b4f45b5477095b049125403f9f3386d6f
+    content_sha256: 7536d739b10a3e13359400bed1a0252040e03dd1aaaa33a0c34d24e38ba3a9ec
+  requests-history:
+    set: A
+    kind: git-log
+    url: https://github.com/psf/requests.git
+    from: da9996fe4dc63356e9467d0a5e10df3d89a8528e   # v2.28.0
+    to: 0e322af87745eff34caffe4df68456ebc20d9068     # v2.32.3
+    license: Apache-2.0
+    license_file: LICENSE
+    license_match: Apache License
+    attribution: Kenneth Reitz and the requests contributors, https://github.com/psf/requests
+    exclude: '^(docs|tests)/|\.(rst|md)$|^HISTORY|^AUTHORS'
+    content_sha256: 0cd8f3fa753d2a5f5df02a9593fa9a4ab39f81cb7fbc2622919f06b2fe72be62
+  ripgrep-history:
+    set: A
+    kind: git-log
+    url: https://github.com/BurntSushi/ripgrep.git
+    from: af6b6c543b224d348a8876f0c06245d9ea7929c5   # 13.0.0
+    to: e50df40a1967708b9781486b1c017e48040bceb0     # 14.1.0
+    license: Unlicense OR MIT
+    license_file: LICENSE-MIT
+    license_match: Permission is hereby granted, free of charge
+    attribution: Andrew Gallant, https://github.com/BurntSushi/ripgrep (used under MIT)
+    exclude: '^(tests|benchsuite|GUIDE|FAQ|CHANGELOG)|\.md$|/tests?/'
+    content_sha256: e03efab106597a07c80deb0bb85616266aaa67eb642a45abba3bbfd9846f85f9
+  uscode-a:
+    set: A
+    kind: http-html
+    # United States Code, 2023 main edition, GovInfo. Public domain U.S. Government work
+    # (17 U.S.C. 105). Titles 11, 17 and 35 are used by bench/long and are excluded.
+    urls:
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title15/html/USCODE-2023-title15.htm
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title7/html/USCODE-2023-title7.htm
+    license: Public domain (17 U.S.C. 105)
+    attribution: U.S. Government Publishing Office, GovInfo, United States Code 2023 (titles 7 and 15)
+    content_sha256: 9d1f111e8d8e05dea56e752fd6169b664df0c9bb7ac041e3c7ba1a576fdc7cd5
+  wikisource-vi-a:
+    set: A
+    kind: mediawiki
+    api: https://vi.wikisource.org/w/api.php
+    # Revisions not used by bench/long; no other version of a bench law or work.
+    # Each page must carry {{PVCC-CPVN}} (legal normative documents, not protected
+    # by copyright: Viet Nam IP Law art. 15) or {{PD-old}} at the pinned revision.
+    require_template: [PVCC-CPVN, PD-old]
+    revisions:
+      136061: Luật sửa đổi, bổ sung Bộ luật Hình sự 2017
+      139080: Luật Thi hành án hình sự 2010
+      193052: Luật ban hành văn bản quy phạm pháp luật 2015
+      115507: Bộ luật Hàng hải 1990
+      187116: Luật Quản lý, sử dụng vũ khí, vật liệu nổ và công cụ hỗ trợ 2017
+      127783: Luật Ký kết, gia nhập và thực hiện Điều ước quốc tế 2005
+      114896: Luật Tổ chức HĐND và UBND 2003
+      111769: Luật Xây dựng 2003
+      138669: Luật Quản lý thuế 2006
+      140011: Luật Giáo dục 2019
+      113410: Luật Nhà ở 2005
+      109262: Luật Đường sắt 2005
+      136184: Luật Bảo vệ và phát triển rừng 2004
+      200187: Luật Năng lượng nguyên tử 2008
+      202030: Đại Nam Quốc sử Diễn ca
+      107392: Chuyến đi Bắc Kỳ năm Ất Hợi 1876 (Trương Vĩnh Ký)
+      78090: Truyện thầy Lazaro Phiền (Nguyễn Trọng Quản)
+      177749: Cung oán ngâm khúc (Nguyễn Gia Thiều)
+      152269: Chinh phụ ngâm (Đoàn Thị Điểm dịch)
+      107119: Gia huấn ca
+      106902: Gia Định phú
+      106671: Sãi vãi (Nguyễn Cư Trinh)
+    license: Public domain (PVCC-CPVN / PD-old, checked per revision)
+    attribution: vi.wikisource.org contributors (transcriptions of public-domain texts)
+    content_sha256: ff98ecfc5010cf083beeb0da93cc51415e263f5243d4c459573ded5cde1aa2a2
+
+  # ---------------------------------------------------------------- set B
+  prometheus:
+    set: B
+    kind: archive
+    url: https://codeload.github.com/prometheus/prometheus/tar.gz/e6cfa720fbe6280153fab13090a483dbd40bece3
+    tag: v2.54.1
+    commit: e6cfa720fbe6280153fab13090a483dbd40bece3
+    license: Apache-2.0
+    license_file: LICENSE
+    license_match: Apache License
+    attribution: The Prometheus Authors, https://github.com/prometheus/prometheus
+    exclude: '(^|/)(vendor|node_modules|web/ui)/|/testdata/|\.pb\.go$'
+    select:
+      code_go: '\.go$'
+      config: '\.(ya?ml|toml)$|(^|/)Dockerfile[^/]*$'
+      shell: '\.sh$'
+    archive_sha256: 80d1f1230b55bf75c95b2712812f449a8a0134816ee7fea7b1596421ede6c569
+    content_sha256: 6238944a6cf7479a2782e62c5fe7690727012d5fcc7ccbbafe3d84bdccae1602
+  django:
+    set: B
+    kind: archive
+    url: https://codeload.github.com/django/django/tar.gz/1e1d791787e27227124ac6067de3bfc81175ce02
+    tag: 5.1.1
+    commit: 1e1d791787e27227124ac6067de3bfc81175ce02
+    license: BSD-3-Clause
+    license_file: LICENSE
+    license_match: Redistribution and use in source and binary forms
+    attribution: Django Software Foundation and individual contributors, https://github.com/django/django
+    exclude: '/static/|/locale/|^tests/|^docs/|/migrations/'
+    select:
+      code_python: '^django/.*\.py$'
+      config: '^(\.github|scripts)/.*\.(ya?ml|toml)$|^pyproject\.toml$|^\.pre-commit-config\.yaml$'
+    archive_sha256: 991d60aef1cae79847ed3c5e0fd60e2862f20cc57b14b1f3dbb7591a909315d3
+    content_sha256: 30509c0510979981576e53eccd9013e362b67a02333c0c38ad31cd12dc5d003b
+  tokio:
+    set: B
+    kind: archive
+    url: https://codeload.github.com/tokio-rs/tokio/tar.gz/ea6d652a102dee3f22b490db70545b7f66a23fb7
+    tag: tokio-1.40.0
+    commit: ea6d652a102dee3f22b490db70545b7f66a23fb7
+    license: MIT
+    license_file: LICENSE
+    license_match: Permission is hereby granted, free of charge
+    attribution: Tokio Contributors, https://github.com/tokio-rs/tokio
+    exclude: '/tests?/|/benches/|^tests-'
+    select:
+      code_rust: '\.rs$'
+      config: '\.(toml|ya?ml)$'
+    archive_sha256: 319b91da5cbe031b94f0cde79903cbaca7962f8937a80db3ed39a0a6747d41dd
+    content_sha256: eff13d0056e35b72e4bddd272d41c62fcc098d73e58be95eb726d1c61545c215
+  express:
+    set: B
+    kind: archive
+    url: https://codeload.github.com/expressjs/express/tar.gz/7e562c6d8daddff4604f8efaaf9db2cf98c6dcff
+    tag: 4.21.0
+    commit: 7e562c6d8daddff4604f8efaaf9db2cf98c6dcff
+    license: MIT
+    license_file: LICENSE
+    license_match: Permission is hereby granted, free of charge
+    attribution: TJ Holowaychuk, Roman Shtylman, Douglas Christopher Wilson and contributors, https://github.com/expressjs/express
+    exclude: '^test/'
+    select:
+      code_js: '\.js$'
+      config: '\.(ya?ml)$|^package\.json$'
+    archive_sha256: 855dc6d423e254b2847cb2db815ce763b6031bc38c8f4ce3ed91a8abaef1bdcf
+    content_sha256: 903ef2281d6aa45e56192123f927bbbb063172f9ac010a43c529e9a55cd487c3
+  express-history:
+    set: B
+    kind: git-log
+    url: https://github.com/expressjs/express.git
+    from: 04bc62787be974874bc1467b23606c36bc9779ba   # 4.19.2
+    to: 7e562c6d8daddff4604f8efaaf9db2cf98c6dcff     # 4.21.0
+    license: MIT
+    license_file: LICENSE
+    license_match: Permission is hereby granted, free of charge
+    attribution: expressjs contributors, https://github.com/expressjs/express
+    exclude: '\.md$|^History'
+    content_sha256: e1df82afa49fee0e1f3f4d064bd76f5931da3d42129cb2b9ea52b22596146c7e
+  uscode-b:
+    set: B
+    kind: http-html
+    urls:
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title4/html/USCODE-2023-title4.htm
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title9/html/USCODE-2023-title9.htm
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title1/html/USCODE-2023-title1.htm
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title36/html/USCODE-2023-title36.htm
+    license: Public domain (17 U.S.C. 105)
+    attribution: U.S. Government Publishing Office, GovInfo, United States Code 2023 (titles 1, 4, 9 and 36)
+    content_sha256: 6020e11159a23439b429cee5869cb6b5de0a099fcb5685375cd69238d2e3334a
+  wikisource-vi-b:
+    set: B
+    kind: mediawiki
+    api: https://vi.wikisource.org/w/api.php
+    require_template: [PVCC-CPVN, PD-old]
+    revisions:
+      198461: Luật tổ chức Viện kiểm sát nhân dân 2014
+      175423: Luật Tài nguyên nước 2012
+      199989: Luật Khoa học và công nghệ 2013
+      175459: Luật Hợp tác xã 2012
+      107475: Hoài Nam khúc
+      38696: Nữ tú tài
+      77940: Hoa tiên/I
+    license: Public domain (PVCC-CPVN / PD-old, checked per revision)
+    attribution: vi.wikisource.org contributors (transcriptions of public-domain texts)
+    content_sha256: 1448c5b248570576d2d81225719d9c31890ad128a1e3871eabaad908047af688
+
+  # ---------------------------------------------------------------- set C
+  etcd:
+    set: C
+    kind: archive
+    url: https://codeload.github.com/etcd-io/etcd/tar.gz/f20bbadd404b57c776d1e8876cefd1ac29b03fb5
+    tag: v3.5.16
+    commit: f20bbadd404b57c776d1e8876cefd1ac29b03fb5
+    license: Apache-2.0
+    license_file: LICENSE
+    license_match: Apache License
+    attribution: The etcd Authors, https://github.com/etcd-io/etcd
+    exclude: '(^|/)(vendor|node_modules)/|\.pb(\.gw)?\.go$|/testdata/|^tests/'
+    select:
+      code_go: '\.go$'
+      config: '\.(ya?ml|toml)$|(^|/)Dockerfile[^/]*$'
+      shell: '\.sh$'
+    archive_sha256: d12f58832c8b2d57345dd1e6a81d967c43639da6f8e1aefb3d4d681add2adec4
+    content_sha256: 87cbe2b520f5313f5e9bcc9964edfdb7a2fe56c79b8b580279ab4de42c117c6b
+  flask:
+    set: C
+    kind: archive
+    url: https://codeload.github.com/pallets/flask/tar.gz/c12a5d874c5a014495eb2db8a73f40037bc813ac
+    tag: 3.0.3
+    commit: c12a5d874c5a014495eb2db8a73f40037bc813ac
+    license: BSD-3-Clause
+    license_file: LICENSE.txt
+    license_match: Redistribution and use in source and binary forms
+    attribution: Pallets, https://github.com/pallets/flask
+    exclude: '^(tests|docs)/'
+    select:
+      code_python: '\.py$'
+      config: '\.(ya?ml|toml)$'
+    archive_sha256: 86a01d23397ca141c9a020cf73b69d499c029bd264f95667cec7e9e6f1a60ddf
+    content_sha256: e17463e3c27ceaef0899929feea745932fa45df612e3ac757f4b78c55d68e4af
+  serde:
+    set: C
+    kind: archive
+    url: https://codeload.github.com/serde-rs/serde/tar.gz/89c4b02bf32ceae5b17d89f93a452ccc195ca038
+    tag: v1.0.210
+    commit: 89c4b02bf32ceae5b17d89f93a452ccc195ca038
+    license: MIT OR Apache-2.0
+    license_file: LICENSE-MIT
+    license_match: Permission is hereby granted, free of charge
+    attribution: Erick Tryzelaar, David Tolnay and serde contributors, https://github.com/serde-rs/serde
+    exclude: '^test_suite/'
+    select:
+      code_rust: '\.rs$'
+      config: '\.(toml|ya?ml)$'
+    archive_sha256: 97499ba78787e2e8aa0f68617138ee09537553c0c75957cdf85e83b7abb25a69
+    content_sha256: 648197a7455c0483c80f5753dd92f67c84d762637234f2a7bc698ce6938a6499
+  axios:
+    set: C
+    kind: archive
+    url: https://codeload.github.com/axios/axios/tar.gz/5b8a826771b77ab30081d033fdba9ef3b90e439a
+    tag: v1.7.7
+    commit: 5b8a826771b77ab30081d033fdba9ef3b90e439a
+    license: MIT
+    license_file: LICENSE
+    license_match: Permission is hereby granted, free of charge
+    attribution: Matt Zabriskie and axios contributors, https://github.com/axios/axios
+    exclude: '^(test|dist|sandbox|examples)/|\.min\.js$'
+    select:
+      code_js: '\.(js|mjs|cjs)$'
+      config: '\.(ya?ml)$|^package\.json$|^tsconfig\.json$'
+    archive_sha256: ac59f0920d854eddcb982670ec4bb53a1c6c57a2f8c0be917e250a7b7bbe1d4f
+    content_sha256: 0bc59c82cf27f3d155a89b65365726ae96facd8d331d655307c5bd8b3336078b
+  flask-history:
+    set: C
+    kind: git-log
+    url: https://github.com/pallets/flask.git
+    from: 8728c3e4cd4e929a4327d917acd4b96c75f963d0   # 2.3.0
+    to: c12a5d874c5a014495eb2db8a73f40037bc813ac     # 3.0.3
+    license: BSD-3-Clause
+    license_file: LICENSE.txt
+    license_match: Redistribution and use in source and binary forms
+    attribution: Pallets, https://github.com/pallets/flask
+    exclude: '^(docs|tests)/|\.(rst|md)$|^CHANGES'
+    content_sha256: 5f2a6828621e3c53944eae84ae0dc439eeefc5f865f15a3270d2ccf5990d7989
+  uscode-c:
+    set: C
+    kind: http-html
+    urls:
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title3/html/USCODE-2023-title3.htm
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title13/html/USCODE-2023-title13.htm
+    license: Public domain (17 U.S.C. 105)
+    attribution: U.S. Government Publishing Office, GovInfo, United States Code 2023 (titles 3 and 13)
+    content_sha256: 8b8a7b8aba872059f6de8c5dcb87c511f502a71be84859b63bff7537830a0634
+  wikisource-vi-c:
+    set: C
+    kind: mediawiki
+    api: https://vi.wikisource.org/w/api.php
+    require_template: [PVCC-CPVN, PD-old]
+    revisions:
+      168178: Luật Khám bệnh, chữa bệnh 2009
+      137138: Luật Cạnh tranh 2004
+      109660: Luật Luật sư 2006
+      156963: Luật Thanh tra 2010
+      186766: Nhị thập tứ hiếu diễn âm
+      205842: Bình Ngô đại cáo
+      106517: Tỳ bà hành
+      44963: Hà thành chính khí ca
+    license: Public domain (PVCC-CPVN / PD-old, checked per revision)
+    attribution: vi.wikisource.org contributors (transcriptions of public-domain texts)
+    content_sha256: 05f2f515912f183e1810d3635e564263bc553244d46c08dd57c5b16ff53049ef
+
+# Never used, at source level (DATA_CARD.md "v5"):
+excluded:
+  - source: golang/go (Go standard library)
+    reason: bench/long gostd-en uses it; evaluation data.
+  - source: Wikipedia (any language)
+    reason: CC-BY-SA (share-alike would follow the data) and bench/long wiki genre.
+  - source: vi.wikisource revisions of bench/long (206607, 106606, 106607, 136234, 199539, 111231, 198701, 126727, 175413, 112144, 139826) and every other version of those laws or works
+    reason: bench/long evaluation corpus; other versions are near-duplicates.
+  - source: U.S. Code titles 11, 17 and 35
+    reason: bench/long uscode-en.
+  - source: this repository (Guard Spec), at any commit
+    reason: eval/codelog is built from it.
+  - source: eval/codelog/build.py and bench/long/build.py message catalogs and seeds
+    reason: evaluation templates; gen_codelog_v5.py has its own (checked by train/tests).
+  - source: golang/go-derived or CC-BY-SA configuration collections, Stack Overflow snippets
+    reason: share-alike or unclear licence.
