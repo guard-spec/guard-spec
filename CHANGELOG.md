@@ -9,6 +9,28 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-09
+
+### Security
+
+- Saving an organization's security settings could lift its login method
+  restriction (v0.4.0 and earlier). `PUT /v1/organizations/:orgId/security`
+  read an absent `allowed_login_methods` as `null`, which allows every
+  method, and the admin UI sends the field only when that section changed.
+  So an owner who had limited sign-in to SSO and then changed another
+  setting (2FA, session lifetime, domain join, content access) silently
+  allowed password logins again. An absent field now keeps the stored
+  value; an explicit `null` still lifts the restriction (RF-ca024e46).
+
+### Upgrade notes
+
+- No migration and no API change for clients that send the field. Check the
+  **Security** page of each organization that restricts login methods: if a
+  restriction disappeared after a save on v0.4.0 or earlier, set it again
+  after upgrading.
+- `build/gateway-full.Dockerfile` now builds on the signed v0.4.0 gateway
+  image by default.
+
 ## [0.4.0] - 2026-11-08
 
 ### Security
@@ -959,7 +981,8 @@ First release.
 - List endpoints still answer the older `{"data": [...]}` shape when called
   without `limit` and `cursor`; use the paginated form.
 
-[Unreleased]: https://github.com/guard-spec/guard-spec/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/guard-spec/guard-spec/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/guard-spec/guard-spec/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/guard-spec/guard-spec/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/guard-spec/guard-spec/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/guard-spec/guard-spec/compare/v0.2.1...v0.3.0

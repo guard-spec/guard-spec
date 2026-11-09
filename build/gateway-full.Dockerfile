@@ -27,10 +27,10 @@
 # The gateway image to extend: a released tag or digest, or a local build of
 # build/gateway.Dockerfile (docker-compose.yml tags it guard-spec-gateway:latest;
 # pass --build-arg GATEWAY_IMAGE=guard-spec-gateway:latest to use it). The
-# default is the signed v0.3.1 release, pinned by the digest of its index, so a
+# default is the signed v0.4.0 release, pinned by the digest of its index, so a
 # build without the argument never pulls a moving tag. The release workflow
 # always passes the digest of the gateway image it has just built and signed.
-ARG GATEWAY_IMAGE=ghcr.io/guard-spec/guard-spec-gateway:0.3.1@sha256:636cb1de115b8edab1dee624a33e9b8ecca3cfc132e44ee7170e6551541e2d72
+ARG GATEWAY_IMAGE=ghcr.io/guard-spec/guard-spec-gateway:0.4.0@sha256:e69b343e392d2eadc2f8a4850c2044aa8b917b0e853b45d284fce7e5978af077
 
 # Default for the `l2` build context: empty, so a build without
 # --build-context l2=... stops below with a clear message.
