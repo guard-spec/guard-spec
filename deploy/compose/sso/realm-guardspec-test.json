@@ -1,0 +1,61 @@
+{
+  "realm": "guardspec-test",
+  "displayName": "Guard Spec SSO test realm (test data only)",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": false,
+  "bruteForceProtected": false,
+  "groups": [
+    { "name": "gs-admins", "path": "/gs-admins" },
+    { "name": "gs-members", "path": "/gs-members" }
+  ],
+  "users": [
+    {
+      "username": "alice",
+      "email": "alice@example.test",
+      "emailVerified": true,
+      "firstName": "Alice",
+      "lastName": "Admin",
+      "enabled": true,
+      "credentials": [{ "type": "password", "value": "alice-test-password", "temporary": false }],
+      "groups": ["/gs-admins"],
+      "requiredActions": []
+    },
+    {
+      "username": "bob",
+      "email": "bob@example.test",
+      "emailVerified": true,
+      "firstName": "Bob",
+      "lastName": "Member",
+      "enabled": true,
+      "credentials": [{ "type": "password", "value": "bob-test-password", "temporary": false }],
+      "groups": ["/gs-members"],
+      "requiredActions": []
+    },
+    {
+      "username": "carol",
+      "email": "carol@example.test",
+      "emailVerified": true,
+      "firstName": "Carol",
+      "lastName": "Provisioned",
+      "enabled": true,
+      "credentials": [{ "type": "password", "value": "carol-test-password", "temporary": false }],
+      "groups": [],
+      "requiredActions": []
+    },
+    {
+      "username": "dave",
+      "email": "dave@example.test",
+      "emailVerified": true,
+      "firstName": "Dave",
+      "lastName": "Oidc",
+      "enabled": true,
+      "credentials": [{ "type": "password", "value": "dave-test-password", "temporary": false }],
+      "groups": ["/gs-members"],
+      "requiredActions": []
+    }
+  ]
+}

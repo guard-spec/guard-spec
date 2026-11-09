@@ -108,3 +108,11 @@ benchmark: onnx-deps
 
 onnxbench: onnx-deps
 	$(ONNX_ENV) $(GO) run -tags onnx ./cmd/onnxbench -model models/local/guardspec-classifier-v3b
+
+# SSO end to end (scripts/sso-e2e.sh): the control plane built from this
+# checkout, Postgres and Keycloak as the compose project gs-sso-e2e
+# (deploy/compose/sso/), then SAML, OIDC and SCIM flows with curl. Prints
+# PASS/FAIL per check and removes the project; SSO_E2E_KEEP=1 keeps it.
+.PHONY: sso-e2e
+sso-e2e:
+	bash scripts/sso-e2e.sh
