@@ -101,6 +101,7 @@ Everything is in `.env` ([`.env.example`](.env.example) lists it):
 | `DETECTOR_LAYERS` | `l1,l2,l3` | `l1,l2` is light mode ([docs/sizing.md](../../../docs/sizing.md)) |
 | `GATEWAY_CPUS`, `GATEWAY_MEMORY` | `2`, `2g` | Measured peaks: full detector 0.9 GiB, light 0.5 GiB |
 | `INFERENCE_MAX_CONCURRENCY`, `INFERENCE_INTRA_OP_THREADS` | `2`, `1` | Model runs at once x threads each; keep the product at or below `GATEWAY_CPUS` |
+| `MAX_SCAN_TOKENS`, `INFERENCE_LARGE_MAX_CONCURRENCY`, `LARGE_SCAN_QUEUE_TIMEOUT` | unset (today's limits), `GATEWAY_CPUS` / 4 (at least 1), `30s` | Large inputs: the token cap that opens the long path, large requests scanned at once, and how long one waits before 429. See [Large inputs](../../../README.md#large-inputs) |
 | `CONTROL_PLANE_CPUS`, `CONTROL_PLANE_MEMORY` | `1`, `256m` | |
 | `POSTGRES_CPUS`, `POSTGRES_MEMORY` | `2`, `1g` | |
 | `CADDY_CPUS`, `CADDY_MEMORY` | `1`, `256m` | |

@@ -211,7 +211,7 @@ func decodeShared(model, kind string, b []byte) (any, error) {
 		var s inference.Scores
 		err := json.Unmarshal(e.Value, &s)
 		return s, err
-	case cacheSource, cacheTool:
+	case cacheSource, cacheSourceLong, cacheTool:
 		var v verdictValue
 		if err := json.Unmarshal(e.Value, &v); err != nil {
 			return nil, err

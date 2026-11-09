@@ -372,6 +372,10 @@ dùng nhất:
 | `OUTPUT_UNKNOWN_BLOCKS` | `refuse` | `/v1/messages` và `/v1/responses`: block, output item hoặc sự kiện stream có kiểu output guard không biết bị từ chối; `pass` cho qua không kiểm tra |
 | `RESPONSES_SERVER_STATE` | `refuse` | `/v1/responses`: request dùng trạng thái hội thoại lưu ở upstream (`previous_response_id`, `conversation`, `item_reference`) bị từ chối (400) vì gateway không quét được các lượt trước; `allow` cho qua và gắn `input:server_state=1` vào audit |
 | `UNSCANNED_PARTS` | `log` | Phần gateway chuyển tiếp nhưng không đọc được nên không quét injection (ảnh, file như PDF, âm thanh, và phần không có văn bản thuộc kiểu gateway không biết): `log` cho qua và gắn thẻ `input:unscanned_<loại>=<số>` vào audit; `block` từ chối cả request (400 `unscanned_content`), không gửi gì lên upstream; `allow` cho qua, chỉ đếm metric. Tổ chức chỉ được đặt chặt hơn (`unscanned_parts`). Xem [Phần gateway không đọc được](#phần-gateway-không-đọc-được) |
+| `MAX_SCAN_TOKENS` | rỗng (giới hạn hiện tại) | Số token tối đa gateway quét cho một request được proxy. Rỗng hoặc `0`: giữ giới hạn theo byte như trước (khoảng 28 KB văn bản của người dùng, system và tham số tool call; 128 KiB kết quả tool, tài liệu và mô tả tool; 1 MiB lượt cũ), vượt thì 413. Khi đặt: là trần token của request (vượt thì 413), và request vượt các giới hạn byte đó được quét theo đường dài trong làn input lớn thay vì bị từ chối. Xem [Input lớn](#input-lớn) |
+| `INFERENCE_LARGE_MAX_CONCURRENCY` / `LARGE_SCAN_ORG_CONCURRENCY` | số CPU / 4 (ít nhất 1) / một nửa của nó | Số request lớn được quét cùng lúc (và các lượt chạy model của chúng, trên limiter riêng) / của một tổ chức |
+| `LARGE_SCAN_QUEUE_TIMEOUT` | `30s` | Thời gian request lớn chờ làn trước khi nhận 429 kèm `Retry-After` |
+| `MAX_REQUEST_BYTES` | `4194304` (4 MiB) | Kích thước body tối đa; lớn hơn thì 413 trước khi đọc |
 | `EMBEDDINGS_SCAN` | `off` | `on`: chấm từng input của `/v1/embeddings` như tài liệu không tin cậy |
 | `AUDIT_STORE_CONTENT` | `false` | Lưu nội dung prompt/response vào audit |
 | `CONTENT_KEK` | rỗng | Khoá mã hoá khoá cho nội dung đã lưu (hoặc `CONTENT_KEK_FILE`, `CONTENT_KEK_VAULT_KEY` cho Vault Transit): nội dung được mã hoá bằng khoá riêng của từng org trước khi lưu. Đặt cùng giá trị cho control plane. Xem [Mã hoá](docs/security/README.vi.md#mã-hoá) |
@@ -523,6 +527,63 @@ từ chối chúng.
 - **Chưa làm.** Gateway không trích văn bản từ PDF và không chạy OCR. Hãy để
   ứng dụng gửi văn bản thay cho file, hoặc quét văn bản trích được lúc tải lên;
   xem [File, PDF và ảnh](docs/integrations.vi.md#file-pdf-và-ảnh).
+
+### Input lớn
+
+Mặc định một request được proxy chứa được khoảng 28 KB văn bản của người dùng,
+system và tham số tool call (16 đoạn khoảng 2 KB), 128 KiB kết quả tool, tài
+liệu và mô tả tool, và 1 MiB lượt cũ mà scan cache chưa có; vượt thì 413 và
+không gì được gửi lên upstream. Tài liệu dài (hợp đồng, log, mã nguồn trong
+prompt) cần nhiều hơn. `MAX_SCAN_TOKENS` nâng giới hạn mà không quét ít đi:
+
+- **Không đặt (mặc định): không có gì thay đổi.** Cùng giới hạn, cùng 413.
+- **Khi đặt** (ví dụ `MAX_SCAN_TOKENS=200000`): đó là trần token của request,
+  đếm bằng tokenizer của classifier (4 byte một token khi không có); vượt
+  trần thì 413 trước khi quét và không bao giờ được chuyển tiếp. Request nằm
+  trong giới hạn hiện tại được quét y như trước: cùng đoạn, cùng các lớp (kể
+  cả L3), cùng điểm. Request vượt giới hạn là request *lớn*: chờ làn input
+  lớn, rồi các văn bản dài hơn một lần gọi bộ phát hiện được quét theo đường
+  dài, phần còn lại như trước.
+- **Đường dài.** Mỗi văn bản dài được tách token một lần và cắt thành các
+  cửa sổ của classifier (256 token, chồng nhau 64), nên mọi token đều được
+  chấm; không cắt bớt, không lấy mẫu. L1 chạy trên văn bản của mọi cửa sổ;
+  cửa sổ có tín hiệu L1 được chấm trước; cửa sổ của mọi văn bản dài trong
+  request chung lô 16; cửa sổ giống hệt nhau chỉ chấm một lần. Mỗi cửa sổ được
+  hợp nhất từ L1 và L2 theo trọng số L1+L2 của classifier (đường dài bỏ L3:
+  trên các bộ dữ liệu công khai L3 không giúp ích mà tốn thêm khoảng 40%);
+  điểm của văn bản là cửa sổ mạnh nhất. Khi một cửa sổ chạm ngưỡng chặn thì
+  request đằng nào cũng bị từ chối, nên các cửa sổ còn lại của văn bản đó được
+  bỏ qua (với `INDIRECT_ACTION=redact`, kết quả tool và tài liệu luôn được
+  chấm đủ). Lỗi model trên đường dài làm request thất bại (503), không lùi về
+  chỉ dùng L1.
+- **Làn input lớn.** `INFERENCE_LARGE_MAX_CONCURRENCY` request lớn (mặc định
+  một phần tư số CPU, để đường ngắn giữ phần còn lại) được quét cùng lúc, tối
+  đa `LARGE_SCAN_ORG_CONCURRENCY` của một tổ chức; mọi lượt chạy model của
+  request lớn lấy chỗ trên limiter riêng của làn, không phải của
+  `INFERENCE_MAX_CONCURRENCY`. Các request khác xếp hàng theo thứ tự đến trong
+  `LARGE_SCAN_QUEUE_TIMEOUT` (30 giây), rồi nhận 429 kèm `Retry-After`, theo
+  dạng lỗi của từng API (OpenAI: `code` `scan_queue_full`; Anthropic:
+  `rate_limit_error`); hàng đợi đầy (8 mỗi chỗ) trả 429 ngay. Request trong
+  giới hạn hiện tại không bao giờ vào làn, nên không phải chờ sau request lớn.
+- **Theo tổ chức.** `max_scan_tokens` trong guard settings
+  (`PUT /v1/organizations/:orgId/guard-settings`, 1 đến 10.000.000) chỉ hạ
+  trần cho tổ chức: giá trị nhỏ hơn giữa nó và `MAX_SCAN_TOKENS` được dùng;
+  khi `MAX_SCAN_TOKENS` không đặt, nó chỉ hạ giới hạn hiện tại, không mở
+  đường dài. Giao diện quản trị: Guard settings → Input lớn.
+- **Lượt cũ** mà scan cache chưa có được tối đa `max(1 MiB, 32 × MAX_SCAN_TOKENS)`
+  byte và không tính vào trần. Kết quả đường dài được cache riêng với kết quả
+  quét theo đoạn; kết quả dừng sớm không được cache.
+- **Số liệu.** `guardspec_gateway_scan_windows_total{result}` (`scored`,
+  `duplicate`, `skipped`), `guardspec_gateway_scan_tokens` (histogram số
+  token mỗi request lớn), `guardspec_gateway_scan_queue_wait_seconds{outcome}`
+  (`admitted`, `timeout`, `full`, `canceled`).
+
+**Trước khi nâng:** classifier được hiệu chỉnh trên văn bản ngắn, và tài liệu
+lành tính dài có nhiều cửa sổ, mỗi cửa sổ là một cơ hội báo nhầm. Tài liệu
+lành tính dài có thể bị chặn nhiều hơn tài liệu ngắn cho tới khi có ngưỡng
+theo độ dài (task RF-437128e9); hãy thử với tài liệu của bạn và xem điểm trong
+nhật ký yêu cầu trước. Quét một tài liệu 200k token mất vài chục giây trên vài
+lõi CPU. `POST /guardrail/scan` và `/v1/embeddings` giữ giới hạn hiện tại.
 
 ### Giao diện quản trị
 

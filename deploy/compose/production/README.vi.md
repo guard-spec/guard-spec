@@ -101,6 +101,7 @@ Mọi thứ nằm trong `.env` ([`.env.example`](.env.example) liệt kê đầy
 | `DETECTOR_LAYERS` | `l1,l2,l3` | `l1,l2` là chế độ nhẹ ([docs/sizing.vi.md](../../../docs/sizing.vi.md)) |
 | `GATEWAY_CPUS`, `GATEWAY_MEMORY` | `2`, `2g` | Mức đỉnh đo được: detector đầy đủ 0.9 GiB, chế độ nhẹ 0.5 GiB |
 | `INFERENCE_MAX_CONCURRENCY`, `INFERENCE_INTRA_OP_THREADS` | `2`, `1` | Số lượt chạy model cùng lúc x số thread mỗi lượt; giữ tích này không vượt quá `GATEWAY_CPUS` |
+| `MAX_SCAN_TOKENS`, `INFERENCE_LARGE_MAX_CONCURRENCY`, `LARGE_SCAN_QUEUE_TIMEOUT` | không đặt (giới hạn hiện tại), `GATEWAY_CPUS` / 4 (ít nhất 1), `30s` | Input lớn: trần token mở đường dài, số request lớn được quét cùng lúc, và thời gian chờ trước khi nhận 429. Xem [Input lớn](../../../README.vi.md#input-lớn) |
 | `CONTROL_PLANE_CPUS`, `CONTROL_PLANE_MEMORY` | `1`, `256m` | |
 | `POSTGRES_CPUS`, `POSTGRES_MEMORY` | `2`, `1g` | |
 | `CADDY_CPUS`, `CADDY_MEMORY` | `1`, `256m` | |

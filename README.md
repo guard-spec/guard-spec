@@ -663,6 +663,11 @@ in a second table.
 | `ONNXRUNTIME_LIB` | set in the image | Path of `libonnxruntime.so` / `.dylib` (`-tags onnx` builds) |
 | `INFERENCE_MAX_CONCURRENCY` | number of CPUs | Concurrent model runs per process |
 | `INFERENCE_INTRA_OP_THREADS` | ORT's choice (Linux: min(4, CPUs); with L2+L3 each gets min(4, CPUs/2)) | ONNX Runtime threads per session |
+| `MAX_SCAN_TOKENS` | empty (today's limits) | The most tokens the gateway scans for one proxied request. Empty or `0`: the byte limits as before (about 28 KB of user, system and tool-call text; 128 KiB of tool results, documents and tool descriptions; 1 MiB of earlier turns), 413 above them. Set: the request's token cap (413 above it), and requests past those byte limits are scanned on the long path in the large-input lane instead of refused. See [Large inputs](#large-inputs) |
+| `INFERENCE_LARGE_MAX_CONCURRENCY` | CPUs / 4 (the container's CPU limit counts; at least 1) | Large requests scanned at once, and their model runs, on a limiter of their own |
+| `LARGE_SCAN_ORG_CONCURRENCY` | half of `INFERENCE_LARGE_MAX_CONCURRENCY` (at least 1) | Large requests of one org scanned at once |
+| `LARGE_SCAN_QUEUE_TIMEOUT` | `30s` | How long a large request waits for the lane before 429 with `Retry-After` |
+| `MAX_REQUEST_BYTES` | `4194304` (4 MiB) | Largest request body; a larger one gets 413 before it is read. Raise it with `MAX_SCAN_TOKENS` past about 1M tokens |
 | `METRICS_ADDR` | `:9090` | Metrics listener; `off` disables it |
 | `METRICS_TENANT_LABELS` | `false` | `true` adds one metric series per org |
 | `RATE_LIMIT_RPM` / `RATE_LIMIT_TPM` | `0` | Per-key requests / estimated tokens per minute for keys without their own limit; `0` = unlimited |
@@ -1841,7 +1846,9 @@ strongest finding, direct or not. Untrusted text is limited to 128 KiB per
 request (413 above); a text longer than one detector call (about 28 KB) is
 scored in overlapping segments, every byte of it. On `/v1/messages` the limit
 counts what is actually classified: results found in the scan cache are not,
-and earlier turns missing from it have a budget of 1 MiB of their own.
+and earlier turns missing from it have a budget of 1 MiB of their own. With
+`MAX_SCAN_TOKENS` set, a request past these limits is scanned on the long path
+instead of refused ([Large inputs](#large-inputs)).
 
 **Spotlighting** applies to tool results only:
 
@@ -1862,7 +1869,11 @@ number in (0, 0.85]; the gateway uses the smaller of the org's value and its
 own, so an org can only make it stricter. `unscanned_parts` (`allow`, `log`
 or `block`) works the same way: the stricter of the org's value and
 `UNSCANNED_PARTS` applies (see
-[Content the gateway cannot read](#content-the-gateway-cannot-read)). The
+[Content the gateway cannot read](#content-the-gateway-cannot-read)).
+`max_scan_tokens` (1 to 10,000,000) caps the tokens scanned per request for
+the org: the smaller of it and `MAX_SCAN_TOKENS` applies, and with
+`MAX_SCAN_TOKENS` unset it only lowers today's limits; it never opens the
+long path ([Large inputs](#large-inputs)). The
 gateway reads these settings on every request and fails closed with 503 if it
 cannot.
 
@@ -2084,6 +2095,63 @@ refuse them.
   extracted text at upload; see
   [Files, PDFs and images](docs/integrations.md#files-pdfs-and-images).
 
+### Large inputs
+
+By default a proxied request may carry about 28 KB of user, system and
+tool-call text (16 chunks of about 2 KB), 128 KiB of tool results, documents
+and tool descriptions, and 1 MiB of earlier turns the scan cache does not
+have; past that it gets 413 and nothing goes upstream. Long documents (a
+contract, a log, a code base in the prompt) need more. `MAX_SCAN_TOKENS`
+raises the limit without scanning less:
+
+- **Unset (the default): nothing changes.** Same limits, same 413.
+- **Set** (for example `MAX_SCAN_TOKENS=200000`): it is the request's token
+  cap, counted with the classifier's tokenizer (4 bytes a token without
+  one); a request over it gets 413 before any scan and is never forwarded. A
+  request within today's limits is scanned exactly as before: same chunks,
+  same layers (L3 included), same scores. A request past them is *large*: it
+  waits for the large-input lane, then its texts past one detector call are
+  scanned on the long path, the rest as before.
+- **The long path.** Each long text is tokenized once and cut into the
+  classifier's windows (256 tokens, overlapping by 64), so every token is
+  scored; nothing is truncated or sampled. L1 runs on every window's text;
+  windows with an L1 signal are scored first; windows of all the request's
+  long texts share batches of 16; identical windows are scored once. Each
+  window is fused from L1 and L2 with the classifier's L1+L2 weights (L3 is
+  left out of the long path: on the public sets it did not help, at about 40%
+  more cost); a text's score is its strongest window. When a window reaches
+  the block threshold the request will be refused anyway, so the text's
+  remaining windows are skipped (in `INDIRECT_ACTION=redact` mode tool
+  results and documents are always scored in full). A model failure on the
+  long path fails the request (503); it does not fall back to L1 alone.
+- **The lane.** `INFERENCE_LARGE_MAX_CONCURRENCY` large requests (a quarter
+  of the CPUs by default, so the short path keeps the rest) are scanned at
+  once, at most `LARGE_SCAN_ORG_CONCURRENCY` of one org; every model run of a
+  large request takes a slot of the lane's own limiter, not of
+  `INFERENCE_MAX_CONCURRENCY`. Others queue, first come first served, for
+  `LARGE_SCAN_QUEUE_TIMEOUT` (30 s), then get 429 with `Retry-After`, in each
+  API's error shape (OpenAI `code` `scan_queue_full`, Anthropic
+  `rate_limit_error`); a full queue (8 per slot) answers 429 at once. Requests
+  within today's limits never enter the lane, so they do not wait behind
+  large ones.
+- **Per organization.** `max_scan_tokens` in guard settings lowers the cap
+  for the org (see [Indirect injection and tool poisoning](#indirect-injection-and-tool-poisoning)).
+- **Earlier turns** missing from the scan cache may total
+  `max(1 MiB, 32 × MAX_SCAN_TOKENS)` bytes and do not count toward the cap.
+  Long-path verdicts are cached apart from segment verdicts; a verdict that
+  stopped early is not cached.
+- **Size.** `MAX_REQUEST_BYTES` (4 MiB by default) bounds the body; 200k
+  tokens of text is about 1 MB.
+
+**Before you raise it:** the classifier was calibrated on short texts, and a
+long benign document has many windows, each a chance of a false positive.
+Expect long benign documents to be blocked more often than short ones until
+the length-dependent threshold lands (task RF-437128e9); try it on your own
+documents with `AUDIT_STORE_CONTENT` off and the request log's scores first.
+A 200k-token document takes tens of seconds to scan on a few cores (see
+[docs/sizing.md](docs/sizing.md)). `POST /guardrail/scan` and
+`/v1/embeddings` keep today's limits.
+
 ### Per-organization exemplars
 
 `/v1/organizations/:orgId/exemplars` stores `{"label": "block"|"allow",
@@ -2115,6 +2183,9 @@ Keep that port on the internal network.
 | `scan_cache_errors_total` | `layer` (`redis`, `postgres`), `op` (`get`, `set`): failed or timed-out shared cache calls |
 | `tenant_requests_total` (with `METRICS_TENANT_LABELS=true`) | `org_id`, `decision` |
 | `unscanned_parts_total` | `kind` (`image`, `file`, `audio`, `other`), `action` (`allow`, `log`, `block`): parts forwarded, or refused, without being read ([Content the gateway cannot read](#content-the-gateway-cannot-read)) |
+| `scan_windows_total` | `result` (`scored`, `duplicate`: an identical window was scored, `skipped`: its text was already refused): token windows of long-path scans ([Large inputs](#large-inputs)) |
+| `scan_tokens` | none: histogram of the tokens each large request scanned |
+| `scan_queue_wait_seconds` | `outcome` (`admitted`, `timeout`, `full`, `canceled`): wait for the large-input lane |
 
 The control plane exports `guardspec_control_plane_requests_total`,
 `guardspec_control_plane_request_duration_seconds`,

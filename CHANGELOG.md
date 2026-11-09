@@ -11,6 +11,31 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ### Added
 
+- Large inputs (RF-320915ea). `MAX_SCAN_TOKENS` raises the size of a
+  proxied request the gateway scans past today's limits (about 28 KB of
+  user, system and tool-call text, 128 KiB of tool results, documents and
+  tool descriptions, 1 MiB of earlier turns), without scanning less: every
+  token of every text is scored. Unset, the default, nothing changes. Set,
+  it is the request's token cap (413 above it, nothing forwarded); requests
+  within today's limits are scanned exactly as before (same scores, L3
+  included), and larger ones wait for a large-input lane
+  (`INFERENCE_LARGE_MAX_CONCURRENCY`, a quarter of the CPUs by default, with
+  a limiter of its own; `LARGE_SCAN_ORG_CONCURRENCY` per org) for up to
+  `LARGE_SCAN_QUEUE_TIMEOUT` (30 s), then get 429 with `Retry-After` in each
+  API's error shape. Their long texts take a long path: tokenized once, cut
+  into the classifier's 256-token windows overlapping by 64, L1 on every
+  window, windows with an L1 signal first, windows of all the request's long
+  texts batched together, identical windows scored once, L1+L2 fused with
+  the classifier's L1+L2 weights (no L3), a text stopping at the first
+  window over the block threshold (not in redact mode). Organizations can
+  lower the cap with `max_scan_tokens` in guard settings (admin UI: Guard
+  settings → Large inputs). `MAX_REQUEST_BYTES` sets the body limit (4 MiB,
+  unchanged). Metrics `guardspec_gateway_scan_windows_total{result}`,
+  `guardspec_gateway_scan_tokens` and
+  `guardspec_gateway_scan_queue_wait_seconds{outcome}`. Long benign
+  documents may be blocked more often than short ones until the
+  length-dependent threshold lands (RF-437128e9): see
+  [Large inputs](README.md#large-inputs) before raising it.
 - Unscanned content is visible and controllable (RF-c18516ae). Images, files
   and audio in a request were forwarded to the model without a trace, so an
   injection inside a PDF or an image was neither classified nor recorded:
@@ -75,6 +100,15 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 - Activity log actions `scim.user_*`, `scim.group_*`, `scim.token_created`,
   `scim.token_revoked`, `scim.group_roles_updated` and
   `member.role_from_group`.
+
+### Changed
+
+- The short path scores a text's chunks in parallel (at most 4 at a time,
+  each model run still under `INFERENCE_MAX_CONCURRENCY`) and each distinct
+  chunk once (RF-320915ea). Scores are unchanged: the eval set's 2,176 rows
+  score byte-identically on both input paths, and so do documents up to the
+  28,928-byte limit with the model layers. A multi-chunk text is faster (on
+  an M3 Max, a 7k-token prompt went from 609 ms to 468 ms).
 
 ### Upgrade notes
 

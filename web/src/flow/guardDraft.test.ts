@@ -5,7 +5,7 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../api';
-import { WINDOW_BYTES, WINDOW_TURNS, type GuardSettings } from '../types';
+import { SCAN_TOKENS, WINDOW_BYTES, WINDOW_TURNS, type GuardSettings } from '../types';
 import { guardBody, guardChanged, parseThreshold, parseWindowSize, saveAll, type SaveAllApi } from './guardDraft';
 import { toEditable } from './model';
 import { baseline } from './testdata';
@@ -151,5 +151,15 @@ describe('guardBody: personal data action', () => {
     expect(guardBody({})).toEqual({});
     expect(guardChanged({}, { unscanned_parts: 'log' })).toBe(true);
     expect(guardChanged({ unscanned_parts: 'log' }, { unscanned_parts: 'log' })).toBe(false);
+  });
+
+  it('keeps max_scan_tokens when set and drops it when unset', () => {
+    expect(guardBody({ max_scan_tokens: 20000 })).toEqual({ max_scan_tokens: 20000 });
+    expect(guardBody({})).toEqual({});
+    expect(guardChanged({}, { max_scan_tokens: 20000 })).toBe(true);
+    expect(guardChanged({ max_scan_tokens: 20000 }, { max_scan_tokens: 20000 })).toBe(false);
+    expect(parseWindowSize('20000', SCAN_TOKENS)).toBe(20000);
+    expect(parseWindowSize('0', SCAN_TOKENS)).toBe('invalid');
+    expect(parseWindowSize('10000001', SCAN_TOKENS)).toBe('invalid');
   });
 });

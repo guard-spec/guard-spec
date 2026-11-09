@@ -67,6 +67,12 @@ services:
       # ORT threads per run (default: ORT picks). ONNXRUNTIME_LIB is set in the image.
       INFERENCE_MAX_CONCURRENCY: ${INFERENCE_MAX_CONCURRENCY:-}
       INFERENCE_INTRA_OP_THREADS: ${INFERENCE_INTRA_OP_THREADS:-}
+      # Large inputs (README "Large inputs"): empty keeps today's limits.
+      MAX_SCAN_TOKENS: ${MAX_SCAN_TOKENS:-}
+      INFERENCE_LARGE_MAX_CONCURRENCY: ${INFERENCE_LARGE_MAX_CONCURRENCY:-}
+      LARGE_SCAN_ORG_CONCURRENCY: ${LARGE_SCAN_ORG_CONCURRENCY:-}
+      LARGE_SCAN_QUEUE_TIMEOUT: ${LARGE_SCAN_QUEUE_TIMEOUT:-}
+      MAX_REQUEST_BYTES: ${MAX_REQUEST_BYTES:-}
       # Base URL of an OpenAI-compatible API, such as http://host.docker.internal:11434/v1.
       # Leave empty for stub responses.
       UPSTREAM_LLM_URL: ${UPSTREAM_LLM_URL:-}

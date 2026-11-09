@@ -183,6 +183,24 @@ func (t *hfTokenizer) encode(text string, special bool) ([]int64, error) {
 	return ids, nil
 }
 
+// EncodeOffsets is Encode with the byte span of each token in text (the
+// Rust tokenizer reports byte offsets), for the long path (long.go).
+func (t *hfTokenizer) EncodeOffsets(text string) ([]int64, [][2]int, error) {
+	enc, err := t.tk.EncodeWithOptionsErr(text, false, tokenizers.WithReturnOffsets())
+	if err != nil {
+		return nil, nil, err
+	}
+	ids := make([]int64, len(enc.IDs))
+	offs := make([][2]int, len(enc.IDs))
+	for i, v := range enc.IDs {
+		ids[i] = int64(v)
+		if i < len(enc.Offsets) {
+			offs[i] = [2]int{int(enc.Offsets[i][0]), int(enc.Offsets[i][1])}
+		}
+	}
+	return ids, offs, nil
+}
+
 func (t *hfTokenizer) Encode(text string) ([]int64, error) { return t.encode(text, false) }
 func (t *hfTokenizer) Specials() ([]int64, []int64)        { return t.prefix, t.suffix }
 func (t *hfTokenizer) Close() error                        { return t.tk.Close() }

@@ -39,6 +39,10 @@ type Scores struct {
 	PII       []PIIEntity
 	Toxicity  Score
 	Topic     []Score
+	// EarlyExit is set by the long path when it stopped scoring the text
+	// once a window reached the refusal threshold: Injection is then a lower
+	// bound and must not be cached.
+	EarlyExit bool `json:",omitempty"`
 }
 
 // PIIEntity is a detected PII span.
@@ -84,10 +88,59 @@ func NewRunnerWith(injection ModelBackend) *Runner {
 	}
 }
 
+// The short path's chunks: about 512 tokens (4 bytes each) overlapping by
+// 64, at most 16 of them, so a text of up to ShortMaxBytes.
+const (
+	shortWindowChars = 512 * charsPerToken
+	shortStrideChars = 448 * charsPerToken
+	shortMaxChunks   = 16
+	charsPerToken    = 4
+	// ShortMaxBytes is the longest text the short path takes (a text a few
+	// bytes shorter can still need a 17th chunk: cuts move back to a rune
+	// boundary; FitsShort is exact).
+	ShortMaxBytes = shortWindowChars + (shortMaxChunks-1)*shortStrideChars
+)
+
+// FitsShort reports whether Scan scores text on the short path, as every
+// text was before the long path existed; a longer one needs the long path
+// (LongScan) or is refused with ErrInputTooLong.
+func FitsShort(text string) bool {
+	if len(text) <= shortWindowChars {
+		return true
+	}
+	if len(text) > ShortMaxBytes {
+		return false
+	}
+	n := 0
+	for start := 0; ; start = runeStart(text, start+shortStrideChars) {
+		if n == shortMaxChunks {
+			return false
+		}
+		n++
+		if end := runeStart(text, min(start+shortWindowChars, len(text))); end == len(text) {
+			return true
+		}
+	}
+}
+
+// shortParallel bounds the chunks of one text scored at once on the short
+// path. Each chunk's model runs still take a slot of the model limiter
+// (INFERENCE_MAX_CONCURRENCY), so this only keeps one request from taking
+// every slot.
+const shortParallel = 4
+
 // Scan runs all 4 models concurrently and returns aggregated scores.
 // Chunking with sliding window is applied before each model call.
+//
+// A text past the short path's limit (FitsShort) is refused with
+// ErrInputTooLong, unless ctx carries a LongScan: then it takes the long path.
 func (r *Runner) Scan(ctx context.Context, text string) (Scores, error) {
 	chunks, err := chunkText(text, 512, 448)
+	if errors.Is(err, ErrInputTooLong) {
+		if ls := longScanFrom(ctx); ls != nil {
+			return r.scanLongText(ctx, ls, text)
+		}
+	}
 	if err != nil {
 		return Scores{}, err
 	}
@@ -101,7 +154,7 @@ func (r *Runner) Scan(ctx context.Context, text string) (Scores, error) {
 	g, gctx := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
-		scores, err := runChunked(gctx, r.injection, chunks)
+		scores, err := runChunkedParallel(gctx, r.injection, chunks)
 		if err != nil {
 			return fmt.Errorf("injection model: %w", err)
 		}
@@ -172,6 +225,65 @@ func runeStart(s string, i int) int {
 		i--
 	}
 	return i
+}
+
+// runChunkedParallel is runChunked with up to shortParallel chunks at a time
+// and each distinct chunk run once. Each chunk is scored on its own exactly as
+// runChunked does, and the scores come back in chunk order, so the result is
+// the same.
+func runChunkedParallel(ctx context.Context, m ModelBackend, chunks []string) ([]Score, error) {
+	if len(chunks) == 1 {
+		return runChunked(ctx, m, chunks)
+	}
+	first := make(map[string]int, len(chunks)) // chunk text -> first index
+	var uniq []int
+	for i, c := range chunks {
+		if _, ok := first[c]; !ok {
+			first[c] = i
+			uniq = append(uniq, i)
+		}
+	}
+	per := make([][]Score, len(chunks))
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(shortParallel)
+	for _, i := range uniq {
+		g.Go(func() error {
+			s, err := m.Run(gctx, chunks[i])
+			per[i] = s
+			return err
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+	var all []Score
+	for _, c := range chunks {
+		all = append(all, per[first[c]]...)
+	}
+	return all, nil
+}
+
+// scanLongText scores one text on the long path, or finds it scored there.
+func (r *Runner) scanLongText(ctx context.Context, ls *LongScan, text string) (Scores, error) {
+	res, ok := ls.lookup(text)
+	if !ok {
+		out, err := r.scanLong(ctx, ls, []LongInput{{Text: text}})
+		if err != nil {
+			return Scores{}, err
+		}
+		res = out[0]
+	}
+	// The other slots see every chunk, as on the short path.
+	chunks := chunkAll(text, shortWindowChars, shortStrideChars)
+	tox, err := runChunked(ctx, r.toxicity, chunks)
+	if err != nil {
+		return Scores{}, fmt.Errorf("toxicity model: %w", err)
+	}
+	top, err := runChunked(ctx, r.topic, chunks)
+	if err != nil {
+		return Scores{}, fmt.Errorf("topic model: %w", err)
+	}
+	return Scores{Injection: res.Score, Toxicity: maxScore(tox), Topic: top, EarlyExit: res.EarlyExit}, nil
 }
 
 func runChunked(ctx context.Context, m ModelBackend, chunks []string) ([]Score, error) {

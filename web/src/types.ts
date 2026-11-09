@@ -151,7 +151,12 @@ export interface GuardSettings {
   input_pii_kinds?: PiiKind[];
   /** Images, files and audio the gateway cannot read: allow, log or block. Only a stricter mode than the gateway's UNSCANNED_PARTS takes effect. */
   unscanned_parts?: UnscannedMode;
+  /** The most tokens the gateway scans for one request; only a value below the gateway's MAX_SCAN_TOKENS counts. */
+  max_scan_tokens?: number;
 }
+
+/** Bounds of max_scan_tokens (indirect.MaxScanTokensLimit). */
+export const SCAN_TOKENS = { min: 1, max: 10_000_000 } as const;
 
 /** What the gateway does with request parts it cannot read (indirect.Unscanned*). */
 export type UnscannedMode = 'allow' | 'log' | 'block';

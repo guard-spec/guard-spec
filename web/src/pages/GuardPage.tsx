@@ -11,6 +11,7 @@ import {
   DEFAULT_SCAN_ROLES,
   PII_KINDS,
   SCAN_ROLES,
+  SCAN_TOKENS,
   UNSCANNED_MODES,
   WINDOW_BYTES,
   WINDOW_TURNS,
@@ -38,6 +39,8 @@ export function GuardPage() {
   const [thresholdText, setThresholdText] = useState<Partial<Record<ThresholdField, string>>>({});
   // Window sizes as typed; a value out of bounds is not saved.
   const [windowText, setWindowText] = useState<Partial<Record<WindowField, string>>>({});
+  // max_scan_tokens as typed.
+  const [tokensText, setTokensText] = useState<string | null>(null);
 
   if (loading && !data) return <Loading />;
   if (error) return <ErrorBanner error={error} />;
@@ -303,6 +306,43 @@ export function GuardPage() {
           </div>
         </fieldset>
         <fieldset>
+          <legend>{t('guard.scanTokens.legend')}</legend>
+          {(() => {
+            const text = tokensText ?? (draft.max_scan_tokens === undefined ? '' : String(draft.max_scan_tokens));
+            const invalid = parseWindowSize(text, SCAN_TOKENS) === 'invalid';
+            return (
+              <div className="field">
+                <label htmlFor="guard-max-scan-tokens">{t('guard.scanTokens')}</label>
+                <input
+                  id="guard-max-scan-tokens"
+                  inputMode="numeric"
+                  placeholder={t('guard.scanTokens.default')}
+                  value={text}
+                  aria-invalid={invalid}
+                  aria-describedby="guard-max-scan-tokens-help"
+                  disabled={!writable}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setTokensText(v);
+                    const p = parseWindowSize(v, SCAN_TOKENS);
+                    if (p === 'invalid') return;
+                    const { max_scan_tokens: _old, ...rest } = draft;
+                    setDraft(p === undefined ? rest : { ...rest, max_scan_tokens: p });
+                  }}
+                />
+                {invalid && (
+                  <div className="field-error">
+                    {t('guard.window.sizeError', { min: String(SCAN_TOKENS.min), max: String(SCAN_TOKENS.max) })}
+                  </div>
+                )}
+                <div id="guard-max-scan-tokens-help" className="small muted">
+                  {t('guard.scanTokens.help')}
+                </div>
+              </div>
+            );
+          })()}
+        </fieldset>
+        <fieldset>
           <legend>{t('panel.detectors.thresholds')}</legend>
           {(
             [
@@ -340,7 +380,8 @@ export function GuardPage() {
             !writable ||
             Object.values(thresholdText).some((x) => parseThreshold(x) === 'invalid') ||
             parseWindowSize(windowText.conversation_window_turns ?? '', WINDOW_TURNS) === 'invalid' ||
-            parseWindowSize(windowText.conversation_window_bytes ?? '', WINDOW_BYTES) === 'invalid'
+            parseWindowSize(windowText.conversation_window_bytes ?? '', WINDOW_BYTES) === 'invalid' ||
+            parseWindowSize(tokensText ?? '', SCAN_TOKENS) === 'invalid'
           } title={writable ? undefined : t('forbidden.readOnly')}>
           {busy ? t('common.saving') : t('common.save')}
         </button>

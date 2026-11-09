@@ -54,7 +54,11 @@ func (l *ClassifierLayer) Score(ctx context.Context, text string) (fusion.LayerR
 	if len(probs) != 1 || len(probs[0]) != len(l.labels) {
 		return fusion.LayerResult{}, fmt.Errorf("ml: classifier returned %d rows", len(probs))
 	}
-	p := probs[0]
+	return l.result(probs[0]), nil
+}
+
+// result is the L2 verdict for one row of per-label probabilities.
+func (l *ClassifierLayer) result(p []float32) fusion.LayerResult {
 	res := fusion.LayerResult{
 		Score:      1 - float64(p[l.benign]),
 		Categories: make(map[string]float64, len(p)-1),
@@ -72,5 +76,5 @@ func (l *ClassifierLayer) Score(ctx context.Context, text string) (fusion.LayerR
 	if res.Category != "" {
 		res.Rules = []string{"l2:" + res.Category}
 	}
-	return res, nil
+	return res
 }

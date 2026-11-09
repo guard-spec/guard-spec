@@ -1430,6 +1430,12 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
       if (g.unscanned_parts !== undefined && !['allow', 'log', 'block'].includes(g.unscanned_parts)) {
         return json(400, { error: 'guard settings: unscanned_parts must be allow, log or block' });
       }
+      if (
+        g.max_scan_tokens !== undefined &&
+        (!Number.isInteger(g.max_scan_tokens) || g.max_scan_tokens < 1 || g.max_scan_tokens > 10_000_000)
+      ) {
+        return json(400, { error: 'guard settings: max_scan_tokens must be 1 to 10000000' });
+      }
       state.guard = g;
       return json(200, state.guard);
     }
