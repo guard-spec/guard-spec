@@ -2114,7 +2114,8 @@ user belongs to (403 `not_sole_authority` otherwise).
 setup endpoints) and refuses existing sessions without 2FA (403
 `mfa_required`); `sso_satisfies_mfa` lets SSO sessions pass;
 `allowed_login_methods` (`password`, `google`, `oidc:<provider id>`,
-`saml:<provider id>`; unset allows all) refuses sessions of other methods (403
+`saml:<provider id>`; null allows all, and a body without the field keeps
+the stored value) refuses sessions of other methods (403
 `login_method_not_allowed`); `session_lifetime_hours` (1-12) shortens
 sessions for this org; `domain_join` adds SSO users of a verified email domain
 on first login, with a role up to admin. A domain can be joined only if the

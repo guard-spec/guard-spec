@@ -69,6 +69,13 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 - Mapping groups to roles hands role decisions to the identity provider:
   roles set by hand in that org are overwritten, also downwards.
 
+### Fixed
+
+- Saving the organization's security settings without
+  `allowed_login_methods` (the admin UI leaves it out when that section is
+  untouched) removed an existing login method restriction. An absent field
+  now keeps the stored value; only an explicit `null` lifts it.
+
 ## [0.4.0] - 2026-11-08
 
 ### Security
