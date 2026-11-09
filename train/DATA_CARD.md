@@ -4,7 +4,8 @@ Copyright The Guard Spec Authors. Project-written rows are licensed
 Apache-2.0. Source rows keep their own licenses (`DATA_LICENSES.md`).
 
 v4 (2026-11-07) builds on v3, v2 and v1; the sections below still describe the
-base. What changed is in [v4 changes](#v4-changes), [v3 changes](#v3-changes) and [v2 changes](#v2-changes).
+base. The v5 builder (code, config, logs, long prose and embedded attacks; data outside the repository)
+is in [v5 data](#v5-data-code-config-logs-long-prose-and-embedded-attacks). What changed is in [v4 changes](#v4-changes), [v3 changes](#v3-changes) and [v2 changes](#v2-changes).
 
 ## Purpose
 
@@ -63,6 +64,99 @@ one. Any of them requires `GUARD_BUILD_OUT`, an output directory outside `train/
 
 Extra fields (`category`, `entry_point`, `ablate`) are ignored by the training schema. These rows are
 never dropped by the ratio balancing, and they pass the same leakage guard (see `MODEL_CARD.md`, v3b).
+
+## v5 data: code, config, logs, long prose and embedded attacks
+
+v5 (2026-11-09, task RF-437128e9, todo T2) adds benign tool output and long documents as hard negatives
+and attack rows embedded in such text as positives. It fixes the gap `eval/codelog` and `bench/long`
+measure (the classifier blocks DDL, Dockerfiles, Vietnamese log lines and other repetitive structured
+text). This section describes the data builder only; how rows are cut into model windows and mixed into
+the epoch is T3, and model results are in `MODEL_CARD.md` once a v5 model exists.
+
+```sh
+cd train && GUARD_BUILD_OUT=<dir outside the repo> uv run --frozen python data/build_v5.py   # --profile quick: 1/4
+```
+
+| file (in `$GUARD_BUILD_OUT`, not in git) | rows | use |
+|---|---|---|
+| `v5_train.jsonl` | 15,841 (12,381 benign / 3,460 embedded attacks; EN 8,700, VI 7,141) | set A, training |
+| `v5_val.jsonl` | 2,203 (1,693 / 510) | set A, 12% of the groups (source file, generator unit, host), validation |
+| `val_v5.jsonl` | 2,267 (1,768 / 499) | set B: arm selection and calibration |
+| `val_v5_holdout.jsonl` | 2,216 (1,723 / 493) | set C: hold-out, never used for selection or calibration |
+| `stats.json` (copied to `data/stats_v5.json`) | - | counts per split, kind, language and position; leakage report; md5 of every file; pins; timings |
+
+Full profile: 22,527 rows, 4.56M tokens, 107 s on the M3 Max with a warm cache (2.5 GB peak memory);
+the first run downloads about 200 MB into `$GUARD_V5_CACHE` (default `train/.cache/v5`, gitignored).
+Two runs give byte-identical files (md5 in `stats.json`: `v5_train` `b3bccdd6…`, `v5_val` `99b56c99…`,
+`val_v5` `e5085a31…`, `val_v5_holdout` `e5b4bf3b…`); `python3 data/gen_codelog_v5.py --check` checks the
+generators alone.
+
+**Sources** (`data/sources_v5.yaml`, licences in `DATA_LICENSES.md`, v5): code from pinned tags of
+permissively licensed repositories (set A: Kubernetes Go, CPython `Lib/`, Rust `library/`, Node.js
+`lib/`; set B: Prometheus, Django, Tokio, Express; set C: etcd, Flask, serde, axios), their YAML, TOML,
+Dockerfiles, CI files and shell scripts, PostgreSQL regression SQL (A), unified diffs from `git log -p`
+over pinned commit ranges (A: requests, ripgrep; B: Express; C: Flask), U.S. Code titles other than 11,
+17 and 35, and Vietnamese laws (PVCC-CPVN) and pre-1900 works (PD-old) from vi.wikisource at revisions
+bench/long does not use. `data/gen_codelog_v5.py` generates logs (EN; VI with 431 + 52 windows in A in
+which one line repeats 2-30 times), stack traces (Python, Java, Go, Node; EN and VI messages), JSON and
+CSV (EN/VI), SQL, terminal output and Vietnamese-commented code, with template sets A/B/C whose
+catalogs, services, formats and seeds differ from `eval/codelog/build.py` and bench/long
+(`train/tests/test_gen_codelog_v5.py` checks it). No Wikipedia, no Go standard library, no CC-BY-SA, no
+file of this repository.
+
+**Hard negatives**: windows of at most 254 content tokens (70% full length, 30% 48-253 tokens) cut at
+line boundaries, at most 2-4 per file, labels `["benign"]`. Windows that discuss or contain prompt
+injection (`ATTACK` in `build_v5.py`) are skipped.
+
+**Positives**: attack rows of `data/train.jsonl` only (30-600 characters; never a `val*`, hold-out,
+probe or eval row; payload groups split 80/10/10 between sets A, B and C), embedded in hosts from the
+same set's sources (18% of each pool's files are reserved as hosts and never cut into hard negatives) at
+12 positions, about equally often per language: `start`, `end`, `random`, `comment` (in the host
+language's comment syntax), `docstring` (Python), `yaml_value`, `json_field`, `log_message` (a log line
+of the set's format), `diff_plus` (added `+` lines), `straddle_window` (centred on the end of the first
+254-token window), `straddle_chunk` (centred on byte 2048) and `split_adjacent` (two halves around a
+bridge sentence). Labels: the payload's labels plus `indirect_injection`; `spans` / `byte_spans` give the
+payload's offsets (checked: every payload word lies in the spans, in order). Half of the positives have
+a minimal-pair twin, the same host without the payload (`kind: twin`, `pair` links the two ids; 2,369
+pairs). Which model windows of a positive carry the attack labels is decided by T3 from `spans`.
+
+**Balance**: benign 78% (78.2% in `v5_train`), Vietnamese 44-45% in every split (VI positives 50%),
+by subsampling hard negatives proportionally per kind. Estimated epoch with the public `train.jsonl`
+(31,522 rows) and `v5_train` cut into gateway windows: 49,117 rows, under the 56k cap (the builder
+drops hard negatives above it).
+
+**Leakage guard** (`stats.json` "leakage"; also run on the payloads): a row is dropped on a normalized
+fingerprint in `eval/fingerprints.txt`, `eval/codelog/fingerprints.txt` or of any reference text or
+window, on a character 5-gram Jaccard above 0.8 with any reference, or when at least half of its long
+lines (24+ normalized characters, at least 3) occur verbatim in a reference. References: `eval/data`
+(2,176 rows), every `eval/codelog` row and window, every 254-token window of the bench/long full profile
+(50,426, built and SHA-checked against `corpus.yaml`), every text file of this repository at every tag
+and at HEAD (1,522 files, 41,879 windows), and the hold-outs and probes (`val_v3_holdout`,
+`val_realistic_holdout`, `val_v4_holdout`, `probe_v4`, and the owner hold-out through
+`GUARD_OWNER_HOLDOUT`). Small references are compared exactly; bench/long, the repository and codelog
+windows through MinHash LSH (64 permutations, 16 bands of 4; a pair at 0.8 is a candidate with
+probability > 0.999) and an exact Jaccard of every candidate, so maxima below about 0.5 are lower bounds.
+Set B is checked against A, and C against A and B, the same way.
+
+| check | dropped |
+|---|---|
+| fingerprint | 0 |
+| Jaccard > 0.8 | 1 (A, a Kubernetes file vs this repository's Apache LICENSE) |
+| line copy | 149 A vs this repository (Kubernetes Apache licence headers), 9 A / 1 B / 3 C vs bench/long (U.S. Code boilerplate lines), 3 A vs codelog windows |
+| cross-set | 8 B vs A, 39 C vs A+B (licence headers, Go build tags, shared CI files) |
+| payloads | 0 of 10,535 candidates |
+
+Highest kept 5-gram Jaccard: vs eval 0.26 (A), 0.26 (B), 0.26 (C); vs codelog rows / windows ≤ 0.22;
+vs bench/long 0.45 / 0.41 / 0.38; vs this repository 0.80 (A; 0.7975, just under the cut), 0.59
+(B), 0.63 (C); vs the hold-outs and probes ≤ 0.20; B vs A 0.75, C vs A+B 0.68. Payloads (training rows)
+vs eval 0.72, vs the hold-outs ≤ 0.38.
+
+**Known limits**: B and C have smaller catalogs and fewer repositories, so their rows are more
+repetitive than A's; diffs of set B come from one repository (Express, 49 file sections); 99
+straddle positives were skipped for lack of a long enough host; payloads are seen as stand-alone
+training rows already, so the positives measure detection inside hosts, not new attack wording.
+Vietnamese hard negatives get no no-diacritics or teencode copies here (`train.augment` applies at
+training time).
 
 ## v4 changes
 
