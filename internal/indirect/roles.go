@@ -147,6 +147,29 @@ type Settings struct {
 	// cannot read (UNSCANNED_PARTS): allow, log or block. It can only make
 	// the gateway stricter (see Unscanned).
 	UnscannedParts *string `json:"unscanned_parts,omitempty"`
+	// MaxScanTokens is the most tokens the gateway scans for one of the
+	// org's requests (MAX_SCAN_TOKENS); a request over it is refused. It can
+	// only make the gateway stricter (see ScanTokens).
+	MaxScanTokens *int `json:"max_scan_tokens,omitempty"`
+}
+
+// MaxScanTokensLimit bounds max_scan_tokens and MAX_SCAN_TOKENS: about 40 MB
+// of text, far past what a request body may carry.
+const MaxScanTokensLimit = 10_000_000
+
+// ScanTokens returns the token cap of the org's requests given the gateway's
+// MAX_SCAN_TOKENS (0: no token cap, the gateway's byte limits apply): the
+// smaller of the two when both are set, so an org can lower the cap but never
+// raise it. An org's cap with the gateway at 0 only lowers the limits; it
+// does not open the long path.
+func (s Settings) ScanTokens(gateway int) int {
+	if s.MaxScanTokens == nil {
+		return gateway
+	}
+	if gateway <= 0 {
+		return *s.MaxScanTokens
+	}
+	return min(gateway, *s.MaxScanTokens)
 }
 
 // PII reports whether the org turned the personal-data check of request text
@@ -289,6 +312,9 @@ func ParseSettings(raw []byte) (Settings, error) {
 		if _, ok := unscannedRank[*u]; !ok {
 			return Settings{}, fmt.Errorf("guard settings: unscanned_parts must be allow, log or block")
 		}
+	}
+	if n := s.MaxScanTokens; n != nil && (*n < 1 || *n > MaxScanTokensLimit) {
+		return Settings{}, fmt.Errorf("guard settings: max_scan_tokens must be 1 to %d", MaxScanTokensLimit)
 	}
 	// The org sets a size; turning the window off is conversation_window.
 	if t := s.ConversationWindowTurns; t != nil && (*t < MinWindowTurns || *t > MaxWindowTurns) {

@@ -215,7 +215,9 @@ feed:
 
 // ScoreLongChunks is the long path without token windows: each text is cut
 // into the short path's chunks, with no cap, and score runs on each distinct
-// chunk, at most Limiter.Cap() at a time. Tokens are estimated (4 bytes each).
+// chunk, at most Limiter.Cap() at a time. score's own model runs take their
+// slots from the limiter the caller put in ctx (onnx.WithLimiter): taking one
+// here too would nest them. Tokens are estimated (4 bytes each).
 func ScoreLongChunks(ctx context.Context, score func(ctx context.Context, text string) (Score, error),
 	in []LongInput, o LongOptions) ([]LongResult, LongStats, error) {
 	var st LongStats
@@ -257,12 +259,6 @@ func ScoreLongChunks(ctx context.Context, score func(ctx context.Context, text s
 	}
 	scored, err := RunLongBatches(ctx, workers, owners, thresholds, batches,
 		func(ctx context.Context, us []int) ([]float64, error) {
-			if o.Limiter != nil {
-				if err := o.Limiter.Acquire(ctx); err != nil {
-					return nil, err
-				}
-				defer o.Limiter.Release()
-			}
 			out := make([]float64, len(us))
 			for i, u := range us {
 				s, err := score(ctx, chunks[u])
@@ -365,12 +361,12 @@ func (ls *LongScan) Stats() LongStats {
 // Prescore scores texts on the long path together, so their windows share
 // batches and duplicates are scored once; Scan then finds them.
 func (r *Runner) Prescore(ctx context.Context, ls *LongScan, in []LongInput) error {
+	// Copies of a text stay in: their windows are scored once and counted
+	// as duplicates.
 	var todo []LongInput
 	ls.mu.Lock()
-	seen := map[string]bool{}
 	for _, x := range in {
-		if _, ok := ls.done[x.Text]; !ok && !seen[x.Text] {
-			seen[x.Text] = true
+		if _, ok := ls.done[x.Text]; !ok {
 			todo = append(todo, x)
 		}
 	}

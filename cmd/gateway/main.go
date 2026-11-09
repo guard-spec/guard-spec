@@ -99,7 +99,7 @@ func main() {
 	var upstream *proxy.Proxy
 	if cfg.UpstreamURL != "" {
 		upstream, err = proxy.New(proxy.Config{
-			BaseURL:   cfg.UpstreamURL,
+			BaseURL: cfg.UpstreamURL,
 			// Read for every request: a key from a file or Vault can change.
 			KeyFunc:   func() string { return secretsrc.Getenv("UPSTREAM_LLM_KEY") },
 			Timeout:   cfg.UpstreamTimeout,
@@ -180,6 +180,7 @@ func main() {
 	defer closeCache()
 	slog.Info("scan config", "roles", cfg.Scan.Roles.String(), "spotlight", cfg.Scan.Spotlight,
 		"indirect_threshold", cfg.Scan.IndirectThreshold, "tool_prefixes", cfg.Scan.ToolPrefixes)
+	lane := largeLaneFor(cfg.Scan.MaxScanTokens, cfg.Large)
 	gw := gateway{
 		detector:         newLiveStatus(detector, live, cfg.Detector.RequireML),
 		live:             live,
@@ -201,6 +202,9 @@ func main() {
 		settings: dbSettingsLoader(db),
 		limits:   newRateLimiter(ops.RateLimit, dbKeyLimits(db)),
 		cache:    cache,
+		large:    lane,
+
+		maxRequestBytes: cfg.Large.MaxRequestBytes,
 
 		waitOnHalfClose: cfg.WaitOnHalfClose,
 	}
@@ -273,6 +277,12 @@ type gateway struct {
 
 	scan     *scanConfig    // nil: defaultScanConfig
 	settings settingsLoader // per-org overrides; nil: none
+	// large is the large-input lane (large_input.go); nil: no long path,
+	// requests past today's limits are refused.
+	large *largeLane
+	// maxRequestBytes is MAX_REQUEST_BYTES, the body limit; 0: Fiber's
+	// default (4 MiB).
+	maxRequestBytes int
 
 	// detector is what /readyz reports: the active detection layers.
 	detector detectorStatus
@@ -290,6 +300,7 @@ type gateway struct {
 func newApp(gw gateway, lookup tenant.LookupFn) *fiber.App {
 	app := fiber.New(fiber.Config{
 		ServerHeader: "guard-spec",
+		BodyLimit:    gw.maxRequestBytes, // 0: Fiber's default, 4 MiB
 	})
 
 	app.Use(observe()) // metrics and the request span; first, so it sees every response
@@ -621,6 +632,12 @@ func scanError(c *fiber.Ctx, err error) error {
 	if errors.Is(err, inference.ErrInputTooLong) {
 		return c.Status(fiber.StatusRequestEntityTooLarge).JSON(fiber.Map{"error": err.Error()})
 	}
+	if errors.Is(err, errScanBusy) {
+		// The large-input lane was full for LARGE_SCAN_QUEUE_TIMEOUT. The
+		// error-shape middleware gives each API its own form of it.
+		c.Set(fiber.HeaderRetryAfter, strconv.Itoa(retryAfterSeconds(err)))
+		return c.Status(fiber.StatusTooManyRequests).JSON(errorBody(err.Error(), "rate_limit_error", "scan_queue_full"))
+	}
 	slog.Error("guardrail scan failed", "err", err)
 	return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "guardrail unavailable"})
 }
@@ -671,6 +688,9 @@ type textGuard struct {
 	// pseudo replaces personal data before the request goes upstream (the
 	// org's input_pii_action, input_pii_protect.go); nil: off.
 	pseudo *outputguard.Pseudonymizer
+	// limits is what the request may scan (MAX_SCAN_TOKENS, large_input.go);
+	// zero: today's byte limits, no long path.
+	limits scanLimits
 }
 
 func (g *textGuard) toolSchemaKey() string {
@@ -942,7 +962,7 @@ func proxyHandler(gw gateway, f apiFormat) fiber.Handler {
 			latest: f.history && scanCfg.History == historyLatest, useCache: f.history,
 			allowServerState: scanCfg.ServerState == serverStateAllow,
 			windowTurns:      scanCfg.WindowTurns, windowBytes: scanCfg.WindowBytes, detectPII: scanCfg.InputPII,
-			pseudo: outputguard.NewPseudonymizer(scanCfg.PIIAction, scanCfg.PIIKinds)}
+			pseudo: outputguard.NewPseudonymizer(scanCfg.PIIAction, scanCfg.PIIKinds), limits: gw.limitsFor(scanCfg)}
 		_, endSpan := tracing.Start(tctx, "sanitize")
 		err = f.guardBody(&guard, body)
 		endSpan(err)
@@ -1549,6 +1569,8 @@ type config struct {
 	// AuditDedupeWindow is AUDIT_DEDUPE_WINDOW: retried refusals within it
 	// add to the first one's audit row (audit_dedupe.go); 0 is off.
 	AuditDedupeWindow time.Duration
+	// Large is the large-input lane and MAX_REQUEST_BYTES (large_input.go).
+	Large largeConfig
 }
 
 func loadConfig() (config, error) {
@@ -1607,6 +1629,10 @@ func loadConfig() (config, error) {
 	if err != nil {
 		return config{}, err
 	}
+	large, err := loadLargeConfig(os.Getenv)
+	if err != nil {
+		return config{}, err
+	}
 	provider := strings.ToLower(strings.TrimSpace(getenv("UPSTREAM_LLM_PROVIDER", providerOpenAICompatible)))
 	if provider != providerOpenAICompatible && provider != providerAnthropic {
 		return config{}, errors.New("UPSTREAM_LLM_PROVIDER must be openai_compatible or anthropic")
@@ -1630,6 +1656,7 @@ func loadConfig() (config, error) {
 		Scan:                 scan,
 		AdminToken:           strings.TrimSpace(secretsrc.Getenv("GATEWAY_ADMIN_TOKEN")),
 		AuditDedupeWindow:    dedupeWindow,
+		Large:                large,
 	}
 	// Refuse a default or weak database password unless GUARD_ENV=dev.
 	var secrets appconfig.Checker

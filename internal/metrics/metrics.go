@@ -198,8 +198,37 @@ func init() {
 		HTTPRequests, HTTPDuration, RetentionRuns, RetentionDeleted, RetentionTableDeleted,
 		EventsDropped, EventsWritten, AlertsFired, Deliveries, DeliveryLatency,
 		ScanCacheLookups, ScanCacheErrors, UnscannedParts,
+		ScanWindows, ScanTokens, ScanQueueWait,
 	)
 }
+
+// The large-input lane: requests past the short path's limits, scanned on the
+// long path when MAX_SCAN_TOKENS allows them (cmd/gateway/large_input.go).
+var (
+	// ScanWindows counts the token windows of long-path scans by result:
+	// scored, duplicate (an identical window was scored) and skipped (the
+	// text was already refused, early exit).
+	ScanWindows = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: namespace, Subsystem: "gateway", Name: "scan_windows_total",
+		Help: "Token windows of long-path scans by result (scored, duplicate, skipped).",
+	}, []string{"result"})
+
+	// ScanTokens is the number of tokens each large-input request scanned.
+	ScanTokens = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Namespace: namespace, Subsystem: "gateway", Name: "scan_tokens",
+		Help:    "Tokens scanned per large-input request (long path and short parts).",
+		Buckets: prometheus.ExponentialBuckets(4096, 2, 10), // 4k to 2M
+	})
+
+	// ScanQueueWait is how long large-input requests waited for the lane, by
+	// outcome: admitted, timeout (429 after LARGE_SCAN_QUEUE_TIMEOUT) and
+	// full (429 at once: the queue was full).
+	ScanQueueWait = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: namespace, Subsystem: "gateway", Name: "scan_queue_wait_seconds",
+		Help:    "Wait for the large-input lane by outcome (admitted, timeout, full).",
+		Buckets: latencyBuckets,
+	}, []string{"outcome"})
+)
 
 // UnscannedParts counts images, files and audio the gateway forwards (or
 // refuses) without reading them, by kind and UNSCANNED_PARTS mode.

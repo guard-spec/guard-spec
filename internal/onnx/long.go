@@ -17,6 +17,26 @@ import (
 // limiter of its own. Every token is in at least one window; nothing is
 // truncated.
 
+type limiterKey struct{}
+
+// WithLimiter returns ctx under which model runs take a slot of lim instead
+// of the model's own limiter: every model run of a large request goes
+// through the large-input lane's limiter, its short texts' runs included.
+func WithLimiter(ctx context.Context, lim *Limiter) context.Context {
+	return context.WithValue(ctx, limiterKey{}, lim)
+}
+
+// LimiterFrom is the limiter WithLimiter put in ctx, or fallback.
+func LimiterFrom(ctx context.Context, fallback *Limiter) *Limiter {
+	if lim, ok := ctx.Value(limiterKey{}).(*Limiter); ok && lim != nil {
+		return lim
+	}
+	return fallback
+}
+
+// limiterFor is the limiter of a run under ctx.
+func (m *model) limiterFor(ctx context.Context) *Limiter { return LimiterFrom(ctx, m.lim) }
+
 // ErrNoOffsets means the tokenizer cannot map tokens back to the text.
 var ErrNoOffsets = errors.New("onnx: tokenizer gives no offsets")
 

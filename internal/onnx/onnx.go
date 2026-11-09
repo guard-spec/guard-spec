@@ -407,11 +407,12 @@ func (m *model) run(ctx context.Context, texts []string, fn func(b batchOut) err
 				b.mask[r*b.seq+j] = 1
 			}
 		}
-		if err := m.lim.Acquire(ctx); err != nil {
+		lim := m.limiterFor(ctx)
+		if err := lim.Acquire(ctx); err != nil {
 			return err
 		}
 		b.data, b.shape, err = m.sess.Run(ctx, ids, b.mask, typeIDs, n, b.seq)
-		m.lim.Release()
+		lim.Release()
 		if err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()

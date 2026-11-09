@@ -507,7 +507,13 @@ func TestResponsesSharedCacheAcrossReplicas(t *testing.T) {
 	a, _ := replica()
 	b, cb := replica()
 	out1 := strings.Repeat("first tool output line ZQX-MARKER-7731\n", 400)
-	out2 := strings.Repeat("second tool output line\n", 400)
+	// Numbered lines: the runner scores identical chunks once, so a text
+	// that repeats would count fewer bytes than its length.
+	var b2 strings.Builder
+	for i := range 400 {
+		fmt.Fprintf(&b2, "second tool output line %03d\n", i)
+	}
+	out2 := b2.String()
 	item := func(id, out string) string {
 		return `{"type":"function_call","call_id":"` + id + `","name":"w","arguments":"{}"},
 			{"type":"function_call_output","call_id":"` + id + `","output":` + jsonQuote(out) + `}`

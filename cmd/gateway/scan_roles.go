@@ -65,6 +65,11 @@ type scanConfig struct {
 	// Unscanned is UNSCANNED_PARTS with the org's stricter unscanned_parts:
 	// allow, log (the default) or block (unscanned.go).
 	Unscanned string
+	// MaxScanTokens is MAX_SCAN_TOKENS: 0 keeps today's byte limits; set,
+	// it is the request's token cap and opens the long path for requests
+	// past those limits (large_input.go). ScanTokens is the cap with the
+	// org's max_scan_tokens, which can only lower it.
+	MaxScanTokens, ScanTokens int
 }
 
 // Values of SCAN_HISTORY.
@@ -90,8 +95,8 @@ func defaultScanConfig() scanConfig {
 
 // loadScanConfig reads SCAN_ROLES, SPOTLIGHT, INDIRECT_BLOCK_THRESHOLD,
 // INDIRECT_ACTION, SCAN_TOOL_PREFIXES, SCAN_HISTORY, RESPONSES_SERVER_STATE,
-// EMBEDDINGS_SCAN, CONVERSATION_WINDOW_TURNS, CONVERSATION_WINDOW_BYTES and
-// UNSCANNED_PARTS.
+// EMBEDDINGS_SCAN, CONVERSATION_WINDOW_TURNS, CONVERSATION_WINDOW_BYTES,
+// UNSCANNED_PARTS and MAX_SCAN_TOKENS.
 func loadScanConfig(env func(string) string) (scanConfig, error) {
 	cfg := defaultScanConfig()
 	var err error
@@ -158,6 +163,10 @@ func loadScanConfig(env func(string) string) (scanConfig, error) {
 	if cfg.Unscanned, err = indirect.ParseUnscannedMode(env("UNSCANNED_PARTS")); err != nil {
 		return scanConfig{}, err
 	}
+	if cfg.MaxScanTokens, err = parseMaxScanTokens(env); err != nil {
+		return scanConfig{}, err
+	}
+	cfg.ScanTokens = cfg.MaxScanTokens
 	if err := indirect.ValidWindow(cfg.WindowTurns, cfg.WindowBytes); err != nil {
 		return scanConfig{}, fmt.Errorf("CONVERSATION_WINDOW_TURNS, CONVERSATION_WINDOW_BYTES: %w", err)
 	}
@@ -222,6 +231,7 @@ func (gw gateway) scanConfigFor(orgID uuid.UUID) (scanConfig, error) {
 	cfg.InputPII = s.PII()
 	cfg.PIIAction, cfg.PIIKinds = s.PIIAction(), s.InputPIIKinds
 	cfg.Unscanned = s.Unscanned(cfg.Unscanned)
+	cfg.ScanTokens = s.ScanTokens(cfg.MaxScanTokens)
 	return cfg, nil
 }
 
@@ -537,6 +547,10 @@ const (
 	cacheDirect = "direct" // inference.Scores of a text scored alone
 	cacheSource = "source" // indirect.Verdict of an untrusted text
 	cacheTool   = "tool"   // indirect.ToolVerdict of a tool definition
+	// cacheSourceLong is the indirect.Verdict of an untrusted text scored on
+	// the long path. It is kept apart from cacheSource: a request within
+	// today's limits scores the same text in segments, and must keep doing so.
+	cacheSourceLong = "source_long"
 )
 
 // toolCacheKey hashes a tool's name, description and schema.
@@ -550,8 +564,33 @@ func toolCacheKey(g *textGuard, t indirect.Tool) string {
 // definition is classified on its own, with its category hint. With the scan
 // cache (g.useCache), parts scored alone, tool results and tool definitions
 // seen before are not classified again; the size limit counts only what is.
+//
+// A request past today's limits is large (large_input.go): refused with
+// ErrInputTooLong unless MAX_SCAN_TOKENS opens the long path, and then
+// scored once the large-input lane admits it. A request that looked small but
+// holds a text the short path cannot take (a tool's descriptions together)
+// is scored again as large.
 func (gw gateway) scoreRequest(g *textGuard) (requestVerdict, error) {
-	var v requestVerdict
+	v, err := gw.scoreRequestAs(g, false)
+	if err != nil && g.limits.long && errors.Is(err, inference.ErrInputTooLong) && !errors.Is(err, errOverTokenCap) &&
+		!errors.Is(err, errAlreadyLarge) {
+		v, err = gw.scoreRequestAs(g, true)
+	}
+	if errors.Is(err, errAlreadyLarge) {
+		err = inference.ErrInputTooLong
+	}
+	return v, err
+}
+
+// errOverTokenCap refuses a request over its token cap (413).
+var errOverTokenCap = fmt.Errorf("request has more tokens than the gateway scans (MAX_SCAN_TOKENS): %w", inference.ErrInputTooLong)
+
+// errAlreadyLarge is a text too long for the long path's budget in a request
+// that was scored as large: scoring it again would not help.
+var errAlreadyLarge = fmt.Errorf("large request: %w", inference.ErrInputTooLong)
+
+// scoreRequestAs is scoreRequest, as a large request when forceLarge.
+func (gw gateway) scoreRequestAs(g *textGuard, forceLarge bool) (v requestVerdict, err error) {
 	scanner := indirect.Scanner{Runner: gw.runner}
 	cache, gen := gw.cache, int64(0)
 	if !g.useCache {
@@ -566,6 +605,7 @@ func (gw gateway) scoreRequest(g *textGuard) (requestVerdict, error) {
 	// scored below is written through to both when the request is done.
 	var reqs []cacheReq
 	sourceKeys := make([]string, len(g.parts))
+	longKeys := make([]string, len(g.parts)) // untrusted texts the long path may take
 	toolKeys := make([]string, len(g.tools))
 	if cache != nil {
 		for i, p := range g.parts {
@@ -573,6 +613,10 @@ func (gw gateway) scoreRequest(g *textGuard) (requestVerdict, error) {
 			case p.source.Untrusted():
 				sourceKeys[i] = cacheKey(g.org, cacheSource, string(p.source), p.text)
 				reqs = append(reqs, cacheReq{cacheSource, sourceKeys[i]})
+				if g.limits.long && !inference.FitsShort(p.text) {
+					longKeys[i] = cacheKey(g.org, cacheSourceLong, string(p.source), p.text)
+					reqs = append(reqs, cacheReq{cacheSourceLong, longKeys[i]})
+				}
 			case p.alone:
 				reqs = append(reqs, cacheReq{cacheDirect, cacheKey(g.org, cacheDirect, string(p.source), p.text)})
 			}
@@ -595,32 +639,55 @@ func (gw gateway) scoreRequest(g *textGuard) (requestVerdict, error) {
 	defer view.flush(gw.base)
 
 	var direct, alone []scanPart
-	untrustedBytes, historyBytes := 0, 0
+	var sizes scanSizes
 	for i, p := range g.parts {
 		switch {
 		case p.source.Untrusted():
 			if _, hit := view.get(sourceKeys[i]); hit {
 				break
 			}
+			if _, hit := view.get(longKeys[i]); hit {
+				break
+			}
+			sizes.untrusted = append(sizes.untrusted, pendingText{text: p.text, history: p.history})
 			if p.history {
-				historyBytes += len(p.text)
+				sizes.historyBytes += len(p.text)
 			} else {
-				untrustedBytes += len(p.text)
+				sizes.untrustedBytes += len(p.text)
 			}
 		case p.alone:
 			alone = append(alone, g.parts[i])
+			if _, hit := view.get(cacheKey(g.org, cacheDirect, string(p.source), p.text)); !hit {
+				sizes.alone = append(sizes.alone, p.text)
+			}
 		default:
 			direct = append(direct, p)
 		}
 	}
 	for i, t := range g.tools {
 		if _, hit := view.get(toolKeys[i]); !hit {
-			untrustedBytes += len(t.Description)
+			sizes.untrustedBytes += len(t.Description)
+			sizes.tools = append(sizes.tools, t.Description)
 		}
 	}
-	if untrustedBytes > maxUntrustedBytes || historyBytes > maxHistoryBytes {
-		return v, inference.ErrInputTooLong
+	var texts []string // the direct text, joined
+	for _, p := range direct {
+		texts = append(texts, p.text)
 	}
+	joined := strings.Join(texts, " ")
+	sizes.joined = joined
+
+	// Today's limits, or the large-input lane (large_input.go).
+	run, err := gw.admitScan(g, sizes, forceLarge)
+	if err != nil {
+		return v, err
+	}
+	defer run.done()
+	defer func() {
+		if run.large && errors.Is(err, inference.ErrInputTooLong) && !errors.Is(err, errOverTokenCap) {
+			err = errAlreadyLarge
+		}
+	}()
 
 	for _, p := range alone {
 		key := cacheKey(g.org, cacheDirect, string(p.source), p.text)
@@ -628,11 +695,12 @@ func (gw gateway) scoreRequest(g *textGuard) (requestVerdict, error) {
 		if hit, ok := view.get(key); ok {
 			scores = hit.(inference.Scores)
 		} else {
-			var err error
-			if scores, err = gw.runner.Scan(gw.base, p.text); err != nil {
+			if scores, err = gw.runner.Scan(run.ctx, p.text); err != nil {
 				return v, err
 			}
-			view.put(cacheDirect, key, scores)
+			if !scores.EarlyExit { // a lower bound only: not for another request
+				view.put(cacheDirect, key, scores)
+			}
 		}
 		if c := float64(scores.Injection.Confidence); v.SourceRole == "" || c > v.Direct {
 			v.Scores, v.Direct, v.SourceRole = scores, c, string(p.source)
@@ -640,15 +708,9 @@ func (gw gateway) scoreRequest(g *textGuard) (requestVerdict, error) {
 		}
 	}
 
-	var joined string
 	var joinedScores inference.Scores
 	if len(direct) > 0 {
-		texts := make([]string, len(direct))
-		for i, p := range direct {
-			texts[i] = p.text
-		}
-		joined = strings.Join(texts, " ")
-		scores, err := gw.runner.Scan(gw.base, joined)
+		scores, err := gw.runner.Scan(run.ctx, joined)
 		if err != nil {
 			return v, err
 		}
@@ -656,7 +718,7 @@ func (gw gateway) scoreRequest(g *textGuard) (requestVerdict, error) {
 		if c := float64(scores.Injection.Confidence); v.SourceRole == "" || c > v.Direct {
 			v.Scores, v.Direct = scores, c
 			v.DirectTrigger = triggerHash(append([]string{"direct"}, texts...)...)
-			if v.SourceRole, err = gw.attribute(direct, v.Direct); err != nil {
+			if v.SourceRole, err = gw.attribute(run.ctx, direct, v.Direct); err != nil {
 				return v, err
 			}
 		}
@@ -671,10 +733,26 @@ func (gw gateway) scoreRequest(g *textGuard) (requestVerdict, error) {
 			continue
 		}
 		key := cacheKey(g.org, cacheSource, string(p.source), p.text)
+		longKey := cacheKey(g.org, cacheSourceLong, string(p.source), p.text)
 		if hit, ok := view.get(key); ok {
 			p.verdict = hit.(indirect.Verdict)
+		} else if hit, ok := view.get(longKey); ok {
+			// Scored on the long path in an earlier large request (an
+			// earlier turn, with SCAN_HISTORY=latest): every byte of it, by
+			// the same models. Long verdicts exist only with MAX_SCAN_TOKENS.
+			p.verdict = hit.(indirect.Verdict)
+		} else if run.large && !inference.FitsShort(p.text) {
+			// The long path, in a large request only.
+			pv, err := scanner.Score(run.ctx, p.text, p.source)
+			if err != nil {
+				return v, err
+			}
+			p.verdict = pv
+			if !pv.Scores.EarlyExit {
+				view.put(cacheSourceLong, longKey, pv)
+			}
 		} else {
-			pv, err := scoreSegments(gw.base, scanner, p.text, p.source)
+			pv, err := scoreSegments(run.ctx, scanner, p.text, p.source)
 			if err != nil {
 				return v, err
 			}
@@ -694,13 +772,15 @@ func (gw gateway) scoreRequest(g *textGuard) (requestVerdict, error) {
 			tv.Name = t.Name // the shared layer does not keep it
 		} else {
 			var err error
-			if tv, err = scanner.ScoreTool(gw.base, t, g.toolSchemaKey(), false); err != nil {
+			if tv, err = scanner.ScoreTool(run.ctx, t, g.toolSchemaKey(), false); err != nil {
 				if errors.Is(err, indirect.ErrSchemaTooDeep) {
 					return v, errUnsupportedContent
 				}
 				return v, err
 			}
-			view.put(cacheTool, key, tv)
+			if !tv.Scores.EarlyExit {
+				view.put(cacheTool, key, tv)
+			}
 		}
 		v.Tools = max(v.Tools, tv.Score)
 		if v.Indirect.Source == "" || tv.Score > v.Indirect.Score {
@@ -785,7 +865,7 @@ func (g *textGuard) redactUntrusted(threshold float64) (redacted int, rest float
 // attribute names the role of the direct text that scored highest. With one
 // role it is that role; otherwise, when the joined text scored at all, each
 // part is classified again to find it.
-func (gw gateway) attribute(parts []scanPart, joined float64) (string, error) {
+func (gw gateway) attribute(ctx context.Context, parts []scanPart, joined float64) (string, error) {
 	role := parts[0].source
 	mixed := false
 	for _, p := range parts[1:] {
@@ -796,7 +876,7 @@ func (gw gateway) attribute(parts []scanPart, joined float64) (string, error) {
 	}
 	best := -1.0
 	for _, p := range parts {
-		s, err := gw.runner.Scan(gw.base, p.text)
+		s, err := gw.runner.Scan(ctx, p.text)
 		if err != nil {
 			return "", err
 		}

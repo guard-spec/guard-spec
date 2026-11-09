@@ -8,7 +8,9 @@ import (
 	"errors"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 	"unicode"
 )
 
@@ -128,5 +130,30 @@ func TestScoreLongBatchMatchesScore(t *testing.T) {
 	}
 	if _, _, err := c.LongWindows(strings.Repeat("a ", 3)); !errors.Is(err, ErrClosed) {
 		t.Fatalf("after Close: %v", err)
+	}
+}
+
+// Under WithLimiter, model runs take the given limiter's slots instead of the
+// model's own: the large-input lane bounds every run of a large request.
+func TestWithLimiterReplacesModelLimiter(t *testing.T) {
+	c, sess, _ := newFakeClassifier(t, Options{Limiter: NewLimiter(4), MaxLength: 6, Stride: 1})
+	sess.delay = 20 * time.Millisecond
+	ctx := WithLimiter(context.Background(), NewLimiter(1))
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := c.Score(ctx, []string{"a b c"}); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	wg.Wait()
+	if p := sess.peak.Load(); p != 1 {
+		t.Fatalf("peak concurrency %d under a limiter of 1", p)
+	}
+	if LimiterFrom(context.Background(), nil) != nil {
+		t.Fatal("LimiterFrom without a limiter in ctx")
 	}
 }
