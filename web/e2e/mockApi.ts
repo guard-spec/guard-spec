@@ -90,6 +90,13 @@ export const SCHEMA: PolicySchema = {
       values: ['email', 'phone', 'card', 'cccd', 'ipv4'],
     },
     { name: 'input.pii.count', type: 'int', description: 'How many values of personal data' },
+    {
+      name: 'input.unscanned.kinds',
+      type: 'list',
+      description: 'Kinds of parts the gateway forwards but cannot read',
+      values: ['image', 'file', 'audio', 'other'],
+    },
+    { name: 'input.unscanned.count', type: 'int', description: 'How many such parts the request has' },
   ],
   operators: {
     double: ['=', '!=', '>', '>=', '<', '<='],
@@ -1419,6 +1426,9 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
       }
       if (g.input_pii !== undefined && typeof g.input_pii !== 'boolean') {
         return json(400, { error: 'guard settings: input_pii must be true or false' });
+      }
+      if (g.unscanned_parts !== undefined && !['allow', 'log', 'block'].includes(g.unscanned_parts)) {
+        return json(400, { error: 'guard settings: unscanned_parts must be allow, log or block' });
       }
       state.guard = g;
       return json(200, state.guard);

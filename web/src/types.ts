@@ -149,7 +149,16 @@ export interface GuardSettings {
   input_pii_action?: 'off' | 'redact' | 'tokenize';
   /** Kinds the action replaces; unset or empty: every kind. */
   input_pii_kinds?: PiiKind[];
+  /** Images, files and audio the gateway cannot read: allow, log or block. Only a stricter mode than the gateway's UNSCANNED_PARTS takes effect. */
+  unscanned_parts?: UnscannedMode;
 }
+
+/** What the gateway does with request parts it cannot read (indirect.Unscanned*). */
+export type UnscannedMode = 'allow' | 'log' | 'block';
+export const UNSCANNED_MODES: UnscannedMode[] = ['allow', 'log', 'block'];
+/** Kinds of unscanned parts (indirect.UnscannedKinds), in audit tag order. */
+export type UnscannedKind = 'image' | 'file' | 'audio' | 'other';
+export const UNSCANNED_KINDS: UnscannedKind[] = ['image', 'file', 'audio', 'other'];
 
 /** Kinds of personal data the gateway finds (outputguard.PIIKinds). */
 export type PiiKind = 'email' | 'phone' | 'card' | 'cccd' | 'ipv4';
@@ -208,6 +217,12 @@ export interface AuditRow {
   content_error?: string;
   /** The row stores the prompt or the answer: read it with readRequestContent (permission, reason, logged). */
   has_content?: boolean;
+  /**
+   * The row's tags (requests.pii_entities): counts only, such as
+   * "input:pii_email=2" or "input:unscanned_image=1". Absent when the
+   * control plane does not return them.
+   */
+  pii_entities?: string[] | null;
   created_at: string;
 }
 

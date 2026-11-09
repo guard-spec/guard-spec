@@ -144,4 +144,12 @@ describe('guardBody: personal data action', () => {
     expect(guardBody({ input_pii_action: 'redact', input_pii_kinds: [] })).toEqual({ input_pii_action: 'redact' });
     expect(guardBody({ input_pii_action: 'off', input_pii_kinds: ['email'] })).toEqual({});
   });
+
+  it('keeps unscanned_parts when set and drops it when unset', () => {
+    expect(guardBody({ unscanned_parts: 'block' })).toEqual({ unscanned_parts: 'block' });
+    expect(guardBody({ unscanned_parts: 'allow' })).toEqual({ unscanned_parts: 'allow' });
+    expect(guardBody({})).toEqual({});
+    expect(guardChanged({}, { unscanned_parts: 'log' })).toBe(true);
+    expect(guardChanged({ unscanned_parts: 'log' }, { unscanned_parts: 'log' })).toBe(false);
+  });
 });

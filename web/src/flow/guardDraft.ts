@@ -28,6 +28,7 @@ export function guardBody(s: GuardSettings): GuardSettings {
     out.input_pii_action = s.input_pii_action;
     if (s.input_pii_kinds?.length) out.input_pii_kinds = [...s.input_pii_kinds];
   }
+  if (s.unscanned_parts) out.unscanned_parts = s.unscanned_parts;
   return out;
 }
 
