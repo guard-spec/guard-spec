@@ -20,7 +20,9 @@
 # (default: the pinned kindest/node below), SKIP_BUILD=1 (use existing
 # guard-spec-gateway:e2e and guard-spec-control-plane:e2e images), KEEP=1
 # (keep the cluster afterwards), EXTRA_VALUES=<file> (more chart values on top
-# of values.yaml; tests/kind/values-models.yaml pulls the L2/L3 models).
+# of values.yaml; tests/kind/values-models.yaml pulls the L2/L3 models),
+# ONNX_DEPS_CACHE=<dir> (CI: the gateway build takes the ONNX archives from
+# there when their SHA-256 matches, see build/gateway.Dockerfile).
 set -euo pipefail
 
 CLUSTER=${CLUSTER:-guard-spec-e2e}
@@ -60,7 +62,11 @@ kind create cluster --name "$CLUSTER" --image "$KIND_NODE_IMAGE" --wait 180s
 
 if [ "${SKIP_BUILD:-}" != 1 ]; then
 	echo "--- building images"
-	docker build -f "$ROOT/build/gateway.Dockerfile" -t guard-spec-gateway:e2e "$ROOT"
+	onnx_cache=()
+	if [ -n "${ONNX_DEPS_CACHE:-}" ]; then
+		onnx_cache=(--build-context "onnx-cache=$ONNX_DEPS_CACHE" --build-arg ONNX_DEPS_CACHE=/onnx-cache)
+	fi
+	docker build ${onnx_cache[@]+"${onnx_cache[@]}"} -f "$ROOT/build/gateway.Dockerfile" -t guard-spec-gateway:e2e "$ROOT"
 	docker build -f "$ROOT/build/control-plane.Dockerfile" -t guard-spec-control-plane:e2e "$ROOT"
 fi
 kind load docker-image --name "$CLUSTER" guard-spec-gateway:e2e guard-spec-control-plane:e2e

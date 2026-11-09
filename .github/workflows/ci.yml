@@ -47,7 +47,22 @@ jobs:
         with:
           go-version-file: go.mod
       # ONNX Runtime + libtokenizers.a, pinned by SHA-256 in build/onnx-deps.sh.
+      # The archives are cached (key: the script, so its versions and SHA-256
+      # values) because a GitHub Releases outage turned CI red on 2026-11-09;
+      # onnx-deps.sh checks a cached archive's SHA-256 like a downloaded one.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: onnx-cache
+        with:
+          path: ${{ runner.temp }}/dl/onnx-deps
+          key: onnx-deps-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('build/onnx-deps.sh') }}
       - run: make onnx-deps
+        env:
+          ONNX_DEPS_CACHE: ${{ runner.temp }}/dl/onnx-deps
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: steps.onnx-cache.outputs.cache-hit != 'true'
+        with:
+          path: ${{ runner.temp }}/dl/onnx-deps
+          key: ${{ steps.onnx-cache.outputs.cache-primary-key }}
       - run: go build -tags onnx ./...
       - run: go vet -tags onnx ./...
       # Models are not downloaded in CI: the model tests skip, the unit tests
@@ -265,16 +280,41 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # Each download is cached under its version and SHA-256 so that a
+      # release-download outage does not fail the job. fetch-verified.sh gives a
+      # cached file the same SHA-256 check as a downloaded one.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: helm-cache
+        with:
+          path: ${{ runner.temp }}/dl/helm
+          key: helm-${{ env.HELM_VERSION }}-linux-amd64-${{ env.HELM_SHA256 }}
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: kubeconform-cache
+        with:
+          path: ${{ runner.temp }}/dl/kubeconform
+          key: kubeconform-${{ env.KUBECONFORM_VERSION }}-linux-amd64-${{ env.KUBECONFORM_SHA256 }}
       - name: Install helm and kubeconform (checksums pinned)
         run: |
           mkdir -p "$RUNNER_TEMP/bin"
-          curl -fsSLo helm.tgz "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz"
+          DOWNLOAD_CACHE=$RUNNER_TEMP/dl/helm scripts/fetch-verified.sh \
+            "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" "$HELM_SHA256" helm.tgz
           echo "${HELM_SHA256}  helm.tgz" | sha256sum -c -
           tar -xzf helm.tgz -C "$RUNNER_TEMP/bin" --strip-components=1 linux-amd64/helm
-          curl -fsSLo kubeconform.tgz "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          DOWNLOAD_CACHE=$RUNNER_TEMP/dl/kubeconform scripts/fetch-verified.sh \
+            "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" "$KUBECONFORM_SHA256" kubeconform.tgz
           echo "${KUBECONFORM_SHA256}  kubeconform.tgz" | sha256sum -c -
           tar -xzf kubeconform.tgz -C "$RUNNER_TEMP/bin" kubeconform
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: steps.helm-cache.outputs.cache-hit != 'true'
+        with:
+          path: ${{ runner.temp }}/dl/helm
+          key: ${{ steps.helm-cache.outputs.cache-primary-key }}
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: steps.kubeconform-cache.outputs.cache-hit != 'true'
+        with:
+          path: ${{ runner.temp }}/dl/kubeconform
+          key: ${{ steps.kubeconform-cache.outputs.cache-primary-key }}
       # Default values, every optional part turned on (ci/), no models volume,
       # gateway-full (ci/), models pulled into an emptyDir (ci/), the cloud
       # examples (examples/), and the dbRoles job rendered for OpenShift.
@@ -339,20 +379,62 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # Cached downloads, as in the helm job; the gateway image build takes
+      # the ONNX archives from the cache too (ONNX_DEPS_CACHE, tests/kind/e2e.sh).
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: helm-cache
+        with:
+          path: ${{ runner.temp }}/dl/helm
+          key: helm-${{ env.HELM_VERSION }}-linux-amd64-${{ env.HELM_SHA256 }}
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: kind-cache
+        with:
+          path: ${{ runner.temp }}/dl/kind
+          key: kind-${{ env.KIND_VERSION }}-linux-amd64-${{ env.KIND_SHA256 }}
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: onnx-cache
+        with:
+          path: ${{ runner.temp }}/dl/onnx-deps
+          key: onnx-deps-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('build/onnx-deps.sh') }}
       - name: Install helm and kind (checksums pinned)
         run: |
           mkdir -p "$RUNNER_TEMP/bin"
-          curl -fsSLo helm.tgz "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz"
+          DOWNLOAD_CACHE=$RUNNER_TEMP/dl/helm scripts/fetch-verified.sh \
+            "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" "$HELM_SHA256" helm.tgz
           echo "${HELM_SHA256}  helm.tgz" | sha256sum -c -
           tar -xzf helm.tgz -C "$RUNNER_TEMP/bin" --strip-components=1 linux-amd64/helm
-          curl -fsSLo "$RUNNER_TEMP/bin/kind" "https://github.com/kubernetes-sigs/kind/releases/download/${KIND_VERSION}/kind-linux-amd64"
+          DOWNLOAD_CACHE=$RUNNER_TEMP/dl/kind scripts/fetch-verified.sh \
+            "https://github.com/kubernetes-sigs/kind/releases/download/${KIND_VERSION}/kind-linux-amd64" "$KIND_SHA256" "$RUNNER_TEMP/bin/kind"
           echo "${KIND_SHA256}  $RUNNER_TEMP/bin/kind" | sha256sum -c -
           chmod +x "$RUNNER_TEMP/bin/kind"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      # Fills the ONNX archive cache (or checks a restored one) before the
+      # image build, which reads it through a build context.
+      - name: ONNX archives for the gateway image
+        run: sh build/onnx-deps.sh "$RUNNER_TEMP/onnx"
+        env:
+          ONNX_DEPS_CACHE: ${{ runner.temp }}/dl/onnx-deps
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: steps.helm-cache.outputs.cache-hit != 'true'
+        with:
+          path: ${{ runner.temp }}/dl/helm
+          key: ${{ steps.helm-cache.outputs.cache-primary-key }}
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: steps.kind-cache.outputs.cache-hit != 'true'
+        with:
+          path: ${{ runner.temp }}/dl/kind
+          key: ${{ steps.kind-cache.outputs.cache-primary-key }}
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: steps.onnx-cache.outputs.cache-hit != 'true'
+        with:
+          path: ${{ runner.temp }}/dl/onnx-deps
+          key: ${{ steps.onnx-cache.outputs.cache-primary-key }}
       - run: kind version && helm version && kubectl version --client
       # Builds both images from this checkout, creates the cluster, installs
       # Postgres, a fake upstream and the chart, runs the checks, deletes the cluster.
       - run: tests/kind/e2e.sh
+        env:
+          ONNX_DEPS_CACHE: ${{ runner.temp }}/dl/onnx-deps
 
   terraform:
     name: Terraform AWS reference (fmt, validate, test)

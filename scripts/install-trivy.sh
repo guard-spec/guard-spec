@@ -10,6 +10,9 @@
 #     --certificate-oidc-issuer https://token.actions.githubusercontent.com trivy_<v>_checksums.txt
 # Update VERSION and SHA256 together (linux amd64), after the same check, and
 # prefer a release that is at least two weeks old.
+#
+# DOWNLOAD_CACHE=<dir>: take the archive from that directory (CI's
+# actions/cache) when it has the pinned SHA-256; see scripts/fetch-verified.sh.
 set -eu
 
 VERSION=0.76.1
@@ -19,7 +22,8 @@ dir=${1:-${RUNNER_TEMP:-.}/bin}
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 archive="trivy_${VERSION}_Linux-64bit.tar.gz"
-curl -fsSLo "$tmp/$archive" "https://github.com/aquasecurity/trivy/releases/download/v${VERSION}/${archive}"
+sh "$(dirname "$0")/fetch-verified.sh" \
+  "https://github.com/aquasecurity/trivy/releases/download/v${VERSION}/${archive}" "$SHA256" "$tmp/$archive"
 echo "$SHA256  $tmp/$archive" | sha256sum -c -
 mkdir -p "$dir"
 tar -xzf "$tmp/$archive" -C "$tmp" trivy

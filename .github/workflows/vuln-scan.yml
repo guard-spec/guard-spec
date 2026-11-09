@@ -27,6 +27,11 @@ concurrency:
   group: vuln-scan-${{ github.ref }}
   cancel-in-progress: true
 
+# Trivy and the gateway's ONNX archives are kept in the Actions cache (keyed
+# by the scripts that pin their versions and SHA-256 values), so a GitHub
+# Releases outage does not fail the scans. A cached file gets the same
+# SHA-256 check as a downloaded one.
+
 env:
   # The Trivy DB, with a fallback when ghcr.io rate-limits.
   TRIVY_DB_REPOSITORY: mirror.gcr.io/aquasec/trivy-db,ghcr.io/aquasecurity/trivy-db
@@ -46,7 +51,19 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: trivy-cache
+        with:
+          path: ${{ runner.temp }}/dl/trivy
+          key: trivy-linux-amd64-${{ hashFiles('scripts/install-trivy.sh') }}
       - run: scripts/install-trivy.sh "$RUNNER_TEMP/bin" && echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+        env:
+          DOWNLOAD_CACHE: ${{ runner.temp }}/dl/trivy
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: steps.trivy-cache.outputs.cache-hit != 'true'
+        with:
+          path: ${{ runner.temp }}/dl/trivy
+          key: ${{ steps.trivy-cache.outputs.cache-primary-key }}
       - name: Report every finding
         run: trivy fs --format sarif --output deps.sarif .
       - uses: github/codeql-action/upload-sarif@1fc58d04a4d4374f921bdac573c3811c240f9c26 # v4
@@ -71,11 +88,47 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: trivy-cache
+        with:
+          path: ${{ runner.temp }}/dl/trivy
+          key: trivy-linux-amd64-${{ hashFiles('scripts/install-trivy.sh') }}
       - run: scripts/install-trivy.sh "$RUNNER_TEMP/bin" && echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+        env:
+          DOWNLOAD_CACHE: ${{ runner.temp }}/dl/trivy
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: steps.trivy-cache.outputs.cache-hit != 'true'
+        with:
+          path: ${{ runner.temp }}/dl/trivy
+          key: ${{ steps.trivy-cache.outputs.cache-primary-key }}
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: onnx-cache
+        if: matrix.image == 'gateway'
+        with:
+          path: ${{ runner.temp }}/dl/onnx-deps
+          key: onnx-deps-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('build/onnx-deps.sh') }}
+      # The gateway build takes the ONNX archives from the cache through a
+      # build context; this step fills it, or checks the restored archives.
+      - name: ONNX archives for the gateway image
+        if: matrix.image == 'gateway'
+        run: sh build/onnx-deps.sh "$RUNNER_TEMP/onnx"
+        env:
+          ONNX_DEPS_CACHE: ${{ runner.temp }}/dl/onnx-deps
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: matrix.image == 'gateway' && steps.onnx-cache.outputs.cache-hit != 'true'
+        with:
+          path: ${{ runner.temp }}/dl/onnx-deps
+          key: ${{ steps.onnx-cache.outputs.cache-primary-key }}
       - name: Build
         env:
           IMAGE: ${{ matrix.image }}
-        run: docker build -f "build/$IMAGE.Dockerfile" -t "guard-spec-$IMAGE:scan" .
+          ONNX_DEPS_CACHE: ${{ runner.temp }}/dl/onnx-deps
+        run: |
+          set --
+          if [ "$IMAGE" = gateway ]; then
+            set -- --build-context "onnx-cache=$ONNX_DEPS_CACHE" --build-arg ONNX_DEPS_CACHE=/onnx-cache
+          fi
+          docker build "$@" -f "build/$IMAGE.Dockerfile" -t "guard-spec-$IMAGE:scan" .
       - name: Report every finding
         env:
           IMAGE: ${{ matrix.image }}
@@ -101,7 +154,19 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: trivy-cache
+        with:
+          path: ${{ runner.temp }}/dl/trivy
+          key: trivy-linux-amd64-${{ hashFiles('scripts/install-trivy.sh') }}
       - run: scripts/install-trivy.sh "$RUNNER_TEMP/bin" && echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+        env:
+          DOWNLOAD_CACHE: ${{ runner.temp }}/dl/trivy
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: steps.trivy-cache.outputs.cache-hit != 'true'
+        with:
+          path: ${{ runner.temp }}/dl/trivy
+          key: ${{ steps.trivy-cache.outputs.cache-primary-key }}
       - name: Scan
         id: scan
         env:

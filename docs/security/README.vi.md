@@ -34,6 +34,7 @@ nhận định phụ thuộc vào một thiết lập, thiết lập đó đư�
 - [Toàn vẹn của nhật ký kiểm toán](#toàn-vẹn-của-nhật-ký-kiểm-toán)
 - [Mô hình mối đe doạ](#mô-hình-mối-đe-doạ)
 - [Xác minh một bản phát hành](#xác-minh-một-bản-phát-hành)
+- [Tải công cụ trong CI](#tải-công-cụ-trong-ci)
 
 ## Kiến trúc
 
@@ -355,3 +356,20 @@ và, từ bản phát hành sau v0.3.0, bằng SLSA build provenance
 (`guard-spec_<version>.intoto.jsonl`).
 Các lệnh, mỗi bước kiểm tra chứng minh điều gì và kết quả của chúng cho v0.2.0
 nằm trong [Xác minh một bản phát hành](verifying-releases.md).
+
+## Tải công cụ trong CI
+
+CI tải các công cụ và thư viện được ghim phiên bản (ONNX Runtime và
+libtokenizers, Trivy, Helm, kubeconform, kind), mỗi file được đối chiếu với
+một SHA-256 commit trong repository (`build/onnx-deps.sh`,
+`scripts/install-trivy.sh`, `.github/workflows/ci.yml`). Để GitHub Releases
+gặp sự cố không làm CI thất bại, `ci.yml` và `vuln-scan.yml` giữ các file này
+trong cache của GitHub Actions, với key theo công cụ, phiên bản và SHA-256.
+Cache chỉ thay cho việc tải: `scripts/fetch-verified.sh` và
+`build/onnx-deps.sh` kiểm tra SHA-256 của file lấy từ cache giống hệt file vừa
+tải, bỏ qua nó nếu không khớp và tải lại. Một mục cache do pull request ghi
+chỉ pull request đó thấy, `main` không bao giờ thấy (GitHub phân vùng cache
+theo nhánh; pull request đọc được cache của `main`, chiều ngược lại thì
+không), và ngay cả một mục cache bị sửa cũng không thể thay đổi file được
+dùng, chỉ làm tốn thêm một lần tải. Bản phát hành (`release.yml`) không dùng
+cache: luôn tải và kiểm tra.
