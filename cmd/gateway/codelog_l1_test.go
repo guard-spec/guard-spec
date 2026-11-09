@@ -24,7 +24,7 @@ func TestCodeLogL1(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer out.Close()
+	defer func() { _ = out.Close() }()
 	e := rules.New()
 	enc := json.NewEncoder(out)
 	for _, r := range readCodeLogCorpus(t, corpus) {
@@ -54,7 +54,7 @@ func readCodeLogCorpus(t *testing.T, path string) []codeLogRow {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	var rows []codeLogRow
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 1<<20), 1<<24)

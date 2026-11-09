@@ -33,13 +33,13 @@ func TestCodeLogChunks(t *testing.T) {
 	if err != nil || s.Degraded() {
 		t.Fatalf("%v %v", err, s.Problems)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	rows := readCodeLogCorpus(t, corpus)
 	out, err := os.Create(os.Getenv("CODELOG_OUT"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer out.Close()
+	defer func() { _ = out.Close() }()
 	type chunkOut struct {
 		ID       string             `json:"id"`
 		Chunk    int                `json:"chunk"`

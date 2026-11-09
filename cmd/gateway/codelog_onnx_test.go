@@ -33,7 +33,7 @@ func TestCodeLogThroughGateway(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer out.Close()
+	defer func() { _ = out.Close() }()
 	var mu sync.Mutex
 	write := func(v any) {
 		b, _ := json.Marshal(v)
