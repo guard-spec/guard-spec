@@ -188,7 +188,8 @@ python3 eval/codelog/build.py      # rebuild (standard library and git only)
 The rows use the schema above plus `kind` (go, log_vi, ...) and `size` (the
 target size in bytes); `lang` is `vi` for Vietnamese logs, JSON and CSV. The
 dev/holdout split is the same rule (last hex digit of the id). Sources are this
-repository's own files at the commit pinned in `build.py`, without the files
+repository's own files at the commit pinned in `build.py` (`823de5b` on
+`main`; the rows are the same on every branch that carries the set), without the files
 that discuss or test prompt injection, and synthetic logs, stack traces, JSON
 and CSV; all Apache-2.0. The eval workflow checks `baseline.json` (L1 only);
 the onnx CI job checks `baseline-onnx.json` when models are present.
@@ -198,11 +199,13 @@ At 0.85 on the tool path (gateway decision, dev / holdout):
 | detector | FPR dev | FPR holdout | worst kinds |
 |---|---|---|---|
 | `fusion` (L1 only) | 0.074 | 0.049 | shell, YAML (secrets and paths in scripts) |
-| `fusion-ml` L1+L2+L3, v3b | 0.216 | 0.210 | Dockerfile, SQL, shell, YAML, Vietnamese logs at 8 KB |
+| `fusion-ml` L1+L2+L3, v3b | 0.088 | 0.074 | shell, SQL and YAML at 8 KB |
 
-The model layers block a fifth of these benign tool results: the classifier
-(L2) scores repetitive structured text (DDL, Dockerfiles, Vietnamese log lines)
-as an attack. Retraining with code and log negatives is the fix
+The classifier (L2) scores repetitive structured text (DDL, Dockerfiles,
+Vietnamese log lines) as an attack. Before 0.4.2 the model layers blocked a
+quarter of these rows (0.270 / 0.253); code corroboration
+(`TOOL_CODE_CORROBORATION`, see the main README) and the length-scaled L1 cue
+score bring that down. Retraining with code and log negatives is the real fix
 (RF-437128e9); until then this set records the gap, and the baseline catches
 it getting worse. **Training pipelines must drop rows whose fingerprint is in
 `codelog/fingerprints.txt`** (same normalization as `fingerprints.txt`), and
