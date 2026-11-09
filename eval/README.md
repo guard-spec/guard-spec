@@ -171,6 +171,45 @@ previously"), it raises false positives on security discussions, "no
 restrictions", "developer mode" and "tell me the rules", and its Vietnamese
 patterns need diacritics, so `no_diacritics` and `teencode` attacks get through.
 
+## Code/log hard negatives (`codelog/`)
+
+`codelog/codelog.jsonl` holds 310 benign rows of the tool output coding and
+CI agents read: Go, Python, TypeScript, YAML, Dockerfiles, SQL, shell, unified
+diffs, stack traces, application logs (English and Vietnamese), JSON and CSV,
+at 0.5, 2 and 8 KB. Every row is benign, so the set only measures false
+positives; run it on the tool path, as the gateway sees a tool result:
+
+```sh
+go run ./cmd/eval -data eval/codelog -path tool -baseline eval/codelog/baseline.json
+go run -tags onnx ./cmd/eval -detector fusion-ml -data eval/codelog -path tool -baseline eval/codelog/baseline-onnx.json
+python3 eval/codelog/build.py      # rebuild (standard library and git only)
+```
+
+The rows use the schema above plus `kind` (go, log_vi, ...) and `size` (the
+target size in bytes); `lang` is `vi` for Vietnamese logs, JSON and CSV. The
+dev/holdout split is the same rule (last hex digit of the id). Sources are this
+repository's own files at the commit pinned in `build.py`, without the files
+that discuss or test prompt injection, and synthetic logs, stack traces, JSON
+and CSV; all Apache-2.0. The eval workflow checks `baseline.json` (L1 only);
+the onnx CI job checks `baseline-onnx.json` when models are present.
+
+At 0.85 on the tool path (gateway decision, dev / holdout):
+
+| detector | FPR dev | FPR holdout | worst kinds |
+|---|---|---|---|
+| `fusion` (L1 only) | 0.074 | 0.049 | shell, YAML (secrets and paths in scripts) |
+| `fusion-ml` L1+L2+L3, v3b | 0.216 | 0.210 | Dockerfile, SQL, shell, YAML, Vietnamese logs at 8 KB |
+
+The model layers block a fifth of these benign tool results: the classifier
+(L2) scores repetitive structured text (DDL, Dockerfiles, Vietnamese log lines)
+as an attack. Retraining with code and log negatives is the fix
+(RF-437128e9); until then this set records the gap, and the baseline catches
+it getting worse. **Training pipelines must drop rows whose fingerprint is in
+`codelog/fingerprints.txt`** (same normalization as `fingerprints.txt`), and
+code/log negatives for training should come from other sources than this
+repository's files and these log templates: overlapping slices of the same
+file do not share a fingerprint.
+
 ## Leakage guard: `fingerprints.txt`
 
 One sha256 per line of the normalized text of every row: NFC, `đ→d`,
