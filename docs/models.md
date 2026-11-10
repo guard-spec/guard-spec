@@ -19,6 +19,7 @@ tool, so the binary always knows its recommended models.
 |---|---|---|---|---|
 | `guardspec-classifier` | `v3b` | L2 | yes | Hugging Face (not published yet), then the GitHub Release `model-guardspec-classifier-v3b` |
 | `guardspec-classifier` | `v4` | L2 | no: candidate, [compare in shadow mode](#guardspec-classifier-v4-candidate) | the GitHub Release `model-guardspec-classifier-v4` (once the owner publishes it) |
+| `guardspec-classifier` | `v5` | L2 | no: candidate for code, logs and long documents, [shadow mode first](#guardspec-classifier-v5-candidate) | the GitHub Release `model-guardspec-classifier-v5` (once the owner publishes it) |
 | `multilingual-e5-small` | `614241f` | L3 | yes | Hugging Face `intfloat/multilingual-e5-small` |
 | `protectai-deberta-v3-small-pi-v2` | `d7c8842` | baseline | optional, gated | Hugging Face |
 | `protectai-deberta-v3-base-pi-v2` | `90c9989` | baseline | optional | Hugging Face |
@@ -204,6 +205,75 @@ tool poisoning and on English leet). It did not pass the pre-registered
 decision rule, which is why it is a candidate for shadow mode and not the
 default. [train/MODEL_CARD.md](../train/MODEL_CARD.md) ("v4") has every
 table.
+
+### guardspec-classifier v5 (candidate)
+
+`guardspec-classifier@v5` is listed in the manifest but is **not** the
+recommended version: v3b stays the default until v5 has run in shadow mode
+for at least 7 days and the owner decides (planned for v0.5.0). v5 is v3b's
+architecture, recipe and labels, trained window by window (the gateway's
+256-token windows instead of a truncated row) on the v4 data plus benign
+code, configuration, logs, stack traces and long prose as hard negatives and
+attacks embedded in such text (`train/DATA_CARD.md`, "v5 data"). It targets
+the false positives of v3b on tool output such as DDL, Dockerfiles and
+Vietnamese log lines, and attacks hidden in code and logs.
+
+Its `calibration.json` also carries `l2_untrusted_max` (0.88): on the tool
+path the classifier alone cannot block untrusted content above that
+calibrated score, L1 or L3 must add the rest. The value is derived by
+`cmd/calibrate fit` from the validation splits (never from `eval/`). A
+gateway that does not know the field ignores it; the direct path (user
+messages) is unchanged either way.
+
+```bash
+# 1. Install it next to v3b (files checked against the manifest's SHA-256;
+#    the GitHub release model-guardspec-classifier-v5 is the only source until
+#    the Hugging Face revision is pinned).
+docker compose --profile models run --rm models-pull guardspec-classifier@v5
+# 2. .env: keep v3b deciding, let v5 score the same traffic.
+L2_MODEL=guardspec-classifier@v3b
+SHADOW_L2_MODEL=guardspec-classifier@v5
+SHADOW_SAMPLE=1
+# 3. Restart the gateway (or POST /admin/models/reload), then watch the
+#    Models page for at least 7 days: agreement, requests v5 would block that
+#    v3b allows (and the reverse), score distributions, tool-result traffic.
+```
+
+With a local copy of the files instead, set
+`SHADOW_L2_MODEL_DIR=/path/to/guardspec-classifier-v5` (the directory must
+hold the five files above). Switching is `L2_MODEL=guardspec-classifier@v5`
+and a reload; rolling back is the reverse.
+
+#### v3b vs v5
+
+Gateway scores (fused L1+L2+L3, block at 0.85), hold-out halves of the
+eval sets and the owner hold-outs, each scored once. v3b with its shipped
+calibration; v5 with its own `calibration.json` and the cap.
+
+| | v3b | v5 |
+|---|---|---|
+| `eval/data` (user messages): TPR at FPR ≤ 1% / TPR and FPR at 0.85 | 0.942 / 0.9435 and 1.57% | 0.940 / 0.9435 and 1.17% |
+| `eval/codelog` (benign tool output): FPR, corroboration off / on | 20.99% / 7.41% | 0.62% / 0.62% |
+| `eval/embedded` (attacks in code and logs), corroboration off: TPR / FPR | 0.779 / 15.1% | 0.861 / 4.7% |
+| `eval/embedded`, corroboration on: TPR / FPR | 0.719 / 5.7% | 0.824 / 2.5% |
+| `eval/embedded`: TPR at FPR ≤ 1% | 0.374 | 0.748 |
+| owner hold-outs (408 attacks / 272 benign): TPR / FPR at 0.85 | 0.762 / 1.5% | 0.848 / 2.9% |
+| owner hold-outs: TPR at FPR ≤ 1% | 0.503 | 0.797 |
+| `val_v5_holdout` (code and log hosts, tool path, corroboration off): FPR / TPR at 0.85 / TPR at FPR ≤ 1% | 0.9% / 0.665 / 0.665 | 0.0% / 0.623 / 0.988 |
+| `val_v3_holdout` (generated attacks and benign rows): FPR / TPR at 0.85 | 0.5% / 0.953 | 0.5% / 0.887 |
+| the 4 reported Vietnamese sentences blocked | 4 | 0 |
+
+v5 removes most false positives on benign tool output and catches more
+attacks hidden in code and logs, on `eval/data` it is level with v3b, and on
+the owner hold-outs it catches more attacks at the cost of 4 more blocked
+benign rows (8 of 272 vs 4). Its known limitations: on documents of 100k to
+200k tokens the false-positive goal is not met yet (that needs a third round
+of data, benign prose inside code and log hosts); it catches fewer of the
+generated `val_v3_holdout` attacks at the block threshold (0.887 vs 0.953);
+and on the tool path the cap keeps embedded attacks that only the classifier
+recognises below the block threshold (`val_v5_holdout`: 0.623 vs 0.665 at
+0.85, although it ranks them far better). The selection rule, every table
+and the data are in [train/MODEL_CARD.md](../train/MODEL_CARD.md) ("v5").
 
 ## Reloading without a restart
 

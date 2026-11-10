@@ -11,6 +11,22 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ### Added
 
+- Classifier **v5 candidate** (`guardspec-classifier@v5` in
+  `models/manifest.yaml`, not recommended; v3b stays the default until v5
+  has run in shadow mode for at least 7 days and the owner decides, planned
+  for v0.5.0) (RF-437128e9). Same architecture and recipe as v3b, trained
+  window by window on the v4 data plus benign code, configuration, logs and
+  long prose and attacks embedded in them (`train/DATA_CARD.md`, "v5 data").
+  Its `calibration.json` carries `l2_untrusted_max` (0.88), the classifier's
+  cap for untrusted content on the tool path. Hold-out halves, scored once,
+  v3b → v5: `eval/codelog` FPR 20.99% → 0.62% (corroboration off),
+  `eval/embedded` TPR 0.779 → 0.861 and FPR 15.1% → 4.7% (corroboration
+  off), `eval/data` TPR at FPR ≤ 1% 0.942 → 0.940, owner hold-outs TPR
+  0.762 → 0.848 and FPR 1.5% → 2.9% at 0.85, `val_v3_holdout` TPR
+  0.953 → 0.887. Not met yet: the false-positive goal on 100k–200k-token
+  documents. Results, the
+  pre-registered rule and the data are in `train/MODEL_CARD.md` ("v5");
+  `docs/models.md` explains shadow mode.
 - Large inputs (RF-320915ea). `MAX_SCAN_TOKENS` raises the size of a
   proxied request the gateway scans past today's limits (about 28 KB of
   user, system and tool-call text, 128 KiB of tool results, documents and
