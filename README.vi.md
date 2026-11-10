@@ -376,13 +376,13 @@ dùng nhất:
 | `MAX_SCAN_TOKENS` | rỗng (giới hạn hiện tại) | Số token tối đa gateway quét cho một request được proxy. Rỗng hoặc `0`: giữ giới hạn theo byte như trước (khoảng 28 KB văn bản của người dùng, system và tham số tool call; 128 KiB kết quả tool, tài liệu và mô tả tool; 1 MiB lượt cũ), vượt thì 413. Khi đặt: là trần token của request (vượt thì 413), và request vượt các giới hạn byte đó được quét theo đường dài trong làn input lớn thay vì bị từ chối. Xem [Input lớn](#input-lớn) |
 | `INFERENCE_LARGE_MAX_CONCURRENCY` / `LARGE_SCAN_ORG_CONCURRENCY` | số CPU / 4 (ít nhất 1) / một nửa của nó | Số request lớn được quét cùng lúc (và các lượt chạy model của chúng, trên limiter riêng) / của một tổ chức |
 | `LARGE_SCAN_QUEUE_TIMEOUT` | `30s` | Thời gian request lớn chờ làn trước khi nhận 429 kèm `Retry-After`; cũng là thời gian request chờ một bộ trích xuất PDF rảnh (`PDF_EXTRACT`) |
-| `PDF_EXTRACT` | `on` | `on`: văn bản của PDF gửi kèm trong request (khối `document` nguồn base64 trên `/v1/messages`, phần `file` có `file_data` trên chat completions, mục `input_file` có `file_data` trên `/v1/responses`) được trích xuất (kể cả chữ ẩn, chú thích và trường biểu mẫu) và quét như một tài liệu, nên `INDIRECT_ACTION` và `MAX_SCAN_TOKENS` áp dụng; body chuyển tiếp giữ nguyên, trừ khi `redact` thay phần đó bằng placeholder tài liệu. PDF không lấy được chữ (`no_text`, `encrypted`, `damaged`, `timeout`, `over_limit`, `internal`) hoặc gateway không tải được (url hay file id: `remote`) vẫn là phần không quét theo `UNSCANNED_PARTS`, với thẻ audit `input:pdf_scanned=<số>` và `input:pdf_unscanned_<lý do>=<số>` và các trường luật `input.pdf.count`, `input.pdf.scanned`, `input.pdf.reasons`. `off`: PDF là phần không quét như ở 0.5.0. Không có ghi đè theo tổ chức |
-| `PDF_EXTRACT_MAX_BYTES` | `33554432` (32 MiB) | PDF lớn nhất bộ trích xuất mở; lớn hơn là `over_limit` |
-| `PDF_EXTRACT_MAX_PAGES` | `600` | Số trang tối đa trích xuất từ một PDF; nhiều hơn là `over_limit` |
-| `PDF_EXTRACT_MAX_TEXT_BYTES` | `4194304` (4 MiB), hoặc 4 × `MAX_SCAN_TOKENS` nếu nhỏ hơn | Lượng chữ tối đa trích từ một PDF; nhiều hơn là `over_limit`. Khi `MAX_SCAN_TOKENS` không đặt, chữ vượt 128 KiB tài liệu của đường ngắn cũng là `over_limit` |
-| `PDF_EXTRACT_TIMEOUT` | `10s` | Ngân sách thời gian cho một PDF, không tính thời gian chờ bộ trích xuất; quá thì PDF là `timeout` |
-| `PDF_EXTRACT_MEMORY` | `536870912` (512 MiB) | Trần bộ nhớ của một phiên PDFium (bộ nhớ tuyến tính WebAssembly), tính bằng byte |
-| `PDF_EXTRACT_MAX_CONCURRENCY` | số CPU / 2 (ít nhất 1) | Số PDF trích xuất cùng lúc; các request khác chờ tối đa `LARGE_SCAN_QUEUE_TIMEOUT` rồi nhận 429 kèm `Retry-After` |
+| `PDF_EXTRACT` | `on` | `on` hoặc `off`. `on`: văn bản của PDF gửi kèm trong request (khối `document` nguồn base64 trên `/v1/messages`, phần `file` có `file_data` trên chat completions, mục `input_file` có `file_data` trên `/v1/responses`) được trích xuất (kể cả chữ ẩn, chú thích và trường biểu mẫu) và quét như một tài liệu, nên `INDIRECT_ACTION` và `MAX_SCAN_TOKENS` áp dụng; body chuyển tiếp giữ nguyên, trừ khi `redact` thay phần đó bằng placeholder tài liệu. PDF không lấy được chữ (`no_text`, `encrypted`, `damaged`, `timeout`, `over_limit`, `internal`) hoặc gateway không tải được (url hay file id: `remote`) vẫn là phần không quét theo `UNSCANNED_PARTS`, với thẻ audit `input:pdf_scanned=<số>` và `input:pdf_unscanned_<lý do>=<số>` và các trường luật `input.pdf.count`, `input.pdf.scanned`, `input.pdf.reasons`. `off`: PDF là phần không quét như ở 0.5.0. Không có ghi đè theo tổ chức. Xem [PDF](#pdf) |
+| `PDF_EXTRACT_MAX_BYTES` | `33554432` (32 MiB) | PDF lớn nhất bộ trích xuất mở, tính bằng byte (`1024` đến `1073741824`); lớn hơn là `over_limit`. Giới hạn body áp dụng trước: PDF đến dưới dạng base64, nên PDF lớn nhất tới được gateway chỉ khoảng 3/4 `MAX_REQUEST_BYTES` (3 MiB theo mặc định). Log lúc khởi động ghi giới hạn hiệu lực và cảnh báo khi biến này được đặt cao hơn |
+| `PDF_EXTRACT_MAX_PAGES` | `600` | Số trang tối đa trích xuất từ một PDF (`1` đến `100000`); nhiều hơn là `over_limit` |
+| `PDF_EXTRACT_MAX_TEXT_BYTES` | `4194304` (4 MiB), hoặc 4 × `MAX_SCAN_TOKENS` nếu nhỏ hơn | Lượng chữ tối đa trích từ một PDF, tính bằng byte (`1024` đến `1073741824`); nhiều hơn là `over_limit`. Khi `MAX_SCAN_TOKENS` không đặt, chữ vượt 128 KiB tài liệu của đường ngắn cũng là `over_limit` |
+| `PDF_EXTRACT_TIMEOUT` | `10s` | Ngân sách thời gian cho một PDF (`100ms` đến `10m`), không tính thời gian chờ bộ trích xuất; quá thì PDF là `timeout` |
+| `PDF_EXTRACT_MEMORY` | `536870912` (512 MiB) | Trần bộ nhớ của một phiên PDFium (bộ nhớ tuyến tính WebAssembly), tính bằng byte (`33554432`, 32 MiB, đến `4294967296`, 4 GiB); tài liệu cần nhiều hơn là `damaged` |
+| `PDF_EXTRACT_MAX_CONCURRENCY` | số CPU / 2 (ít nhất 1) | Số PDF trích xuất cùng lúc (`1` đến `1024`); các request khác chờ tối đa `LARGE_SCAN_QUEUE_TIMEOUT` rồi nhận 429 kèm `Retry-After` |
 | `MAX_REQUEST_BYTES` | `4194304` (4 MiB) | Kích thước body tối đa; lớn hơn thì 413 trước khi đọc |
 | `EMBEDDINGS_SCAN` | `off` | `on`: chấm từng input của `/v1/embeddings` như tài liệu không tin cậy |
 | `AUDIT_STORE_CONTENT` | `false` | Lưu nội dung prompt/response vào audit |
@@ -488,11 +488,13 @@ kế tiếp.
 
 ### Phần gateway không đọc được
 
-Bộ phát hiện chỉ đọc văn bản. Ảnh, file và âm thanh trong request được chuyển
-tới model, và model đọc được chúng (model vision đọc chữ trong ảnh, văn bản
-của PDF tới được model), nên prompt injection nằm trong PDF hay ảnh không được
-chấm điểm. `UNSCANNED_PARTS` làm các phần này hiện ra trong audit và cho phép
-từ chối chúng.
+Bộ phát hiện chỉ đọc văn bản. Ảnh, âm thanh và file trong request được chuyển
+tới model, và model đọc được chúng (model vision đọc chữ trong ảnh, nhà cung
+cấp đưa văn bản của PDF cho model), nên prompt injection nằm trong đó không
+được chấm điểm. Ngoại lệ là PDF gửi kèm trong request: với `PDF_EXTRACT=on`
+(mặc định) gateway trích văn bản của nó và quét như một tài liệu, xem
+[PDF](#pdf) bên dưới. `UNSCANNED_PARTS` làm những phần gateway vẫn không đọc
+được hiện ra trong audit và cho phép từ chối chúng.
 
 - **Tính những gì.** Chat completions: content part `image_url`, `file`
   (`file_data` hoặc `file_id`) và `input_audio`. `/v1/messages`: block
@@ -500,7 +502,8 @@ từ chối chúng.
   cả bên trong `tool_result`. `/v1/responses`: `input_image`, `input_file` và
   `input_audio`. Các loại: `image`, `file`, `audio` và `other` (phần không có
   văn bản thuộc kiểu gateway không biết, để không bỏ sót kiểu part mới của nhà
-  cung cấp).
+  cung cấp). PDF đã được trích và quét thì không tính; PDF gateway không đọc
+  được (các lý do bên dưới) tính là `file`.
 - **Không tính** (vì đã được quét, hoặc không phải input): part văn bản,
   `document` có `source` là `text` hoặc `content`, `search_result`, nội dung
   model tạo ra trong lượt assistant, reasoning mã hoá và chữ ký.
@@ -537,9 +540,77 @@ từ chối chúng.
   áp dụng cho tenant đó; muốn tách riêng một số key thì dùng policy của
   project. Luật `block` từ chối như mọi luật khác (`content_filter`), không
   phải `unscanned_content`.
-- **Chưa làm.** Gateway không trích văn bản từ PDF và không chạy OCR. Hãy để
-  ứng dụng gửi văn bản thay cho file, hoặc quét văn bản trích được lúc tải lên;
-  xem [File, PDF và ảnh](docs/integrations.vi.md#file-pdf-và-ảnh).
+- **Chưa làm.** Gateway không chạy OCR (PDF scan, ảnh) và không tải file mà
+  nhà cung cấp đang giữ (URL hay file id). Hãy để ứng dụng gửi văn bản thay
+  cho file, hoặc quét văn bản trích được lúc tải lên; xem
+  [File, PDF và ảnh](docs/integrations.vi.md#file-pdf-và-ảnh).
+
+#### PDF
+
+Với `PDF_EXTRACT=on` (mặc định), PDF gửi kèm trong request (block `document`
+nguồn `base64` trên `/v1/messages`, part `file` có `file_data` trên chat
+completions, mục `input_file` có `file_data` trên `/v1/responses`; base64
+thuần hoặc data URL) được mở bằng PDFium chạy dưới dạng WebAssembly ngay
+trong gateway (không cần thư viện native hay dịch vụ ngoài), và văn bản của
+nó được quét như tài liệu không tin cậy, cùng đường với block `document` có
+nguồn văn bản: `INDIRECT_ACTION` áp dụng (`block` từ chối request, `redact`
+thay phần đó bằng placeholder tài liệu), scan cache và `MAX_SCAN_TOKENS`
+cũng vậy. Bản thân PDF không bao giờ bị sửa: body chuyển tiếp giữ nguyên
+từng byte, trừ khi một phần bị redact.
+
+- **Đọc những gì.** Mọi đối tượng văn bản trên mọi trang, dù người đọc có
+  thấy hay không: chữ trắng, chữ ẩn (render mode 3), chữ cực nhỏ, chữ bị
+  cắt hay nằm ngoài trang, chữ nằm dưới ảnh; nội dung chú thích (comment,
+  free text); giá trị các trường biểu mẫu. Đó là văn bản model nhận được
+  từ bước trích của nhà cung cấp, và còn hơn thế.
+- **Không đọc được gì.** PDF scan hoặc chỉ có ảnh (trang là một tấm ảnh
+  chụp chữ, không có lớp văn bản; không có OCR: `no_text`), PDF mã hoá
+  (`encrypted`), file PDFium không mở được (`damaged`), PDF gateway không
+  tải được (nguồn `url` hay `file` trên `/v1/messages`, `file_id` trên chat
+  completions, `file_id` hay `file_url` trên `/v1/responses`: `remote`),
+  văn bản vượt giới hạn (`over_limit`: quá `PDF_EXTRACT_MAX_BYTES`,
+  `PDF_EXTRACT_MAX_PAGES` hay `PDF_EXTRACT_MAX_TEXT_BYTES`, hoặc khi
+  `MAX_SCAN_TOKENS` không đặt, quá 128 KiB tài liệu mà đường ngắn quét
+  được) hay quá ngân sách thời gian (`timeout`, `PDF_EXTRACT_TIMEOUT`); lỗi
+  của bộ trích xuất là `internal`. Metadata của tài liệu (tiêu đề, tác giả,
+  từ khoá), bookmark, file nhúng, JavaScript và chữ bên trong ảnh trên
+  trang không được đọc. PDF như vậy được chuyển tiếp như trước, là phần
+  `file` không quét theo `UNSCANNED_PARTS`; văn bản trích được một phần
+  không bao giờ được tính là đã quét.
+- **Thấy ở đâu.** Thẻ `input:pdf_scanned=<số>` và
+  `input:pdf_unscanned_<lý do>=<số>` trên dòng audit, cạnh
+  `input:unscanned_file=<số>` (các thẻ không quét bị bỏ khi
+  `UNSCANNED_PARTS=allow`); trường luật `input.pdf.count`,
+  `input.pdf.scanned` và `input.pdf.reasons` (ví dụ `"encrypted" in
+  input.pdf.reasons` với hành động `block`, hay `input.pdf.count >
+  input.pdf.scanned` để từ chối mọi PDF gateway không đọc được; Simulator
+  cũng nhận); metric `guardspec_gateway_pdf_extract_total{result}` (các lý
+  do, `ok` và `busy`), `guardspec_gateway_pdf_extract_seconds` và
+  `guardspec_gateway_pdf_text_bytes`. PDF ở lượt trước được chấm điểm (qua
+  scan cache) nhưng không đếm, giống số phần không quét.
+- **Giới hạn và chi phí.** Tối đa `PDF_EXTRACT_MAX_CONCURRENCY` PDF (một nửa
+  số CPU) được đọc cùng lúc, mỗi PDF trong một phiên PDFium có trần bộ nhớ
+  riêng (`PDF_EXTRACT_MEMORY`, 512 MiB) và ngân sách thời gian riêng
+  (`PDF_EXTRACT_TIMEOUT`, 10 s); request không có bộ trích xuất rảnh trong
+  `LARGE_SCAN_QUEUE_TIMEOUT` nhận 429 kèm `Retry-After`. PDF đến dưới dạng
+  base64, nên PDF lớn nhất lọt qua `MAX_REQUEST_BYTES` chỉ khoảng ba phần
+  tư con số đó (3 MiB với mặc định 4 MiB); log lúc khởi động ghi giới hạn
+  hiệu lực và cảnh báo khi `PDF_EXTRACT_MAX_BYTES` được đặt cao hơn. PDF
+  dài cần `MAX_SCAN_TOKENS`: nếu không, quá 128 KiB văn bản trích được
+  (khoảng 30k token, chừng 40 trang văn xuôi) là `over_limit` và PDF tới
+  model mà không được quét. Đo trên M3 Max, một PDF 100 trang khoảng 200k
+  token mất khoảng 1 s để trích và 40 đến 50 s để quét với các model (mọi cửa
+  sổ đều được chấm, làn input lớn ở mặc định số CPU / 4 lần chạy model cùng
+  lúc);
+  xem [định cỡ, Tài liệu PDF](docs/sizing.vi.md#tài-liệu-pdf).
+- **Khuyến nghị.** Ứng dụng xử lý nhiều tài liệu nên đặt
+  `INDIRECT_ACTION=redact`: classifier vẫn nhầm một số tài liệu dài vô hại
+  là injection (RF-895d3533), và với `redact` request đi tiếp mà không có
+  tài liệu đó thay vì thất bại, dòng audit ghi lại việc này. Giữ
+  `UNSCANNED_PARTS=log` và theo dõi `input:pdf_unscanned_*` để biết PDF nào
+  không được đọc; luật trên `input.pdf.reasons` từ chối những loại bạn
+  không muốn. `PDF_EXTRACT=off` là hành vi của 0.5.0: mọi PDF là phần không
+  quét.
 
 ### Input lớn
 
@@ -814,12 +885,15 @@ Guard Spec **không** bảo vệ trước:
   còn 8–15% kết quả tool là mã/log vô hại bị chặn khi có lớp mô hình; dùng
   `INDIRECT_ACTION=redact` để agent chạy tiếp.
 - Yêu cầu độc hại nhưng không phải injection (không phải bộ lọc nội dung).
-- Nội dung gateway không đọc được: ảnh, file (PDF và các loại khác) và âm
-  thanh trong request được chuyển tới model mà không được chấm điểm, nên
-  injection bên trong không bị phát hiện; gateway không trích văn bản hay chạy
-  OCR. Nhưng chúng không còn vô hình: mặc định (`UNSCANNED_PARTS=log`) dòng
-  audit đếm chúng (`input:unscanned_<loại>=<số>`), `block` từ chối các request
-  đó, và luật có thể dựa vào `input.unscanned.kinds`
+- Nội dung gateway không đọc được: ảnh, âm thanh và file trong request được
+  chuyển tới model mà không được chấm điểm, nên injection bên trong không bị
+  phát hiện. PDF gửi kèm trong request thì được đọc (`PDF_EXTRACT`, mặc định
+  bật), trừ khi không có lớp văn bản (gateway không chạy OCR), bị mã hoá,
+  hỏng, vượt giới hạn, hoặc chỉ được tham chiếu bằng URL hay file id. Nhưng
+  chúng không vô hình: mặc định (`UNSCANNED_PARTS=log`) dòng audit đếm chúng
+  (`input:unscanned_<loại>=<số>`, `input:pdf_unscanned_<lý do>=<số>`),
+  `block` từ chối các request đó, và luật có thể dựa vào
+  `input.unscanned.kinds` và `input.pdf.reasons`
   ([Phần gateway không đọc được](#phần-gateway-không-đọc-được)). Khi có thể,
   hãy gửi văn bản đã trích thay cho file
   ([File, PDF và ảnh](docs/integrations.vi.md#file-pdf-và-ảnh)).

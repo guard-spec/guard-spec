@@ -668,13 +668,13 @@ in a second table.
 | `INFERENCE_LARGE_MAX_CONCURRENCY` | CPUs / 4 (the container's CPU limit counts; at least 1) | Large requests scanned at once, and their model runs, on a limiter of their own |
 | `LARGE_SCAN_ORG_CONCURRENCY` | half of `INFERENCE_LARGE_MAX_CONCURRENCY` (at least 1) | Large requests of one org scanned at once |
 | `LARGE_SCAN_QUEUE_TIMEOUT` | `30s` | How long a large request waits for the lane before 429 with `Retry-After`; also how long a request waits for a free PDF extractor (`PDF_EXTRACT`) |
-| `PDF_EXTRACT` | `on` | `on`: the text of a PDF sent inline (a `document` block with a base64 source on `/v1/messages`, a `file` part with `file_data` on chat completions, an `input_file` item with `file_data` on `/v1/responses`) is extracted (hidden text, annotations and form fields included) and scanned as a document, so `INDIRECT_ACTION` and `MAX_SCAN_TOKENS` apply; the forwarded body is unchanged unless `redact` replaces the part with the document placeholder. A PDF that yields no text (`no_text`, `encrypted`, `damaged`, `timeout`, `over_limit`, `internal`) or that the gateway cannot fetch (a url or file id: `remote`) stays an unscanned part under `UNSCANNED_PARTS`, with audit tags `input:pdf_scanned=<n>` and `input:pdf_unscanned_<reason>=<n>` and the rule fields `input.pdf.count`, `input.pdf.scanned`, `input.pdf.reasons`. `off`: PDFs are unscanned parts, as in 0.5.0. No per-org override |
-| `PDF_EXTRACT_MAX_BYTES` | `33554432` (32 MiB) | Largest PDF the extractor opens; larger ones are `over_limit` |
-| `PDF_EXTRACT_MAX_PAGES` | `600` | Most pages extracted from one PDF; more is `over_limit` |
-| `PDF_EXTRACT_MAX_TEXT_BYTES` | `4194304` (4 MiB), or 4 × `MAX_SCAN_TOKENS` when that is smaller | Most text extracted from one PDF; more is `over_limit`. With `MAX_SCAN_TOKENS` unset, text past the short path's 128 KiB of documents is `over_limit` as well |
-| `PDF_EXTRACT_TIMEOUT` | `10s` | Wall-clock budget for one PDF, the wait for an extractor excluded; past it the PDF is `timeout` |
-| `PDF_EXTRACT_MEMORY` | `536870912` (512 MiB) | Memory cap of one PDFium instance (WebAssembly linear memory), in bytes |
-| `PDF_EXTRACT_MAX_CONCURRENCY` | CPUs / 2 (at least 1) | PDFs extracted at once; others wait up to `LARGE_SCAN_QUEUE_TIMEOUT`, then 429 with `Retry-After` |
+| `PDF_EXTRACT` | `on` | `on` or `off`. `on`: the text of a PDF sent inline (a `document` block with a base64 source on `/v1/messages`, a `file` part with `file_data` on chat completions, an `input_file` item with `file_data` on `/v1/responses`) is extracted (hidden text, annotations and form fields included) and scanned as a document, so `INDIRECT_ACTION` and `MAX_SCAN_TOKENS` apply; the forwarded body is unchanged unless `redact` replaces the part with the document placeholder. A PDF that yields no text (`no_text`, `encrypted`, `damaged`, `timeout`, `over_limit`, `internal`) or that the gateway cannot fetch (a url or file id: `remote`) stays an unscanned part under `UNSCANNED_PARTS`, with audit tags `input:pdf_scanned=<n>` and `input:pdf_unscanned_<reason>=<n>` and the rule fields `input.pdf.count`, `input.pdf.scanned`, `input.pdf.reasons`. `off`: PDFs are unscanned parts, as in 0.5.0. No per-org override. See [PDFs](#pdfs) |
+| `PDF_EXTRACT_MAX_BYTES` | `33554432` (32 MiB) | Largest PDF the extractor opens, in bytes (`1024` to `1073741824`); larger ones are `over_limit`. The body limit applies first: a PDF arrives base64-encoded, so the largest PDF that can reach the gateway is about 3/4 of `MAX_REQUEST_BYTES` (3 MiB by default). The start-up log states the effective limit and warns when this is set above it |
+| `PDF_EXTRACT_MAX_PAGES` | `600` | Most pages extracted from one PDF (`1` to `100000`); more is `over_limit` |
+| `PDF_EXTRACT_MAX_TEXT_BYTES` | `4194304` (4 MiB), or 4 × `MAX_SCAN_TOKENS` when that is smaller | Most text extracted from one PDF, in bytes (`1024` to `1073741824`); more is `over_limit`. With `MAX_SCAN_TOKENS` unset, text past the short path's 128 KiB of documents is `over_limit` as well |
+| `PDF_EXTRACT_TIMEOUT` | `10s` | Wall-clock budget for one PDF (`100ms` to `10m`), the wait for an extractor excluded; past it the PDF is `timeout` |
+| `PDF_EXTRACT_MEMORY` | `536870912` (512 MiB) | Memory cap of one PDFium instance (WebAssembly linear memory), in bytes (`33554432`, 32 MiB, to `4294967296`, 4 GiB); a document that needs more is `damaged` |
+| `PDF_EXTRACT_MAX_CONCURRENCY` | CPUs / 2 (at least 1) | PDFs extracted at once (`1` to `1024`); others wait up to `LARGE_SCAN_QUEUE_TIMEOUT`, then 429 with `Retry-After` |
 | `MAX_REQUEST_BYTES` | `4194304` (4 MiB) | Largest request body; a larger one gets 413 before it is read. Raise it with `MAX_SCAN_TOKENS` past about 1M tokens |
 | `METRICS_ADDR` | `:9090` | Metrics listener; `off` disables it |
 | `METRICS_TENANT_LABELS` | `false` | `true` adds one metric series per org |
@@ -1538,12 +1538,15 @@ What it does **not** protect against:
 - **Harmful but non-injection requests.** It is not a content moderation or
   toxicity filter. It does not judge whether a request or an answer is
   harmful, biased or false.
-- **Content it cannot read.** Images, files (PDFs and others) and audio in a
-  request are forwarded to the model without being classified, so an
-  injection inside them is not found; the gateway does not extract text or
-  run OCR. They are no longer invisible: by default (`UNSCANNED_PARTS=log`)
-  the audit row counts them (`input:unscanned_<kind>=<n>`), `block` refuses
-  such requests, and rules can act on `input.unscanned.kinds`
+- **Content it cannot read.** Images, audio and files in a request are
+  forwarded to the model without being classified, so an injection inside
+  them is not found. A PDF sent inline is read (`PDF_EXTRACT`, on by
+  default) unless it has no text layer (the gateway does not run OCR), is
+  encrypted, damaged, over the limits, or referenced by URL or file id.
+  They are not invisible: by default (`UNSCANNED_PARTS=log`) the audit row
+  counts them (`input:unscanned_<kind>=<n>`,
+  `input:pdf_unscanned_<reason>=<n>`), `block` refuses such requests, and
+  rules can act on `input.unscanned.kinds` and `input.pdf.reasons`
   ([Content the gateway cannot read](#content-the-gateway-cannot-read)).
   Send extracted text instead of the file where you can
   ([Files, PDFs and images](docs/integrations.md#files-pdfs-and-images)). A
@@ -2059,11 +2062,13 @@ JSON column.
 
 ### Content the gateway cannot read
 
-The detector reads text. Images, files and audio in a request are forwarded
-to the model, which can read them (a vision model reads text in an image, a
-PDF's text reaches the model), so an injection inside a PDF or an image is
-not classified. `UNSCANNED_PARTS` makes these parts visible and lets you
-refuse them.
+The detector reads text. Images, audio and files in a request are forwarded
+to the model, which can read them (a vision model reads text in an image, the
+provider gives the model a PDF's text), so an injection inside them is not
+classified. A PDF sent inline is the exception: with `PDF_EXTRACT=on` (the
+default) the gateway extracts its text and scans it as a document, see
+[PDFs](#pdfs) below. `UNSCANNED_PARTS` makes the parts it still cannot read
+visible and lets you refuse them.
 
 - **What counts.** Chat completions: `image_url`, `file` (`file_data` or
   `file_id`) and `input_audio` content parts. `/v1/messages`: `image` blocks,
@@ -2071,7 +2076,8 @@ refuse them.
   inside a `tool_result`. `/v1/responses`: `input_image`, `input_file` and
   `input_audio`. The kinds are `image`, `file`, `audio` and `other`: a part
   with no text of a type the gateway does not know, so a new provider part
-  type is not missed.
+  type is not missed. A PDF whose text was extracted and scanned is not
+  counted; one the gateway could not read (the reasons below) is a `file`.
 - **Not counted**, because they are scanned or are not input: text parts,
   `document` blocks with `source` `text` or `content`, `search_result`
   blocks, content the model produced in assistant turns, and encrypted
@@ -2115,10 +2121,77 @@ refuse them.
   already applies to one tenant; use a project policy to single out some
   keys. A rule's `block` is a policy refusal (`content_filter`), not
   `unscanned_content`.
-- **Not done here.** The gateway does not extract the text of a PDF or run
-  OCR. Have the application send the text instead of the file, or scan the
-  extracted text at upload; see
+- **Not done here.** The gateway does not run OCR (a scanned PDF, an image)
+  and does not fetch a file the provider holds (a URL or file id). Have the
+  application send the text instead of the file, or scan the extracted text
+  at upload; see
   [Files, PDFs and images](docs/integrations.md#files-pdfs-and-images).
+
+#### PDFs
+
+With `PDF_EXTRACT=on` (the default) a PDF sent inline (a `document` block
+with a `base64` source on `/v1/messages`, a `file` part with `file_data` on
+chat completions, an `input_file` item with `file_data` on `/v1/responses`;
+plain base64 or a data URL) is opened with PDFium, run as WebAssembly inside
+the gateway (no native library, no external service), and its text is
+scanned as an untrusted document on the same path as a `document` block with
+a text source: `INDIRECT_ACTION` applies (`block` refuses the request,
+`redact` replaces the part with the document placeholder), as do the scan
+cache and `MAX_SCAN_TOKENS`. The PDF itself is never rewritten: the
+forwarded body is byte-identical unless a part is redacted.
+
+- **What is read.** Every text object of every page, whether a reader would
+  see it or not: white, invisible (render mode 3), tiny, clipped and
+  off-page text, and text under an image; the contents of annotations
+  (comments, free text); the values of form fields. That is the text a model
+  gets from the provider's extraction, and more.
+- **What is not.** A scanned or image-only PDF (a page that is a picture of
+  text has no text layer; there is no OCR: `no_text`), an encrypted PDF
+  (`encrypted`), a file PDFium cannot open (`damaged`), a PDF the gateway
+  cannot fetch (a `url` or `file` source on `/v1/messages`, `file_id` on
+  chat completions, `file_id` or `file_url` on `/v1/responses`: `remote`),
+  text past the limits (`over_limit`: more than `PDF_EXTRACT_MAX_BYTES`,
+  `PDF_EXTRACT_MAX_PAGES` or `PDF_EXTRACT_MAX_TEXT_BYTES`, or, with
+  `MAX_SCAN_TOKENS` unset, more than the 128 KiB of documents the short
+  path scans) or past the time budget (`timeout`, `PDF_EXTRACT_TIMEOUT`);
+  an extractor fault is `internal`. Document metadata (title, author,
+  keywords), bookmarks, embedded files, JavaScript and the text inside
+  images on a page are not read. Such a PDF is forwarded as before, as an
+  unscanned `file` under `UNSCANNED_PARTS`; partial text never counts as a
+  scan.
+- **Where it shows.** The audit row's tags `input:pdf_scanned=<n>` and
+  `input:pdf_unscanned_<reason>=<n>` next to `input:unscanned_file=<n>`
+  (the unscanned tags are left out with `UNSCANNED_PARTS=allow`); the rule
+  fields `input.pdf.count`, `input.pdf.scanned` and `input.pdf.reasons`
+  (for example `"encrypted" in input.pdf.reasons` with action `block`, or
+  `input.pdf.count > input.pdf.scanned` to refuse any PDF the gateway could
+  not read; the Simulator takes them too); the metrics
+  `guardspec_gateway_pdf_extract_total{result}` (the reasons, `ok` and
+  `busy`), `guardspec_gateway_pdf_extract_seconds` and
+  `guardspec_gateway_pdf_text_bytes`. A PDF in an earlier turn is scored
+  (through the scan cache) but not counted, like the unscanned counts.
+- **Limits and cost.** At most `PDF_EXTRACT_MAX_CONCURRENCY` PDFs (half the
+  CPUs) are read at once, each in a PDFium instance with its own memory cap
+  (`PDF_EXTRACT_MEMORY`, 512 MiB) and time budget (`PDF_EXTRACT_TIMEOUT`,
+  10 s); a request that gets no extractor within `LARGE_SCAN_QUEUE_TIMEOUT`
+  is answered 429 with `Retry-After`. A PDF arrives base64-encoded, so the
+  largest one that fits in `MAX_REQUEST_BYTES` is about three quarters of
+  it (3 MiB with the default 4 MiB); the start-up log states the effective
+  limit and warns when `PDF_EXTRACT_MAX_BYTES` was set above it. A long PDF
+  needs `MAX_SCAN_TOKENS`: without it, more than 128 KiB of extracted text
+  (about 30k tokens, some 40 pages of prose) is `over_limit` and the PDF
+  goes to the model unscanned. Measured on an M3 Max, a 100-page PDF of
+  about 200k tokens takes about 1 s to extract and 40 to 50 s to scan with
+  the models (every window scored, the large-input lane at its default of
+  CPUs / 4 model runs at once); see [sizing, PDF documents](docs/sizing.md#pdf-documents).
+- **Recommended.** For document-heavy applications set
+  `INDIRECT_ACTION=redact`: the classifier still takes some long benign
+  documents for injections (RF-895d3533), and with `redact` the request goes
+  on without the document instead of failing, with the audit row recording
+  it. Keep `UNSCANNED_PARTS=log` and watch `input:pdf_unscanned_*` to see
+  which PDFs are not read; a rule on `input.pdf.reasons` refuses the kinds
+  you do not want. `PDF_EXTRACT=off` is the behaviour of 0.5.0: every PDF is
+  an unscanned part.
 
 ### Large inputs
 

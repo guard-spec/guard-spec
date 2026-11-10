@@ -607,23 +607,37 @@ Steps: [examples/n8n](../examples/n8n/README.md).
 
 ## Files, PDFs and images
 
-The gateway's detector reads text. An image, a PDF or other file, or audio in
-a request (`image_url`, `file`, `input_audio` on chat completions; `image`
-and `document` blocks with a `base64`, `url` or `file` source on
-`/v1/messages`; `input_image`, `input_file`, `input_audio` on
-`/v1/responses`) goes to the model as it is, and the model reads it: a
-vision model reads the text in an image, and the provider gives the model a
-PDF's text. An instruction hidden in such a file is therefore not
-classified. The gateway does not extract PDF text or run OCR. By default
+The gateway's detector reads text. A PDF sent inline (a `file` part with
+`file_data` on chat completions, a `document` block with a `base64` source
+on `/v1/messages`, an `input_file` item with `file_data` on `/v1/responses`)
+is read by the gateway itself with `PDF_EXTRACT` (on by default): its text,
+hidden text, annotations and form fields included, is scanned as an
+untrusted document and follows `INDIRECT_ACTION`, so an instruction hidden
+in a PDF with a text layer is classified without any change to the
+application. A long PDF needs `MAX_SCAN_TOKENS` (more than about 30k tokens
+of text is otherwise `over_limit` and not scanned), and
+`INDIRECT_ACTION=redact` is the better setting for document-heavy
+applications while the classifier still blocks some long benign documents;
+[README: PDFs](../README.md#pdfs) has the limits and the audit tags.
+
+What the gateway still cannot read goes to the model as it is, and the model
+reads it: an image (`image_url`, `image`, `input_image`; a vision model
+reads the text in it), audio, a PDF with no text layer (a scan, a photo of a
+page: the gateway does not run OCR), an encrypted or damaged PDF, a PDF over
+the limits, and a file the provider fetches by URL or file id (`file_id`,
+`file_url`, a `url` or `file` source), which the gateway never sees. An
+instruction hidden in those is not classified. By default
 (`UNSCANNED_PARTS=log`) it forwards these parts and counts them in the audit
-row (`input:unscanned_file=1`, ...), so you can see which applications send
-them; [README: Content the gateway cannot read](../README.md#content-the-gateway-cannot-read)
-has the details. To have the content checked, change what the application
+row (`input:unscanned_file=1`, `input:pdf_unscanned_no_text=1`, ...), so you
+can see which applications send them;
+[README: Content the gateway cannot read](../README.md#content-the-gateway-cannot-read)
+has the details. To have that content checked, change what the application
 sends:
 
 **1. Send the extracted text, not the file.** Extract the text in your
-application (`pdftotext` or `pdfplumber` for PDFs with a text layer, OCR for
-scanned PDFs and photos) and send that text instead of the file. Keep the
+application (OCR for scanned PDFs and photos; `pdftotext` or `pdfplumber`
+for a PDF the gateway would not see, such as one uploaded to the provider
+and referenced by id) and send that text instead of the file. Keep the
 metadata the model needs, such as the file name, title and page numbers,
 with the text. The gateway then scans exactly what the model reads. On
 `/v1/messages`, a `document` block with a text source is scanned as an
@@ -657,9 +671,10 @@ curl -s $GUARDSPEC_URL/guardrail/scan -H "Authorization: Bearer $GUARDSPEC_API_K
 
 This catches a poisoned file before anyone uses it, but it checks the
 extracted text only. If the application still sends the original file to the
-model, the model can read what the extraction missed (white or tiny text,
-text in images inside the PDF, content that another parser reads
-differently). Send the text you scanned (pattern 1) when that matters.
+model, the model can read what the extraction missed (text in images inside
+the PDF, content that another parser reads differently); a PDF sent inline
+is read again by the gateway, white and tiny text included, but a file sent
+by id is not. Send the text you scanned (pattern 1) when that matters.
 
 **3. Images.** When images carry text from untrusted sources (screenshots,
 scanned forms, images from the web), OCR them and scan the result as above.
@@ -672,9 +687,11 @@ risky actions (sending data out, payments, deleting, changing permissions).
 **4. Enforce it.** Once the application sends text, set
 `UNSCANNED_PARTS=block` on the gateway, or `"unscanned_parts": "block"` in an
 organization's guard settings, so that a file, image or audio part is refused
-(400 `unscanned_content`) instead of reaching the model unread. To be
-stricter for some applications only, keep `log` and add a rule such as
-`"file" in input.unscanned.kinds` with action `block` to a policy of the
+(400 `unscanned_content`) instead of reaching the model unread; a PDF the
+gateway read is not an unscanned part, so `block` refuses only what it could
+not read. To be stricter for some applications only, keep `log` and add a
+rule such as `"file" in input.unscanned.kinds` or
+`"no_text" in input.pdf.reasons` with action `block` to a policy of the
 project their keys belong to (example in the
 [README](../README.md#content-the-gateway-cannot-read)).
 

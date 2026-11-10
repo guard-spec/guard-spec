@@ -11,15 +11,63 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ### Added
 
-- `internal/pdftext`: text extraction from PDFs with PDFium running as a
-  WebAssembly module in wazero (no cgo, no native library), the first step
-  of PDF scanning in the gateway (RF-8e6d0a82). It returns every text
-  object a model would see (white, 1pt, invisible and off-page text
-  included), annotation contents and form field values, and reports
-  `ok`, `no_text`, `encrypted`, `damaged`, `timeout` or `over_limit`.
-  Limits: 32 MiB input, 600 pages, 4 MiB of text, 10 s, 512 MiB of
-  memory per document, GOMAXPROCS/2 documents in parallel. Not wired
-  into the gateway yet.
+- PDF text extraction in the gateway (RF-8e6d0a82). A PDF sent inline (a
+  `document` block with a `base64` source on `/v1/messages`, a `file` part
+  with `file_data` on chat completions, an `input_file` item with
+  `file_data` on `/v1/responses`) was forwarded unread, as an unscanned
+  part. With `PDF_EXTRACT=on`, the default, the gateway extracts its text
+  with PDFium running as a WebAssembly module in wazero
+  (`internal/pdftext`; no cgo, no native library, no external service) and
+  scans it as an untrusted document on the same path as a text document:
+  `INDIRECT_ACTION` applies (`block` refuses the request, `redact`
+  replaces the part with the document placeholder), as do the scan cache
+  and `MAX_SCAN_TOKENS`; the forwarded body is otherwise byte-identical.
+  The text is what a model would see: every text object (white, 1pt,
+  invisible and off-page text included), annotation contents and form
+  field values. A PDF the gateway cannot read stays an unscanned part under
+  `UNSCANNED_PARTS`, with the reason recorded: `no_text` (a scan or
+  image-only PDF; there is no OCR), `encrypted`, `damaged`, `timeout`,
+  `over_limit`, `internal`, and `remote` for a `url`, `file_id` or
+  `file_url` source the gateway cannot fetch. Settings: `PDF_EXTRACT`
+  (`on`/`off`), `PDF_EXTRACT_MAX_BYTES` (32 MiB), `PDF_EXTRACT_MAX_PAGES`
+  (600), `PDF_EXTRACT_MAX_TEXT_BYTES` (4 MiB, or 4 × `MAX_SCAN_TOKENS` when
+  that is smaller; with `MAX_SCAN_TOKENS` unset, text past the short
+  path's 128 KiB of documents is `over_limit`), `PDF_EXTRACT_TIMEOUT`
+  (10 s), `PDF_EXTRACT_MEMORY` (512 MiB per PDFium instance),
+  `PDF_EXTRACT_MAX_CONCURRENCY` (half the CPUs; a request that gets no
+  extractor within `LARGE_SCAN_QUEUE_TIMEOUT` is answered 429 with
+  `Retry-After`). The start-up log states the effective PDF size limit (a
+  PDF arrives base64-encoded, so about 3/4 of `MAX_REQUEST_BYTES`: 3 MiB
+  by default) and warns when `PDF_EXTRACT_MAX_BYTES` was set above it.
+  Audit tags `input:pdf_scanned=<n>` and `input:pdf_unscanned_<reason>=<n>`
+  next to `input:unscanned_file=<n>`; rule fields `input.pdf.count`,
+  `input.pdf.scanned` and `input.pdf.reasons` (the Simulator takes them);
+  metrics `guardspec_gateway_pdf_extract_total{result}`,
+  `guardspec_gateway_pdf_extract_seconds` and
+  `guardspec_gateway_pdf_text_bytes`. Recent documents are kept by content
+  hash, so a session that resends a PDF each turn parses it once; the
+  PDFium module is compiled in the background at start-up and readiness
+  never waits for it. Measured on an Apple M3 Max
+  (`BenchmarkPDFDocument`, `BenchmarkPDFDocumentML`: a 100-page PDF of
+  about 200k tokens, every window scored): extraction about 1 s, the
+  whole request with the models 41 to 47 s (1,093 windows of 256 tokens,
+  none skipped, about 4,500 tokens/s with the large-input lane at its
+  default of CPUs / 4 model runs), compiling the module 1.5 to 2.4 s once
+  per process, in the background. go-pdfium
+  is MIT, wazero and the PDFium module Apache-2.0 (`NOTICE`,
+  `THIRD_PARTY_LICENSES.md`). See [PDFs](README.md#pdfs) and
+  [sizing, PDF documents](docs/sizing.md#pdf-documents).
+
+### Upgrade notes
+
+- No migration, no API change. `PDF_EXTRACT` defaults to `on`: a PDF sent
+  inline, which 0.5.0 forwarded unread, is now scanned and can be refused
+  (`INDIRECT_ACTION=block`, the default) or redacted. The classifier may
+  still take a long benign PDF for an injection (RF-895d3533), so set
+  `INDIRECT_ACTION=redact` for document-heavy applications, and set
+  `MAX_SCAN_TOKENS` for PDFs over about 30k tokens of text (otherwise they
+  are `over_limit` and forwarded unscanned, as before). To keep the 0.5.0
+  behaviour, set `PDF_EXTRACT=off`.
 
 ## [0.5.0] - 2026-11-10
 
