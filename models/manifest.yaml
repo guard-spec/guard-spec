@@ -108,15 +108,15 @@ models:
   # decides (v0.5.0). Window-level training on code, configuration, log and
   # long-prose hard negatives and attacks embedded in them; calibration.json
   # carries the classifier's cap for untrusted content (l2_untrusted_max,
-  # applied on the tool path by gateways that know it). Not on Hugging Face
-  # yet (unpinned revision): the GitHub Release
-  # model-guardspec-classifier-v5 is the only source until the Publish model
-  # workflow has run and this revision is pinned.
+  # applied on the tool path by gateways that know it). Hugging Face branch
+  # v5 of guard-spec/guardspec-classifier, pinned to the commit the Publish
+  # model workflow made (2026-11-10); the GitHub Release
+  # model-guardspec-classifier-v5 is the mirror.
   - name: guardspec-classifier
     version: v5
     kind: classifier
     repo: guard-spec/guardspec-classifier
-    revision: "0000000000000000000000000000000000000000"
+    revision: ca2fd4fc83d184f882e757e7cebb8e63a0bcf8fb
     mirrors:
       - https://github.com/guard-spec/guard-spec/releases/download/model-guardspec-classifier-v5/{file}
     license: Apache-2.0
