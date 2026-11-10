@@ -212,7 +212,7 @@ hf-xet==1.8.0 ; platform_machine == 'aarch64' or platform_machine == 'amd64' or 
 huggingface-hub==0.36.0 \
     --hash=sha256:47b3f0e2539c39bf5cde015d63b72ec49baff67b6931c3d97f3f84532e2b8d25 \
     --hash=sha256:7bcc9ad17d5b3f07b57c78e79d527102d08313caa278a641993acddcb894548d
-    # via -r train/hf/requirements-publish.in
+    # via -r hf/requirements-publish.in
 idna==3.20 \
     --hash=sha256:a7db850025b95ded1eae8a46181a1a6c56c92c96f0e2b005d9ff8dc0210cab44 \
     --hash=sha256:ab7ae7122974553370f0bdb919e1a960b2cd1bc1ef0276416d896db81c14582c
