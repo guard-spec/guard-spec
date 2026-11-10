@@ -118,9 +118,14 @@ the hold-out halves of eval/ stay unseen.
 - **G3 embedded attacks.** `eval/embedded` dev TPR at 0.85 (tool path, corroboration off) ≥ v3b's and ≥
   L1 alone (RF-437128e9 T1: on this set L1 alone caught 0.851 dev / 0.771 holdout, v3b fused without
   corroboration 0.807 / 0.779).
+- **G4 embedded false positives.** `eval/embedded` dev FPR at 0.85 (tool path, corroboration off) ≤
+  v3b's. *Amendment of 2026-11-10, approved by the owner before any arm was chosen:* the round 1 and
+  round 2 runs met G3 (TPR 0.965 / 0.958) while blocking 0.326 / 0.239 of the benign twins of the same
+  set (v3b 0.105, L1 0.020), so G3 alone rewarded a lower effective threshold. No arm met the rule
+  before or after the amendment.
 
-**Decision.** v5 is the first arm in validation order that meets Q1, G1, G2 and G3. If none does, v5 is
-not recommended; the arm meeting most of Q1 and G1–G3 (tie: validation order) is reported as a
+**Decision.** v5 is the first arm in validation order that meets Q1, G1, G2, G3 and G4. If none does, v5 is
+not recommended; the arm meeting most of Q1 and G1–G4 (tie: validation order) is reported as a
 shadow-mode candidate only. After the decision, and only for the chosen (or candidate) arm, the
 hold-outs are scored once for this card: `val_v5_holdout`, the hold-out slices of eval/, codelog and
 embedded (with corroboration on and off), the owner hold-outs, `val_v3_holdout`,

@@ -127,7 +127,7 @@ def dev(report, metric, field):
 
 
 def gates_for(arm, rep, ref):
-    """G1-G3 of one arm. rep: {eval, codelog, embedded} reports of the arm; ref: v3b's and L1's."""
+    """G1-G4 of one arm. rep: {eval, codelog, embedded} reports of the arm; ref: v3b's and L1's."""
     g = {}
     a, b = dev(rep["eval"], "at_fpr_1pct", "tpr"), dev(ref["v3b"]["eval"], "at_fpr_1pct", "tpr")
     g["G1"] = dict(ok=a >= b, value=a, v3b=b, what="eval/ dev TPR at FPR <= 1% (fused, direct path) >= v3b")
@@ -138,11 +138,16 @@ def gates_for(arm, rep, ref):
     b, c = dev(ref["v3b"]["embedded"], "at_0.85", "tpr"), dev(ref["l1"]["embedded"], "at_0.85", "tpr")
     g["G3"] = dict(ok=a >= b and a >= c, value=a, v3b=b, l1=c,
                    what="eval/embedded dev TPR at 0.85 (tool path, corroboration off) >= v3b and >= L1 alone")
+    # G4 (amendment of 2026-11-10, before any arm is chosen): G3's TPR is only meaningful if the arm does not
+    # buy it by blocking more of the benign twins of the same set.
+    a, b = dev(rep["embedded"], "at_0.85", "fpr"), dev(ref["v3b"]["embedded"], "at_0.85", "fpr")
+    g["G4"] = dict(ok=a <= b, value=a, v3b=b,
+                   what="eval/embedded dev FPR at 0.85 (tool path, corroboration off) <= v3b")
     return g
 
 
 def decide(order, q1, gates):
-    """The first arm in validation order that meets Q1 and G1-G3. gates: {arm: gates_for(...)} or None."""
+    """The first arm in validation order that meets Q1 and G1-G4. gates: {arm: gates_for(...)} or None."""
     if gates is None:
         return dict(status="gates pending", chosen=None, validation_order=order,
                     note="validation ranking only; run the gates (run_arms_v5.sh gates) before choosing")
@@ -152,7 +157,7 @@ def decide(order, q1, gates):
     met = {a: int(q1[a]) + sum(x["ok"] for x in gates[a].values()) for a in order}
     shadow = max(order, key=lambda a: (met[a], -order.index(a)))
     return dict(status="no arm qualifies", chosen=None, shadow_candidate=shadow, rules_met=met, validation_order=order,
-                note="v5 is not recommended; the arm meeting most of Q1, G1-G3 (tie: validation order) is reported "
+                note="v5 is not recommended; the arm meeting most of Q1, G1-G4 (tie: validation order) is reported "
                      "as a shadow-mode candidate only")
 
 

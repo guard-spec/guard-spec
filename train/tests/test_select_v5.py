@@ -74,14 +74,14 @@ class Rule(unittest.TestCase):
         order, _ = S.rank_arms(val)
         self.assertEqual(order, ["B", "A"])  # then lower validation loss
 
-    def gate_reports(self, eval_tpr, codelog_fpr, emb_tpr):
-        def rep(metric, field, v):
-            return {"slices": {"dev": {metric: {field: v}}, "holdout": {metric: {field: 1.0}}}}
-        return dict(eval=rep("at_fpr_1pct", "tpr", eval_tpr), codelog=rep("at_0.85", "fpr", codelog_fpr),
-                    embedded=rep("at_0.85", "tpr", emb_tpr))
+    def gate_reports(self, eval_tpr, codelog_fpr, emb_tpr, emb_fpr=0.10):
+        def rep(metric, fields):
+            return {"slices": {"dev": {metric: fields}, "holdout": {metric: {k: 1.0 for k in fields}}}}
+        return dict(eval=rep("at_fpr_1pct", {"tpr": eval_tpr}), codelog=rep("at_0.85", {"fpr": codelog_fpr}),
+                    embedded=rep("at_0.85", {"tpr": emb_tpr, "fpr": emb_fpr}))
 
     def refs(self):
-        r = {"v3b": self.gate_reports(0.93, 0.10, 0.807)}
+        r = {"v3b": self.gate_reports(0.93, 0.10, 0.807, 0.105)}
         r["l1"] = {"embedded": self.gate_reports(0, 0, 0.851)["embedded"]}
         return r
 
@@ -90,7 +90,9 @@ class Rule(unittest.TestCase):
         g = S.gates_for("A", self.gate_reports(0.94, 0.02, 0.86), ref)
         self.assertTrue(all(x["ok"] for x in g.values()))
         g = S.gates_for("A", self.gate_reports(0.92, 0.031, 0.83), ref)
-        self.assertEqual([g[k]["ok"] for k in ("G1", "G2", "G3")], [False, False, False])  # 0.83 < L1's 0.851
+        self.assertEqual([g[k]["ok"] for k in ("G1", "G2", "G3", "G4")], [False, False, False, True])  # 0.83 < L1's 0.851
+        g = S.gates_for("A", self.gate_reports(0.94, 0.02, 0.96, 0.33), ref)
+        self.assertEqual([g[k]["ok"] for k in ("G3", "G4")], [True, False])  # TPR bought with benign twins
 
     def test_decide(self):
         ref = self.refs()
@@ -120,7 +122,7 @@ class Rule(unittest.TestCase):
                            config=dict(train={}, data=dict(train_files=["/x/train.jsonl"])))
                 (d / a / "train_log.json").write_text(json.dumps(log))
             gd = d / "gates"
-            for n, vals in dict(A=(0.94, 0.02, 0.86), B=(0.94, 0.02, 0.80), v3b=(0.93, 0.10, 0.807)).items():
+            for n, vals in dict(A=(0.94, 0.02, 0.86), B=(0.94, 0.02, 0.80), v3b=(0.93, 0.10, 0.807, 0.105)).items():
                 (gd / n).mkdir(parents=True)
                 for k, v in self.gate_reports(*vals).items():
                     (gd / n / f"{k}.json").write_text(json.dumps(v))
