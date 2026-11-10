@@ -185,10 +185,7 @@ func TestImageOnlyPageIsNoText(t *testing.T) {
 }
 
 func TestEncrypted(t *testing.T) {
-	doc := testpdf.Build(testpdf.Document{
-		Encrypt: &testpdf.Encryption{UserPassword: "hunter2", OwnerPassword: "owner"},
-		Pages:   []testpdf.Page{{Content: testpdf.ShowText("locked text", 12, 72, 720)}},
-	})
+	doc := testpdf.Encrypted("encrypted-user-password.pdf") // page text "locked text"
 	res := extract(t, doc, Limits{})
 	if res.Reason != ReasonEncrypted || res.Text != "" {
 		t.Fatalf("got %+v", res)
@@ -198,10 +195,7 @@ func TestEncrypted(t *testing.T) {
 func TestEncryptedWithEmptyUserPasswordOpens(t *testing.T) {
 	// Only an owner password: readers open the file without asking, so
 	// the text is visible to a model as well.
-	doc := testpdf.Build(testpdf.Document{
-		Encrypt: &testpdf.Encryption{UserPassword: "", OwnerPassword: "owner"},
-		Pages:   []testpdf.Page{{Content: testpdf.ShowText("owner-only lock", 12, 72, 720)}},
-	})
+	doc := testpdf.Encrypted("encrypted-owner-only.pdf") // page text "owner-only lock"
 	res := extract(t, doc, Limits{})
 	if res.Reason != ReasonOK || !strings.Contains(res.Text, "owner-only lock") {
 		t.Fatalf("got %+v", res)
@@ -466,7 +460,7 @@ func fixtures() [][]byte {
 		testpdf.Build(testpdf.Document{Pages: []testpdf.Page{{Content: "", Annots: []string{"<< /Type /Annot /Subtype /FreeText /Rect [0 0 10 10] /Contents (free) /P %PAGE% >>"}}}}),
 		testpdf.Build(testpdf.Document{Pages: []testpdf.Page{{Content: ""}}, Fields: []string{"<< /Type /Annot /Subtype /Widget /FT /Tx /T (f) /V (field) /Rect [0 0 10 10] /F 4 /P %PAGE% >>"}}),
 		inheritedFormDoc(),
-		testpdf.Build(testpdf.Document{Encrypt: &testpdf.Encryption{UserPassword: "pw"}, Pages: []testpdf.Page{{Content: testpdf.ShowText("x", 12, 1, 1)}}}),
+		testpdf.Encrypted("encrypted-small.pdf"),
 		testpdf.Build(testpdf.Document{Pages: []testpdf.Page{{Content: testpdf.ShowText("zipped", 12, 1, 1), Compress: true}}}),
 		testpdf.Build(testpdf.Document{Pages: []testpdf.Page{{RawStream: testpdf.Flate(inner), RawDict: "/Filter [/FlateDecode /FlateDecode]"}}}),
 		good[:len(good)/2],

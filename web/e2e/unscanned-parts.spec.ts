@@ -110,12 +110,12 @@ test.describe('Unscanned files and images', () => {
     await panel.getByLabel('Name').fill('block files');
     await panel.getByLabel('Action', { exact: true }).selectOption('block');
 
-    // The field picker has an Unscanned parts group with both fields.
+    // The field picker has an Unscanned parts group: input.unscanned.* and input.pdf.*.
     await panel.getByRole('button', { name: /^Field / }).first().click();
     const list = panel.getByRole('listbox');
     const group = list.getByRole('group', { name: 'Unscanned parts' });
     await expect(group).toBeVisible();
-    await expect(group.getByRole('option')).toHaveCount(2);
+    await expect(group.getByRole('option')).toHaveCount(5);
     await panel.getByRole('combobox', { name: 'Search fields' }).fill('audio');
     await expect(list.getByRole('option')).toHaveCount(1);
     await page.screenshot({ path: `${SHOTS}/field-picker-en.png` });

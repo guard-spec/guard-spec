@@ -56,11 +56,8 @@ func pdfUnreadable() map[string][]byte {
 			},
 			Pages: []testpdf.Page{{Content: "q 200 0 0 200 100 100 cm /Im1 Do Q\n", XObjects: "/Im1 4 0 R"}},
 		}),
-		pdftext.ReasonEncrypted: testpdf.Build(testpdf.Document{
-			Encrypt: &testpdf.Encryption{UserPassword: "hunter2", OwnerPassword: "owner"},
-			Pages:   []testpdf.Page{{Content: testpdf.ShowText(pdfAttack, 12, 72, 720)}},
-		}),
-		pdftext.ReasonDamaged: []byte("%PDF-1.7\n1 0 obj << /Type /Catalog >>\n%%EOF"),
+		pdftext.ReasonEncrypted: testpdf.Encrypted("encrypted-attack.pdf"), // page text: pdfAttack
+		pdftext.ReasonDamaged:   []byte("%PDF-1.7\n1 0 obj << /Type /Catalog >>\n%%EOF"),
 	}
 }
 
