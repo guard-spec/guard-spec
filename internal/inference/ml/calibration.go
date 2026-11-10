@@ -27,7 +27,7 @@ type CalibrationFile struct {
 	// L2UntrustedMax caps the classifier's calibrated score on untrusted
 	// content (tool results and documents, on the short and the long path):
 	// above it L2 alone cannot block, L1 or L3 must add lift (CapL2). 0 or
-	// absent: no cap, which is how every built-in calibration and the
+	// absent: no cap, which is how every built-in calibration but v5's and the
 	// shipped v3b file behave. `cmd/calibrate fit` derives it from the
 	// combiners (see untrustedMax there).
 	L2UntrustedMax float64 `json:"l2_untrusted_max,omitempty"`
@@ -35,6 +35,22 @@ type CalibrationFile struct {
 
 // BuiltinCalibrations are the calibrations of the classifiers we ship.
 var BuiltinCalibrations = map[string]CalibrationFile{
+	// v5 (a shadow candidate; v3b stays the default): the calibration.json
+	// published with the model, byte for byte. Fitted on the v4 validation
+	// splits plus the v5 validation rows (12,775 rows; the owner-supplied
+	// and OTP/KYC rows are not in this repository). L2UntrustedMax caps the
+	// classifier on tool results and documents (see CapL2); cmd/calibrate fit
+	// derived it, it was not tuned on eval/.
+	"guardspec-classifier-v5": {
+		Model:    "guardspec-classifier-v5",
+		FittedOn: "v4-A build val.jsonl + val_hard.jsonl + val_vi_variants.jsonl + val_v3.jsonl + val_v4.jsonl, with the owner-supplied and OTP/KYC validation rows, plus v5_val.jsonl + val_v5.jsonl of the v5 build (12775 rows), 2026-11-10",
+		Platt:    fusion.Calibration{A: 0.8489312515915471, B: -0.11755286323468132},
+		LogReg: map[string]fusion.LogReg{
+			"l1,l2":    {W: [3]float64{0.4947140541685473, 0.9370249166895036, 0}, B: 0.4440996363676115},
+			"l1,l2,l3": {W: [3]float64{0.4747397791899296, 0.9043821900309187, 0.3988532867214517}, B: 0.6362707521682777},
+		},
+		L2UntrustedMax: 0.88,
+	},
 	// v4 (a candidate; v3b stays the default): fitted on the v4 validation
 	// splits (val + val_hard + val_vi_variants + val_v3 + val_v4) plus the
 	// owner-supplied and OTP/KYC rows that the group hash sends to validation
