@@ -105,7 +105,7 @@ models:
 
   # v5 candidate (train/MODEL_CARD.md, "v5"): not recommended; v3b stays the
   # default until v5 has run in shadow mode for at least 7 days and the owner
-  # decides (v0.5.0). Window-level training on code, configuration, log and
+  # decides (v0.6.0). Window-level training on code, configuration, log and
   # long-prose hard negatives and attacks embedded in them; calibration.json
   # carries the classifier's cap for untrusted content (l2_untrusted_max,
   # applied on the tool path by gateways that know it). Hugging Face branch

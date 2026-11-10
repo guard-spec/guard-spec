@@ -30,7 +30,7 @@ câu trả lời của model (link rò rỉ dữ liệu, dữ liệu cá nhân, 
 trước khi đến người dùng. Viết bằng Go, chạy thành hai service cạnh Postgres,
 được xây dựng và đánh giá cho **tiếng Anh và tiếng Việt**.
 
-Trạng thái: **v0.4.2, trước 1.0.** API và schema cơ sở dữ liệu còn có thể
+Trạng thái: **v0.5.0, trước 1.0.** API và schema cơ sở dữ liệu còn có thể
 thay đổi. Hãy đọc phần [Mô hình bảo mật và giới hạn](#mô-hình-bảo-mật-và-giới-hạn)
 trước khi dùng.
 
@@ -581,8 +581,11 @@ prompt) cần nhiều hơn. `MAX_SCAN_TOKENS` nâng giới hạn mà không qué
 
 **Trước khi nâng:** classifier được hiệu chỉnh trên văn bản ngắn, và tài liệu
 lành tính dài có nhiều cửa sổ, mỗi cửa sổ là một cơ hội báo nhầm. Tài liệu
-lành tính dài có thể bị chặn nhiều hơn tài liệu ngắn cho tới khi có ngưỡng
-theo độ dài (task RF-437128e9); hãy thử với tài liệu của bạn và xem điểm trong
+lành tính dài có thể bị chặn nhiều hơn tài liệu ngắn. Trần classifier cho nội
+dung không tin cậy (`l2_untrusted_max`, do calibration của bản ứng viên v5 đặt,
+hiện chạy shadow mode) giảm việc này cho tool result và tài liệu; mục tiêu tối
+đa 1% với tài liệu 100k–200k token chưa đạt (task RF-895d3533). Hãy thử với tài
+liệu của bạn và xem điểm trong
 nhật ký yêu cầu trước. Quét một tài liệu 200k token mất vài chục giây trên vài
 lõi CPU. `POST /guardrail/scan` và `/v1/embeddings` giữ giới hạn hiện tại.
 

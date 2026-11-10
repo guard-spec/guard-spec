@@ -220,7 +220,7 @@ table.
 
 `guardspec-classifier@v5` is listed in the manifest but is **not** the
 recommended version: v3b stays the default until v5 has run in shadow mode
-for at least 7 days and the owner decides (planned for v0.5.0). v5 is v3b's
+for at least 7 days and the owner decides (planned for v0.6.0). v5 is v3b's
 architecture, recipe and labels, trained window by window (the gateway's
 256-token windows instead of a truncated row) on the v4 data plus benign
 code, configuration, logs, stack traces and long prose as hard negatives and
