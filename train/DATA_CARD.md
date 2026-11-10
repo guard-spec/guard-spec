@@ -5,7 +5,9 @@ Apache-2.0. Source rows keep their own licenses (`DATA_LICENSES.md`).
 
 v4 (2026-11-07) builds on v3, v2 and v1; the sections below still describe the
 base. The v5 builder (code, config, logs, long prose and embedded attacks; data outside the repository)
-is in [v5 data](#v5-data-code-config-logs-long-prose-and-embedded-attacks). What changed is in [v4 changes](#v4-changes), [v3 changes](#v3-changes) and [v2 changes](#v2-changes).
+is in [v5 data](#v5-data-code-config-logs-long-prose-and-embedded-attacks); the v6 builder (round 3:
+benign twins, security hard negatives, the bench/long guard) in [v6 data](#v6-data-benign-twins-security-hard-negatives-and-the-benchlong-guard).
+What changed is in [v4 changes](#v4-changes), [v3 changes](#v3-changes) and [v2 changes](#v2-changes).
 
 ## Purpose
 
@@ -169,6 +171,96 @@ straddle positives were skipped for lack of a long enough host; payloads are see
 training rows already, so the positives measure detection inside hosts, not new attack wording.
 Vietnamese hard negatives get no no-diacritics or teencode copies here (`train.augment` applies at
 training time).
+
+## v6 data: benign twins, security hard negatives and the bench/long guard
+
+v6 (2026-11-11, task RF-895d3533, todo R1) is the v5 recipe built again for round 3. `MODEL_CARD.md`
+("v5", known limitation) names the cause of v5's remaining false positives on long documents: its twins
+were the bare host, so the classifier learned "foreign prose inside a code or log host = attack". v6
+gives every embedded positive a twin with benign prose in the payload's place, adds hard negatives
+that *talk about* prompt injection, and keeps the bench/long corpus out of training by a 50-token
+shingle rule. The model (R2) is not part of this section.
+
+```sh
+cd train && GUARD_BUILD_OUT=<dir outside the repo> uv run --frozen python data/build_v6.py   # --profile quick: 1/4
+```
+
+| file (in `$GUARD_BUILD_OUT`, not in git) | rows | use |
+|---|---|---|
+| `v6_train.jsonl` | 15,785 (12,307 benign / 3,478 embedded attacks; EN 8,721, VI 7,064) | set A, training |
+| `v6_val.jsonl` | 2,211 (1,730 / 481) | set A, 12% of the groups (source file, generator unit, host), validation |
+| `val_v6.jsonl` | 2,227 (1,737 / 490) | set B: arm selection and calibration |
+| `val_v6_holdout.jsonl` | 2,238 (1,746 / 492) | set C: hold-out, never used for selection or calibration |
+| `stats.json` (copied to `data/stats_v6.json`) | - | counts per split, kind, language, position and filler kind; twin pairing rate; both leakage reports; md5 of every file; pins; timings |
+
+Full profile: 22,461 rows, 4.83M tokens, 169 s on the M3 Max with a warm cache; the first run
+re-extracts the archives (the `doc_en` selection changes their content) and downloads about 20 MB more
+than v5 (`$GUARD_V6_CACHE`, default `train/.cache/v6`, gitignored; a v5 cache's `dl/`, `git/` and `hf/`
+directories can be copied in). Two runs give byte-identical files (md5 in `stats.json`: `v6_train`
+`2e943cfa…`, `v6_val` `d207bc48…`, `val_v6` `931b0ead…`, `val_v6_holdout` `94b5ea73…`).
+`build_v5.py` is unchanged and still reproduces v5; `build_v6.py` imports it.
+
+**Sources** (`data/sources_v6.yaml`, licences in `DATA_LICENSES.md`, v6): every v5 source at the same
+tag and commit, plus README / docs prose of those repositories (`doc_en`: CPython `Doc/`, Node.js
+`doc/api/`, Django and Flask docs, README files), eight permissively licensed repositories whose
+documentation explains prompt injection and jailbreaks (`secdoc_en`: set A garak, llm-guard, MITRE
+ATLAS; B NeMo Guardrails, vigil-llm; C guardrails-ai, llm-security, llm-attacks; code, probes, prompt
+collections and data sets excluded), 11 more Vietnamese laws (PVCC-CPVN) and 11 more pre-1900 works
+(PD-old) from vi.wikisource (none a bench/long work or another version of one;
+`train/tests/test_sources_v6.py`), and `data/gen_filler_v6.py`: human-sounding log lines (`human_log_en`,
+`human_log_vi`: full-sentence messages with hedges and hints, rendered in the set's v5 log formats) and
+explanatory security prose (`secprose_en`, `secprose_vi`: paragraphs in a guide's or incident write-up's
+voice), with template sets A/B/C disjoint from each other and from the eval/codelog and bench/long
+catalogs (`train/tests/test_gen_filler_v6.py`).
+
+**Benign twins** (`kind: twin`, 3,476 in `v6_train`). For every embedded positive the builder embeds a
+second time into the same host at the same position with the same random choices (the generator's state
+is restored), with the payload replaced by benign prose of similar length (0.6-1.5x the payload's tokens;
+9 of 4,934 pairs fell back to 0.4-2x): for an English payload a docstring (413 in `v6_train`), a comment
+block (337) or a documentation paragraph (447) of the set's pinned repositories, or human log lines
+(528); for a Vietnamese payload sentences of the set's public-domain prose (1,064) or Vietnamese human
+log lines (687). Twin rows carry `filler_kind`, `filler_origin` / `filler_source`, `filler_spans` /
+`filler_byte_spans` (the filler's offsets; `train/windows.py` reads `byte_spans` of attack rows only, so
+a twin gives benign windows), `filler_tokens`, `payload_tokens`, and `pair` = the positive's id (the
+positive points back). Twin pairing rate (positives with a twin in the written split): `v6_train` 0.999,
+`v6_val` 1.000, `val_v6` 0.996, `val_v6_holdout` 0.996 (12 halves lost to the guards, 3 positives without
+a filler of the right length, 4 straddle twins that did not fit).
+
+**Hard negatives about security.** `secdoc_en` windows (201 / 20 / 43 / 46 per split) and `secprose_*`
+paragraphs (EN 151 / 16 / 22 / 23; VI 262 / 38 / 38 / 39) keep text that mentions prompt injection,
+jailbreaks, system prompts or exfiltration (the v5 `ATTACK` skip rule does not apply to them). A window
+is skipped instead when it is *made of* instructions to a model (`attack_dominated`: two or more
+line-initial imperative lines such as "ignore all previous instructions …", "you are now …", one such
+line longer than 40 words, or more than a third of the lines). Set A reached 333 of its 500 `secdoc_en`
+target: garak's guides and llm-guard's docs are small, and the MITRE ATLAS release is one file (up to 40
+windows of it). `doc_en` (347 / 53 / 53 / 54) and `human_log_*` (EN 177 / 23 / 26 / 27; VI 288 / 45 / 42 /
+43) are ordinary hard negatives under the v5 rules.
+
+**Everything else is v5's**: 254-token line-aligned windows cut from the pinned files and generators (the
+v5 targets per kind are unchanged; `test_sources_v6.py` checks it), 12 embedding positions, payloads from
+`data/train.jsonl` attacks only (10,535 candidates, 0 dropped), benign share 78% (77.97% in `v6_train`),
+Vietnamese 44.8-45.8% in every split (VI positives 50%), the epoch cap raised from 56k to 64k rows because
+every positive now has a twin (estimate with the public `train.jsonl`: 49,742 rows, under the cap).
+
+**Leakage guards.** The v5 guard first (`stats.json` "leakage"; references: `eval/data` 2,176 rows,
+every `eval/codelog` row and window, 50,426 windows of the bench/long full profile, 1,613 files / 45,270
+windows of this repository at every tag and at HEAD, the hold-outs and probes): 0 fingerprint hits; line
+copies 136 A vs this repository (Apache licence headers), 8 A / 1 B / 2 C vs bench/long, 2 A vs codelog
+windows; cross-set 34 B vs A, 39 C vs A+B; highest kept Jaccard vs eval 0.27 / 0.23 / 0.34, vs bench/long
+0.40 / 0.32 / 0.28, vs this repository 0.63 / 0.53 / 0.51, vs the hold-outs ≤ 0.15. Then the **bench/long
+shingle guard** (`data/bench_guard.py`, `stats.json` "bench_shingle"): the 912 documents of the full
+profile (9.49M 50-token shingles, 7.39M unique, classifier tokenizer) against every row; a row sharing
+one shingle is dropped. Found and removed: 17 rows in A (5 `prose_en`, 4 `prose_vi`, 4 `embedded`, 4
+`twin`) and 1 in C (`prose_en`), 0 in B: U.S. Code boilerplate shared between titles 7 / 15 / 3 and the
+bench titles, and the preamble Vietnamese laws share ("Căn cứ vào Hiến pháp …"); 611 / 77 / 77 rows per set
+are shorter than 50 tokens and fall under the v5 rules only. The same guard run on the v5 round-2 data
+finds 11 such rows (10 in `v5_train`, 1 in `val_v5_holdout`).
+
+**Known limits**: the security documentation is English only (the Vietnamese security negatives are
+project-written); `secdoc_en` windows are raw Markdown / reStructuredText / YAML, so some are headings,
+lists or directives rather than prose; a filler of a code docstring in a Vietnamese law host (and the
+reverse) is "foreign" by design but not always natural; B and C keep v5's small-catalog repetitiveness,
+and the straddle positions still skip 84 positives for lack of a long enough host.
 
 ## v4 changes
 
