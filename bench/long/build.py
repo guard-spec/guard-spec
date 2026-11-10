@@ -7,7 +7,11 @@ Reads bench/long/corpus.yaml: public sources at pinned revisions (Wikipedia
 EN/VI, the U.S. Code, Go source code, Vietnamese public-domain literature and
 laws from vi.wikisource), seeded synthetic genres (logs, JSON, CSV, e-mail
 threads, chat transcripts, and "hardneg": benign text about prompt injection
-and security), and attack payloads from the eval/ hold-out half only.
+and security), and attack payloads from the eval/ dev half only (ids ending
+in hex 0-7, eval/README.md): a model selected on the bench dev slice (the v6
+gates) must never have seen eval-holdout payload wording, so the eval holdout
+stays a clean final measurement. Which bench slice an attack document falls
+in is a second, independent hash of the payload id (split_of below).
 
 Writes $BENCH_CACHE/long/<profile>/docs.jsonl (one JSON object per line:
 id, lang, genre, kind, split, text, source, license, tokens, and for attacks
@@ -564,13 +568,15 @@ def make_variant(v, payload, lang, hosts, tok, rng):
 
 
 def load_payloads(spec: dict, n_per_lang: int, seed: int) -> list[dict]:
+    """n_per_lang attack rows per eval/ file: the eval dev half (spec["dev_last_hex"]) between
+    min_chars and max_chars, in a seeded order of their ids. The eval holdout half is never used."""
     out = []
     for f in spec["files"]:
         rows = []
         with open(REPO / f, encoding="utf-8") as fh:
             for line in fh:
                 r = json.loads(line)
-                if r["label"] != "attack" or r["id"][-1] not in spec["holdout_last_hex"]:
+                if r["label"] != "attack" or r["id"][-1] not in spec["dev_last_hex"]:
                     continue
                 if not spec["min_chars"] <= len(r["text"]) <= spec["max_chars"]:
                     continue

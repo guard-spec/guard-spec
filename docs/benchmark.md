@@ -386,8 +386,9 @@ from vi.wikisource; licences in
 logs, JSON, CSV, e-mail threads, chat transcripts and hard negatives (benign
 text about prompt injection). Texts of one genre are joined to 20k, 50k,
 100k, 200k and 500k tokens. Attack documents put one payload from the
-**hold-out half of `eval/`** into a 2k-token host (a 28 KB one for the
-segment boundary): at the start, the end, a random place, across a 256-token
+**dev half of `eval/`** (ids ending in hex 0–7; the `eval/` holdout half is
+never used, see below) into a 2k-token host (a 28 KB one for the segment
+boundary): at the start, the end, a random place, across a 256-token
 window, a 2,048-byte chunk or a 24 KiB segment boundary, split in two halves
 (adjacent, or about 1,500 tokens apart), hidden with zero-width or Unicode tag
 characters, or shaped as a code comment or a JSON field; `control` is the
@@ -407,12 +408,64 @@ maxima.
 **Dev and holdout slices.** Every document carries a `split` (`dev` or
 `holdout`), the `eval/` convention: the last hex digit of a SHA-256 of the
 document id, or of the payload id for attack and control documents so that all
-variants of one payload fall in one slice (full profile: 38 / 34 benign, 396 /
-372 attack documents). The report has the false-positive and detection tables
+variants of one payload fall in one slice (full profile: 38 / 34 benign, 384 /
+384 attack documents). The report has the false-positive and detection tables
 for both slices next to the totals (`doc_fpr_by_split`, `tpr_by_split`);
 anything tuned on this benchmark reads the dev slice only. The training data
 builders keep the corpus out of training: no 50-token shingle of any bench/long
 document may appear in a v6 training row (`train/data/bench_guard.py`).
+
+The payloads come from the **dev half of `eval/`** since 2026-11-11: a model
+selected on the bench dev slice (the v6 gates) must never have seen
+`eval/`-holdout wording, so that the `eval/` holdout half stays a clean final
+measurement. The bench slice of an attack document is a second, independent
+hash of the payload id, so bench dev and bench holdout still use disjoint
+payloads (full profile: 32 per language, 32 dev / 32 holdout; quick: 12 per
+language, 13 / 11). Before that date the payloads were the `eval/` holdout
+half; the benign and host documents did not change, but the numbers published
+below from earlier runs were measured on holdout payloads and are not directly
+comparable with runs on the current corpus (`outputs` in
+[`bench/long/corpus.yaml`](../bench/long/corpus.yaml) pins both).
+
+**Baselines on the current corpus (full profile, dev / holdout).** Apple M3
+Max (14 cores), ONNX Runtime 1.31.1, 2026-11-11, the working tree of the
+payload change on top of `b381615`; full profile (912 documents, 9.4M tokens,
+docs.jsonl `bfd045cc…`), `l1,l2` at the 0.85 block threshold, score pass only
+(`-skip-latency -workers 4`, 26 minutes per model); `guardspec-classifier-v3b`
+(the shipped default) and `guardspec-classifier-v5` with its own calibration
+(Platt, logreg, L2 untrusted cap 0.88). Reference points for the v6 gates,
+not tuning targets; nothing was tuned on them. Small cells: 1 to 7 benign
+documents per size and slice, 15 / 17 EN and 17 / 15 VI payloads (dev /
+holdout) times the variants of a group. The `>100k` bucket of the report
+holds the Vietnamese 500k document.
+
+Document false positives at 0.85 (`l1,l2`), dev / holdout (documents):
+
+| Size | v3b EN | v3b VI | v5 EN | v5 VI |
+|---|---:|---:|---:|---:|
+| 20k | 40.0% / 50.0% (5 / 4) | 33.3% / 33.3% (6 / 3) | 20.0% / 25.0% | 50.0% / 66.7% |
+| 50k | 28.6% / 50.0% (7 / 2) | 50.0% / 40.0% (4 / 5) | 28.6% / 50.0% | 50.0% / 40.0% |
+| 100k | 33.3% / 50.0% (3 / 6) | 75.0% / 50.0% (4 / 4) | 33.3% / 16.7% | 75.0% / 25.0% |
+| 200k | 40.0% / 25.0% (5 / 4) | 66.7% / 100% (3 / 4) | 20.0% / 25.0% | 66.7% / 75.0% |
+| 500k | 100% / 100% (1 / 1) | – / 100% (0 / 1) | 0.0% / 100% | – / 100% |
+
+Detection (gateway decision, `l1,l2`), dev / holdout, pooled over the variants
+of a group:
+
+| Payload | v3b EN | v3b VI | v5 EN | v5 VI |
+|---|---:|---:|---:|---:|
+| alone (`control`) | 100% / 88.2% | 88.2% / 100% | 93.3% / 88.2% | 94.1% / 100% |
+| start / end / random place | 66.7% / 43.1% | 39.2% / 46.7% | 100% / 80.4% | 94.1% / 100% |
+| across a window / chunk / segment boundary | 82.2% / 56.9% | 49.0% / 57.8% | 100% / 90.2% | 96.1% / 100% |
+| split, adjacent / far apart | 23.3% / 23.5% | 17.6% / 26.7% | 96.7% / 70.6% | 88.2% / 90.0% |
+| zero-width / tag characters | 86.7% / 67.6% | 67.6% / 73.3% | 100% / 94.1% | 100% / 96.7% |
+| code comment / JSON field | 96.7% / 67.6% | 82.4% / 80.0% | 100% / 91.2% | 100% / 100% |
+| embedded, all variants | 71.7% / 51.5% | 50.0% / 56.1% | 99.4% / 85.3% | 95.6% / 97.8% |
+
+The quick profile was run the same day with both models (and the `l1,l2,l3`
+set as well); its numbers agree with the full ones within the sample sizes.
+The run reports are kept with the training data outside the repository; the
+tables committed under `bench/results/` still come from the earlier corpus.
 
 **First run: quick profile, local and indicative.** Apple M3 Max, ONNX
 Runtime 1.31.1, `guardspec-classifier-v3b`, 2026-11-09, run from the

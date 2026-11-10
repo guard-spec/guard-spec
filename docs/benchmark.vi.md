@@ -394,8 +394,9 @@ luật tiếng Việt thuộc phạm vi công cộng từ vi.wikisource; giấy 
 CSV, chuỗi email, đoạn chat và hard negative (văn bản lành tính nói về prompt
 injection) được sinh tổng hợp có seed. Văn bản cùng thể loại được nối thành
 20k, 50k, 100k, 200k và 500k token. Tài liệu tấn công đặt một payload lấy từ
-**nửa hold-out của `eval/`** vào một văn bản nền 2k token (28 KB cho ranh giới
-đoạn 24 KiB): ở đầu, ở cuối, ở vị trí ngẫu nhiên, vắt qua ranh giới cửa sổ 256
+**nửa dev của `eval/`** (id kết thúc bằng hex 0–7; nửa holdout của `eval/`
+không bao giờ được dùng, xem bên dưới) vào một văn bản nền 2k token (28 KB cho
+ranh giới đoạn 24 KiB): ở đầu, ở cuối, ở vị trí ngẫu nhiên, vắt qua ranh giới cửa sổ 256
 token, chunk 2,048 byte hoặc đoạn 24 KiB, tách làm hai nửa (liền nhau, hoặc cách
 nhau khoảng 1,500 token), giấu bằng ký tự zero-width hoặc ký tự tag Unicode,
 hoặc đội lốt chú thích code hay trường JSON; `control` là payload đứng một
@@ -411,6 +412,69 @@ T(n) là threshold giữ false positive của một văn bản lành tính dài 
 (cửa sổ hoặc chunk) dưới 1%: giá trị lớn hơn giữa q99 bootstrap theo khối của
 max trên n đơn vị liên tiếp và một phân phối GEV khớp trên logit của max theo
 khối 16 đơn vị.
+
+**Lát cắt dev và holdout.** Mỗi tài liệu mang một trường `split` (`dev` hoặc
+`holdout`) theo quy ước của `eval/`: chữ số hex cuối của SHA-256 của id tài
+liệu, hoặc của id payload với tài liệu tấn công và `control`, để mọi biến thể
+của một payload nằm trong cùng một lát cắt (profile full: 38 / 34 tài liệu
+lành tính, 384 / 384 tài liệu tấn công). Báo cáo có bảng false positive và
+bảng phát hiện cho cả hai lát cắt bên cạnh tổng (`doc_fpr_by_split`,
+`tpr_by_split`); mọi thứ được tinh chỉnh trên benchmark này chỉ đọc lát cắt
+dev. Các builder dữ liệu huấn luyện giữ corpus này ngoài training: không
+shingle 50 token nào của một tài liệu bench/long được xuất hiện trong một dòng
+training v6 (`train/data/bench_guard.py`).
+
+Payload lấy từ **nửa dev của `eval/`** kể từ 2026-11-11: model được chọn trên
+lát cắt dev của bench (các gate v6) không bao giờ được thấy câu chữ của nửa
+holdout `eval/`, để nửa holdout đó vẫn là phép đo cuối cùng sạch. Lát cắt bench
+của một tài liệu tấn công là một hash thứ hai, độc lập, của id payload, nên
+bench dev và bench holdout vẫn dùng các payload rời nhau (profile full: 32 mỗi
+ngôn ngữ, 32 dev / 32 holdout; quick: 12 mỗi ngôn ngữ, 13 / 11). Trước ngày đó
+payload lấy từ nửa holdout của `eval/`; tài liệu lành tính và văn bản nền không
+đổi, nhưng các con số công bố bên dưới từ những lần chạy trước được đo trên
+payload holdout và không so sánh trực tiếp được với các lần chạy trên corpus
+hiện tại (`outputs` trong [`bench/long/corpus.yaml`](../bench/long/corpus.yaml)
+ghim cả hai).
+
+**Baseline trên corpus hiện tại (profile full, dev / holdout).** Apple M3 Max
+(14 lõi), ONNX Runtime 1.31.1, 2026-11-11, working tree của thay đổi payload
+trên `b381615`; profile full (912 tài liệu, 9.4M token, docs.jsonl
+`bfd045cc…`), `l1,l2` ở threshold chặn 0.85, chỉ chấm điểm
+(`-skip-latency -workers 4`, 26 phút mỗi model); `guardspec-classifier-v3b`
+(mặc định đang phát hành) và `guardspec-classifier-v5` với calibration riêng
+(Platt, logreg, trần L2 untrusted 0.88). Đây là điểm tham chiếu cho các gate
+v6, không phải mục tiêu tinh chỉnh; không có gì được tinh chỉnh trên chúng.
+Ô nhỏ: 1 đến 7 tài liệu lành tính mỗi kích thước và lát cắt, 15 / 17 payload
+EN và 17 / 15 payload VI (dev / holdout) nhân với số biến thể của nhóm. Ô
+`>100k` của báo cáo là tài liệu tiếng Việt 500k.
+
+False positive trên tài liệu ở 0.85 (`l1,l2`), dev / holdout (số tài liệu):
+
+| Kích thước | v3b EN | v3b VI | v5 EN | v5 VI |
+|---|---:|---:|---:|---:|
+| 20k | 40.0% / 50.0% (5 / 4) | 33.3% / 33.3% (6 / 3) | 20.0% / 25.0% | 50.0% / 66.7% |
+| 50k | 28.6% / 50.0% (7 / 2) | 50.0% / 40.0% (4 / 5) | 28.6% / 50.0% | 50.0% / 40.0% |
+| 100k | 33.3% / 50.0% (3 / 6) | 75.0% / 50.0% (4 / 4) | 33.3% / 16.7% | 75.0% / 25.0% |
+| 200k | 40.0% / 25.0% (5 / 4) | 66.7% / 100% (3 / 4) | 20.0% / 25.0% | 66.7% / 75.0% |
+| 500k | 100% / 100% (1 / 1) | – / 100% (0 / 1) | 0.0% / 100% | – / 100% |
+
+Phát hiện (quyết định của gateway, `l1,l2`), dev / holdout, gộp các biến thể
+của một nhóm:
+
+| Payload | v3b EN | v3b VI | v5 EN | v5 VI |
+|---|---:|---:|---:|---:|
+| một mình (`control`) | 100% / 88.2% | 88.2% / 100% | 93.3% / 88.2% | 94.1% / 100% |
+| đầu / cuối / vị trí ngẫu nhiên | 66.7% / 43.1% | 39.2% / 46.7% | 100% / 80.4% | 94.1% / 100% |
+| vắt qua ranh giới cửa sổ / chunk / đoạn | 82.2% / 56.9% | 49.0% / 57.8% | 100% / 90.2% | 96.1% / 100% |
+| tách đôi, liền nhau / cách xa | 23.3% / 23.5% | 17.6% / 26.7% | 96.7% / 70.6% | 88.2% / 90.0% |
+| zero-width / ký tự tag | 86.7% / 67.6% | 67.6% / 73.3% | 100% / 94.1% | 100% / 96.7% |
+| chú thích code / trường JSON | 96.7% / 67.6% | 82.4% / 80.0% | 100% / 91.2% | 100% / 100% |
+| nhúng, mọi biến thể | 71.7% / 51.5% | 50.0% / 56.1% | 99.4% / 85.3% | 95.6% / 97.8% |
+
+Profile quick được chạy cùng ngày với cả hai model (và cả bộ `l1,l2,l3`); các
+con số khớp với profile full trong phạm vi cỡ mẫu. Báo cáo của các lần chạy
+được giữ cùng dữ liệu huấn luyện ngoài repository; các bảng đã commit trong
+`bench/results/` vẫn đến từ corpus trước.
 
 **Lần chạy đầu: profile quick, máy local, chỉ mang tính tham khảo.** Apple M3
 Max, ONNX Runtime 1.31.1, `guardspec-classifier-v3b`, 2026-11-09, chạy từ nhánh

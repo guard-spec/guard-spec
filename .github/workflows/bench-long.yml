@@ -3,7 +3,7 @@ name: Bench long inputs
 # Long-input benchmark (docs/benchmark.md "Long documents", docs/sizing.md
 # "Long inputs") on GitHub-hosted ubuntu-24.04 runners: bench/long/build.py
 # builds the corpus (public sources pinned in bench/long/corpus.yaml, seeded
-# synthetic genres, payloads from the eval/ hold-out half), then
+# synthetic genres, payloads from the eval/ dev half), then
 # cmd/benchlong measures score distributions, false positives and the
 # thresholds T(n) as a text grows, detection of payloads hidden in long
 # text, and latency / CPU per document. The released classifier

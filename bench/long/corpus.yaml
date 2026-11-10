@@ -127,11 +127,18 @@ synthetic:
   genres: [logs, json, csv, email, chat, hardneg]
   langs: [en, vi]
 
-# Attack payloads: attack rows of the eval/ hold-out half only (eval/README.md:
-# ids whose last hex digit is 8-f), never train/ data.
+# Attack payloads: attack rows of the eval/ dev half only (eval/README.md:
+# ids whose last hex digit is 0-7), never train/ data and never the eval/
+# holdout half. Until 2026-11-11 (RF-895d3533) they came from the holdout
+# half; they moved to dev because the v6 gates select a model on the bench
+# dev slice, and a model chosen on eval-holdout wording would leave no clean
+# final measurement. The bench dev/holdout split of an attack document is a
+# separate hash of the payload id (`split` below), so bench dev and bench
+# holdout still use disjoint payloads. Bench numbers published before the
+# change were measured on holdout payloads and are not directly comparable.
 payloads:
   files: [eval/data/en.jsonl, eval/data/vi.jsonl]
-  holdout_last_hex: "89abcdef"
+  dev_last_hex: "01234567"
   min_chars: 40
   max_chars: 600
 
@@ -170,13 +177,16 @@ split:
   key: {attack: payload_id, control: payload_id, benign: id, host: id}
 
 # SHA-256 of docs.jsonl per profile: a rebuild must give the same file.
-# Pinned again on 2026-11-10 (RF-895d3533 R0) when the `split` field was added
-# to every document: the texts, ids, order and token counts are unchanged
-# (removing the field gives the previous files, b38614e2… quick and a5dcef89…
-# full); the hash of a file with one more field per line had to change.
+# Pinned again on 2026-11-11 (RF-895d3533) when the payloads moved from the
+# eval/ holdout half to the dev half (`payloads` above): the benign and host
+# documents are byte-identical to the previous files (74ce3b30… quick,
+# 36df6248… full), only the control and attack documents carry other
+# payloads (same count, positions, boundaries, split variants, sizes and
+# seeds). Before that, pinned on 2026-11-10 (R0) when the `split` field was
+# added to every document (b38614e2… quick and a5dcef89… full without it).
 outputs:
-  quick: 74ce3b307cd2a3b5224a24cec49a7a42c5f8dc9f3e3f2786090415f045545820
-  full: 36df6248f6525e12dd8210492758a370e6f616a5b8270fa8bf56158c9fe3c964
+  quick: 78236eb56dbf71c335c8a1cf043487a71fe3e11360535c389abe47c1d07c3399
+  full: bfd045cc60e704a4fbef0f3627527b39041572566ca4efe310043426d34865cf
 
 dropped:
   - source: Project Gutenberg (gutenberg.org)
