@@ -53,7 +53,7 @@ COPY --from=builder /opt/onnx/LICENSE.onnxruntime /src/LICENSE /src/NOTICE /src/
 # built on Debian 12 (glibc 2.36) and run on the newer glibc of Wolfi. The
 # HEALTHCHECK, compose and Kubernetes use the binaries' own subcommands
 # (gateway health, models init, doctor copy-migrations) instead of scripts.
-FROM cgr.dev/chainguard/glibc-dynamic:latest@sha256:aab5cd0b4cc5edd9c87b6e7aa9ddaa3fb6ffcec559b9e5473c55bbc937b65399
+FROM cgr.dev/chainguard/glibc-dynamic:latest@sha256:041dfc2e4c197c610880f3f39643f76bf881698a51f329aa38c9d0657ba5741c
 
 # ONNX Runtime CPU shared library (MIT), loaded by internal/onnx via dlopen.
 COPY --from=builder /opt/onnx/lib/libonnxruntime.so /usr/local/lib/
