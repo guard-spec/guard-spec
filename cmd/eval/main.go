@@ -14,7 +14,8 @@
 // on); with it off the report's detector name ends in /no-corroboration.
 // -l2cap off leaves out the classifier's cap for untrusted content
 // (calibration.json "l2_untrusted_max"); when a cap is in effect the name
-// ends in /l2cap. With -baseline, the command exits 1 when any metric is
+// ends in /l2cap. When row ids (or "split" fields) give a dev/holdout
+// split, the report also has dev and holdout slices. With -baseline, the command exits 1 when any metric is
 // worse than the baseline by more than -max-regression. Refresh the baseline
 // with -json eval/baseline.json after an intended change.
 package main

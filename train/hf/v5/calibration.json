@@ -1,0 +1,27 @@
+{
+  "model": "guardspec-classifier-v5",
+  "fitted_on": "v4-A build val.jsonl + val_hard.jsonl + val_vi_variants.jsonl + val_v3.jsonl + val_v4.jsonl, with the owner-supplied and OTP/KYC validation rows, plus v5_val.jsonl + val_v5.jsonl of the v5 build (12775 rows), 2026-11-10",
+  "platt": {
+    "A": 0.8489312515915471,
+    "B": -0.11755286323468132
+  },
+  "logreg": {
+    "l1,l2": {
+      "W": [
+        0.4947140541685473,
+        0.9370249166895036,
+        0
+      ],
+      "B": 0.4440996363676115
+    },
+    "l1,l2,l3": {
+      "W": [
+        0.4747397791899296,
+        0.9043821900309187,
+        0.3988532867214517
+      ],
+      "B": 0.6362707521682777
+    }
+  },
+  "l2_untrusted_max": 0.88
+}

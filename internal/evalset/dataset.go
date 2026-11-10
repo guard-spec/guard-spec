@@ -21,6 +21,12 @@ type Row struct {
 	Variant  string `json:"variant"` // orig | no_diacritics | teencode | leet | translated
 	Source   string `json:"source"`
 	License  string `json:"license"`
+	// Split ("dev" or "holdout") overrides the split of the id (SplitOf);
+	// eval/embedded sets it from the payload's id.
+	Split string `json:"split,omitempty"`
+	// Position is where eval/embedded hid the payload in its host
+	// (comment, log_message, ...); empty for other sets.
+	Position string `json:"position,omitempty"`
 }
 
 // IsAttack reports whether the row is a positive.

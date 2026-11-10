@@ -19,6 +19,7 @@ binary luôn biết các model nó khuyến nghị.
 |---|---|---|---|---|
 | `guardspec-classifier` | `v3b` | L2 | có | Hugging Face (chưa công bố), sau đó là GitHub Release `model-guardspec-classifier-v3b` |
 | `guardspec-classifier` | `v4` | L2 | không: bản ứng viên, [so sánh ở shadow mode](#guardspec-classifier-v4-bản-ứng-viên) | GitHub Release `model-guardspec-classifier-v4` (khi chủ dự án công bố) |
+| `guardspec-classifier` | `v5` | L2 | không: bản ứng viên cho code, log và tài liệu dài, [shadow mode trước](#guardspec-classifier-v5-bản-ứng-viên) | GitHub Release `model-guardspec-classifier-v5` (khi chủ dự án công bố) |
 | `multilingual-e5-small` | `614241f` | L3 | có | Hugging Face `intfloat/multilingual-e5-small` |
 | `protectai-deberta-v3-small-pi-v2` | `d7c8842` | baseline | tùy chọn, cần xin quyền truy cập | Hugging Face |
 | `protectai-deberta-v3-base-pi-v2` | `90c9989` | baseline | tùy chọn | Hugging Face |
@@ -214,6 +215,75 @@ chút (eval: ít hơn 7 trên 1,171; thấp hơn ở rò rỉ dữ liệu và to
 tiếng Việt, và ở leet tiếng Anh). Nó không vượt qua quy tắc quyết định đã đăng
 ký trước, nên nó là bản ứng viên cho shadow mode chứ không phải mặc định.
 [train/MODEL_CARD.md](../train/MODEL_CARD.md) (mục "v4") có đầy đủ các bảng.
+
+### guardspec-classifier v5 (bản ứng viên)
+
+`guardspec-classifier@v5` có trong manifest nhưng **không** phải phiên bản
+khuyến nghị: v3b vẫn là mặc định cho đến khi v5 chạy ở shadow mode ít nhất 7
+ngày và chủ dự án quyết định (dự kiến ở v0.5.0). v5 dùng cùng kiến trúc, công
+thức train và nhãn của v3b, nhưng train theo từng cửa sổ (các cửa sổ 256 token
+của gateway thay vì một dòng bị cắt ngắn) trên dữ liệu v4 cộng thêm code,
+cấu hình, log, stack trace và văn xuôi dài vô hại làm hard negative, cùng các
+tấn công được nhúng trong những văn bản đó (`train/DATA_CARD.md`, mục "v5
+data"). Nó nhắm vào các false positive của v3b trên tool output như DDL,
+Dockerfile, dòng log tiếng Việt, và các tấn công giấu trong code và log.
+
+`calibration.json` của nó còn mang `l2_untrusted_max` (0.88): trên đường tool,
+riêng classifier không thể chặn nội dung không tin cậy khi điểm đã hiệu chuẩn
+vượt mức đó, L1 hoặc L3 phải góp phần còn lại. Giá trị này do `cmd/calibrate
+fit` suy ra từ các split validation (không bao giờ từ `eval/`). Gateway không
+biết trường này sẽ bỏ qua nó; đường trực tiếp (tin nhắn người dùng) không
+thay đổi dù thế nào.
+
+```bash
+# 1. Install it next to v3b (files checked against the manifest's SHA-256;
+#    the GitHub release model-guardspec-classifier-v5 is the only source until
+#    the Hugging Face revision is pinned).
+docker compose --profile models run --rm models-pull guardspec-classifier@v5
+# 2. .env: keep v3b deciding, let v5 score the same traffic.
+L2_MODEL=guardspec-classifier@v3b
+SHADOW_L2_MODEL=guardspec-classifier@v5
+SHADOW_SAMPLE=1
+# 3. Restart the gateway (or POST /admin/models/reload), then watch the
+#    Models page for at least 7 days: agreement, requests v5 would block that
+#    v3b allows (and the reverse), score distributions, tool-result traffic.
+```
+
+Nếu có sẵn bản sao file ở máy, đặt
+`SHADOW_L2_MODEL_DIR=/path/to/guardspec-classifier-v5` (thư mục phải chứa đủ
+năm file ở trên). Chuyển sang bằng `L2_MODEL=guardspec-classifier@v5` và một
+lần reload; rollback thì làm ngược lại.
+
+#### v3b so với v5
+
+Điểm của gateway (kết hợp L1+L2+L3, chặn ở 0.85), nửa hold-out của các eval
+set và các owner hold-out, mỗi bộ chỉ chấm một lần. v3b dùng calibration đi
+kèm; v5 dùng `calibration.json` của nó cùng cap.
+
+| | v3b | v5 |
+|---|---|---|
+| `eval/data` (tin nhắn người dùng): TPR ở FPR ≤ 1% / TPR và FPR ở 0.85 | 0.942 / 0.9435 và 1.57% | 0.940 / 0.9435 và 1.17% |
+| `eval/codelog` (tool output vô hại): FPR, corroboration tắt / bật | 20.99% / 7.41% | 0.62% / 0.62% |
+| `eval/embedded` (tấn công trong code và log), corroboration tắt: TPR / FPR | 0.779 / 15.1% | 0.861 / 4.7% |
+| `eval/embedded`, corroboration bật: TPR / FPR | 0.719 / 5.7% | 0.824 / 2.5% |
+| `eval/embedded`: TPR ở FPR ≤ 1% | 0.374 | 0.748 |
+| owner hold-out (408 tấn công / 272 vô hại): TPR / FPR ở 0.85 | 0.762 / 1.5% | 0.848 / 2.9% |
+| owner hold-out: TPR ở FPR ≤ 1% | 0.503 | 0.797 |
+| `val_v5_holdout` (host code và log, đường tool, corroboration tắt): FPR / TPR ở 0.85 / TPR ở FPR ≤ 1% | 0.9% / 0.665 / 0.665 | 0.0% / 0.623 / 0.988 |
+| `val_v3_holdout` (tấn công và dòng vô hại sinh tự động): FPR / TPR ở 0.85 | 0.5% / 0.953 | 0.5% / 0.887 |
+| số câu bị chặn trong 4 câu tiếng Việt được báo | 4 | 0 |
+
+v5 loại bỏ phần lớn false positive trên tool output vô hại và bắt được nhiều
+tấn công giấu trong code và log hơn; trên `eval/data` nó ngang v3b; trên
+owner hold-out nó bắt được nhiều tấn công hơn với cái giá là chặn thêm 4
+dòng vô hại (8 trên 272 so với 4). Hạn chế đã biết: với tài liệu 100k-200k
+token, mục tiêu false positive chưa đạt (cần vòng dữ liệu thứ ba, văn xuôi vô
+hại nhúng trong các host code và log); nó bắt được ít tấn công sinh tự động
+của `val_v3_holdout` hơn ở ngưỡng chặn (0.887 so với 0.953); và trên đường
+tool, cap giữ các tấn công nhúng mà chỉ classifier nhận ra ở dưới ngưỡng chặn
+(`val_v5_holdout`: 0.623 so với 0.665 ở 0.85, dù xếp hạng tốt hơn nhiều). Quy
+tắc chọn, mọi bảng số và dữ liệu nằm trong
+[train/MODEL_CARD.md](../train/MODEL_CARD.md) (mục "v5").
 
 ## Nạp lại không cần khởi động lại
 
