@@ -103,6 +103,46 @@ models:
         size: 535
         sha256: 0f21e68e6b0b7a109597c55ea0ca8020751f5d3e67085e10eb1ef7bef79b952c
 
+  # v5 candidate (train/MODEL_CARD.md, "v5"): not recommended; v3b stays the
+  # default until v5 has run in shadow mode for at least 7 days and the owner
+  # decides (v0.5.0). Window-level training on code, configuration, log and
+  # long-prose hard negatives and attacks embedded in them; calibration.json
+  # carries the classifier's cap for untrusted content (l2_untrusted_max,
+  # applied on the tool path by gateways that know it). Not on Hugging Face
+  # yet (unpinned revision): the GitHub Release
+  # model-guardspec-classifier-v5 is the only source until the Publish model
+  # workflow has run and this revision is pinned.
+  - name: guardspec-classifier
+    version: v5
+    kind: classifier
+    repo: guard-spec/guardspec-classifier
+    revision: "0000000000000000000000000000000000000000"
+    mirrors:
+      - https://github.com/guard-spec/guard-spec/releases/download/model-guardspec-classifier-v5/{file}
+    license: Apache-2.0
+    license_url: https://github.com/guard-spec/guard-spec/blob/main/train/MODEL_CARD.md
+    files:
+      - src: model_int8.onnx
+        dest: model_int8.onnx
+        size: 118466001
+        sha256: 1d42326716906ebc07b5dd7cb10615cb68037c8afda3ac4dbeedcff214279e31
+      - src: tokenizer.json
+        dest: tokenizer.json
+        size: 17082955
+        sha256: 6879d3648d0329c894b1cbb0c89096430e24d3c7cf5d359d4ccc87ce585c4ae4
+      - src: config.json
+        dest: config.json
+        size: 1272
+        sha256: a74903e3d5f0f21799228d520b0b08aa2a2ac9c779bafd78c2d800f9e8a29d7a
+      - src: thresholds.json
+        dest: thresholds.json
+        size: 4686
+        sha256: 96156d39c9a5dc1fea91c54d9db47e76281c6d31ef1b45e66a4d1310308659d2
+      - src: calibration.json
+        dest: calibration.json
+        size: 702
+        sha256: 78d02581cb4042f954bb3f5b95b826d7bf66ca5333d35915eb53d10984edbdb5
+
   # ProtectAI small v2: gated, requires HF_TOKEN. Optional baseline.
   - name: protectai-deberta-v3-small-pi-v2
     version: d7c8842

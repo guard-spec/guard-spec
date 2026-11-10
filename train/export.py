@@ -6,6 +6,9 @@
 2. onnxruntime dynamic quantization to INT8 (weights QInt8, per-channel).
 3. Parity: max |p_int8 - p_fp32| over the validation split, and the change in
    validation AUC of the overall risk score.
+   v5: validation rows are scored as the gateway scores them: every window
+   (windows.py), per-label worst case over a row's windows; --v5-dir adds
+   v5_val and val_v5 (as train.py), never val_v5_holdout.
 4. Calibration on the validation split, using the INT8 model that ships:
    - choice of risk score (1 - p(benign) or max over attack labels), by
      validation TPR at benign FPR <= 1%;
@@ -31,17 +34,25 @@ from onnxruntime.quantization import QuantType, quantize_dynamic
 from sklearn.metrics import precision_recall_curve
 from transformers import AutoModelForSequenceClassification, PreTrainedTokenizerFast
 
+import window_data as WD
 from common_train import (ROOT, auc, label_matrix, load_config, rates, read_jsonl, risk_scores, sigmoid,
                           threshold_at_fpr, tpr_at_fpr)
+from train import V5_VAL
+from windows import GatewayTokenizer
 
 
-def onnx_logits(sess, tok, texts, max_len, batch=64):
-    out = []
-    for i in range(0, len(texts), batch):
-        enc = tok(texts[i:i + batch], truncation=True, max_length=max_len, padding=True, return_tensors="np")
-        out.append(sess.run(["logits"], {"input_ids": enc["input_ids"].astype(np.int64),
-                                         "attention_mask": enc["attention_mask"].astype(np.int64)})[0])
-    return np.concatenate(out)
+def onnx_logits(sess, gtok, examples, pad_id, batch=64):
+    """Logits of every window, batched by length."""
+    order = WD.length_order(examples)
+    out = None
+    for i in range(0, len(order), batch):
+        idx = order[i:i + batch]
+        ids, mask = WD.pad_batch([examples[j].ids for j in idx], gtok.prefix, gtok.suffix, pad_id)
+        lg = sess.run(["logits"], {"input_ids": ids, "attention_mask": mask})[0]
+        if out is None:
+            out = np.zeros((len(examples), lg.shape[1]), dtype=np.float32)
+        out[idx] = lg
+    return out
 
 
 def sha256(path):
@@ -58,6 +69,7 @@ def main():
     ap.add_argument("--data-dir", help="read the validation files (and, in train.py, the training file) from this "
                     "directory instead of data/, e.g. a GUARD_BUILD_OUT build with external rows")
     ap.add_argument("--out-dir", help="override export.out_dir (relative to train/)")
+    ap.add_argument("--v5-dir", help="v5: also calibrate on v5_val.jsonl and val_v5.jsonl of this build (as train.py)")
     a = ap.parse_args()
     cfg = load_config()
     if a.run_dir:
@@ -67,6 +79,8 @@ def main():
         cfg["data"]["train"] = f"{a.data_dir}/{Path(cfg['data']['train']).name}"
     if a.out_dir:
         cfg["export"]["out_dir"] = a.out_dir
+    if a.v5_dir:
+        cfg["data"]["val"] = cfg["data"]["val"] + [f"{a.v5_dir}/{v}" for v in V5_VAL]
     labels = cfg["labels"]
     max_len = cfg["train"]["max_len"]
     run_dir = ROOT / cfg["export"]["run_dir"]
@@ -78,11 +92,13 @@ def main():
     model = AutoModelForSequenceClassification.from_pretrained(best).eval()
 
     val = [dict(r, split=Path(p).stem) for p in cfg["data"]["val"] for r in read_jsonl(ROOT / p)]
-    texts = [r["text"] for r in val]
-    # PyTorch reference on the first validation batch, computed before export (tracing touches the module).
+    gtok = GatewayTokenizer(best / "tokenizer.json")
+    examples, _ = WD.build_examples(val, gtok, labels, max_len, cfg["train"].get("stride", 64))
+    benign_ix = labels.index("benign")
+    # PyTorch reference on the first validation windows, computed before export (tracing touches the module).
     with torch.no_grad():
-        enc = tok(texts[:64], truncation=True, max_length=max_len, padding=True, return_tensors="pt")
-        pt = torch.sigmoid(model(input_ids=enc["input_ids"], attention_mask=enc["attention_mask"]).logits).numpy()
+        ids, mask = WD.pad_batch([e.ids for e in examples[:64]], gtok.prefix, gtok.suffix, tok.pad_token_id)
+        pt = torch.sigmoid(model(input_ids=torch.from_numpy(ids), attention_mask=torch.from_numpy(mask)).logits).numpy()
 
     # 1. FP32 ONNX ---------------------------------------------------------------------
     fp32 = run_dir / "model_fp32.onnx"
@@ -115,10 +131,14 @@ def main():
     s32 = ort.InferenceSession(str(fp32), so, providers=["CPUExecutionProvider"])
     s8 = ort.InferenceSession(str(int8), so, providers=["CPUExecutionProvider"])
     t = time.time()
-    p32 = sigmoid(onnx_logits(s32, tok, texts, max_len))
-    p8 = sigmoid(onnx_logits(s8, tok, texts, max_len))
+    w32 = sigmoid(onnx_logits(s32, gtok, examples, tok.pad_token_id))
+    w8 = sigmoid(onnx_logits(s8, gtok, examples, tok.pad_token_id))
+    # Per row: the worst case over its windows, as the gateway (Classifier.Score).
+    p32 = WD.aggregate_rows(len(val), examples, w32, benign_ix)
+    p8 = WD.aggregate_rows(len(val), examples, w8, benign_ix)
     parity = dict(
-        torch_vs_onnx_fp32_max_abs=float(np.abs(pt - p32[:64]).max()),
+        windows=len(examples),
+        torch_vs_onnx_fp32_max_abs=float(np.abs(pt - w32[:len(pt)]).max()),
         int8_vs_fp32_max_abs=float(np.abs(p8 - p32).max()),
         int8_vs_fp32_mean_abs=float(np.abs(p8 - p32).mean()),
         seconds=time.time() - t,
