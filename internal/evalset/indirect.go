@@ -51,7 +51,13 @@ func toolDefinition(text string) (indirect.Tool, string, bool) {
 // detector with the tool source hint). Benign rows measure the false
 // positives of treating ordinary text as tool output.
 func RunIndirect(ctx context.Context, rows []Row, runner *inference.Runner) ([]Result, error) {
-	s := indirect.Scanner{Runner: runner}
+	return RunIndirectWith(ctx, rows, indirect.Scanner{Runner: runner})
+}
+
+// RunIndirectWith is RunIndirect with the gateway's scanner as configured,
+// for example with code corroboration off (TOOL_CODE_CORROBORATION=off sets
+// s.NoCodeCorroboration in cmd/gateway).
+func RunIndirectWith(ctx context.Context, rows []Row, s indirect.Scanner) ([]Result, error) {
 	out := make([]Result, 0, len(rows))
 	for _, row := range rows {
 		start := time.Now()
