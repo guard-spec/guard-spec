@@ -462,6 +462,16 @@ of a group:
 | code comment / JSON field | 96.7% / 67.6% | 82.4% / 80.0% | 100% / 91.2% | 100% / 100% |
 | embedded, all variants | 71.7% / 51.5% | 50.0% / 56.1% | 99.4% / 85.3% | 95.6% / 97.8% |
 
+**The classifier's cap.** These baselines were measured before `cmd/benchlong`
+applied the classifier's cap for untrusted content (`calibration.json`
+`l2_untrusted_max`, which `cmd/eval -path tool` and the gateway apply to
+documents and tool results): the v5 rows above are v5 *without* its cap. Since
+the v6 work (task RF-895d3533) `cmd/benchlong -l2cap on` (the default) caps
+every fused chunk as the gateway does and the report header records it
+(`l2_cap`); `-l2cap off` reproduces the earlier behaviour. v3b has no cap, so
+its rows are unchanged. v5 with the cap is in `train/MODEL_CARD.md` ("v6",
+hold-outs).
+
 The quick profile was run the same day with both models (and the `l1,l2,l3`
 set as well); its numbers agree with the full ones within the sample sizes.
 The run reports are kept with the training data outside the repository; the

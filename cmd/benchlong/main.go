@@ -22,6 +22,9 @@
 //     2048-byte chunk of the text, cut the way the gateway cuts untrusted
 //     text (24 KiB segments, then chunks; see chunk.go) but with no 16-chunk
 //     cap: the score the gateway compares with its 0.85 block threshold.
+//     With -l2cap on (the default) each chunk gets the classifier's cap for
+//     untrusted content (calibration.json l2_untrusted_max), as the gateway
+//     applies it to documents and tool results.
 //
 // Every text first goes through the gateway's sanitizer, as in cmd/eval.
 // Output: bench/results/long-<host>.{json,md}. The JSON holds quantiles and
@@ -129,6 +132,7 @@ func main() {
 		host       = flag.String("host", "", "host label for the output name (default: hostname)")
 		out        = flag.String("out", "", "output JSON (default bench/results/long-<host>.json; the .md goes next to it)")
 		skipLat    = flag.Bool("skip-latency", false, "skip the latency runs")
+		l2cap      = flag.String("l2cap", "on", "apply the classifier's cap for untrusted content (calibration.json l2_untrusted_max) to the fused chunks, as the gateway does on documents: on or off")
 	)
 	flag.Parse()
 	slog.SetLogLoggerLevel(slog.LevelWarn)
@@ -144,6 +148,10 @@ func main() {
 		fatal(fmt.Errorf("-latency-intra: %w", err))
 	}
 	layerSets := strings.Split(*layersFlag, ";")
+	useCap, err := parseOnOff("-l2cap", *l2cap)
+	if err != nil {
+		fatal(err)
+	}
 
 	var docs []Doc
 	var corpusSHA string
@@ -172,7 +180,7 @@ func main() {
 	if *intra >= 0 {
 		_ = os.Setenv(onnx.EnvIntraOpThreads, strconv.Itoa(*intra))
 	}
-	e, err := newEngine(ctx, layerSets)
+	e, err := newEngine(ctx, layerSets, useCap)
 	if err != nil {
 		fatal(err)
 	}
@@ -188,7 +196,7 @@ func main() {
 	_ = e.close()
 
 	if !*skipLat {
-		rep.Latency = latencyRuns(ctx, layerSets, docs, concs, intras, *latMax)
+		rep.Latency = latencyRuns(ctx, layerSets, docs, concs, intras, *latMax, useCap)
 	}
 
 	analyse(&rep, docs, res, e.names(), *seed, *draws)
@@ -223,6 +231,17 @@ func parseInts(s string) ([]int, error) {
 		out = append(out, n)
 	}
 	return out, nil
+}
+
+// parseOnOff reads an on|off flag (on when empty), as cmd/eval does.
+func parseOnOff(name, v string) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "", "on":
+		return true, nil
+	case "off":
+		return false, nil
+	}
+	return false, fmt.Errorf("%s must be on or off, not %q", name, v)
 }
 
 func slices0Max(x []int) int {
@@ -293,6 +312,7 @@ func loadTxt(dir, lang string) ([]Doc, error) {
 type detector struct {
 	name    string
 	backend inference.FusedBackend
+	adjust  inference.ChunkAdjust // the classifier's cap for untrusted content (nil: none)
 	stack   *ml.Stack
 }
 
@@ -302,12 +322,16 @@ type engine struct {
 	benign int
 	l2Dir  string
 	l2Name string
+	capped bool // a detector applies the classifier's cap for untrusted content
 	dets   []detector
 }
 
 // newEngine builds the L2 window scorer and one fused detector per layer set,
-// as cmd/eval newMLDetector does (ml.ConfigFromEnv, ml.Build).
-func newEngine(ctx context.Context, layerSets []string) (*engine, error) {
+// as cmd/eval newMLDetector does (ml.ConfigFromEnv, ml.Build). With useCap
+// the fused chunks get the classifier's cap for untrusted content
+// (ml.Stack.UntrustedAdjust), as the gateway applies it to documents and tool
+// results; a calibration without a cap leaves the scores unchanged.
+func newEngine(ctx context.Context, layerSets []string, useCap bool) (*engine, error) {
 	cfg, err := ml.ConfigFromEnv(os.Getenv)
 	if err != nil {
 		return nil, err
@@ -339,7 +363,14 @@ func newEngine(ctx context.Context, layerSets []string) (*engine, error) {
 			return nil, errors.New("model layers unavailable:\n  " + strings.Join(stack.Problems, "\n  "))
 		}
 		name := ml.LayerKey(stack.Active) + "/" + stack.Fusion
-		e.dets = append(e.dets, detector{name: name, backend: inference.FusedBackend{F: stack.Fuser}, stack: stack})
+		d := detector{name: name, backend: inference.FusedBackend{F: stack.Fuser}, stack: stack}
+		if useCap {
+			d.adjust = stack.UntrustedAdjust()
+			if d.adjust != nil {
+				e.capped = true
+			}
+		}
+		e.dets = append(e.dets, d)
 	}
 	return e, nil
 }
@@ -400,14 +431,15 @@ func scoreFused(ctx context.Context, d detector, text string, k int) ([]float64,
 		go func() {
 			defer wg.Done()
 			for i := range next {
-				s, err := d.backend.Run(ctx, text[units[i].start:units[i].end])
+				chunk := text[units[i].start:units[i].end]
+				s, err := d.backend.Run(ctx, chunk)
 				if err != nil {
 					mu.Lock()
 					first = errors.Join(first, err)
 					mu.Unlock()
 					continue
 				}
-				out[i] = float64(s[0].Confidence)
+				out[i] = float64(d.adjust.Apply(chunk, s[0]).Confidence)
 			}
 		}()
 	}
@@ -545,7 +577,7 @@ func latencyDocs(docs []Doc, maxTokens int) []Doc {
 	return out
 }
 
-func latencyRuns(ctx context.Context, layerSets []string, docs []Doc, concs, intras []int, maxTokens int) []Latency {
+func latencyRuns(ctx context.Context, layerSets []string, docs []Doc, concs, intras []int, maxTokens int, useCap bool) []Latency {
 	sel := latencyDocs(docs, maxTokens)
 	if len(sel) == 0 {
 		logf("latency: no document of at most %d tokens; skipped", maxTokens)
@@ -556,7 +588,7 @@ func latencyRuns(ctx context.Context, layerSets []string, docs []Doc, concs, int
 	var out []Latency
 	for _, intra := range intras {
 		_ = os.Setenv(onnx.EnvIntraOpThreads, strconv.Itoa(intra))
-		e, err := newEngine(ctx, []string{last})
+		e, err := newEngine(ctx, []string{last}, useCap)
 		if err != nil {
 			fatal(err)
 		}
@@ -668,6 +700,7 @@ type Header struct {
 	IntraOp        string   `json:"inference_intra_op_threads"`
 	Layers         []string `json:"layers"`
 	Block          float64  `json:"block_threshold"`
+	L2Cap          bool     `json:"l2_cap"` // the classifier's cap for untrusted content applied to the fused chunks
 }
 
 func header(e *engine, ort, profile, corpusSHA, host string, docs int) Header {
@@ -676,7 +709,7 @@ func header(e *engine, ort, profile, corpusSHA, host string, docs int) Header {
 		Docs: docs, Model: e.l2Name, ModelSHA256: fileSHA(onnx.ResolveModelFile(e.l2Dir, onnx.Options{})), ORT: ort,
 		CPU: cpuModel(), VCPU: runtime.NumCPU(), GOOS: runtime.GOOS, GOARCH: runtime.GOARCH, Commit: commit(),
 		MaxConcurrency: onnx.MaxConcurrencyFromEnv(), IntraOp: os.Getenv(onnx.EnvIntraOpThreads),
-		Layers: e.names(), Block: blockThreshold,
+		Layers: e.names(), Block: blockThreshold, L2Cap: e.capped,
 	}
 }
 

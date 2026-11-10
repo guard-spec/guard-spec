@@ -59,7 +59,8 @@ func markdown(rep *Report) string {
 	if h.Profile != "" {
 		w("- Corpus: profile `%s`, %d documents, docs.jsonl SHA-256 `%.16s`\n", h.Profile, h.Docs, h.CorpusSHA256)
 	}
-	w("- Layers: %s; block threshold %.2f\n\n", strings.Join(h.Layers, ", "), h.Block)
+	w("- Layers: %s; block threshold %.2f; classifier cap for untrusted content %s\n\n", strings.Join(h.Layers, ", "), h.Block,
+		map[bool]string{true: "applied to the fused chunks", false: "none (no cap in the calibration, or -l2cap off)"}[h.L2Cap])
 
 	p := rep.ScorePass
 	w("### Score pass\n\n%d documents, %d tokens, %d L2 windows and %d fused chunks in %.0f s with %d documents at a time (%.0f tokens/s, %.0f CPU-s).\n\n",
