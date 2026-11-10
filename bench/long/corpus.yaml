@@ -159,10 +159,24 @@ profiles:
     host_tokens: 2000
     segment_host_bytes: 28000
 
+# Dev/holdout split of every document (build.py split_of, the eval/ convention):
+# the last hex digit of SHA-256(key) is 0-7 for dev and 8-f for holdout, with
+# key the payload id of an attack or control document (every variant of a
+# payload is in one slice) and the document id otherwise. cmd/benchlong reports
+# the dev and holdout slices next to the totals; tune on dev only.
+split:
+  field: split
+  rule: sha256-last-hex-digit
+  key: {attack: payload_id, control: payload_id, benign: id, host: id}
+
 # SHA-256 of docs.jsonl per profile: a rebuild must give the same file.
+# Pinned again on 2026-11-10 (RF-895d3533 R0) when the `split` field was added
+# to every document: the texts, ids, order and token counts are unchanged
+# (removing the field gives the previous files, b38614e2… quick and a5dcef89…
+# full); the hash of a file with one more field per line had to change.
 outputs:
-  quick: b38614e21008f05254c4223640be8f12317f752cc03c8b263f10f32c2a58e78a
-  full: a5dcef89f18809a1681c0a002ceb828444e6def8a0b3c36d802068aa88c94bf3
+  quick: 74ce3b307cd2a3b5224a24cec49a7a42c5f8dc9f3e3f2786090415f045545820
+  full: 36df6248f6525e12dd8210492758a370e6f616a5b8270fa8bf56158c9fe3c964
 
 dropped:
   - source: Project Gutenberg (gutenberg.org)

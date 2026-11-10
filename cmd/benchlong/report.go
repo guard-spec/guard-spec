@@ -124,6 +124,22 @@ func markdown(rep *Report) string {
 			w("| %s | %s | %s | %d | %.0f | %s | %s | %s | %d |\n", r.Layer, r.Lang, r.Variant, r.Docs, r.Units, pct(r.AtBlock), pct(r.AtTn), pct(r.Gateway), r.HostFlags)
 		}
 	}
+	if len(rep.DocFPRSplit) > 0 || len(rep.TPRSplit) > 0 {
+		w("\n### Dev and holdout slices\n\n")
+		w("The tables above over the `split` of each document (bench/long/build.py: the last hex digit of a SHA-256 of the document id, or of the payload id for attacks, 0-7 dev and 8-f holdout). Tune on dev only; T(n) is the one of the whole benign stream.\n\n")
+		if len(rep.DocFPRSplit) > 0 {
+			w("| Split | Layer | Lang | Size | docs | mean units | FPR | gateway FPR |\n|---|---|---|---|---:|---:|---:|---:|\n")
+			for _, r := range rep.DocFPRSplit {
+				w("| %s | %s | %s | %s | %d | %.0f | %s | %s |\n", r.Split, r.Layer, r.Lang, r.Size, r.Docs, r.Units, pct(r.FPR), pct(r.Gateway))
+			}
+		}
+		if len(rep.TPRSplit) > 0 {
+			w("\n| Split | Layer | Lang | Variant | docs | mean units | TPR@block | TPR@T(n) | gateway | hosts flagged |\n|---|---|---|---|---:|---:|---:|---:|---:|---:|\n")
+			for _, r := range rep.TPRSplit {
+				w("| %s | %s | %s | %s | %d | %.0f | %s | %s | %s | %d |\n", r.Split, r.Layer, r.Lang, r.Variant, r.Docs, r.Units, pct(r.AtBlock), pct(r.AtTn), pct(r.Gateway), r.HostFlags)
+			}
+		}
+	}
 	w("\n### Notes\n\n")
 	for _, n := range rep.Notes {
 		w("- %s\n", n)

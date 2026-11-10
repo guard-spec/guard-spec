@@ -75,6 +75,32 @@ type Doc struct {
 	Category  string   `json:"category,omitempty"`
 	Host      string   `json:"host,omitempty"`
 	Spans     [][2]int `json:"spans,omitempty"`
+	Split     string   `json:"split,omitempty"` // dev or holdout (bench/long/build.py split_of)
+}
+
+// Dev/holdout slices (eval/README.md): the last hex digit of a SHA-256 is
+// 0-7 for dev and 8-f for holdout. The corpus carries the split in every
+// document (build.py hashes the payload id of attack and control documents,
+// the document id otherwise); documents without it (-docs .txt files) hash
+// their id here.
+const (
+	splitDev     = "dev"
+	splitHoldout = "holdout"
+)
+
+func splitOf(d Doc) string {
+	if d.Split != "" {
+		return d.Split
+	}
+	return splitOfKey(d.ID)
+}
+
+func splitOfKey(key string) string {
+	sum := sha256.Sum256([]byte(key))
+	if sum[len(sum)-1]&0x0f < 8 {
+		return splitDev
+	}
+	return splitHoldout
 }
 
 const (
@@ -705,7 +731,11 @@ type Report struct {
 	DocFPR     []FPRRow  `json:"doc_fpr"`
 	Thresholds []TRow    `json:"thresholds"`
 	TPR        []TPRRow  `json:"tpr,omitempty"`
-	Notes      []string  `json:"notes"`
+	// The same tables on the dev and holdout slices (Split set on every
+	// row); the totals above are unchanged by the slicing.
+	DocFPRSplit []FPRRow `json:"doc_fpr_by_split,omitempty"`
+	TPRSplit    []TPRRow `json:"tpr_by_split,omitempty"`
+	Notes       []string `json:"notes"`
 }
 
 // QRow is the distribution of per-unit scores of benign documents.
@@ -720,6 +750,7 @@ type QRow struct {
 // the block threshold.
 type FPRRow struct {
 	Layer   string  `json:"layer"`
+	Split   string  `json:"split,omitempty"` // dev or holdout in DocFPRSplit; empty in DocFPR (all documents)
 	Lang    string  `json:"lang"`
 	Size    string  `json:"size"`
 	Docs    int     `json:"docs"`
@@ -752,6 +783,7 @@ type TPoint struct {
 // TPRRow is detection of one attack variant.
 type TPRRow struct {
 	Layer     string  `json:"layer"`
+	Split     string  `json:"split,omitempty"` // dev or holdout in TPRSplit; empty in TPR (all documents)
 	Lang      string  `json:"lang"`
 	Variant   string  `json:"variant"`
 	Docs      int     `json:"docs"`
@@ -823,47 +855,13 @@ func analyse(rep *Report, docs []Doc, res []docScore, layers []string, seed uint
 		}
 	}
 
-	// Document-level FPR by size.
-	for _, layer := range layers {
-		type key struct{ lang, size string }
-		type acc struct {
-			n, hit, gw int
-			units      int
-		}
-		m := map[key]*acc{}
-		var keys []key
-		for i, d := range docs {
-			if d.Kind != "benign" {
-				continue
-			}
-			k := key{d.Lang, sizeLabel(res[i].tokens)}
-			a := m[k]
-			if a == nil {
-				a = &acc{}
-				m[k] = a
-				keys = append(keys, k)
-			}
-			mx := maxOf(res[i].units[layer])
-			a.n++
-			a.units += len(res[i].units[layer])
-			if mx >= blockThreshold {
-				a.hit++
-			}
-			if mx >= blockThreshold || res[i].rejected || res[i].anomaly >= anomalyBlock {
-				a.gw++
-			}
-		}
-		sort.Slice(keys, func(a, b int) bool {
-			if keys[a].lang != keys[b].lang {
-				return keys[a].lang < keys[b].lang
-			}
-			return sizeOrder(keys[a].size) < sizeOrder(keys[b].size)
-		})
-		for _, k := range keys {
-			a := m[k]
-			rep.DocFPR = append(rep.DocFPR, FPRRow{Layer: layer, Lang: k.lang, Size: k.size, Docs: a.n,
-				Units: float64(a.units) / float64(a.n), FPR: float64(a.hit) / float64(a.n), Gateway: float64(a.gw) / float64(a.n)})
-		}
+	// Document-level FPR by size: all benign documents, then the dev and
+	// holdout slices (the totals do not depend on the slicing).
+	all := func(Doc) bool { return true }
+	inSplit := func(s string) func(Doc) bool { return func(d Doc) bool { return splitOf(d) == s } }
+	rep.DocFPR = docFPR(docs, res, layers, "", all)
+	for _, s := range []string{splitDev, splitHoldout} {
+		rep.DocFPRSplit = append(rep.DocFPRSplit, docFPR(docs, res, layers, s, inSplit(s))...)
 	}
 
 	// T(n) per layer and language, from the benign stream in document order.
@@ -920,7 +918,9 @@ func analyse(rep *Report, docs []Doc, res []docScore, layers []string, seed uint
 		}
 	}
 
-	// TPR per attack variant (and the payload-alone control).
+	// TPR per attack variant (and the payload-alone control): all attack
+	// documents, then the dev and holdout slices. T(n) comes from the whole
+	// benign stream in every case.
 	hostMax := map[string]map[string]float64{} // host id -> layer -> max
 	for i, d := range docs {
 		if d.Kind == "host" {
@@ -930,13 +930,81 @@ func analyse(rep *Report, docs []Doc, res []docScore, layers []string, seed uint
 			}
 		}
 	}
+	tnOf := func(layer, lang string, units int) (float64, bool) {
+		f := tn[tkey{layer, lang}]
+		if f == nil {
+			return 0, false
+		}
+		return f(max(1, units)), true
+	}
+	rep.TPR = attackTPR(docs, res, layers, hostMax, tnOf, "", all)
+	for _, s := range []string{splitDev, splitHoldout} {
+		rep.TPRSplit = append(rep.TPRSplit, attackTPR(docs, res, layers, hostMax, tnOf, s, inSplit(s))...)
+	}
+}
+
+// docFPR is the share of benign documents (those that `keep` accepts) of
+// each language and size whose maximum reaches the block threshold, per
+// layer. split labels the rows (empty for all documents).
+func docFPR(docs []Doc, res []docScore, layers []string, split string, keep func(Doc) bool) []FPRRow {
+	var out []FPRRow
+	for _, layer := range layers {
+		type key struct{ lang, size string }
+		type acc struct {
+			n, hit, gw int
+			units      int
+		}
+		m := map[key]*acc{}
+		var keys []key
+		for i, d := range docs {
+			if d.Kind != "benign" || !keep(d) {
+				continue
+			}
+			k := key{d.Lang, sizeLabel(res[i].tokens)}
+			a := m[k]
+			if a == nil {
+				a = &acc{}
+				m[k] = a
+				keys = append(keys, k)
+			}
+			mx := maxOf(res[i].units[layer])
+			a.n++
+			a.units += len(res[i].units[layer])
+			if mx >= blockThreshold {
+				a.hit++
+			}
+			if mx >= blockThreshold || res[i].rejected || res[i].anomaly >= anomalyBlock {
+				a.gw++
+			}
+		}
+		sort.Slice(keys, func(a, b int) bool {
+			if keys[a].lang != keys[b].lang {
+				return keys[a].lang < keys[b].lang
+			}
+			return sizeOrder(keys[a].size) < sizeOrder(keys[b].size)
+		})
+		for _, k := range keys {
+			a := m[k]
+			out = append(out, FPRRow{Layer: layer, Split: split, Lang: k.lang, Size: k.size, Docs: a.n,
+				Units: float64(a.units) / float64(a.n), FPR: float64(a.hit) / float64(a.n), Gateway: float64(a.gw) / float64(a.n)})
+		}
+	}
+	return out
+}
+
+// attackTPR is the detection rate of the attack and control documents that
+// `keep` accepts, per layer, language and variant. tnOf gives T(n) of a
+// layer and language for n units (ok false when no benign stream exists).
+func attackTPR(docs []Doc, res []docScore, layers []string, hostMax map[string]map[string]float64,
+	tnOf func(layer, lang string, units int) (float64, bool), split string, keep func(Doc) bool) []TPRRow {
+	var out []TPRRow
 	for _, layer := range layers {
 		type key struct{ lang, variant string }
 		type acc struct{ n, units, b, t, gw, hf int }
 		m := map[key]*acc{}
 		var keys []key
 		for i, d := range docs {
-			if d.Kind != "attack" && d.Kind != "control" {
+			if (d.Kind != "attack" && d.Kind != "control") || !keep(d) {
 				continue
 			}
 			k := key{d.Lang, d.Variant}
@@ -953,7 +1021,7 @@ func analyse(rep *Report, docs []Doc, res []docScore, layers []string, seed uint
 			if mx >= blockThreshold {
 				a.b++
 			}
-			if f := tn[tkey{layer, d.Lang}]; f != nil && mx >= f(max(1, len(u))) {
+			if t, ok := tnOf(layer, d.Lang, len(u)); ok && mx >= t {
 				a.t++
 			}
 			if mx >= blockThreshold || res[i].rejected || res[i].anomaly >= anomalyBlock {
@@ -972,10 +1040,11 @@ func analyse(rep *Report, docs []Doc, res []docScore, layers []string, seed uint
 		for _, k := range keys {
 			a := m[k]
 			n := float64(a.n)
-			rep.TPR = append(rep.TPR, TPRRow{Layer: layer, Lang: k.lang, Variant: k.variant, Docs: a.n,
+			out = append(out, TPRRow{Layer: layer, Split: split, Lang: k.lang, Variant: k.variant, Docs: a.n,
 				Units: float64(a.units) / n, AtBlock: float64(a.b) / n, AtTn: float64(a.t) / n, Gateway: float64(a.gw) / n, HostFlags: a.hf})
 		}
 	}
+	return out
 }
 
 func sizeOrder(s string) int {

@@ -10,14 +10,20 @@ threads, chat transcripts, and "hardneg": benign text about prompt injection
 and security), and attack payloads from the eval/ hold-out half only.
 
 Writes $BENCH_CACHE/long/<profile>/docs.jsonl (one JSON object per line:
-id, lang, genre, kind, text, source, license, tokens, and for attacks the
-variant, payload id, category and payload byte spans) and manifest.json.
+id, lang, genre, kind, split, text, source, license, tokens, and for attacks
+the variant, payload id, category and payload byte spans) and manifest.json.
 
   kind=benign   same-genre texts concatenated to 20k ... 500k tokens
   kind=host     a benign host text (about 2k tokens) used by the attack variants
   kind=attack   a host with a payload placed at a position or boundary, split,
                 hidden, or shaped like the genre (variants below)
   kind=control  the payload alone
+
+`split` is the document's dev/holdout slice (split_of): the eval/ convention,
+the last hex digit of a SHA-256 (0-7 dev, 8-f holdout) of the document id, or
+of the payload id for attack and control documents so that every variant of a
+payload is in one slice (as eval/embedded takes the payload's split).
+cmd/benchlong reports both slices next to the totals; the gates read dev only.
 
 Tokens are counted with the v3b classifier's tokenizer (content tokens, no
 special tokens), the way internal/onnx counts them. Nothing here is random
@@ -81,6 +87,14 @@ def sha256_text(s: str) -> str:
 def seeded(*parts) -> random.Random:
     h = hashlib.sha256("\x1f".join(str(p) for p in parts).encode()).digest()
     return random.Random(int.from_bytes(h[:8], "big"))
+
+
+def split_of(doc: dict) -> str:
+    """dev or holdout: the last hex digit of SHA-256(key) is 0-7 or 8-f (eval/README.md), with key the
+    payload id of an attack or control document and the document id otherwise. cmd/benchlong splitOf
+    computes the same for documents without the field (-docs .txt files)."""
+    key = doc["payload_id"] if doc["kind"] in ("attack", "control") else doc["id"]
+    return "dev" if int(hashlib.sha256(key.encode("utf-8")).hexdigest()[-1], 16) < 8 else "holdout"
 
 
 # ---------------------------------------------------------------------------
@@ -684,18 +698,21 @@ def main() -> int:
     for d in docs:
         d["tokens"] = len(tok.encode(d["text"]).ids)
         d["bytes"] = len(d["text"].encode("utf-8"))
+        d["split"] = split_of(d)
 
     out_dir.mkdir(parents=True, exist_ok=True)
     body = "".join(json.dumps(d, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n" for d in docs)
     (out_dir / "docs.jsonl").write_text(body, "utf-8")
     digest = sha256_text(body)
     kinds: dict[str, list[int]] = {}
+    splits: dict[str, dict[str, int]] = {}
     for d in docs:
         kinds.setdefault(d["kind"], []).append(d["tokens"])
+        splits.setdefault(d["kind"], {})[d["split"]] = splits.setdefault(d["kind"], {}).get(d["split"], 0) + 1
     manifest = {
         "profile": args.profile, "sha256": digest, "docs": len(docs),
         "tokens": {k: sum(v) for k, v in kinds.items()}, "count": {k: len(v) for k, v in kinds.items()},
-        "tokenizer_sha256": tsha, "payloads": len(payloads),
+        "split": splits, "tokenizer_sha256": tsha, "payloads": len(payloads),
     }
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", "utf-8")
     log(f"wrote {out_dir / 'docs.jsonl'}: {len(docs)} docs, " +

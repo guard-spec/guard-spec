@@ -404,6 +404,16 @@ under 1% false positives: the larger of a block-bootstrap q99 of the maximum
 over n contiguous benign units and a GEV fit on the logit of 16-unit block
 maxima.
 
+**Dev and holdout slices.** Every document carries a `split` (`dev` or
+`holdout`), the `eval/` convention: the last hex digit of a SHA-256 of the
+document id, or of the payload id for attack and control documents so that all
+variants of one payload fall in one slice (full profile: 38 / 34 benign, 396 /
+372 attack documents). The report has the false-positive and detection tables
+for both slices next to the totals (`doc_fpr_by_split`, `tpr_by_split`);
+anything tuned on this benchmark reads the dev slice only. The training data
+builders keep the corpus out of training: no 50-token shingle of any bench/long
+document may appear in a v6 training row (`train/data/bench_guard.py`).
+
 **First run: quick profile, local and indicative.** Apple M3 Max, ONNX
 Runtime 1.31.1, `guardspec-classifier-v3b`, 2026-11-09, run from the
 branch that added the benchmark; 26 benign documents (0.86M tokens), 12

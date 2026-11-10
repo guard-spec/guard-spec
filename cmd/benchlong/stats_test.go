@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
 	"math"
 	"math/rand/v2"
 	"strings"
@@ -80,6 +82,64 @@ func normInv(p float64) float64 {
 		}
 	}
 	return (lo + hi) / 2
+}
+
+// splitOf must agree with bench/long/build.py split_of: the corpus field when
+// present, else the last hex digit of SHA-256(id) (values computed with
+// hashlib in Python).
+func TestSplitOfMatchesBuilder(t *testing.T) {
+	cases := map[string]string{
+		"wiki-en-20000-0": splitHoldout, "logs-vi-50000-0": splitDev, "host-en-code": splitDev,
+		"a.txt": splitDev, "report.txt": splitDev, "en-0123456789ab": splitHoldout, "vi-fedcba987654": splitHoldout, "x": splitDev,
+	}
+	for id, want := range cases {
+		if got := splitOf(Doc{ID: id}); got != want {
+			t.Errorf("%s: %s, want %s", id, got, want)
+		}
+	}
+	// The corpus field wins: build.py hashes the payload id of attack documents.
+	if got := splitOf(Doc{ID: "wiki-en-20000-0", Kind: "attack", Split: splitDev}); got != splitDev {
+		t.Errorf("field ignored: %s", got)
+	}
+	var d Doc
+	if err := json.Unmarshal([]byte(`{"id":"logs-vi-50000-0","kind":"benign","split":"holdout","text":"x","tokens":1}`), &d); err != nil {
+		t.Fatal(err)
+	}
+	if splitOf(d) != splitHoldout {
+		t.Errorf("split field not read: %+v", d)
+	}
+}
+
+// The slices partition the documents: dev + holdout counts equal the totals
+// of the unsliced table, and every sliced row carries its split.
+func TestSplitSlicesPartitionTotals(t *testing.T) {
+	var docs []Doc
+	var res []docScore
+	for i := range 40 {
+		id := fmt.Sprintf("wiki-en-20000-%d", i)
+		docs = append(docs, Doc{ID: id, Kind: "benign", Lang: "en", Genre: "wiki"})
+		score := 0.1
+		if i%5 == 0 {
+			score = 0.9
+		}
+		res = append(res, docScore{tokens: 20000, units: map[string][]float64{"l2": {score, 0.2}}})
+	}
+	all := docFPR(docs, res, []string{"l2"}, "", func(Doc) bool { return true })
+	if len(all) != 1 || all[0].Docs != 40 || all[0].Split != "" {
+		t.Fatalf("all: %+v", all)
+	}
+	n, hit := 0, 0.0
+	for _, s := range []string{splitDev, splitHoldout} {
+		rows := docFPR(docs, res, []string{"l2"}, s, func(d Doc) bool { return splitOf(d) == s })
+		if len(rows) != 1 || rows[0].Split != s || rows[0].Docs == 0 {
+			t.Fatalf("%s: %+v", s, rows)
+		}
+		n += rows[0].Docs
+		hit += rows[0].FPR * float64(rows[0].Docs)
+	}
+	if n != 40 || math.Abs(hit-all[0].FPR*40) > 1e-9 {
+		t.Fatalf("slices do not partition the total: %d docs, %.3f hits vs %.3f", n, hit, all[0].FPR*40)
+	}
 }
 
 func TestQuantileSummary(t *testing.T) {
