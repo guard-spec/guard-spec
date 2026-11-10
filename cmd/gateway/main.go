@@ -138,6 +138,8 @@ func main() {
 	live := ml.NewLive(detector)
 	defer func() { _ = live.Close() }()
 	runner := inference.NewRunnerWith(inference.FusedBackend{F: live})
+	// The classifier's cap for untrusted content (ml.CapL2) follows reloads.
+	capL2 := live.UntrustedAdjust()
 
 	base, cancelUpstream := context.WithCancel(context.Background())
 	defer cancelUpstream()
@@ -187,6 +189,7 @@ func main() {
 		adminToken:       cfg.AdminToken,
 		adminSeparate:    adminCfg.addr != "",
 		runner:           runner,
+		capL2:            capL2,
 		engine:           engine,
 		policies:         dbPolicyLoader(db),
 		audit:            audit,
@@ -248,7 +251,11 @@ type policyLoader func(ctx context.Context, orgID, projectID uuid.UUID) ([]polic
 // gateway holds what the handlers depend on. A nil upstream means stub
 // responses when no named upstream applies either.
 type gateway struct {
-	runner   *inference.Runner
+	runner *inference.Runner
+	// capL2 is the classifier's cap for untrusted content
+	// (ml.Live.UntrustedAdjust), given to every indirect.Scanner; nil in
+	// tests that score with a plain runner.
+	capL2    inference.ChunkAdjust
 	engine   *policy.Engine
 	policies policyLoader
 	audit    *auditLog

@@ -77,3 +77,40 @@ func TestMLDetectorNeedsModels(t *testing.T) {
 		t.Fatalf("bad -layers: exit code %d, want 2", code)
 	}
 }
+
+func TestToolPathFlags(t *testing.T) {
+	for _, tt := range []struct {
+		noCorr, capped bool
+		want           string
+	}{{false, false, "/tool"}, {true, false, "/tool/no-corroboration"}, {false, true, "/tool/l2cap"}, {true, true, "/tool/no-corroboration/l2cap"}} {
+		if got := toolPathName(tt.noCorr, tt.capped); got != tt.want {
+			t.Errorf("toolPathName(%v, %v) = %q, want %q", tt.noCorr, tt.capped, got, tt.want)
+		}
+	}
+	for _, tt := range []struct {
+		flag, env string
+		off       bool
+		bad       bool
+	}{{"", "", false, false}, {"on", "", false, false}, {"off", "", true, false}, {"", "off", true, false}, {"on", "off", false, false}, {"maybe", "", false, true}} {
+		off, err := parseCorroboration(tt.flag, tt.env)
+		if (err != nil) != tt.bad || off != tt.off {
+			t.Errorf("parseCorroboration(%q, %q) = %v, %v", tt.flag, tt.env, off, err)
+		}
+	}
+	for _, tt := range []struct {
+		v   string
+		on  bool
+		bad bool
+	}{{"", true, false}, {"on", true, false}, {"OFF", false, false}, {"2", false, true}} {
+		on, err := parseOnOff("-l2cap", tt.v)
+		if (err != nil) != tt.bad || on != tt.on {
+			t.Errorf("parseOnOff(%q) = %v, %v", tt.v, on, err)
+		}
+	}
+	if code := runWith(t, "-data", "../../eval/data", "-path", "tool", "-l2cap", "maybe"); code != 2 {
+		t.Fatalf("bad -l2cap: exit code %d, want 2", code)
+	}
+	if code := runWith(t, "-data", "../../eval/data", "-corroboration", "off"); code != 2 {
+		t.Fatalf("-corroboration off on the direct path: exit code %d, want 2", code)
+	}
+}

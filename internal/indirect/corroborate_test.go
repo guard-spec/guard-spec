@@ -208,3 +208,51 @@ func TestScannerCodeCorroborationLongPath(t *testing.T) {
 		}
 	}
 }
+
+// capHalf halves a chunk's score: a stand-in for ml.CapL2.
+func capHalf(_ string, s inference.Score) inference.Score {
+	d := *s.Detail
+	d.Rules = append(append([]string(nil), d.Rules...), fusion.L2CapRule)
+	s.Detail = &d
+	s.Confidence /= 2
+	return s
+}
+
+// The classifier's cap applies to tool results and documents only, before
+// code corroboration, and with corroboration off it still applies.
+func TestScannerCapThenCorroboration(t *testing.T) {
+	cue := fusion.DefaultL1Calibration.Apply(0.17)
+	r := inference.NewRunnerWith(fixedBackend{fused(0.95, cue, 0.97, 0.35, "l2:jailbreak")})
+	code := strings.Repeat(sqlDDL+"\n", 8)
+	for _, tt := range []struct {
+		name  string
+		src   Source
+		off   bool
+		text  string
+		score float64
+		rules []string
+	}{
+		{"tool: cap then corroboration", SourceTool, false, code, 0.35, []string{"l2:jailbreak", fusion.L2CapRule, CodeCorroborationRule}},
+		{"document, corroboration off: cap only", SourceDocument, true, code, 0.475, []string{"l2:jailbreak", fusion.L2CapRule}},
+		{"prose: cap only", SourceTool, false, email, 0.475, []string{"l2:jailbreak", fusion.L2CapRule}},
+		{"tool description: neither", SourceToolDescription, false, code, 0.95, []string{"l2:jailbreak"}},
+		{"user: neither", SourceUser, false, code, 0.95, []string{"l2:jailbreak"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			v, err := Scanner{Runner: r, NoCodeCorroboration: tt.off, CapL2: capHalf}.Score(context.Background(), tt.text, tt.src)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if v.Score < tt.score-1e-3 || v.Score > tt.score+1e-3 || !slices.Equal(v.Rules, tt.rules) {
+				t.Fatalf("score %.3f rules %v, want %.3f %v", v.Score, v.Rules, tt.score, tt.rules)
+			}
+		})
+	}
+	// Without a cap the scanner is as before.
+	if v, err := (Scanner{Runner: r}).Score(context.Background(), email, SourceTool); err != nil || v.Score < 0.949 || v.Score > 0.951 {
+		t.Fatalf("no cap: %.3f %v", v.Score, err)
+	}
+	if (Scanner{Runner: r, NoCodeCorroboration: true}).Adjust(SourceTool) != nil {
+		t.Fatal("no cap, corroboration off: an adjust")
+	}
+}

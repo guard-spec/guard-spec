@@ -9,6 +9,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -25,6 +26,9 @@ type scoredRow struct {
 	Lang   string     `json:"lang"`
 	Attack bool       `json:"attack"`
 	Raw    [3]float64 `json:"raw"` // L1, L2, L3 before calibration
+	// L1Rules is how many rules fired (0: L1's score is cue words only).
+	// Absent from caches written before it existed, which then read as 0.
+	L1Rules int `json:"l1_rules,omitempty"`
 }
 
 // method turns calibrated layer scores into a fused score.
@@ -127,8 +131,13 @@ func runFit(args []string) int {
 		fmt.Printf("  %s: fusion.LogReg{W: [3]float64{%.4f, %.4f, %.4f}, B: %.4f}\n", m.name, lr.W[0], lr.W[1], lr.W[2], lr.B)
 	}
 
+	silent := l1Silent(rows)
+	capL2 := untrustedMax(lrs, silent)
+	fmt.Printf("  l2_untrusted_max: %.2f (L2 alone with L1 silent at raw %.3f and L3 neutral stays below %.2f on both paths)\n",
+		capL2, silent, evalset.InjectionBlockThreshold)
+
 	if *write {
-		f := ml.CalibrationFile{Model: stack.L2Model, Platt: l2, LogReg: lrs,
+		f := ml.CalibrationFile{Model: stack.L2Model, Platt: l2, LogReg: lrs, L2UntrustedMax: capL2,
 			FittedOn: fmt.Sprintf("%s (%d rows), %s", *val, len(rows), time.Now().UTC().Format("2006-01-02"))}
 		data, _ := json.MarshalIndent(f, "", "  ")
 		path := filepath.Join(stack.L2Dir, "calibration.json")
@@ -139,6 +148,62 @@ func runFit(args []string) int {
 		fmt.Println("wrote", path)
 	}
 	return 0
+}
+
+// l1Silent is the raw L1 score of a text where no rule fired, taken high: the
+// 90th percentile over the benign rows without a rule (cue words alone give
+// L1 a small score; on the validation splits the largest is about 0.17). A
+// cache written before L1Rules existed reads every row as rule-free, so its
+// benign rows with a rule count too: a higher level, hence a lower cap.
+func l1Silent(rows []scoredRow) float64 {
+	var xs []float64
+	for _, r := range rows {
+		if !r.Attack && r.L1Rules == 0 && r.Raw[fusion.L1] > 0 {
+			xs = append(xs, r.Raw[fusion.L1])
+		}
+	}
+	if len(xs) == 0 {
+		return 0
+	}
+	sort.Float64s(xs)
+	return xs[min(len(xs)-1, int(0.9*float64(len(xs))))]
+}
+
+// untrustedMax derives CalibrationFile.L2UntrustedMax: the largest calibrated
+// L2 score, on a 0.01 grid, at which L2 alone cannot block untrusted content
+// on either path, less one step of margin. "Alone" is L1 at its silent level
+// (l1Silent, calibrated) and L3 at the neutral raw score 0.5 (calibrated),
+// fused with each combiner in lrs (l1,l2,l3 on the short path; l1,l2 on the
+// long path, where L3 does not run); "block" is evalset.InjectionBlockThreshold.
+// The cap is a design rule rather than a fit: a classifier trained on attack
+// payloads in code and log hosts is as certain about benign prose in such
+// hosts, which the validation splits do not contain (RF-437128e9), so above
+// the cap L1 or L3 must add the lift. 0 when no combiner is given.
+func untrustedMax(lrs map[string]fusion.LogReg, l1Silent float64) float64 {
+	if len(lrs) == 0 {
+		return 0
+	}
+	p1 := fusion.DefaultL1Calibration.Apply(l1Silent)
+	p3 := ml.DefaultL3Calibration.Apply(0.5)
+	best := 1.0
+	for key, lr := range lrs {
+		layers := [3]float64{p1, 0, p3}
+		if !strings.Contains(key, "l3") {
+			layers[fusion.L3] = fusion.Missing
+		}
+		largest := 0.0
+		for i := 1; i < 100; i++ {
+			p2 := float64(i) / 100
+			layers[fusion.L2] = p2
+			s, ok := lr.Apply(layers)
+			if !ok || s >= evalset.InjectionBlockThreshold {
+				break
+			}
+			largest = p2
+		}
+		best = math.Min(best, largest)
+	}
+	return math.Round((best-0.01)*100) / 100
 }
 
 func scoreSplit(ctx context.Context, path string, stack *ml.Stack) ([]scoredRow, error) {
@@ -166,6 +231,9 @@ func scoreSplit(ctx context.Context, path string, stack *ml.Stack) ([]scoredRow,
 				return nil, fmt.Errorf("row %s layer %d: %w", r.ID, slot+1, err)
 			}
 			row.Raw[slot] = res.Score
+			if slot == fusion.L1 {
+				row.L1Rules = len(res.Rules)
+			}
 		}
 		out = append(out, row)
 		if (i+1)%500 == 0 {

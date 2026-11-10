@@ -49,7 +49,7 @@ func scanToolsHandler(gw gateway) fiber.Handler {
 		}
 
 		threshold := gw.baseScanConfig().IndirectThreshold
-		scanner := indirect.Scanner{Runner: gw.runner}
+		scanner := indirect.Scanner{Runner: gw.runner, CapL2: gw.capL2}
 		entry := newEntry(c)
 		gw := gw.forRequest(&entry)
 		results := make([]toolResult, 0, len(req.Tools))

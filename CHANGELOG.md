@@ -100,6 +100,26 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 - Activity log actions `scim.user_*`, `scim.group_*`, `scim.token_created`,
   `scim.token_revoked`, `scim.group_roles_updated` and
   `member.role_from_group`.
+- Classifier cap for untrusted content (RF-437128e9). A classifier's
+  `calibration.json` may set `l2_untrusted_max`: on tool results and
+  documents (the short path and the long path alike) the classifier's
+  calibrated score counts up to that value only, so the classifier alone
+  cannot block such text; a rule (L1) or the similarity layer (L3) must add
+  the lift. A chunk or window lowered this way carries the rule
+  `fusion.l2_capped`; floors (a decisive rule, an org's own exemplar) are
+  kept, the score is never raised, and user, system and tool-description
+  text is not affected. `cmd/calibrate fit` derives the value from the
+  fusion weights: the largest calibrated score at which L2 alone, with L1
+  silent and L3 neutral, stays below 0.85 on both paths, less 0.01. The
+  shipped v3b calibration does not set it, so nothing changes until a
+  calibration does; `cmd/eval -path tool` applies it (`-l2cap off` leaves it
+  out; the detector name then ends in `/l2cap` when a cap is in effect) and
+  gets `-corroboration on|off` for the gateway's `TOOL_CODE_CORROBORATION`.
+  Why: a classifier trained on attack payloads embedded in code and log
+  hosts is as certain about benign prose embedded the same way (a third of
+  the benign rows of a 2 KB code/log set, with the other layers silent),
+  and its validation data cannot show it; capping L2 on untrusted content
+  keeps the other layers decisive there.
 
 ### Changed
 

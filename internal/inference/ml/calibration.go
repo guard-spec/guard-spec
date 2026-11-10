@@ -24,6 +24,13 @@ type CalibrationFile struct {
 	FittedOn string                   `json:"fitted_on"`
 	Platt    fusion.Calibration       `json:"platt"`
 	LogReg   map[string]fusion.LogReg `json:"logreg,omitempty"`
+	// L2UntrustedMax caps the classifier's calibrated score on untrusted
+	// content (tool results and documents, on the short and the long path):
+	// above it L2 alone cannot block, L1 or L3 must add lift (CapL2). 0 or
+	// absent: no cap, which is how every built-in calibration and the
+	// shipped v3b file behave. `cmd/calibrate fit` derives it from the
+	// combiners (see untrustedMax there).
+	L2UntrustedMax float64 `json:"l2_untrusted_max,omitempty"`
 }
 
 // BuiltinCalibrations are the calibrations of the classifiers we ship.

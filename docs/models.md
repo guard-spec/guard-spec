@@ -133,6 +133,16 @@ Undo by removing `L2_MODEL` and restarting. Calibration travels with the
 model (`calibration.json` in the version directory), so the fusion weights
 always match the classifier that is loaded.
 
+`calibration.json` holds the Platt scaling of the classifier's score
+(`platt`), the fusion weights per layer set (`logreg`: `l1,l2` and
+`l1,l2,l3`) and, optionally, `l2_untrusted_max`: a cap on the classifier's
+calibrated score for tool results and documents, above which a rule (L1) or
+the similarity layer (L3) must add the lift before the text blocks. A chunk
+or long-path window lowered by it carries the rule `fusion.l2_capped`.
+`go run -tags onnx ./cmd/calibrate fit -write` derives all three on the
+validation splits; a file without `l2_untrusted_max` (the shipped v3b) sets
+no cap. Shadow mode compares the classifiers' fused scores before the cap.
+
 ## Comparing a candidate first (shadow mode)
 
 Before switching, run the candidate next to the active classifier:

@@ -133,6 +133,17 @@ Muốn hoàn tác thì xóa `L2_MODEL` và khởi động lại. Calibration đi
 (`calibration.json` trong thư mục phiên bản), nên trọng số fusion luôn khớp
 với classifier đang được nạp.
 
+`calibration.json` chứa Platt scaling cho điểm của classifier (`platt`),
+trọng số fusion theo bộ layer (`logreg`: `l1,l2` và `l1,l2,l3`) và, tùy
+chọn, `l2_untrusted_max`: mức trần cho điểm đã hiệu chỉnh của classifier
+trên tool result và document; vượt mức đó thì phải có rule (L1) hoặc lớp
+similarity (L3) nâng thêm thì văn bản mới bị chặn. Chunk hoặc cửa sổ trên
+đường dài bị hạ điểm vì mức trần mang rule `fusion.l2_capped`.
+`go run -tags onnx ./cmd/calibrate fit -write` tính cả ba trên các tập
+validation; file không có `l2_untrusted_max` (bản v3b đang phát hành) nghĩa
+là không có mức trần. Shadow mode so sánh điểm fusion của các classifier
+trước khi áp mức trần.
+
 ## So sánh bản ứng viên trước (shadow mode)
 
 Trước khi chuyển, hãy chạy bản ứng viên song song với classifier đang dùng:

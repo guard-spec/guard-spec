@@ -603,7 +603,7 @@ var errAlreadyLarge = fmt.Errorf("large request: %w", inference.ErrInputTooLong)
 
 // scoreRequestAs is scoreRequest, as a large request when forceLarge.
 func (gw gateway) scoreRequestAs(g *textGuard, forceLarge bool) (v requestVerdict, err error) {
-	scanner := indirect.Scanner{Runner: gw.runner, NoCodeCorroboration: gw.baseScanConfig().NoCodeCorroboration}
+	scanner := indirect.Scanner{Runner: gw.runner, NoCodeCorroboration: gw.baseScanConfig().NoCodeCorroboration, CapL2: gw.capL2}
 	cache, gen := gw.cache, int64(0)
 	if !g.useCache {
 		cache = nil
