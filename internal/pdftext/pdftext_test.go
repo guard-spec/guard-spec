@@ -9,7 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/guard-spec/guard-spec/internal/pdftext/internal/testpdf"
+	"github.com/guard-spec/guard-spec/internal/testpdf"
 )
 
 func extract(t *testing.T, data []byte, lim Limits) Result {

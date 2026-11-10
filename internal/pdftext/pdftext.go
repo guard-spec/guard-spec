@@ -191,6 +191,12 @@ func Warm(ctx context.Context) error {
 	return defaultExtractor(DefaultLimits()).Warm(ctx)
 }
 
+// WarmWith is Warm with the runtime configured from lim (MemoryBytes and
+// MaxConcurrency), for the process that owns the shared extractor.
+func WarmWith(ctx context.Context, lim Limits) error {
+	return defaultExtractor(lim).Warm(ctx)
+}
+
 // Warm compiles the PDFium module and checks that an instance can be
 // created. It is safe to call concurrently and more than once.
 func (e *Extractor) Warm(ctx context.Context) error {

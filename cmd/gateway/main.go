@@ -29,6 +29,7 @@ import (
 	"github.com/guard-spec/guard-spec/internal/inference/ml"
 	"github.com/guard-spec/guard-spec/internal/metrics"
 	"github.com/guard-spec/guard-spec/internal/outputguard"
+	"github.com/guard-spec/guard-spec/internal/pdftext"
 	"github.com/guard-spec/guard-spec/internal/policy"
 	"github.com/guard-spec/guard-spec/internal/proxy"
 	"github.com/guard-spec/guard-spec/internal/sanitizer"
@@ -183,6 +184,8 @@ func main() {
 	slog.Info("scan config", "roles", cfg.Scan.Roles.String(), "spotlight", cfg.Scan.Spotlight,
 		"indirect_threshold", cfg.Scan.IndirectThreshold, "tool_prefixes", cfg.Scan.ToolPrefixes)
 	lane := largeLaneFor(cfg.Scan.MaxScanTokens, cfg.Large)
+	pdf := newPDFExtractor(base, pdftext.DefaultLimits(), cfg.Large.QueueTimeout)
+	pdf.warm() // in the background: readiness never waits for it
 	gw := gateway{
 		detector:         newLiveStatus(detector, live, cfg.Detector.RequireML),
 		live:             live,
@@ -206,6 +209,7 @@ func main() {
 		limits:   newRateLimiter(ops.RateLimit, dbKeyLimits(db)),
 		cache:    cache,
 		large:    lane,
+		pdf:      pdf,
 
 		maxRequestBytes: cfg.Large.MaxRequestBytes,
 
@@ -290,6 +294,9 @@ type gateway struct {
 	// maxRequestBytes is MAX_REQUEST_BYTES, the body limit; 0: Fiber's
 	// default (4 MiB).
 	maxRequestBytes int
+	// pdf extracts the text of PDF parts (pdf_extract.go); nil:
+	// PDF_EXTRACT=off.
+	pdf *pdfExtractor
 
 	// detector is what /readyz reports: the active detection layers.
 	detector detectorStatus
@@ -407,6 +414,9 @@ type requestEntry struct {
 	// UNSCANNED_PARTS is allow (UnscannedQuiet).
 	Unscanned      map[string]int
 	UnscannedQuiet bool
+	// PDF counts the PDF parts: scanned, and unscanned by reason
+	// (pdf_extract.go): input.pdf.* for policies and the input:pdf_* tags.
+	PDF pdfCounts
 	// PIIAction and PIIProtected: what the org's input_pii_action replaced
 	// before the request went upstream, by kind (input_pii_protect.go).
 	PIIAction    string
@@ -547,6 +557,7 @@ func auditTags(e requestEntry) []string {
 	if !e.UnscannedQuiet {
 		tags = append(tags, unscannedTags(e.Unscanned)...)
 	}
+	tags = append(tags, pdfTags(e.PDF, e.UnscannedQuiet)...)
 	tags = append(tags, piiProtectTags(e.PIIAction, e.PIIProtected)...)
 	if e.Redacted > 0 {
 		tags = append(tags, fmt.Sprintf("input:redacted=%d", e.Redacted))
@@ -698,6 +709,11 @@ type textGuard struct {
 	// limits is what the request may scan (MAX_SCAN_TOKENS, large_input.go);
 	// zero: today's byte limits, no long path.
 	limits scanLimits
+	// pdf extracts the text of PDF parts so they are scanned as documents
+	// (pdf_extract.go); nil: PDF_EXTRACT=off, they are unscanned parts.
+	// pdfs counts them: scanned, and unscanned by reason.
+	pdf  *pdfExtractor
+	pdfs pdfCounts
 }
 
 func (g *textGuard) toolSchemaKey() string {
@@ -787,8 +803,19 @@ func (g *textGuard) guardContent(m map[string]any) error {
 			}
 			raw, present := p["text"]
 			if !present {
-				// An image, a file or audio: forwarded, never read.
+				// An image, a file or audio: forwarded, never read, except
+				// a PDF sent inline, whose text is scanned (pdf_extract.go).
 				kind, _ := p["type"].(string)
+				if kind == "file" {
+					if err := rejectShadowKeys(p, "file"); err != nil {
+						return err
+					}
+					file, _ := p["file"].(map[string]any)
+					if err := g.guardFilePart(kind, file, func() { replaceWithText(p, "text") }); err != nil {
+						return err
+					}
+					continue
+				}
 				g.noteUnscanned(kind)
 				continue
 			}
@@ -895,6 +922,9 @@ func guardError(c *fiber.Ctx, err error) error {
 		return c.Status(400).JSON(fiber.Map{"error": err.Error()})
 	case errors.As(err, &refused):
 		return c.Status(fiber.StatusBadRequest).JSON(errorBody(refused.message, "invalid_request_error", refused.code))
+	case errors.Is(err, errScanBusy):
+		// No PDF extractor within LARGE_SCAN_QUEUE_TIMEOUT (pdf_extract.go).
+		return scanError(c, err)
 	default:
 		return c.Status(422).JSON(fiber.Map{"error": "sanitize failed: " + err.Error()})
 	}
@@ -969,7 +999,8 @@ func proxyHandler(gw gateway, f apiFormat) fiber.Handler {
 			latest: f.history && scanCfg.History == historyLatest, useCache: f.history,
 			allowServerState: scanCfg.ServerState == serverStateAllow,
 			windowTurns:      scanCfg.WindowTurns, windowBytes: scanCfg.WindowBytes, detectPII: scanCfg.InputPII,
-			pseudo: outputguard.NewPseudonymizer(scanCfg.PIIAction, scanCfg.PIIKinds), limits: gw.limitsFor(scanCfg)}
+			pseudo: outputguard.NewPseudonymizer(scanCfg.PIIAction, scanCfg.PIIKinds), limits: gw.limitsFor(scanCfg),
+			pdf: gw.pdf}
 		_, endSpan := tracing.Start(tctx, "sanitize")
 		err = f.guardBody(&guard, body)
 		endSpan(err)
@@ -986,6 +1017,7 @@ func proxyHandler(gw gateway, f apiFormat) fiber.Handler {
 		}
 		countUnscanned(scanCfg.Unscanned, guard.unscanned)
 		entry.Unscanned, entry.UnscannedQuiet = guard.unscanned, scanCfg.Unscanned == indirect.UnscannedAllow
+		entry.PDF = guard.pdfs
 		if scanCfg.Unscanned == indirect.UnscannedBlock && len(guard.unscanned) > 0 {
 			kinds, n := unscannedVars(guard.unscanned)
 			slog.Info("blocked unscanned content", "kinds", kinds, "parts", n)

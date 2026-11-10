@@ -199,6 +199,7 @@ func init() {
 		EventsDropped, EventsWritten, AlertsFired, Deliveries, DeliveryLatency,
 		ScanCacheLookups, ScanCacheErrors, UnscannedParts,
 		ScanWindows, ScanTokens, ScanQueueWait,
+		PDFExtract, PDFExtractSeconds, PDFTextBytes,
 	)
 }
 
@@ -236,6 +237,34 @@ var UnscannedParts = prometheus.NewCounterVec(prometheus.CounterOpts{
 	Namespace: namespace, Subsystem: "gateway", Name: "unscanned_parts_total",
 	Help: "Request parts the detectors cannot read (image, file, audio, other), by kind and action (allow, log, block).",
 }, []string{"kind", "action"})
+
+// PDF text extraction (cmd/gateway/pdf_extract.go).
+var (
+	// PDFExtract counts the PDF parts of requests by outcome: ok (text
+	// extracted and scanned), no_text, encrypted, damaged, timeout,
+	// over_limit, internal (internal/pdftext), remote (a url or file id the
+	// gateway cannot fetch) and busy (no extractor within
+	// LARGE_SCAN_QUEUE_TIMEOUT: 429).
+	PDFExtract = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: namespace, Subsystem: "gateway", Name: "pdf_extract_total",
+		Help: "PDF parts by extraction outcome (ok, no_text, encrypted, damaged, timeout, over_limit, internal, remote, busy).",
+	}, []string{"result"})
+
+	// PDFExtractSeconds is the time one extraction took, the wait for a
+	// slot excluded.
+	PDFExtractSeconds = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Namespace: namespace, Subsystem: "gateway", Name: "pdf_extract_seconds",
+		Help:    "Time to extract the text of one PDF part.",
+		Buckets: latencyBuckets,
+	})
+
+	// PDFTextBytes is the size of the text extracted from one PDF part.
+	PDFTextBytes = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Namespace: namespace, Subsystem: "gateway", Name: "pdf_text_bytes",
+		Help:    "Bytes of text extracted from one PDF part.",
+		Buckets: prometheus.ExponentialBuckets(1024, 4, 8), // 1 KiB to 16 MiB
+	})
+)
 
 var tenantLabels atomic.Bool
 
