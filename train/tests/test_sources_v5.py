@@ -11,6 +11,7 @@ import re
 import sys
 import unittest
 from pathlib import Path
+from urllib.parse import urlparse
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "data"))
@@ -41,7 +42,7 @@ class SourcesV5Test(unittest.TestCase):
             if src["kind"] == "archive":
                 self.assertTrue(src.get("archive_sha256"), name)
                 self.assertTrue(src.get("license_file") and src.get("license_match"), name)
-                if "codeload.github.com" in src["url"]:
+                if urlparse(src["url"]).hostname == "codeload.github.com":
                     self.assertTrue(src["url"].endswith("/" + src["commit"]), name)
 
     def test_a_repository_is_in_one_set_only(self):
