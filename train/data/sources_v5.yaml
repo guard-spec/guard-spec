@@ -122,6 +122,126 @@ sources:
       sql: '^src/test/regress/sql/.*\.sql$'
     archive_sha256: 971766d645aa73e93b9ef4e3be44201b4f45b5477095b049125403f9f3386d6f
     content_sha256: 7536d739b10a3e13359400bed1a0252040e03dd1aaaa33a0c34d24e38ba3a9ec
+  # Security and LLM-infrastructure code (round 2): benign code and configuration whose
+  # comments talk about secrets, keys, tokens, signing, OIDC, proxies, upstream model
+  # servers and audit. Tests, test data, examples, docs, prompt templates, vendored and
+  # generated code are excluded. `windows` reserves hard-negative windows of a kind for
+  # the source within the kind's target (build_v5.py), so the domain is not drowned by
+  # the large generic pools; the kind's total stays the same.
+  cosign:
+    set: A
+    kind: archive
+    url: https://codeload.github.com/sigstore/cosign/tar.gz/9a4cfe1aae777984c07ce373d97a65428bbff734
+    tag: v2.4.1
+    commit: 9a4cfe1aae777984c07ce373d97a65428bbff734
+    license: Apache-2.0
+    license_file: LICENSE
+    license_match: Apache License
+    attribution: The Sigstore Authors, https://github.com/sigstore/cosign
+    exclude: '(^|/)(vendor|third_party|node_modules|testdata|test|tests|e2e|doc|docs|specs|images|ISSUE_TEMPLATE)/|_test\.go$|\.pb\.go$|zz_generated'
+    select:
+      code_go: '^(cmd|pkg|internal)/.*\.go$'
+      config: '\.(ya?ml|toml)$|(^|/)Dockerfile[^/]*$'
+      shell: '\.sh$'
+    windows: {code_go: 120, config: 38, shell: 8}
+    archive_sha256: ae5f16bf350d183c868c3c13eb84bf77463ed779f1175fe6304ff647b1e17efb
+    content_sha256: 3fefeed9da4813e69af31956c859f3302b0bc028226afb8d150c93ee4a4b111e
+  hydra:
+    set: A
+    kind: archive
+    url: https://codeload.github.com/ory/hydra/tar.gz/57096be9befbde4a1436ef48338d253a248c91c4
+    tag: v2.2.0
+    commit: 57096be9befbde4a1436ef48338d253a248c91c4
+    license: Apache-2.0
+    license_file: LICENSE
+    license_match: Apache License
+    attribution: Ory Corp and the Ory Hydra contributors, https://github.com/ory/hydra
+    # internal/httpclient is the generated OpenAPI client; migratest holds test fixtures.
+    exclude: '(^|/)(vendor|third_party|node_modules|testdata|test|tests|fixtures|cypress|docs|internal/httpclient|migratest|ISSUE_TEMPLATE)/|_test\.go$|\.pb\.go$|_gen\.go$|(^|/)package(-lock)?\.json$'
+    select:
+      code_go: '\.go$'
+      sql: '^persistence/sql/(migrations|src)/.*\.sql$'
+      config: '\.(ya?ml|toml)$|(^|/)Dockerfile[^/]*$|\.dockerfile$'
+      shell: '\.sh$'
+    windows: {code_go: 110, sql: 160, config: 50, shell: 20}
+    archive_sha256: ab7752d466f27e5d5769cdb8af59bd3fbf83318b34d970a06b81903805d506d5
+    content_sha256: 077f1d589e019c48c2523d5e9cc8264b2330458800cd655bb963d5fb804c02ea
+  oauth2-proxy:
+    set: A
+    kind: archive
+    url: https://codeload.github.com/oauth2-proxy/oauth2-proxy/tar.gz/6fb020149a995b31d7faf03da3ce91765e3d432f
+    tag: v7.7.1
+    commit: 6fb020149a995b31d7faf03da3ce91765e3d432f
+    license: MIT
+    license_file: LICENSE
+    license_match: Permission is hereby granted, free of charge
+    attribution: The oauth2-proxy contributors (and bitly, Inc.), https://github.com/oauth2-proxy/oauth2-proxy
+    exclude: '(^|/)(vendor|third_party|node_modules|testdata|test|tests|docs|static|ISSUE_TEMPLATE)/|_test\.go$|_suite_test\.go$|\.pb\.go$'
+    select:
+      code_go: '\.go$'
+      config: '\.(ya?ml|toml|cfg)$|(^|/)Dockerfile[^/]*$|(^|/)docker-compose[^/]*$'
+      shell: '\.sh$'
+    windows: {code_go: 110, config: 40, shell: 6}
+    archive_sha256: 069be51c3e0421c9c03d42127717dfb2b7492cbcc818babdb88e76b87f8c1394
+    content_sha256: 2358278abb645e25550bdce87448e56bc78085fe468b2638b8be18cb9b97c6e6
+  ollama:
+    set: A
+    kind: archive
+    url: https://codeload.github.com/ollama/ollama/tar.gz/e9e9bdb8d904f009e8b1e54af9f77624d481cfb2
+    tag: v0.3.12
+    commit: e9e9bdb8d904f009e8b1e54af9f77624d481cfb2
+    license: MIT
+    license_file: LICENSE
+    license_match: Permission is hereby granted, free of charge
+    attribution: Ollama, https://github.com/ollama/ollama
+    # Go server, API client, OpenAI-compatible layer, env config; no llm/ (vendored llama.cpp),
+    # no prompt templates (template/), examples, integration tests or docs.
+    exclude: '(^|/)(vendor|third_party|node_modules|testdata|test|tests|integration|examples|docs|template|llm|llama|macapp|gpu|ISSUE_TEMPLATE)/|_test\.go$|\.pb\.go$'
+    select:
+      code_go: '^(api|app|auth|cmd|convert|envconfig|format|openai|parser|progress|readline|server|types|util|version)/.*\.go$|^main\.go$'
+      config: '\.(ya?ml|toml)$|(^|/)Dockerfile[^/]*$'
+      shell: '^scripts/.*\.sh$'
+    windows: {code_go: 90, config: 10, shell: 15}
+    archive_sha256: 158a687716e1f05673b98e4308208e016c04fbd870ed5b4fc5942eb935b3f743
+    content_sha256: 223ac8aa73262270b9700da5a6faa39f65c4b82fc33e3d617269304f39f0e9b5
+  openai-python:
+    set: A
+    kind: archive
+    url: https://codeload.github.com/openai/openai-python/tar.gz/b7d9ce71669164a3864e170476b2846760f5e35f
+    tag: v1.51.0
+    commit: b7d9ce71669164a3864e170476b2846760f5e35f
+    license: Apache-2.0
+    license_file: LICENSE
+    license_match: Apache License
+    attribution: OpenAI, https://github.com/openai/openai-python
+    # The client runtime, helpers and CLI only: resources/ and types/ are generated from the
+    # OpenAPI spec; no tests or examples.
+    exclude: '(^|/)(tests?|examples|docs|ISSUE_TEMPLATE)/|^src/openai/(resources|types)/'
+    select:
+      code_python: '^src/openai/.*\.py$|^noxfile\.py$'
+      config: '\.(ya?ml|toml)$'
+      shell: '^(scripts|bin)/[^/.]+$|\.sh$'
+    windows: {code_python: 90, config: 8, shell: 7}
+    archive_sha256: af37dc5272a2c31c92a8e91d812e299eddb0caa1ddb7408d3fe65046d7107883
+    content_sha256: 5bae93a629eaa528150328a73b50d198cb71fb886a28b7d51ce265c82c9a6b90
+  detect-secrets:
+    set: A
+    kind: archive
+    url: https://codeload.github.com/Yelp/detect-secrets/tar.gz/01886c8a910c64595c47f186ca1ffc0b77fa5458
+    tag: v1.5.0
+    commit: 01886c8a910c64595c47f186ca1ffc0b77fa5458
+    license: Apache-2.0
+    license_file: LICENSE
+    license_match: Apache License
+    attribution: Yelp, Inc. and the detect-secrets contributors, https://github.com/Yelp/detect-secrets
+    # Secret-detection plugins and filters (key formats, entropy), no test data or fixtures.
+    exclude: '(^|/)(tests?|test_data|testing|docs|ISSUE_TEMPLATE)/'
+    select:
+      code_python: '^detect_secrets/.*\.py$|^scripts/.*\.py$'
+      config: '\.(ya?ml|toml)$'
+    windows: {code_python: 120, config: 6}
+    archive_sha256: 2120d914d24bbbf0f34a5f0538c058dc4c7eb300e6707be2cd9fa3ac5c6a83ed
+    content_sha256: d395cd1abc0ff1169176b1da5aa3c18348604b2fb809576599f3df296ed30702
   requests-history:
     set: A
     kind: git-log

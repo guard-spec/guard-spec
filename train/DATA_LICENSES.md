@@ -91,6 +91,12 @@ is refused); vi.wikisource pages must carry `{{PVCC-CPVN}}` or `{{PD-old}}` at t
 | Rust standard library (`rust-src` 1.81.0 component, `library/`) | MIT OR Apache-2.0 | 1.81.0 (`eeb90cd`) | Rust, `Cargo.toml` (no `stdarch`, `backtrace`, `portable-simd`, tests) | A |
 | [Node.js](https://nodejs.org) `lib/` | MIT | `v20.17.0` (`efbec04`) | JavaScript (no `deps/`, `tools/`, `lib/internal/deps/`) | A |
 | PostgreSQL `src/test/regress/sql` | PostgreSQL | 16.4 (`REL_16_4`) | SQL | A |
+| [sigstore/cosign](https://github.com/sigstore/cosign) | Apache-2.0 | `v2.4.1` (`9a4cfe1`) | Go (`cmd/`, `pkg/`, `internal/`), CI/release YAML, shell (no tests, `test/`, `testdata/`, docs, specs) | A |
+| [ory/hydra](https://github.com/ory/hydra) | Apache-2.0 | `v2.2.0` (`57096be`) | Go, SQL migrations (`persistence/sql/migrations`, `src`), quickstart/CI YAML, Dockerfiles, shell (no generated `internal/httpclient`, `migratest`, tests, `cypress/`, docs) | A |
+| [oauth2-proxy/oauth2-proxy](https://github.com/oauth2-proxy/oauth2-proxy) | MIT | `v7.7.1` (`6fb0201`) | Go, docker-compose/YAML/`.cfg` configs, Dockerfile, shell (no tests, `testdata/`, docs, `static/`) | A |
+| [ollama/ollama](https://github.com/ollama/ollama) | MIT | `v0.3.12` (`e9e9bdb`) | Go server, API client, OpenAI-compatible layer, env config, CI YAML, Dockerfile, `scripts/` (no `llm/` (llama.cpp), prompt `template/`, examples, integration tests, docs) | A |
+| [openai/openai-python](https://github.com/openai/openai-python) | Apache-2.0 | `v1.51.0` (`b7d9ce7`) | Python client runtime, helpers and CLI (no generated `resources/`, `types/`; no tests, examples), CI YAML, scripts | A |
+| [Yelp/detect-secrets](https://github.com/Yelp/detect-secrets) | Apache-2.0 | `v1.5.0` (`01886c8`) | Python (secret-detection plugins and filters; no tests, `test_data/`, `testing/`), CI/pre-commit YAML | A |
 | [psf/requests](https://github.com/psf/requests) history | Apache-2.0 | `v2.28.0..v2.32.3` | unified diffs (`git log -p`, commit id and subject only) | A |
 | [BurntSushi/ripgrep](https://github.com/BurntSushi/ripgrep) history | Unlicense OR MIT (used under MIT) | `13.0.0..14.1.0` | unified diffs | A |
 | U.S. Code titles 7 and 15 (GovInfo, 2023) | Public domain (17 U.S.C. 105) | URLs + content SHA-256 | English long prose | A |
@@ -117,7 +123,7 @@ any commit (eval/codelog is built from it), and the message catalogs and seeds o
 and `bench/long/build.py`. Vendored directories inside the repositories above are excluded because their
 licences differ. CC-BY-SA, GPL and unlicensed sources were not considered.
 
-Rows per split and source kind are in `data/stats_v5.json` (full profile: 22,527 rows, see
+Rows per split and source kind are in `data/stats_v5.json` (full profile: 22,518 rows, see
 `DATA_CARD.md`, v5). The built files stay outside the repository: they hold third-party text under the
 licences above (all permissive or public domain) and are not redistributed by this project.
 
