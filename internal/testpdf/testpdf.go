@@ -128,8 +128,8 @@ func (b *Builder) Bytes(root int, extraTrailer string) []byte {
 func Flate(data []byte) []byte {
 	var buf bytes.Buffer
 	w, _ := zlib.NewWriterLevel(&buf, zlib.BestCompression)
-	w.Write(data)
-	w.Close()
+	_, _ = w.Write(data)
+	_ = w.Close()
 	return buf.Bytes()
 }
 
@@ -141,10 +141,10 @@ func FlateRepeat(c byte, n int) []byte {
 	chunk := bytes.Repeat([]byte{c}, 1<<20)
 	for n > 0 {
 		k := min(n, len(chunk))
-		w.Write(chunk[:k])
+		_, _ = w.Write(chunk[:k])
 		n -= k
 	}
-	w.Close()
+	_ = w.Close()
 	return buf.Bytes()
 }
 

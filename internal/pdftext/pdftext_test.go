@@ -302,7 +302,7 @@ func TestDecompressionBomb(t *testing.T) {
 		RawDict:   "/Filter [/FlateDecode /FlateDecode]",
 	}}})
 	ex := New(Limits{MemoryBytes: 256 << 20, MaxConcurrency: 1})
-	defer ex.Close()
+	defer func() { _ = ex.Close() }()
 	if err := ex.Warm(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -398,7 +398,7 @@ func TestCallerContextCancelled(t *testing.T) {
 
 func TestConcurrentExtract(t *testing.T) {
 	ex := New(Limits{MaxConcurrency: 2})
-	defer ex.Close()
+	defer func() { _ = ex.Close() }()
 	if err := ex.Warm(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -520,7 +520,7 @@ func benchDoc(b *testing.B) []byte {
 func BenchmarkExtract100Pages(b *testing.B) {
 	doc := benchDoc(b)
 	ex := New(Limits{MaxConcurrency: 1})
-	defer ex.Close()
+	defer func() { _ = ex.Close() }()
 	if err := ex.Warm(context.Background()); err != nil {
 		b.Fatal(err)
 	}

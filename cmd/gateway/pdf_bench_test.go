@@ -102,7 +102,7 @@ func pdfBenchPost(b *testing.B, client *http.Client, url, body string) int {
 	if err != nil {
 		b.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
 		b.Fatal(err)
 	}

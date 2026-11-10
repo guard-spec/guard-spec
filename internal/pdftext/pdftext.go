@@ -412,7 +412,7 @@ func runExtract(inst pdfium.Pdfium, data []byte, lim Limits, c *collector) (out 
 	if err != nil {
 		return outcome{reason: classifyOpenError(err)}
 	}
-	defer inst.FPDF_CloseDocument(&requests.FPDF_CloseDocument{Document: doc.Document})
+	defer func() { _, _ = inst.FPDF_CloseDocument(&requests.FPDF_CloseDocument{Document: doc.Document}) }()
 
 	pc, err := inst.FPDF_GetPageCount(&requests.FPDF_GetPageCount{Document: doc.Document})
 	if err != nil {
@@ -437,7 +437,9 @@ func runExtract(inst pdfium.Pdfium, data []byte, lim Limits, c *collector) (out 
 		FormFillInfo: noopFormFillInfo(),
 	}); err == nil {
 		form = &fh.FormHandle
-		defer inst.FPDFDOC_ExitFormFillEnvironment(&requests.FPDFDOC_ExitFormFillEnvironment{FormHandle: fh.FormHandle})
+		defer func() {
+			_, _ = inst.FPDFDOC_ExitFormFillEnvironment(&requests.FPDFDOC_ExitFormFillEnvironment{FormHandle: fh.FormHandle})
+		}()
 	}
 
 	for i := 0; i < scan; i++ {
@@ -464,7 +466,7 @@ func extractPage(inst pdfium.Pdfium, doc references.FPDF_DOCUMENT, index int, fo
 		// the document is still useful.
 		return true, nil
 	}
-	defer inst.FPDF_ClosePage(&requests.FPDF_ClosePage{Page: pg.Page})
+	defer func() { _, _ = inst.FPDF_ClosePage(&requests.FPDF_ClosePage{Page: pg.Page}) }()
 	page := requests.Page{ByReference: &pg.Page}
 
 	tp, err := inst.FPDFText_LoadPage(&requests.FPDFText_LoadPage{Page: page})
@@ -512,7 +514,7 @@ func extractAnnotation(inst pdfium.Pdfium, page requests.Page, index int, form *
 	if err != nil {
 		return true, nil // not an annotation dictionary; skip it
 	}
-	defer inst.FPDFPage_CloseAnnot(&requests.FPDFPage_CloseAnnot{Annotation: an.Annotation})
+	defer func() { _, _ = inst.FPDFPage_CloseAnnot(&requests.FPDFPage_CloseAnnot{Annotation: an.Annotation}) }()
 
 	st, err := inst.FPDFAnnot_GetSubtype(&requests.FPDFAnnot_GetSubtype{Annotation: an.Annotation})
 	if err != nil {
