@@ -120,7 +120,7 @@ them yourself, with the command, the hardware and the date.
 - The documentation site (<https://guardspec.io/docs/>) renders this
   repository's Markdown at a pinned commit. A new page needs an entry in
   `src/docs.json` of
-  [guard-spec.github.io](https://github.com/guard-spec/guard-spec.github.io)
+  [guard-spec-site.github.io](https://github.com/guard-spec/guard-spec-site.github.io)
   (for example `docs/red-team.md` as `security/red-team` under Security);
   links between pages work either way.
 
