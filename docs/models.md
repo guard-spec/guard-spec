@@ -19,7 +19,7 @@ tool, so the binary always knows its recommended models.
 |---|---|---|---|---|
 | `guardspec-classifier` | `v3b` | L2 | yes | Hugging Face (not published yet), then the GitHub Release `model-guardspec-classifier-v3b` |
 | `guardspec-classifier` | `v4` | L2 | no: candidate, [compare in shadow mode](#guardspec-classifier-v4-candidate) | the GitHub Release `model-guardspec-classifier-v4` (once the owner publishes it) |
-| `guardspec-classifier` | `v5` | L2 | no: candidate for code, logs and long documents, [shadow mode first](#guardspec-classifier-v5-candidate) | the GitHub Release `model-guardspec-classifier-v5` (once the owner publishes it) |
+| `guardspec-classifier` | `v5` | L2 | no: candidate for code, logs and long documents, [shadow mode first](#guardspec-classifier-v5-candidate) | Hugging Face `guard-spec/guardspec-classifier` (branch `v5`), then the GitHub Release `model-guardspec-classifier-v5` |
 | `multilingual-e5-small` | `614241f` | L3 | yes | Hugging Face `intfloat/multilingual-e5-small` |
 | `protectai-deberta-v3-small-pi-v2` | `d7c8842` | baseline | optional, gated | Hugging Face |
 | `protectai-deberta-v3-base-pi-v2` | `90c9989` | baseline | optional | Hugging Face |
@@ -237,8 +237,8 @@ messages) is unchanged either way.
 
 ```bash
 # 1. Install it next to v3b (files checked against the manifest's SHA-256;
-#    the GitHub release model-guardspec-classifier-v5 is the only source until
-#    the Hugging Face revision is pinned).
+#    Hugging Face at the pinned revision, else the GitHub release
+#    model-guardspec-classifier-v5).
 docker compose --profile models run --rm models-pull guardspec-classifier@v5
 # 2. .env: keep v3b deciding, let v5 score the same traffic.
 L2_MODEL=guardspec-classifier@v3b

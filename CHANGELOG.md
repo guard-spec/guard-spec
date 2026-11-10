@@ -19,7 +19,9 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   long prose and attacks embedded in them (`train/DATA_CARD.md`, "v5 data").
   Its `calibration.json` carries `l2_untrusted_max` (0.88), the classifier's
   cap for untrusted content on the tool path; the same calibration is
-  built in, so a v5 directory without the file gets it too. Hold-out halves, scored once,
+  built in, so a v5 directory without the file gets it too. Published on
+  Hugging Face (branch `v5`, pinned revision) and as the signed GitHub
+  Release `model-guardspec-classifier-v5`. Hold-out halves, scored once,
   v3b → v5: `eval/codelog` FPR 20.99% → 0.62% (corroboration off),
   `eval/embedded` TPR 0.779 → 0.861 and FPR 15.1% → 4.7% (corroboration
   off), `eval/data` TPR at FPR ≤ 1% 0.942 → 0.940, owner hold-outs TPR
