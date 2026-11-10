@@ -6,7 +6,7 @@ toolchain go1.26.10
 
 require (
 	github.com/antlr4-go/antlr/v4 v4.13.1
-	github.com/beevik/etree v1.7.0
+	github.com/beevik/etree v1.8.1
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/daulet/tokenizers v1.27.0
 	github.com/gofiber/fiber/v2 v2.52.16
