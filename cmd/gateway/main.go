@@ -29,7 +29,6 @@ import (
 	"github.com/guard-spec/guard-spec/internal/inference/ml"
 	"github.com/guard-spec/guard-spec/internal/metrics"
 	"github.com/guard-spec/guard-spec/internal/outputguard"
-	"github.com/guard-spec/guard-spec/internal/pdftext"
 	"github.com/guard-spec/guard-spec/internal/policy"
 	"github.com/guard-spec/guard-spec/internal/proxy"
 	"github.com/guard-spec/guard-spec/internal/sanitizer"
@@ -184,8 +183,13 @@ func main() {
 	slog.Info("scan config", "roles", cfg.Scan.Roles.String(), "spotlight", cfg.Scan.Spotlight,
 		"indirect_threshold", cfg.Scan.IndirectThreshold, "tool_prefixes", cfg.Scan.ToolPrefixes)
 	lane := largeLaneFor(cfg.Scan.MaxScanTokens, cfg.Large)
-	pdf := newPDFExtractor(base, pdftext.DefaultLimits(), cfg.Large.QueueTimeout)
-	pdf.warm() // in the background: readiness never waits for it
+	var pdf *pdfExtractor
+	if cfg.PDF.Enabled {
+		pdf = newPDFExtractor(base, cfg.PDF.Limits, cfg.Large.QueueTimeout)
+		pdf.warm() // in the background: readiness never waits for it
+	} else {
+		slog.Info("pdf extraction off: PDFs are unscanned parts")
+	}
 	gw := gateway{
 		detector:         newLiveStatus(detector, live, cfg.Detector.RequireML),
 		live:             live,
@@ -1496,6 +1500,7 @@ func policyVars(entry requestEntry, body map[string]any, bodyBytes int) *policy.
 	}
 	vars.InputPIIKinds, vars.InputPIICount = piiVars(entry.InputPII)
 	vars.UnscannedKinds, vars.UnscannedCount = unscannedVars(entry.Unscanned)
+	vars.PDFCount, vars.PDFScanned, vars.PDFReasons = pdfVars(entry.PDF)
 	vars.ScoreL1, vars.ScoreL2, vars.ScoreL3 = vars.InjectionScore, -1, -1
 	if d := entry.Scores.Injection.Detail; d != nil {
 		vars.ScoreL1, vars.ScoreL2, vars.ScoreL3, vars.InjectionCat = d.L1, d.L2, d.L3, d.Category
@@ -1610,6 +1615,8 @@ type config struct {
 	AuditDedupeWindow time.Duration
 	// Large is the large-input lane and MAX_REQUEST_BYTES (large_input.go).
 	Large largeConfig
+	// PDF is PDF_EXTRACT and its limits (pdf_extract.go).
+	PDF pdfConfig
 }
 
 func loadConfig() (config, error) {
@@ -1672,6 +1679,10 @@ func loadConfig() (config, error) {
 	if err != nil {
 		return config{}, err
 	}
+	pdf, err := loadPDFConfig(os.Getenv, scan.MaxScanTokens)
+	if err != nil {
+		return config{}, err
+	}
 	provider := strings.ToLower(strings.TrimSpace(getenv("UPSTREAM_LLM_PROVIDER", providerOpenAICompatible)))
 	if provider != providerOpenAICompatible && provider != providerAnthropic {
 		return config{}, errors.New("UPSTREAM_LLM_PROVIDER must be openai_compatible or anthropic")
@@ -1696,6 +1707,7 @@ func loadConfig() (config, error) {
 		AdminToken:           strings.TrimSpace(secretsrc.Getenv("GATEWAY_ADMIN_TOKEN")),
 		AuditDedupeWindow:    dedupeWindow,
 		Large:                large,
+		PDF:                  pdf,
 	}
 	// Refuse a default or weak database password unless GUARD_ENV=dev.
 	var secrets appconfig.Checker

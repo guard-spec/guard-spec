@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -38,12 +39,87 @@ import (
 // input:pdf_* audit tags and the pdf_extract metrics. PDF_EXTRACT=off is
 // exactly the behaviour before this feature.
 
+// Environment variables of PDF extraction.
 const (
+	envPDFExtract         = "PDF_EXTRACT"
+	envPDFMaxBytes        = "PDF_EXTRACT_MAX_BYTES"
+	envPDFMaxPages        = "PDF_EXTRACT_MAX_PAGES"
+	envPDFMaxTextBytes    = "PDF_EXTRACT_MAX_TEXT_BYTES"
+	envPDFTimeout         = "PDF_EXTRACT_TIMEOUT"
+	envPDFMemory          = "PDF_EXTRACT_MEMORY"
+	envPDFMaxConcurrency  = "PDF_EXTRACT_MAX_CONCURRENCY"
+	pdfTextBytesPerToken  = 4 // PDF_EXTRACT_MAX_TEXT_BYTES defaults to this many bytes per MAX_SCAN_TOKENS token
 	pdfReasonRemote       = "remote"
 	pdfExtractResultBusy  = "busy" // metric result: no extractor within LARGE_SCAN_QUEUE_TIMEOUT
 	pdfExtractCacheBytes  = 32 << 20
 	pdfExtractCacheMaxLen = 256
 )
+
+// pdfConfig is PDF_EXTRACT and its limits.
+type pdfConfig struct {
+	Enabled bool
+	Limits  pdftext.Limits
+}
+
+// loadPDFConfig reads the PDF_EXTRACT variables. maxScanTokens is
+// MAX_SCAN_TOKENS (0: unset), which bounds the default text limit: the
+// gateway never scans more than that many tokens, so extracting more text is
+// wasted work.
+func loadPDFConfig(env func(string) string, maxScanTokens int) (pdfConfig, error) {
+	cfg := pdfConfig{Enabled: true, Limits: pdftext.DefaultLimits()}
+	switch v := strings.ToLower(strings.TrimSpace(env(envPDFExtract))); v {
+	case "", "on":
+	case "off":
+		cfg.Enabled = false
+	default:
+		return pdfConfig{}, fmt.Errorf("%s must be on or off", envPDFExtract)
+	}
+	if maxScanTokens > 0 {
+		cfg.Limits.MaxTextBytes = min(cfg.Limits.MaxTextBytes, int64(maxScanTokens)*pdfTextBytesPerToken)
+	}
+	ints := []struct {
+		name     string
+		dst      *int64
+		min, max int64
+	}{
+		{envPDFMaxBytes, &cfg.Limits.MaxBytes, 1 << 10, 1 << 30},
+		{envPDFMaxPages, &cfg.Limits.MaxPages, 1, 100_000},
+		{envPDFMaxTextBytes, &cfg.Limits.MaxTextBytes, 1 << 10, 1 << 30},
+	}
+	for _, v := range ints {
+		s := strings.TrimSpace(env(v.name))
+		if s == "" {
+			continue
+		}
+		n, err := strconv.ParseInt(s, 10, 64)
+		if err != nil || n < v.min || n > v.max {
+			return pdfConfig{}, fmt.Errorf("%s must be a whole number from %d to %d", v.name, v.min, v.max)
+		}
+		*v.dst = n
+	}
+	if s := strings.TrimSpace(env(envPDFTimeout)); s != "" {
+		d, err := time.ParseDuration(s)
+		if err != nil || d < 100*time.Millisecond || d > 10*time.Minute {
+			return pdfConfig{}, fmt.Errorf("%s must be a duration from 100ms to 10m", envPDFTimeout)
+		}
+		cfg.Limits.Timeout = d
+	}
+	if s := strings.TrimSpace(env(envPDFMemory)); s != "" {
+		n, err := strconv.ParseUint(s, 10, 64)
+		if err != nil || n < 32<<20 || n > 4<<30 {
+			return pdfConfig{}, fmt.Errorf("%s must be a whole number of bytes from %d (32 MiB) to %d (4 GiB)", envPDFMemory, 32<<20, 4<<30)
+		}
+		cfg.Limits.MemoryBytes = n
+	}
+	if s := strings.TrimSpace(env(envPDFMaxConcurrency)); s != "" {
+		n, err := strconv.Atoi(s)
+		if err != nil || n < 1 || n > 1024 {
+			return pdfConfig{}, fmt.Errorf("%s must be a whole number from 1 to 1024", envPDFMaxConcurrency)
+		}
+		cfg.Limits.MaxConcurrency = n
+	}
+	return cfg, nil
+}
 
 // pdfExtractor extracts the text of PDF parts for the guard, with the shared
 // pdftext runtime. Its slots bound the documents parsed at once: a request
@@ -182,6 +258,19 @@ func (c *pdfCounts) noteUnscanned(reason string) {
 
 // empty reports no PDF part at all.
 func (c pdfCounts) empty() bool { return c.Scanned == 0 && len(c.Unscanned) == 0 }
+
+// pdfVars returns input.pdf.count, input.pdf.scanned and input.pdf.reasons
+// (the reasons present, in the order of indirect.PDFReasons).
+func pdfVars(c pdfCounts) (count, scanned int, reasons []string) {
+	count = c.Scanned
+	for _, r := range indirect.PDFReasons {
+		if n := c.Unscanned[r]; n > 0 {
+			reasons = append(reasons, r)
+			count += n
+		}
+	}
+	return count, c.Scanned, reasons
+}
 
 // pdfTags renders the counts for the audit row: "input:pdf_scanned=<n>" and
 // "input:pdf_unscanned_<reason>=<n>". The unscanned tags are left out when

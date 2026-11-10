@@ -17,6 +17,7 @@ import (
 
 	"github.com/guard-spec/guard-spec/internal/indirect"
 	"github.com/guard-spec/guard-spec/internal/pdftext"
+	"github.com/guard-spec/guard-spec/internal/policy"
 	"github.com/guard-spec/guard-spec/internal/testpdf"
 )
 
@@ -59,19 +60,6 @@ func pdfUnreadable() map[string][]byte {
 			Pages:   []testpdf.Page{{Content: testpdf.ShowText(pdfAttack, 12, 72, 720)}},
 		}),
 		pdftext.ReasonDamaged: []byte("%PDF-1.7\n1 0 obj << /Type /Catalog >>\n%%EOF"),
-	}
-}
-
-func TestPDFTags(t *testing.T) {
-	c := pdfCounts{Scanned: 2, Unscanned: map[string]int{"remote": 1, "encrypted": 3}}
-	if tags := pdfTags(c, false); !slices.Equal(tags, []string{"input:pdf_scanned=2", "input:pdf_unscanned_encrypted=3", "input:pdf_unscanned_remote=1"}) {
-		t.Errorf("tags %v", tags)
-	}
-	if tags := pdfTags(c, true); !slices.Equal(tags, []string{"input:pdf_scanned=2"}) {
-		t.Errorf("quiet tags %v", tags)
-	}
-	if tags := pdfTags(pdfCounts{}, false); tags != nil {
-		t.Errorf("empty tags %v", tags)
 	}
 }
 
@@ -155,6 +143,50 @@ func sentBody(up *fakeUpstream) string {
 	return up.body
 }
 
+func TestLoadPDFConfig(t *testing.T) {
+	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
+	cfg, err := loadPDFConfig(env(nil), 0)
+	if err != nil || !cfg.Enabled || cfg.Limits != pdftext.DefaultLimits() {
+		t.Fatalf("defaults: %+v %v", cfg, err)
+	}
+	// MAX_SCAN_TOKENS bounds the default text limit: 4 bytes a token.
+	if cfg, _ = loadPDFConfig(env(nil), 100_000); cfg.Limits.MaxTextBytes != 400_000 {
+		t.Errorf("text limit under MAX_SCAN_TOKENS=100000: %d", cfg.Limits.MaxTextBytes)
+	}
+	if cfg, _ = loadPDFConfig(env(nil), 2_000_000); cfg.Limits.MaxTextBytes != 4<<20 {
+		t.Errorf("text limit under MAX_SCAN_TOKENS=2000000: %d", cfg.Limits.MaxTextBytes)
+	}
+	cfg, err = loadPDFConfig(env(map[string]string{envPDFExtract: "off", envPDFMaxBytes: "1048576", envPDFMaxPages: "10",
+		envPDFMaxTextBytes: "65536", envPDFTimeout: "2s", envPDFMemory: "67108864", envPDFMaxConcurrency: "3"}), 100_000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := pdftext.Limits{MaxBytes: 1 << 20, MaxPages: 10, MaxTextBytes: 65536, Timeout: 2 * time.Second,
+		MemoryBytes: 64 << 20, MaxConcurrency: 3}
+	if cfg.Enabled || cfg.Limits != want {
+		t.Errorf("got %+v, want off %+v", cfg, want)
+	}
+	for _, bad := range []map[string]string{
+		{envPDFExtract: "maybe"},
+		{envPDFMaxBytes: "big"}, {envPDFMaxBytes: "0"}, {envPDFMaxBytes: "2147483648"},
+		{envPDFMaxPages: "0"}, {envPDFMaxPages: "-1"},
+		{envPDFMaxTextBytes: "12"},
+		{envPDFTimeout: "10"}, {envPDFTimeout: "1ms"}, {envPDFTimeout: "1h"},
+		{envPDFMemory: "1024"}, {envPDFMemory: "lots"},
+		{envPDFMaxConcurrency: "0"}, {envPDFMaxConcurrency: "x"},
+	} {
+		if _, err := loadPDFConfig(env(bad), 0); err == nil {
+			t.Errorf("%v accepted", bad)
+		} else {
+			for k := range bad {
+				if !strings.Contains(err.Error(), k) {
+					t.Errorf("%v: error %q does not name the variable", bad, err)
+				}
+			}
+		}
+	}
+}
+
 // The reasons the gateway records are the extractor's outcomes plus remote.
 func TestPDFReasonsMatchExtractor(t *testing.T) {
 	want := []string{pdftext.ReasonNoText, pdftext.ReasonEncrypted, pdftext.ReasonDamaged, pdftext.ReasonTimeout,
@@ -164,6 +196,26 @@ func TestPDFReasonsMatchExtractor(t *testing.T) {
 	}
 	if slices.Contains(indirect.PDFReasons, pdftext.ReasonOK) {
 		t.Error("ok is not an unscanned reason")
+	}
+}
+
+func TestPDFVarsAndTags(t *testing.T) {
+	c := pdfCounts{Scanned: 2, Unscanned: map[string]int{"remote": 1, "encrypted": 3}}
+	count, scanned, reasons := pdfVars(c)
+	if count != 6 || scanned != 2 || !slices.Equal(reasons, []string{"encrypted", "remote"}) {
+		t.Errorf("vars %d %d %v", count, scanned, reasons)
+	}
+	if tags := pdfTags(c, false); !slices.Equal(tags, []string{"input:pdf_scanned=2", "input:pdf_unscanned_encrypted=3", "input:pdf_unscanned_remote=1"}) {
+		t.Errorf("tags %v", tags)
+	}
+	if tags := pdfTags(c, true); !slices.Equal(tags, []string{"input:pdf_scanned=2"}) {
+		t.Errorf("quiet tags %v", tags)
+	}
+	if count, scanned, reasons := pdfVars(pdfCounts{}); count != 0 || scanned != 0 || reasons != nil {
+		t.Errorf("empty: %d %d %v", count, scanned, reasons)
+	}
+	if tags := pdfTags(pdfCounts{}, false); tags != nil {
+		t.Errorf("empty tags %v", tags)
 	}
 }
 
@@ -412,7 +464,9 @@ func TestPDFExtractOffParity(t *testing.T) {
 			if !maps.Equal(row.Unscanned, map[string]int{"file": 1}) || !row.PDF.empty() || row.Indirect.Score >= 0.85 {
 				t.Errorf("row unscanned %v pdf %+v indirect %+v", row.Unscanned, row.PDF, row.Indirect)
 			}
-			if vars := policyVars(row, nil, 0); !slices.Equal(vars.UnscannedKinds, []string{"file"}) || vars.UnscannedCount != 1 {
+			vars := policyVars(row, nil, 0)
+			if vars.PDFCount != 0 || vars.PDFScanned != 0 || vars.PDFReasons != nil ||
+				!slices.Equal(vars.UnscannedKinds, []string{"file"}) || vars.UnscannedCount != 1 {
 				t.Errorf("vars %+v", vars)
 			}
 			// block refuses as before, naming the kind.
@@ -422,6 +476,47 @@ func TestPDFExtractOffParity(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A rule on input.pdf.reasons acts on an unreadable PDF whatever the
+// unscanned mode; input.pdf.scanned and input.pdf.count see the others.
+func TestPDFPolicyFields(t *testing.T) {
+	lim := pdftext.DefaultLimits()
+	api := pdfAPIs()[0]
+	t.Run("reasons", func(t *testing.T) {
+		r := rule(policy.ActionBlock, "input.pdf.reasons", "contains", "encrypted")
+		h, up := pdfGateway(t, api, &lim, indirect.ActionBlock, indirect.UnscannedAllow, withRules(r))
+		resp, got := h.post(t, api.path, api.body(api.inline(pdfUnreadable()[pdftext.ReasonEncrypted])), nil)
+		row := h.oneRow(t)
+		if resp.StatusCode != 400 || up.hits.Load() != 0 || row.Detected != layerPolicy || row.RuleID != r.ID {
+			t.Errorf("got %d %s, detected %s", resp.StatusCode, got, row.Detected)
+		}
+		if tags := auditTags(row); !slices.Equal(tags, nil) { // allow is quiet
+			t.Errorf("tags %v", tags)
+		}
+		if vars := policyVars(row, nil, 0); vars.PDFCount != 1 || vars.PDFScanned != 0 || !slices.Equal(vars.PDFReasons, []string{"encrypted"}) {
+			t.Errorf("vars %+v", vars)
+		}
+	})
+	t.Run("scanned and count", func(t *testing.T) {
+		r := rule(policy.ActionLog, "input.pdf.count", ">", 1)
+		h, up := pdfGateway(t, api, &lim, indirect.ActionBlock, indirect.UnscannedLog, withRules(r))
+		parts := api.inline(testpdf.Simple(pdfBenign)) + "," + api.inline(pdfUnreadable()[pdftext.ReasonNoText]) + "," + api.remote
+		resp, got := h.post(t, api.path, api.body(parts), nil)
+		row := h.oneRow(t)
+		if resp.StatusCode != 200 || up.hits.Load() != 1 || row.RuleID != r.ID {
+			t.Errorf("got %d %s, rule %v", resp.StatusCode, got, row.RuleID)
+		}
+		vars := policyVars(row, nil, 0)
+		if vars.PDFCount != 3 || vars.PDFScanned != 1 || !slices.Equal(vars.PDFReasons, []string{"no_text", "remote"}) ||
+			vars.UnscannedCount != 2 {
+			t.Errorf("vars %+v", vars)
+		}
+		want := []string{"input:unscanned_file=2", "input:pdf_scanned=1", "input:pdf_unscanned_no_text=1", "input:pdf_unscanned_remote=1"}
+		if tags := auditTags(row); !slices.Equal(tags, want) {
+			t.Errorf("tags %v, want %v", tags, want)
+		}
+	})
 }
 
 // No free extractor within the queue timeout: 429 with Retry-After, in the

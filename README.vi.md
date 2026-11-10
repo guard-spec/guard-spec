@@ -375,7 +375,14 @@ dùng nhất:
 | `UNSCANNED_PARTS` | `log` | Phần gateway chuyển tiếp nhưng không đọc được nên không quét injection (ảnh, file như PDF, âm thanh, và phần không có văn bản thuộc kiểu gateway không biết): `log` cho qua và gắn thẻ `input:unscanned_<loại>=<số>` vào audit; `block` từ chối cả request (400 `unscanned_content`), không gửi gì lên upstream; `allow` cho qua, chỉ đếm metric. Tổ chức chỉ được đặt chặt hơn (`unscanned_parts`). Xem [Phần gateway không đọc được](#phần-gateway-không-đọc-được) |
 | `MAX_SCAN_TOKENS` | rỗng (giới hạn hiện tại) | Số token tối đa gateway quét cho một request được proxy. Rỗng hoặc `0`: giữ giới hạn theo byte như trước (khoảng 28 KB văn bản của người dùng, system và tham số tool call; 128 KiB kết quả tool, tài liệu và mô tả tool; 1 MiB lượt cũ), vượt thì 413. Khi đặt: là trần token của request (vượt thì 413), và request vượt các giới hạn byte đó được quét theo đường dài trong làn input lớn thay vì bị từ chối. Xem [Input lớn](#input-lớn) |
 | `INFERENCE_LARGE_MAX_CONCURRENCY` / `LARGE_SCAN_ORG_CONCURRENCY` | số CPU / 4 (ít nhất 1) / một nửa của nó | Số request lớn được quét cùng lúc (và các lượt chạy model của chúng, trên limiter riêng) / của một tổ chức |
-| `LARGE_SCAN_QUEUE_TIMEOUT` | `30s` | Thời gian request lớn chờ làn trước khi nhận 429 kèm `Retry-After` |
+| `LARGE_SCAN_QUEUE_TIMEOUT` | `30s` | Thời gian request lớn chờ làn trước khi nhận 429 kèm `Retry-After`; cũng là thời gian request chờ một bộ trích xuất PDF rảnh (`PDF_EXTRACT`) |
+| `PDF_EXTRACT` | `on` | `on`: văn bản của PDF gửi kèm trong request (khối `document` nguồn base64 trên `/v1/messages`, phần `file` có `file_data` trên chat completions, mục `input_file` có `file_data` trên `/v1/responses`) được trích xuất (kể cả chữ ẩn, chú thích và trường biểu mẫu) và quét như một tài liệu, nên `INDIRECT_ACTION` và `MAX_SCAN_TOKENS` áp dụng; body chuyển tiếp giữ nguyên, trừ khi `redact` thay phần đó bằng placeholder tài liệu. PDF không lấy được chữ (`no_text`, `encrypted`, `damaged`, `timeout`, `over_limit`, `internal`) hoặc gateway không tải được (url hay file id: `remote`) vẫn là phần không quét theo `UNSCANNED_PARTS`, với thẻ audit `input:pdf_scanned=<số>` và `input:pdf_unscanned_<lý do>=<số>` và các trường luật `input.pdf.count`, `input.pdf.scanned`, `input.pdf.reasons`. `off`: PDF là phần không quét như ở 0.5.0. Không có ghi đè theo tổ chức |
+| `PDF_EXTRACT_MAX_BYTES` | `33554432` (32 MiB) | PDF lớn nhất bộ trích xuất mở; lớn hơn là `over_limit` |
+| `PDF_EXTRACT_MAX_PAGES` | `600` | Số trang tối đa trích xuất từ một PDF; nhiều hơn là `over_limit` |
+| `PDF_EXTRACT_MAX_TEXT_BYTES` | `4194304` (4 MiB), hoặc 4 × `MAX_SCAN_TOKENS` nếu nhỏ hơn | Lượng chữ tối đa trích từ một PDF; nhiều hơn là `over_limit`. Khi `MAX_SCAN_TOKENS` không đặt, chữ vượt 128 KiB tài liệu của đường ngắn cũng là `over_limit` |
+| `PDF_EXTRACT_TIMEOUT` | `10s` | Ngân sách thời gian cho một PDF, không tính thời gian chờ bộ trích xuất; quá thì PDF là `timeout` |
+| `PDF_EXTRACT_MEMORY` | `536870912` (512 MiB) | Trần bộ nhớ của một phiên PDFium (bộ nhớ tuyến tính WebAssembly), tính bằng byte |
+| `PDF_EXTRACT_MAX_CONCURRENCY` | số CPU / 2 (ít nhất 1) | Số PDF trích xuất cùng lúc; các request khác chờ tối đa `LARGE_SCAN_QUEUE_TIMEOUT` rồi nhận 429 kèm `Retry-After` |
 | `MAX_REQUEST_BYTES` | `4194304` (4 MiB) | Kích thước body tối đa; lớn hơn thì 413 trước khi đọc |
 | `EMBEDDINGS_SCAN` | `off` | `on`: chấm từng input của `/v1/embeddings` như tài liệu không tin cậy |
 | `AUDIT_STORE_CONTENT` | `false` | Lưu nội dung prompt/response vào audit |
@@ -424,6 +431,11 @@ mọi loại); hai trường cuối là `[]` và `0` nếu tổ chức chưa b�
 và `input.unscanned.count` (tổng số phần đó, mọi loại) mô tả các phần gateway
 chuyển tiếp nhưng không đọc được, trong những lượt nó quét; xem
 [Phần gateway không đọc được](#phần-gateway-không-đọc-được).
+`input.pdf.count` (số phần PDF trong các lượt đó), `input.pdf.scanned` (bao
+nhiêu phần đã được đọc nhờ `PDF_EXTRACT`) và `input.pdf.reasons` (lý do các
+phần còn lại không đọc được: `no_text`, `encrypted`, `damaged`, `timeout`,
+`over_limit`, `internal`, `remote`) mô tả các PDF. Ví dụ: `"encrypted" in
+input.pdf.reasons` với hành động `block`.
 Các trường `pii.entities`, `toxicity.score` và `topic.categories` đã bị bỏ:
 luật mới không được dùng chúng, còn luật đã lưu có dùng thì vẫn đọc `[]` hoặc
 `0` như trước. Chi tiết ở mục [APIs](README.md#apis).

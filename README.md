@@ -667,7 +667,14 @@ in a second table.
 | `MAX_SCAN_TOKENS` | empty (today's limits) | The most tokens the gateway scans for one proxied request. Empty or `0`: the byte limits as before (about 28 KB of user, system and tool-call text; 128 KiB of tool results, documents and tool descriptions; 1 MiB of earlier turns), 413 above them. Set: the request's token cap (413 above it), and requests past those byte limits are scanned on the long path in the large-input lane instead of refused. See [Large inputs](#large-inputs) |
 | `INFERENCE_LARGE_MAX_CONCURRENCY` | CPUs / 4 (the container's CPU limit counts; at least 1) | Large requests scanned at once, and their model runs, on a limiter of their own |
 | `LARGE_SCAN_ORG_CONCURRENCY` | half of `INFERENCE_LARGE_MAX_CONCURRENCY` (at least 1) | Large requests of one org scanned at once |
-| `LARGE_SCAN_QUEUE_TIMEOUT` | `30s` | How long a large request waits for the lane before 429 with `Retry-After` |
+| `LARGE_SCAN_QUEUE_TIMEOUT` | `30s` | How long a large request waits for the lane before 429 with `Retry-After`; also how long a request waits for a free PDF extractor (`PDF_EXTRACT`) |
+| `PDF_EXTRACT` | `on` | `on`: the text of a PDF sent inline (a `document` block with a base64 source on `/v1/messages`, a `file` part with `file_data` on chat completions, an `input_file` item with `file_data` on `/v1/responses`) is extracted (hidden text, annotations and form fields included) and scanned as a document, so `INDIRECT_ACTION` and `MAX_SCAN_TOKENS` apply; the forwarded body is unchanged unless `redact` replaces the part with the document placeholder. A PDF that yields no text (`no_text`, `encrypted`, `damaged`, `timeout`, `over_limit`, `internal`) or that the gateway cannot fetch (a url or file id: `remote`) stays an unscanned part under `UNSCANNED_PARTS`, with audit tags `input:pdf_scanned=<n>` and `input:pdf_unscanned_<reason>=<n>` and the rule fields `input.pdf.count`, `input.pdf.scanned`, `input.pdf.reasons`. `off`: PDFs are unscanned parts, as in 0.5.0. No per-org override |
+| `PDF_EXTRACT_MAX_BYTES` | `33554432` (32 MiB) | Largest PDF the extractor opens; larger ones are `over_limit` |
+| `PDF_EXTRACT_MAX_PAGES` | `600` | Most pages extracted from one PDF; more is `over_limit` |
+| `PDF_EXTRACT_MAX_TEXT_BYTES` | `4194304` (4 MiB), or 4 × `MAX_SCAN_TOKENS` when that is smaller | Most text extracted from one PDF; more is `over_limit`. With `MAX_SCAN_TOKENS` unset, text past the short path's 128 KiB of documents is `over_limit` as well |
+| `PDF_EXTRACT_TIMEOUT` | `10s` | Wall-clock budget for one PDF, the wait for an extractor excluded; past it the PDF is `timeout` |
+| `PDF_EXTRACT_MEMORY` | `536870912` (512 MiB) | Memory cap of one PDFium instance (WebAssembly linear memory), in bytes |
+| `PDF_EXTRACT_MAX_CONCURRENCY` | CPUs / 2 (at least 1) | PDFs extracted at once; others wait up to `LARGE_SCAN_QUEUE_TIMEOUT`, then 429 with `Retry-After` |
 | `MAX_REQUEST_BYTES` | `4194304` (4 MiB) | Largest request body; a larger one gets 413 before it is read. Raise it with `MAX_SCAN_TOKENS` past about 1M tokens |
 | `METRICS_ADDR` | `:9090` | Metrics listener; `off` disables it |
 | `METRICS_TENANT_LABELS` | `false` | `true` adds one metric series per org |
@@ -919,6 +926,11 @@ values of all kinds); both read `[]` and `0` unless the org turned on
 `input.unscanned.count` (how many such parts, all kinds together) describe
 the parts the gateway forwards but cannot read, in the turns it scans; see
 [Content the gateway cannot read](#content-the-gateway-cannot-read).
+`input.pdf.count` (PDF parts in those turns), `input.pdf.scanned` (how many
+of them were read with `PDF_EXTRACT`) and `input.pdf.reasons` (why the others
+were not: `no_text`, `encrypted`, `damaged`, `timeout`, `over_limit`,
+`internal`, `remote`) describe the PDFs. Example: `"encrypted" in
+input.pdf.reasons` with action `block`.
 `pii.entities`, `toxicity.score` and `topic.categories` were removed: new
 rules may not name them, and stored rules that do read `[]` or `0` as they
 always did. A policy holds at most 200 rules; each rule has a CEL

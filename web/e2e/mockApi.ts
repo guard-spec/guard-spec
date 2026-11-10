@@ -97,6 +97,14 @@ export const SCHEMA: PolicySchema = {
       values: ['image', 'file', 'audio', 'other'],
     },
     { name: 'input.unscanned.count', type: 'int', description: 'How many such parts the request has' },
+    { name: 'input.pdf.count', type: 'int', description: 'How many PDF parts the request has' },
+    { name: 'input.pdf.scanned', type: 'int', description: 'How many of those PDFs the gateway read' },
+    {
+      name: 'input.pdf.reasons',
+      type: 'list',
+      description: 'Why the other PDFs were not read',
+      values: ['no_text', 'encrypted', 'damaged', 'timeout', 'over_limit', 'internal', 'remote'],
+    },
   ],
   operators: {
     double: ['=', '!=', '>', '>=', '<', '<='],
