@@ -417,7 +417,10 @@ def split_pool(units: list[dict], tset: str, kind: str):
     return us[k:], us[:k]  # windows, hosts
 
 
-def make_windows(tok, pools, tset, kind, n, counts):
+def make_windows(tok, pools, tset, kind, n, counts, quota=None):
+    """n windows of the kind from the set's pool; `quota` ({source: windows}, sources_v5.yaml `windows`) of them
+    come first from those sources' own units, so a small source is not drowned by a large pool, and the rest
+    from the whole pool (the kind's total, and so the EN/VI balance, stays the same)."""
     out = []
     lang = "vi" if kind.endswith("_vi") or kind == "log_vi_repeat" or kind == "code_vi" else "en"
     if kind in gen.GENERATORS:
@@ -432,19 +435,34 @@ def make_windows(tok, pools, tset, kind, n, counts):
             i += 1
         return out
     units, _ = split_pool(pools.get((tset, kind), []), tset, kind)
-    for u in units:
-        if len(out) >= n:
-            break
-        for j, w in enumerate(unit_windows(tok, u["text"], R("w", u["origin"]), PER_UNIT.get(kind, 2), from_top=kind == "diff")):
-            if ATTACK.search(w):
-                counts[f"skip_attack_like:{kind}"] += 1
-                continue
-            out.append(row_benign(w, kind, lang, tset, u["origin"], u["source"], u["license"], f"v5.{tset}.{u['origin']}", tok))
-            if len(out) >= n:
+
+    def take(us, n, got):
+        for u in us:
+            if len(got) >= n:
                 break
-    if len(out) < n:
-        counts[f"short:{tset}/{kind}"] = n - len(out)
-    return out
+            for w in unit_windows(tok, u["text"], R("w", u["origin"]), PER_UNIT.get(kind, 2), from_top=kind == "diff"):
+                if ATTACK.search(w):
+                    counts[f"skip_attack_like:{kind}"] += 1
+                    continue
+                got.append(row_benign(w, kind, lang, tset, u["origin"], u["source"], u["license"], f"v5.{tset}.{u['origin']}", tok))
+                if len(got) >= n:
+                    break
+        return got
+
+    used = set()
+    for name, q in sorted((quota or {}).items()):
+        mine = [u for u in units if u["origin"].split(":", 1)[0] == name]
+        got = take(mine, q, [])
+        used |= {r["origin"] for r in got}
+        counts[f"quota:{tset}/{kind}/{name}"] = len(got)
+        if len(got) < q:
+            counts[f"short:{tset}/{kind}/{name}"] = q - len(got)
+        out += got
+    n_rest = max(0, n - len(out))
+    rest = take([u for u in units if u["origin"] not in used], n_rest, [])
+    if len(rest) < n_rest:
+        counts[f"short:{tset}/{kind}"] = n_rest - len(rest)
+    return out + rest
 
 
 def has_repeat(w: str) -> bool:
@@ -1281,6 +1299,10 @@ def main(argv=None) -> int:
     cache = Cache(Path(os.environ.get("GUARD_V5_CACHE") or TRAIN_ROOT / ".cache" / "v5").expanduser().resolve())
     cfg = yaml.safe_load((DATA / "sources_v5.yaml").read_text("utf-8"))
     scale = 1.0 if a.profile == "full" else 0.25
+    for name, src in cfg["sources"].items():
+        bad = set(src.get("windows") or {}) - (set(src.get("select") or {}) & set(TARGETS[src["set"]]))
+        if bad:
+            raise SystemExit(f"{name}: `windows` kinds {sorted(bad)} are not selected kinds with a set {src['set']} target")
     counts = collections.Counter()
     pins: dict = {}
 
@@ -1319,7 +1341,9 @@ def main(argv=None) -> int:
     for tset in ("A", "B", "C"):
         rows = []
         for kind, n in TARGETS[tset].items():
-            rows += make_windows(tok, pools, tset, kind, max(1, round(n * scale)), counts)
+            quota = {name: max(1, round(src["windows"][kind] * scale)) for name, src in cfg["sources"].items()
+                     if src["set"] == tset and kind in (src.get("windows") or {})}
+            rows += make_windows(tok, pools, tset, kind, max(1, round(n * scale)), counts, quota)
         rows += make_positives(tok, pools, tset, payloads, round(POSITIVES[tset] * scale), counts)
         counts[f"generated:{tset}"] = len(rows)
         sets[tset] = rows

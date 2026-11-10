@@ -79,25 +79,26 @@ cd train && GUARD_BUILD_OUT=<dir outside the repo> uv run --frozen python data/b
 
 | file (in `$GUARD_BUILD_OUT`, not in git) | rows | use |
 |---|---|---|
-| `v5_train.jsonl` | 15,841 (12,381 benign / 3,460 embedded attacks; EN 8,700, VI 7,141) | set A, training |
-| `v5_val.jsonl` | 2,203 (1,693 / 510) | set A, 12% of the groups (source file, generator unit, host), validation |
-| `val_v5.jsonl` | 2,267 (1,768 / 499) | set B: arm selection and calibration |
-| `val_v5_holdout.jsonl` | 2,216 (1,723 / 493) | set C: hold-out, never used for selection or calibration |
+| `v5_train.jsonl` | 15,876 (12,405 benign / 3,471 embedded attacks; EN 8,923, VI 6,953) | set A, training |
+| `v5_val.jsonl` | 2,169 (1,670 / 499) | set A, 12% of the groups (source file, generator unit, host), validation |
+| `val_v5.jsonl` | 2,259 (1,762 / 497) | set B: arm selection and calibration |
+| `val_v5_holdout.jsonl` | 2,214 (1,721 / 493) | set C: hold-out, never used for selection or calibration |
 | `stats.json` (copied to `data/stats_v5.json`) | - | counts per split, kind, language and position; leakage report; md5 of every file; pins; timings |
 
-Full profile: 22,527 rows, 4.56M tokens, 107 s on the M3 Max with a warm cache (2.5 GB peak memory);
-the first run downloads about 200 MB into `$GUARD_V5_CACHE` (default `train/.cache/v5`, gitignored).
-Two runs give byte-identical files (md5 in `stats.json`: `v5_train` `b3bccdd6…`, `v5_val` `99b56c99…`,
-`val_v5` `e5085a31…`, `val_v5_holdout` `e5b4bf3b…`); `python3 data/gen_codelog_v5.py --check` checks the
+Full profile: 22,518 rows, 4.54M tokens, 107 s on the M3 Max with a warm cache (2.6 GB peak memory);
+the first run downloads about 230 MB into `$GUARD_V5_CACHE` (default `train/.cache/v5`, gitignored).
+Two runs give byte-identical files (md5 in `stats.json`: `v5_train` `6ab9bdfc…`, `v5_val` `ef1da832…`,
+`val_v5` `b35a3e72…`, `val_v5_holdout` `c8f4c581…`); `python3 data/gen_codelog_v5.py --check` checks the
 generators alone.
 
 **Sources** (`data/sources_v5.yaml`, licences in `DATA_LICENSES.md`, v5): code from pinned tags of
 permissively licensed repositories (set A: Kubernetes Go, CPython `Lib/`, Rust `library/`, Node.js
-`lib/`; set B: Prometheus, Django, Tokio, Express; set C: etcd, Flask, serde, axios), their YAML, TOML,
+`lib/`, and security / LLM-infrastructure code: cosign, Ory Hydra (Go, SQL migrations), oauth2-proxy,
+Ollama's Go server, the openai-python client runtime and detect-secrets; set B: Prometheus, Django, Tokio, Express; set C: etcd, Flask, serde, axios), their YAML, TOML,
 Dockerfiles, CI files and shell scripts, PostgreSQL regression SQL (A), unified diffs from `git log -p`
 over pinned commit ranges (A: requests, ripgrep; B: Express; C: Flask), U.S. Code titles other than 11,
 17 and 35, and Vietnamese laws (PVCC-CPVN) and pre-1900 works (PD-old) from vi.wikisource at revisions
-bench/long does not use. `data/gen_codelog_v5.py` generates logs (EN; VI with 431 + 52 windows in A in
+bench/long does not use. `data/gen_codelog_v5.py` generates logs (EN; VI with 428 + 50 windows in A in
 which one line repeats 2-30 times), stack traces (Python, Java, Go, Node; EN and VI messages), JSON and
 CSV (EN/VI), SQL, terminal output and Vietnamese-commented code, with template sets A/B/C whose
 catalogs, services, formats and seeds differ from `eval/codelog/build.py` and bench/long
@@ -108,6 +109,16 @@ file of this repository.
 line boundaries, at most 2-4 per file, labels `["benign"]`. Windows that discuss or contain prompt
 injection (`ATTACK` in `build_v5.py`) are skipped.
 
+**Security / LLM-infrastructure sources** (round 2, 2026-11-10): the round 1 arms flagged benign code and
+configuration of security and LLM-gateway projects (comments about secrets, keys, tokens, signing, OIDC,
+upstream model URLs, audit). Six set-A sources cover that domain without tests, test data, fixtures,
+examples, docs, prompt templates, vendored or generated code. A source's `windows` field in
+`sources_v5.yaml` reserves windows of a kind for it inside the kind's target (the totals and the EN/VI
+balance stay the same): Go 430 (cosign 120, Hydra 110, oauth2-proxy 110, Ollama 90), Python 210
+(detect-secrets 120, openai-python 90), SQL 160 (Hydra migrations), configuration 152 and shell 56.
+After balancing, `v5_train` holds 848 hard negatives from these sources (Go 354, Python 175, SQL 130,
+configuration 141, shell 48) and 231 positives or twins with such a host; `v5_val` 126 and 30.
+
 **Positives**: attack rows of `data/train.jsonl` only (30-600 characters; never a `val*`, hold-out,
 probe or eval row; payload groups split 80/10/10 between sets A, B and C), embedded in hosts from the
 same set's sources (18% of each pool's files are reserved as hosts and never cut into hard negatives) at
@@ -117,12 +128,12 @@ of the set's format), `diff_plus` (added `+` lines), `straddle_window` (centred 
 254-token window), `straddle_chunk` (centred on byte 2048) and `split_adjacent` (two halves around a
 bridge sentence). Labels: the payload's labels plus `indirect_injection`; `spans` / `byte_spans` give the
 payload's offsets (checked: every payload word lies in the spans, in order). Half of the positives have
-a minimal-pair twin, the same host without the payload (`kind: twin`, `pair` links the two ids; 2,369
+a minimal-pair twin, the same host without the payload (`kind: twin`, `pair` links the two ids; 2,384
 pairs). Which model windows of a positive carry the attack labels is decided by T3 from `spans`.
 
-**Balance**: benign 78% (78.2% in `v5_train`), Vietnamese 44-45% in every split (VI positives 50%),
+**Balance**: benign 77-78% (78.1% in `v5_train`), Vietnamese 44-46% in every split (VI positives 50%),
 by subsampling hard negatives proportionally per kind. Estimated epoch with the public `train.jsonl`
-(31,522 rows) and `v5_train` cut into gateway windows: 49,117 rows, under the 56k cap (the builder
+(31,522 rows) and `v5_train` cut into gateway windows: 49,152 rows, under the 56k cap (the builder
 drops hard negatives above it).
 
 **Leakage guard** (`stats.json` "leakage"; also run on the payloads): a row is dropped on a normalized
@@ -131,7 +142,7 @@ window, on a character 5-gram Jaccard above 0.8 with any reference, or when at l
 lines (24+ normalized characters, at least 3) occur verbatim in a reference. References: `eval/data`
 (2,176 rows), every `eval/codelog` row and window, every 254-token window of the bench/long full profile
 (50,426, built and SHA-checked against `corpus.yaml`), every text file of this repository at every tag
-and at HEAD (1,522 files, 41,879 windows), and the hold-outs and probes (`val_v3_holdout`,
+and at HEAD (1,556 files, 43,519 windows), and the hold-outs and probes (`val_v3_holdout`,
 `val_realistic_holdout`, `val_v4_holdout`, `probe_v4`, and the owner hold-out through
 `GUARD_OWNER_HOLDOUT`). Small references are compared exactly; bench/long, the repository and codelog
 windows through MinHash LSH (64 permutations, 16 bands of 4; a pair at 0.8 is a candidate with
