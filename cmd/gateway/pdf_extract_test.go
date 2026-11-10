@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"maps"
 	"net/http"
 	"slices"
@@ -182,6 +183,65 @@ func TestLoadPDFConfig(t *testing.T) {
 				if !strings.Contains(err.Error(), k) {
 					t.Errorf("%v: error %q does not name the variable", bad, err)
 				}
+			}
+		}
+	}
+}
+
+// The effective PDF size limit is logged at start-up: a warning when
+// PDF_EXTRACT_MAX_BYTES was set above what MAX_REQUEST_BYTES lets in (a PDF
+// arrives base64-encoded, so about three quarters of the body limit), an
+// info line otherwise, and nothing with PDF_EXTRACT=off.
+func TestLogPDFLimits(t *testing.T) {
+	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
+	capture := func(fn func()) string {
+		var buf strings.Builder
+		prev := slog.Default()
+		slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+		defer slog.SetDefault(prev)
+		fn()
+		return buf.String()
+	}
+	defaults, _ := loadPDFConfig(env(nil), 0)
+	if got := effectivePDFMaxBytes(defaults, 4<<20); got != 3<<20 {
+		t.Errorf("effective limit under a 4 MiB body: %d, want %d", got, 3<<20)
+	}
+	if got := effectivePDFMaxBytes(defaults, 0); got != 3<<20 {
+		t.Errorf("effective limit under the default body limit: %d, want %d", got, 3<<20)
+	}
+	if got := effectivePDFMaxBytes(defaults, 64<<20); got != 32<<20 {
+		t.Errorf("effective limit under a 64 MiB body: %d, want %d", got, 32<<20)
+	}
+	set, err := loadPDFConfig(env(map[string]string{envPDFMaxBytes: "8388608"}), 0)
+	if err != nil || !set.MaxBytesSet || set.Limits.MaxBytes != 8<<20 {
+		t.Fatalf("explicit limit: %+v %v", set, err)
+	}
+	for _, tc := range []struct {
+		name     string
+		cfg      pdfConfig
+		body     int
+		level    string
+		contains []string
+	}{
+		{"default limit, default body", defaults, 4 << 20, "level=INFO", []string{"effective_pdf_max_bytes=3145728"}},
+		{"set above the body", set, 4 << 20, "level=WARN", []string{envPDFMaxBytes, envMaxRequestBytes, "413",
+			"effective_pdf_max_bytes=3145728", "pdf_extract_max_bytes=8388608", "max_request_bytes=4194304"}},
+		{"set within the body", set, 16 << 20, "level=INFO", []string{"effective_pdf_max_bytes=8388608"}},
+		{"off", pdfConfig{Enabled: false, Limits: pdftext.DefaultLimits(), MaxBytesSet: true}, 1 << 10, "", nil},
+	} {
+		got := capture(func() { logPDFLimits(tc.cfg, tc.body) })
+		if tc.level == "" {
+			if got != "" {
+				t.Errorf("%s: logged %q", tc.name, got)
+			}
+			continue
+		}
+		if strings.Count(got, "\n") != 1 || !strings.Contains(got, tc.level) {
+			t.Errorf("%s: want one %s line, got %q", tc.name, tc.level, got)
+		}
+		for _, s := range tc.contains {
+			if !strings.Contains(got, s) {
+				t.Errorf("%s: %q lacks %q", tc.name, got, s)
 			}
 		}
 	}

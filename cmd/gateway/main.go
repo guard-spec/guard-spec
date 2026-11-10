@@ -187,6 +187,7 @@ func main() {
 	if cfg.PDF.Enabled {
 		pdf = newPDFExtractor(base, cfg.PDF.Limits, cfg.Large.QueueTimeout)
 		pdf.warm() // in the background: readiness never waits for it
+		logPDFLimits(cfg.PDF, cfg.Large.MaxRequestBytes)
 	} else {
 		slog.Info("pdf extraction off: PDFs are unscanned parts")
 	}

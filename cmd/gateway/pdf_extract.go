@@ -59,6 +59,43 @@ const (
 type pdfConfig struct {
 	Enabled bool
 	Limits  pdftext.Limits
+	// MaxBytesSet: PDF_EXTRACT_MAX_BYTES was given (not the default).
+	MaxBytesSet bool
+}
+
+// effectivePDFMaxBytes is the largest PDF that can reach the extractor: a
+// PDF arrives base64-encoded in the body (4 bytes for every 3), so the body
+// limit MAX_REQUEST_BYTES holds at most three quarters of it as PDF, and
+// PDF_EXTRACT_MAX_BYTES caps it further.
+func effectivePDFMaxBytes(cfg pdfConfig, maxRequestBytes int) int64 {
+	if maxRequestBytes <= 0 {
+		maxRequestBytes = defaultMaxRequestBytes
+	}
+	return min(cfg.Limits.MaxBytes, int64(maxRequestBytes)/4*3)
+}
+
+// logPDFLimits logs the effective PDF size limit at start-up. A
+// PDF_EXTRACT_MAX_BYTES that was set above what MAX_REQUEST_BYTES lets in is
+// a warning, as MAX_SCAN_TOKENS above MAX_REQUEST_BYTES is: the setting
+// would never apply. The default (32 MiB, above the default body limit) is
+// an info line, so that the limit that applies is in the log either way.
+func logPDFLimits(cfg pdfConfig, maxRequestBytes int) {
+	if !cfg.Enabled {
+		return
+	}
+	effective := effectivePDFMaxBytes(cfg, maxRequestBytes)
+	if maxRequestBytes <= 0 {
+		maxRequestBytes = defaultMaxRequestBytes
+	}
+	if cfg.MaxBytesSet && effective < cfg.Limits.MaxBytes {
+		slog.Warn(envPDFMaxBytes+" is larger than any PDF that fits in "+envMaxRequestBytes+
+			" (a PDF arrives base64-encoded, 4 bytes for every 3): larger PDFs are refused with 413 before they are read; "+
+			"raise "+envMaxRequestBytes+" to about 4/3 of the PDF size you want to accept",
+			"pdf_extract_max_bytes", cfg.Limits.MaxBytes, "max_request_bytes", maxRequestBytes, "effective_pdf_max_bytes", effective)
+		return
+	}
+	slog.Info("pdf size limit", "effective_pdf_max_bytes", effective,
+		"pdf_extract_max_bytes", cfg.Limits.MaxBytes, "max_request_bytes", maxRequestBytes)
 }
 
 // loadPDFConfig reads the PDF_EXTRACT variables. maxScanTokens is
@@ -96,6 +133,9 @@ func loadPDFConfig(env func(string) string, maxScanTokens int) (pdfConfig, error
 			return pdfConfig{}, fmt.Errorf("%s must be a whole number from %d to %d", v.name, v.min, v.max)
 		}
 		*v.dst = n
+		if v.name == envPDFMaxBytes {
+			cfg.MaxBytesSet = true
+		}
 	}
 	if s := strings.TrimSpace(env(envPDFTimeout)); s != "" {
 		d, err := time.ParseDuration(s)
