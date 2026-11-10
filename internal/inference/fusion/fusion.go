@@ -122,6 +122,10 @@ type Fuser struct {
 // raised the fused score.
 const L1FloorRule = "fusion.l1_floor"
 
+// L2CapRule is the explanation added to a chunk's rules when the
+// classifier's cap for untrusted content lowered its score (ml.CapL2).
+const L2CapRule = "fusion.l2_capped"
+
 // SetL1Floor makes a decisive L1 verdict whose calibrated score is at least
 // min a lower bound of the fused score. 0 turns it off.
 func (f *Fuser) SetL1Floor(min float64) { f.l1Floor = min }
@@ -349,6 +353,26 @@ func (f *Fuser) fuse(out [numLayers]LayerResult, errs [numLayers]error, ran [num
 		res.Category = ""
 	}
 	return res
+}
+
+// Recombine fuses calibrated per-layer scores again, as fuse does once the
+// layers have run: comb (nil: max) over the layers that are not Missing,
+// never below floor. When comb weights a Missing layer the result is the max,
+// as in fuse. A caller that lowers one layer's calibrated score after fusion
+// (ml.CapL2) gets the score the fuser would have given.
+func Recombine(layers [numLayers]float64, floor float64, comb *LogReg) float64 {
+	score := 0.0
+	for _, p := range layers {
+		if p != Missing && p > score {
+			score = p
+		}
+	}
+	if comb != nil {
+		if s, ok := comb.Apply(layers); ok {
+			score = s
+		}
+	}
+	return math.Max(score, floor)
 }
 
 // Replace fuses r again with another verdict in one slot: lr, calibrated with

@@ -40,17 +40,36 @@ type Scanner struct {
 	// NoCodeCorroboration turns code corroboration off for tool results and
 	// documents (TOOL_CODE_CORROBORATION=off; corroborate.go).
 	NoCodeCorroboration bool
+	// CapL2 is the classifier's cap for untrusted content
+	// (ml.Stack.UntrustedAdjust, calibration.json "l2_untrusted_max"),
+	// applied to tool results and documents before code corroboration; nil:
+	// none.
+	CapL2 inference.ChunkAdjust
 }
 
-// Adjust is the per-chunk adjustment Score applies to text from src: code
-// corroboration for tool results and documents, unless turned off; nil
-// otherwise. The gateway passes it to the long path (inference.LongInput)
-// when it scores such texts ahead.
+// Adjust is the per-chunk adjustment Score applies to text from src: for
+// tool results and documents the classifier's cap (CapL2), then code
+// corroboration unless turned off; nil otherwise. The gateway passes it to
+// the long path (inference.LongInput) when it scores such texts ahead.
 func (s Scanner) Adjust(src Source) inference.ChunkAdjust {
-	if (src == SourceTool || src == SourceDocument) && !s.NoCodeCorroboration {
-		return CorroborateCode
+	if src != SourceTool && src != SourceDocument {
+		return nil
 	}
-	return nil
+	if s.NoCodeCorroboration {
+		return s.CapL2
+	}
+	return chain(s.CapL2, CorroborateCode)
+}
+
+// chain applies a, then b (either may be nil).
+func chain(a, b inference.ChunkAdjust) inference.ChunkAdjust {
+	switch {
+	case a == nil:
+		return b
+	case b == nil:
+		return a
+	}
+	return func(chunk string, s inference.Score) inference.Score { return b(chunk, a(chunk, s)) }
 }
 
 // Score classifies sanitized text that came from src.

@@ -56,7 +56,8 @@ func RunIndirect(ctx context.Context, rows []Row, runner *inference.Runner) ([]R
 
 // RunIndirectWith is RunIndirect with the gateway's scanner as configured,
 // for example with code corroboration off (TOOL_CODE_CORROBORATION=off sets
-// s.NoCodeCorroboration in cmd/gateway).
+// s.NoCodeCorroboration in cmd/gateway) or the classifier's cap for
+// untrusted content (s.CapL2).
 func RunIndirectWith(ctx context.Context, rows []Row, s indirect.Scanner) ([]Result, error) {
 	out := make([]Result, 0, len(rows))
 	for _, row := range rows {

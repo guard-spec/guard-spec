@@ -2,7 +2,7 @@
 //
 //	go run ./cmd/eval [-data eval/data] [-detector fusion|l1|regex] [-json out.json] [-scores rows.jsonl]
 //	go run ./cmd/eval -baseline eval/baseline.json [-max-regression 0.02]
-//	go run ./cmd/eval -path tool [-corroboration on|off]
+//	go run ./cmd/eval -path tool [-corroboration on|off] [-l2cap on|off]
 //	go run -tags onnx ./cmd/eval -detector fusion-ml [-layers l1,l2,l3] [-cascade] [-fusion logreg|max]
 //
 // Every row goes through the gateway's input path (sanitizer, then detector).
@@ -12,10 +12,12 @@
 // -corroboration sets code corroboration on the tool path as
 // TOOL_CODE_CORROBORATION does in the gateway (default: that variable, else
 // on); with it off the report's detector name ends in /no-corroboration.
-// When row ids (or "split" fields) give a dev/holdout split, the report also
-// has dev and holdout slices. With -baseline, the command exits 1 when any
-// metric is worse than the baseline by more than -max-regression. Refresh the baseline with
-// -json eval/baseline.json after an intended change.
+// -l2cap off leaves out the classifier's cap for untrusted content
+// (calibration.json "l2_untrusted_max"); when a cap is in effect the name
+// ends in /l2cap. When row ids (or "split" fields) give a dev/holdout
+// split, the report also has dev and holdout slices. With -baseline, the command exits 1 when any metric is
+// worse than the baseline by more than -max-regression. Refresh the baseline
+// with -json eval/baseline.json after an intended change.
 package main
 
 import (
@@ -28,6 +30,7 @@ import (
 
 	"github.com/guard-spec/guard-spec/internal/evalset"
 	"github.com/guard-spec/guard-spec/internal/indirect"
+	"github.com/guard-spec/guard-spec/internal/inference"
 )
 
 func main() {
@@ -46,6 +49,7 @@ func run() int {
 	cascade := flag.Bool("cascade", false, "fusion-ml: skip L2/L3 when L1 is decisive (DETECTOR_CASCADE)")
 	fusionMethod := flag.String("fusion", "", "fusion-ml: logreg or max (default $DETECTOR_FUSION, else logreg)")
 	corroboration := flag.String("corroboration", "", "-path tool: code corroboration on or off (default $TOOL_CODE_CORROBORATION, else on)")
+	l2cap := flag.String("l2cap", "on", "-path tool: apply the classifier's cap for untrusted content (calibration.json l2_untrusted_max), on or off")
 	flag.Parse()
 
 	noCorroboration, err := parseCorroboration(*corroboration, os.Getenv("TOOL_CODE_CORROBORATION"))
@@ -62,11 +66,19 @@ func run() int {
 		}
 		noCorroboration = false
 	}
+	useCap, err := parseOnOff("-l2cap", *l2cap)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
 
-	var det evalset.Detector
+	var (
+		det   evalset.Detector
+		capL2 inference.ChunkAdjust
+	)
 	if *detName == mlDetector || *layers != "" {
 		var name string
-		det, name, err = newMLDetector(*layers, *cascade, *fusionMethod)
+		det, capL2, name, err = newMLDetector(*layers, *cascade, *fusionMethod)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "detector:", err)
 			return 2
@@ -100,11 +112,11 @@ func run() int {
 			return 2
 		}
 		scanner := indirect.Scanner{Runner: rd.Runner, NoCodeCorroboration: noCorroboration}
-		results, err = evalset.RunIndirectWith(context.Background(), rows, scanner)
-		name += "/" + evalset.PathTool
-		if noCorroboration {
-			name += "/no-corroboration"
+		if useCap {
+			scanner.CapL2 = capL2
 		}
+		results, err = evalset.RunIndirectWith(context.Background(), rows, scanner)
+		name += toolPathName(noCorroboration, scanner.CapL2 != nil)
 	default:
 		fmt.Fprintf(os.Stderr, "unknown path %q (have: direct, tool)\n", *path)
 		return 2
@@ -162,6 +174,20 @@ func run() int {
 	return 0
 }
 
+// toolPathName is the suffix of the detector name on the tool path: the
+// path, then /no-corroboration and /l2cap when they apply, so a baseline is
+// only compared with the same configuration.
+func toolPathName(noCorroboration, capped bool) string {
+	name := "/" + evalset.PathTool
+	if noCorroboration {
+		name += "/no-corroboration"
+	}
+	if capped {
+		name += "/l2cap"
+	}
+	return name
+}
+
 // parseCorroboration reads -corroboration, falling back to the gateway's
 // TOOL_CODE_CORROBORATION; it reports whether corroboration is off.
 func parseCorroboration(flagVal, envVal string) (bool, error) {
@@ -176,6 +202,17 @@ func parseCorroboration(flagVal, envVal string) (bool, error) {
 		return true, nil
 	}
 	return false, fmt.Errorf("-corroboration (or TOOL_CODE_CORROBORATION) must be on or off, not %q", v)
+}
+
+// parseOnOff reads an on|off flag (on when empty).
+func parseOnOff(name, v string) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "", "on":
+		return true, nil
+	case "off":
+		return false, nil
+	}
+	return false, fmt.Errorf("%s must be on or off, not %q", name, v)
 }
 
 func writeScores(path string, results []evalset.Result) error {

@@ -124,7 +124,7 @@ func scanHandler(gw gateway) fiber.Handler {
 
 		if len(req.Documents) > 0 {
 			threshold := gw.baseScanConfig().IndirectThreshold
-			scanner := indirect.Scanner{Runner: gw.runner, NoCodeCorroboration: gw.baseScanConfig().NoCodeCorroboration}
+			scanner := indirect.Scanner{Runner: gw.runner, NoCodeCorroboration: gw.baseScanConfig().NoCodeCorroboration, CapL2: gw.capL2}
 			results := make([]documentResult, 0, len(req.Documents))
 			for _, d := range req.Documents {
 				cleaned, report, err := sanitizer.Sanitize(d.Content)

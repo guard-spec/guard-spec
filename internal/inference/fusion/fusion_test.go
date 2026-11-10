@@ -405,3 +405,37 @@ func TestFloorLayerBoundsTheCombiner(t *testing.T) {
 		t.Fatalf("score %v, want the floor 0.9", r.Score)
 	}
 }
+
+// Recombine gives the score fuse gives for the same calibrated layers: with
+// the combiner, with max, with a Missing layer the combiner weights, and
+// with a floor.
+func TestRecombineMatchesFuse(t *testing.T) {
+	ctx := context.Background()
+	comb := LogReg{W: [numLayers]float64{0.46, 0.9, 0.45}, B: 0.65}
+	for _, tt := range []struct {
+		name string
+		l2   Layer
+		l3   Layer
+		comb *LogReg
+		l1f  float64
+	}{
+		{"combiner", fixed{s: 0.97, cat: "jailbreak"}, fixed{s: 0.4, cat: "x"}, &comb, 0},
+		{"max", fixed{s: 0.97, cat: "jailbreak"}, fixed{s: 0.4, cat: "x"}, nil, 0},
+		{"L3 missing falls back to max", fixed{s: 0.97, cat: "jailbreak"}, fixed{err: errors.New("down")}, &comb, 0},
+		{"floor layer", fixed{s: 0.3, cat: "jailbreak"}, floored{0.95}, &comb, 0},
+		{"L1 floor", fixed{s: 0.01, cat: "jailbreak"}, fixed{s: 0.2, cat: "x"}, &comb, 0.9},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			f := &Fuser{}
+			f.Set(L1, decisive{s: 0.95, dec: true}, Identity)
+			f.Set(L2, tt.l2, Identity)
+			f.Set(L3, tt.l3, Identity)
+			f.SetCombiner(tt.comb)
+			f.SetL1Floor(tt.l1f)
+			r := f.Score(ctx, "x")
+			if got := Recombine(r.Layers, r.Floor, tt.comb); math.Abs(got-r.Score) > 1e-9 {
+				t.Fatalf("Recombine %.6f, fuse %.6f (layers %v floor %.3f)", got, r.Score, r.Layers, r.Floor)
+			}
+		})
+	}
+}
