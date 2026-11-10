@@ -10,13 +10,15 @@ tags: [prompt-injection, jailbreak, guardrail, onnx, int8]
 
 Copyright The Guard Spec Authors. Licensed under the Apache License 2.0.
 
-## v5 (in preparation): window-level training, recipe and decision rule
+## v5 (2026-11-10): candidate for code, logs and long documents, not the default
 
 v5 (task RF-437128e9) targets the gap `eval/codelog` and `eval/embedded` measure: v3b blocks repetitive
 structured tool output (DDL, Dockerfiles, Vietnamese log lines), and on attacks hidden in code and logs
-the fused model layers detect fewer than L1 alone. This section is the recipe and the pre-registered
-decision rule, committed before any v5 training run. **No v5 model has been trained yet and there are
-no v5 results**; they go here once the arms have run.
+the fused model layers detect fewer than L1 alone. The recipe and the decision rule below were committed
+before any v5 training run; the results ("Results", at the end of this section) were added after two
+rounds of arms. **v5 is round 2 arm B with the untrusted-content cap** (`guardspec-classifier@v5` in
+`models/manifest.yaml`, not recommended). **v3b stays the default**: v5 runs in shadow mode for at least
+7 days first, then the owner decides (planned for v0.5.0).
 
 Same architecture, base model and revision, tokenizer, labels and recipe as v3b and v4
 (`intfloat/multilingual-e5-small` @ `614241f`, sigmoid head over the 8 labels, risk = 1 − p(benign),
@@ -132,6 +134,126 @@ embedded (with corroboration on and off), the owner hold-outs, `val_v3_holdout`,
 `val_realistic_holdout`, `val_v4_holdout` and `probe_v4`. They do not change the arm. Switching the
 default from v3b stays the owner's decision after shadow mode.
 
+### Results
+
+**Round 1** (2026-11-10, arms A, B, C as above; `GUARD_V5_OUT` full build; MPS on the Apple M3 Max).
+Validation order B, A, C (B is the only arm meeting Q1: original-validation TPR 0.975 at FPR 1%, AUC
+0.9960; A 0.934 / 0.9922, C 0.796 / 0.9920). Gates (dev slices): G1 met by every arm (A 0.940, B 0.937,
+C 0.930; v3b 0.909), G3 met by every arm (0.960 / 0.965 / 0.960; v3b 0.807, L1 0.851), **G2 failed by
+every arm**: `eval/codelog` dev FPR at 0.85 **A 15.5%, B 9.5%, C 8.8%** against the 3% limit (v3b
+21.6%). No arm qualified; B was the shadow candidate (3 of 4 rules). The rows the arms blocked were
+benign code and configuration of security and LLM-gateway projects (comments about secrets, keys,
+tokens, signing, OIDC, upstream model URLs), a domain the round 1 sources did not cover.
+`guardspec-data/v5/train_arms_v5.round1.json` (outside the repository) holds the round 1 report.
+
+**Round 2** (2026-11-10): six security / LLM-infrastructure sources added to set A (cosign, Ory Hydra,
+oauth2-proxy, Ollama, openai-python, detect-secrets; `DATA_CARD.md`, "Security / LLM-infrastructure
+sources"), arm B only (50,190 rows and 51,789 windows per epoch, 13,211 validation windows, best epoch
+5 of 5, validation loss 0.0236, 92 min). Q1 met (TPR 0.973 at FPR 1%, AUC 0.9954; `val_v5` TPR 0.990 /
+FPR 0.3% at the same threshold). Gates: G1 0.9315 ✓ (v3b 0.9086), G3 0.958 ✓, **G2 6.8% ✗**, still
+above 3%. `reports/train_arms_v5.json` is this report.
+
+**G4 amendment** (2026-11-10, approved by the owner before any arm was chosen). While meeting G3, the
+round 1 and round 2 arms blocked 0.326 / 0.239 of the benign twins of `eval/embedded` dev (v3b 0.105, L1
+0.020): G3 alone rewarded a lower effective threshold on tool output. G4 (embedded dev FPR at 0.85 ≤
+v3b's) was added to the rule; round 2 B fails it too without the cap.
+
+**The untrusted-content cap** (PR "fusion: classifier cap for untrusted content", RF-437128e9). A
+classifier trained on attack payloads in code and log hosts is as certain about benign prose in such
+hosts, which the validation splits do not contain. So on the tool path the calibrated L2 score is capped
+at `l2_untrusted_max` and L2 alone cannot block untrusted content: L1 or L3 must add the lift. The value
+is a design rule, not a fit: `cmd/calibrate fit` derives it as the largest calibrated L2 score (0.01
+grid, one step of margin) at which L2 with L1 at its silent level and L3 neutral stays below 0.85 with
+every fitted combiner, and writes it into `calibration.json` (0.88 for round 2 B). It was never tuned on
+eval/; the direct path (user messages) is unchanged. A `calibration.json` without the field, such as
+v3b's, gives no cap.
+
+**Final dev gates, round 2 B with the cap** (`cmd/eval -detector fusion-ml`, `slices.dev`; the shipped
+package scored again from `L2_MODEL_DIR=<package>` gives the same numbers):
+
+| gate | round 2 B, cap | round 2 B, no cap | v3b | L1 | result |
+|---|---|---|---|---|---|
+| G1 `eval/data` dev TPR at FPR ≤ 1% (direct) | 0.9315 | 0.9315 | 0.9086 | - | ✓ |
+| G2 `eval/codelog` dev FPR at 0.85 (tool, corroboration off) | **0.0203** | 0.0676 | 0.2162 | - | ✓ (≤ 0.03) |
+| G3 `eval/embedded` dev TPR at 0.85 (tool, corroboration off) | 0.9227 | 0.9578 | 0.8067 | 0.8506 | ✓ |
+| G4 `eval/embedded` dev FPR at 0.85 (tool, corroboration off) | **0.0425** | 0.239 | 0.105 | 0.020 | ✓ (≤ v3b) |
+
+The cap was added after the round 2 gate results were known, so it is outside the pre-registered rule;
+with it, round 2 B meets Q1 and G1–G4 on the dev slices. That makes v5 a candidate, not the default.
+
+**Hold-outs** (scored once, after the decision; gateway path, block at 0.85; v3b with its shipped
+calibration, v5 with its `calibration.json` and the cap; `cmd/eval` dev/holdout slices, `-path tool
+-corroboration off|on` for codelog and embedded):
+
+| set | metric | v3b | **v5 (round 2 B + cap)** |
+|---|---|---|---|
+| `eval/data` hold-out (602 attack / 511 benign), direct | TPR at FPR ≤ 1% | 0.942 | 0.940 |
+| | TPR / FPR at 0.85 | 0.9435 / 0.0157 | 0.9435 / 0.0117 |
+| `eval/codelog` hold-out (162 benign), tool | FPR at 0.85, corroboration off / on | 0.2099 / 0.0741 | 0.0062 / 0.0062 |
+| `eval/embedded` hold-out, tool, corroboration off | TPR / FPR at 0.85 | 0.7791 / 0.1507 | 0.8605 / 0.0470 |
+| `eval/embedded` hold-out, tool, corroboration on | TPR / FPR at 0.85 | 0.7193 / 0.0568 | 0.8239 / 0.0254 |
+| `eval/embedded` hold-out, tool, corroboration off | TPR at FPR ≤ 1% | 0.374 | 0.748 |
+| owner hold-outs `user_holdout` + `user2_holdout` (408 attack / 272 benign; not redistributed), direct | TPR / FPR at 0.85 | 0.7623 / 0.0147 | 0.8480 / 0.0294 |
+| | TPR at FPR ≤ 1% | 0.503 | 0.797 |
+
+The remaining hold-outs and the probe, scored once from the packaged files (`holdout_evalset.py`, then
+`cmd/eval -detector fusion-ml -scores`; FPR / TPR are the gateway decision at 0.85, "TPR at 1%" the TPR at
+the split's own threshold with FPR ≤ 1%):
+
+| split (path) | benign / attack | v3b FPR / TPR | v3b TPR at 1% / AUC | **v5** FPR / TPR | **v5** TPR at 1% / AUC |
+|---|---|---|---|---|---|
+| `val_v5_holdout` (tool, corroboration off) | 1,721 / 493 | 0.9% (15) / 0.665 | 0.665 / 0.948 | **0.0% (0)** / 0.623 | **0.988** / 0.996 |
+| `val_v5_holdout` (tool, corroboration on) | 1,721 / 493 | 0.6% (10) / 0.544 | 0.582 / 0.946 | **0.0% (0)** / 0.580 | **0.988** / 0.996 |
+| `val_v3_holdout` (direct) | 1,173 / 337 | 0.5% (6) / 0.953 | 0.997 / 0.9995 | 0.5% (6) / **0.887** | 0.920 / 0.9976 |
+| `val_realistic_holdout` (direct) | 366 / 247 | 1.9% (7) / 0.915 | 0.826 / 0.988 | 1.6% (6) / 0.911 | 0.721 / 0.988 |
+| `val_v4_holdout` (direct) | 131 / 10 | 3.8% (5) / 0.800 | 0.800 / 0.934 | 0.8% (1) / 0.900 | 1.000 / 0.999 |
+| `probe_v4` (direct; the four reported sentences, fused score) | 4 / 0 | 4 blocked (0.946, 0.898, 0.985, 0.985) | - | **0 blocked** (0.006, 0.014, 0.043, 0.223) | - |
+
+Reading. On `val_v5_holdout` (code and log hosts of set C: 1,721 benign windows and 493 embedded
+attacks) v5 ranks almost perfectly (AUC 0.996, TPR 0.988 at FPR ≤ 1%) and blocks no benign row, but at
+the block threshold it catches 0.623 of the embedded attacks, fewer than v3b's 0.665: the cap holds L2
+at 0.88 on the tool path, so an embedded attack that L1 and L3 do not recognise stays under 0.85. That
+is the cap's trade-off, the same one `eval/embedded` shows less sharply (0.861 vs 0.779 there, where
+more payloads carry an L1 signal). On `val_v3_holdout` v5 loses recall at the block threshold (0.887 vs
+0.953, 22 of 337 attacks; AUC 0.9976 vs 0.9995), as v4 did (0.917): these are generated English and
+Vietnamese attacks of the v3 templates, and the v5 training mix dilutes them. `val_realistic_holdout`
+is level, `val_v4_holdout` improves on both sides, and all four reported Vietnamese sentences pass.
+
+**Known limitation.** On documents of 100k to 200k tokens (bench/long) the false-positive goal is not
+met: a long benign document still reaches a window the classifier scores high, and the cap only helps
+where L1 and L3 stay quiet. The next step is a third round of data with benign prose embedded in code
+and log hosts as twins of the embedded attacks, so that the classifier learns the host is not the
+signal. v5 also blocks 8 of the 272 owner benign hold-out rows (v3b 4), catches 0.887 of the
+`val_v3_holdout` attacks at the block threshold (v3b 0.953), and, because of the cap, catches fewer
+embedded attacks of `val_v5_holdout` at 0.85 than v3b (0.623 vs 0.665) while ranking them far better
+(TPR 0.988 vs 0.665 at FPR ≤ 1%).
+
+**Not the default.** `models/manifest.yaml` lists `guardspec-classifier@v5` without `recommended`; v3b
+stays the default. v5 runs in shadow mode (`SHADOW_L2_MODEL=guardspec-classifier@v5`, `docs/models.md`)
+for at least 7 days; switching is the owner's decision for v0.5.0.
+
+**Files** (outside the repository until the owner publishes them; SHA-256 also in `models/manifest.yaml`
+and `hf/v5/SHA256SUMS`):
+
+```
+1d42326716906ebc07b5dd7cb10615cb68037c8afda3ac4dbeedcff214279e31  model_int8.onnx   (118,466,001 bytes)
+6879d3648d0329c894b1cbb0c89096430e24d3c7cf5d359d4ccc87ce585c4ae4  tokenizer.json    (17,082,955 bytes; the ids of v3b's, without its stored truncation setting, which the gateway ignores)
+a74903e3d5f0f21799228d520b0b08aa2a2ac9c779bafd78c2d800f9e8a29d7a  config.json       (same as v4)
+96156d39c9a5dc1fea91c54d9db47e76281c6d31ef1b45e66a4d1310308659d2  thresholds.json
+78d02581cb4042f954bb3f5b95b826d7bf66ca5333d35915eb53d10984edbdb5  calibration.json
+```
+
+INT8 vs FP32 (`export.py --v5-dir`, 13,397 validation windows): ΔAUC +0.0001, mean |Δp| 0.0023, p99
+|Δrisk| 0.062, max |Δrisk| 0.94 (98 windows above 0.1), decision agreement at the stand-alone threshold
+0.9974; PyTorch vs ONNX FP32 max |Δp| 3.8e-6 (`<work>/B/export_report.json`). Stand-alone
+`risk_threshold` 0.2424 (benign FPR ≤ 1% on the 12,775 validation rows). Fusion calibration
+(`cmd/calibrate fit -write` on the same validation): Platt A 0.8489, B −0.1176; logreg(L1,L2,L3) W
+(0.4747, 0.9044, 0.3989), B 0.6363; logreg(L1,L2) W (0.4947, 0.9370), B 0.4441; `l2_untrusted_max` 0.88.
+The gates above were reproduced from the packaged files with `cmd/eval` (`L2_MODEL_DIR`): G1 0.9315, G2
+0.0203, G3 0.9227, G4 0.0425, so the INT8 package scores as the gate runs did. The built-in calibration
+(`ml.BuiltinCalibrations`) gets a v5 entry once the cap field is in `main`; until then `calibration.json`,
+which the manifest ships and which overrides the built-in one, is the only source of v5's calibration.
+
 ### Reproduce
 
 ```sh
@@ -160,6 +282,16 @@ uv run --frozen python export.py --data-dir <work>/data-v4A --v5-dir <v5> --run-
 ```
 
 Smoke run (code check, minutes): `train.py ... --subset 4000 --max-steps 150 --epochs 2`.
+
+Hold-outs, once, after the decision (the hold-out slices of eval/ come from the gate reports' `slices.holdout`;
+`-corroboration on` runs are the same commands with `on`):
+
+```sh
+cd train && uv run --frozen python holdout_evalset.py --data-dir <work>/data-v4A --v5-dir <v5> --out <hold>   # outside the repository
+cd .. && export L2_MODEL_DIR=<package>                                        # v3b: models/local/guardspec-classifier-v3b
+go run -tags onnx ./cmd/eval -detector fusion-ml -data <hold>/direct -path direct -scores <hold>/direct.jsonl   # val_v3_holdout, val_realistic_holdout, val_v4_holdout, probe_v4 (and the owner hold-outs)
+go run -tags onnx ./cmd/eval -detector fusion-ml -data <hold>/v5 -path tool -corroboration off -scores <hold>/v5.jsonl   # val_v5_holdout
+```
 
 ## v4 (2026-11-07): candidate, not the default
 
