@@ -9,6 +9,18 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ## [Unreleased]
 
+### Added
+
+- `internal/pdftext`: text extraction from PDFs with PDFium running as a
+  WebAssembly module in wazero (no cgo, no native library), the first step
+  of PDF scanning in the gateway (RF-8e6d0a82). It returns every text
+  object a model would see (white, 1pt, invisible and off-page text
+  included), annotation contents and form field values, and reports
+  `ok`, `no_text`, `encrypted`, `damaged`, `timeout` or `over_limit`.
+  Limits: 32 MiB input, 600 pages, 4 MiB of text, 10 s, 512 MiB of
+  memory per document, GOMAXPROCS/2 documents in parallel. Not wired
+  into the gateway yet.
+
 ## [0.5.0] - 2026-11-10
 
 ### Added
