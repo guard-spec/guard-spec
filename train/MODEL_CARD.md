@@ -18,7 +18,7 @@ the fused model layers detect fewer than L1 alone. The recipe and the decision r
 before any v5 training run; the results ("Results", at the end of this section) were added after two
 rounds of arms. **v5 is round 2 arm B with the untrusted-content cap** (`guardspec-classifier@v5` in
 `models/manifest.yaml`, not recommended). **v3b stays the default**: v5 runs in shadow mode for at least
-7 days first, then the owner decides (planned for v0.5.0).
+7 days first, then the owner decides (planned for v0.6.0).
 
 Same architecture, base model and revision, tokenizer, labels and recipe as v3b and v4
 (`intfloat/multilingual-e5-small` @ `614241f`, sigmoid head over the 8 labels, risk = 1 − p(benign),
@@ -230,7 +230,7 @@ embedded attacks of `val_v5_holdout` at 0.85 than v3b (0.623 vs 0.665) while ran
 
 **Not the default.** `models/manifest.yaml` lists `guardspec-classifier@v5` without `recommended`; v3b
 stays the default. v5 runs in shadow mode (`SHADOW_L2_MODEL=guardspec-classifier@v5`, `docs/models.md`)
-for at least 7 days; switching is the owner's decision for v0.5.0.
+for at least 7 days; switching is the owner's decision for v0.6.0.
 
 **Files** (outside the repository until the owner publishes them; SHA-256 also in `models/manifest.yaml`
 and `hf/v5/SHA256SUMS`):

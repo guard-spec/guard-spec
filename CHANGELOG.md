@@ -9,12 +9,14 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-10
+
 ### Added
 
 - Classifier **v5 candidate** (`guardspec-classifier@v5` in
   `models/manifest.yaml`, not recommended; v3b stays the default until v5
   has run in shadow mode for at least 7 days and the owner decides, planned
-  for v0.5.0) (RF-437128e9). Same architecture and recipe as v3b, trained
+  for v0.6.0) (RF-437128e9). Same architecture and recipe as v3b, trained
   window by window on the v4 data plus benign code, configuration, logs and
   long prose and attacks embedded in them (`train/DATA_CARD.md`, "v5 data").
   Its `calibration.json` carries `l2_untrusted_max` (0.88), the classifier's
@@ -52,8 +54,10 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   unchanged). Metrics `guardspec_gateway_scan_windows_total{result}`,
   `guardspec_gateway_scan_tokens` and
   `guardspec_gateway_scan_queue_wait_seconds{outcome}`. Long benign
-  documents may be blocked more often than short ones until the
-  length-dependent threshold lands (RF-437128e9): see
+  documents may be blocked more often than short ones: the classifier cap
+  below lowers this for tool results and documents with a calibration that
+  sets it (v5's, in shadow mode for now), and the goal of at most 1% on
+  100k–200k-token documents is not met yet (RF-895d3533). See
   [Large inputs](README.md#large-inputs) before raising it.
 - Unscanned content is visible and controllable (RF-c18516ae). Images, files
   and audio in a request were forwarded to the model without a trace, so an
@@ -130,8 +134,8 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   text is not affected. `cmd/calibrate fit` derives the value from the
   fusion weights: the largest calibrated score at which L2 alone, with L1
   silent and L3 neutral, stays below 0.85 on both paths, less 0.01. The
-  shipped v3b calibration does not set it, so nothing changes until a
-  calibration does; `cmd/eval -path tool` applies it (`-l2cap off` leaves it
+  shipped v3b calibration (the default) does not set it, so nothing changes
+  with v3b; the v5 candidate's sets 0.88; `cmd/eval -path tool` applies it (`-l2cap off` leaves it
   out; the detector name then ends in `/l2cap` when a cap is in effect) and
   gets `-corroboration on|off` for the gateway's `TOOL_CODE_CORROBORATION`.
   Why: a classifier trained on attack payloads embedded in code and log
@@ -1190,7 +1194,8 @@ First release.
 - List endpoints still answer the older `{"data": [...]}` shape when called
   without `limit` and `cursor`; use the paginated form.
 
-[Unreleased]: https://github.com/guard-spec/guard-spec/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/guard-spec/guard-spec/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/guard-spec/guard-spec/compare/v0.4.2...v0.5.0
 [0.4.2]: https://github.com/guard-spec/guard-spec/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/guard-spec/guard-spec/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/guard-spec/guard-spec/compare/v0.3.1...v0.4.0
