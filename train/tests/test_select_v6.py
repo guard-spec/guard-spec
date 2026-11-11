@@ -39,12 +39,12 @@ def bench_rep(fpr100=(0.0, 0.0), fpr200=(0.0, 0.0), prose_tpr=0.9, control_tpr=0
     """A benchlong report: dev cells of 3 EN / 4 VI documents per size and 15 EN / 17 VI payloads per
     variant; the holdout rows carry numbers that must never be read."""
     fprs = []
-    for size, (en, vi) in (("100000", fpr100), ("200000", fpr200)):
+    for size, (en, vi) in zip(S.G6_SIZES, (fpr100, fpr200)):
         fprs += [dict(layer=S.BENCH_LAYER, split="dev", lang="en", size=size, docs=3, fpr=en, gateway_fpr=en),
                  dict(layer=S.BENCH_LAYER, split="dev", lang="vi", size=size, docs=4, fpr=vi, gateway_fpr=vi),
                  dict(layer=S.BENCH_LAYER, split="holdout", lang="en", size=size, docs=6, fpr=1.0, gateway_fpr=1.0),
                  dict(layer="l1/max", split="dev", lang="en", size=size, docs=3, fpr=1.0, gateway_fpr=1.0)]
-    fprs.append(dict(layer=S.BENCH_LAYER, split="dev", lang="en", size="20000", docs=5, fpr=1.0, gateway_fpr=1.0))
+    fprs.append(dict(layer=S.BENCH_LAYER, split="dev", lang="en", size="20k", docs=5, fpr=1.0, gateway_fpr=1.0))
     tprs = []
     pe, pv = prose_tpr if isinstance(prose_tpr, tuple) else (prose_tpr, prose_tpr)
     for v in S.G7_VARIANTS + ("control", "split_far", "hidden_tags"):
@@ -86,7 +86,7 @@ class Stats(unittest.TestCase):
         b = bench_rep(fpr100=(1 / 3, 0.0), fpr200=(0.0, 0.25))
         blocked, docs, cells = S.bench_dev_fpr(b)
         self.assertEqual((blocked, docs), (2, 14))  # holdout rows, 20k and l1/max rows are not read
-        self.assertEqual(cells["en/100000"], dict(blocked=1, docs=3))
+        self.assertEqual(cells["en/100k"], dict(blocked=1, docs=3))
         det, n = S.bench_dev_tpr(b, S.G7_VARIANTS)
         self.assertEqual(n, 7 * 32)
         self.assertEqual(S.bench_dev_tpr(b, ("control",))[1], 32)

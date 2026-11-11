@@ -35,7 +35,7 @@ VAL_V6 = "val_v6"  # set B of the v6 builder (v6_val, set A's validation split, 
 G2_MAX_FPR = 0.03          # eval/codelog dev FPR at 0.85, tool path, corroboration off
 G5_MARGIN = 0.01           # val_v3 direct-path TPR at 0.85 may be at most 1 point under v3b's
 G6_MAX_FPR = 0.01          # bench/long dev: blocked benign documents of 100k and 200k tokens, EN and VI pooled
-G6_SIZES = ("100000", "200000")
+G6_SIZES = ("100k", "200k")       # the size labels of the cmd/benchlong report
 G7_MARGIN = 0.05           # bench/long dev: embedded-in-prose TPR at least the payloads' alone TPR - 5 points
 G7_VARIANTS = ("pos_start", "pos_end", "pos_random",                 # positions
                "straddle_window", "straddle_chunk", "straddle_segment",  # boundaries
