@@ -45,15 +45,29 @@ export interface ApiKey {
   created_at: string;
   expires_at: string | null;
   revoked: boolean;
+  /** Networks the key may be used from (migration 028); empty: any address. */
+  allowed_cidrs?: string[];
+  /** The successor's prefix after a rotation, and when. */
+  rotated_to?: string | null;
+  rotated_at?: string | null;
 }
 
 export interface CreatedApiKey {
   key: string;
   key_prefix: string;
-  alias: string;
+  alias: string | null;
   project_id: UUID | null;
   rpm_limit: number | null;
   tpm_limit: number | null;
+  expires_at?: string | null;
+  allowed_cidrs?: string[];
+}
+
+/** POST .../api-keys/:prefix/rotate: the successor, shown once. */
+export interface RotatedApiKey extends CreatedApiKey {
+  rotated_from: string;
+  /** When the old key stops working (the end of the overlap). */
+  old_expires_at: string;
 }
 
 export interface NewApiKey {
@@ -62,6 +76,7 @@ export interface NewApiKey {
   expires_at?: string | null;
   rpm_limit?: number | null;
   tpm_limit?: number | null;
+  allowed_cidrs?: string[];
 }
 
 // ── Conditions: the react-querybuilder JSON tree ────────────────────────────
@@ -678,6 +693,8 @@ export interface OrgSecurity {
   two_person_approval?: boolean;
   /** How long such a request waits for a decision (default 24, at most 720). */
   approval_expiry_hours?: number;
+  /** Every new API key expires within this many days (migration 028); null: no limit. */
+  api_key_max_lifetime_days?: number | null;
 }
 
 // ── Two-person approval (migration 027) ─────────────────────────────────────

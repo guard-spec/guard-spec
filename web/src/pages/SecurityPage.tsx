@@ -27,6 +27,8 @@ export function validateSecurity(s: OrgSecurity): string[] {
   if (s.domain_join.some((d) => !DOMAIN_RE.test(d.domain) || d.provider_id === '')) errs.push('domain');
   const expiry = s.approval_expiry_hours ?? 24;
   if (!Number.isInteger(expiry) || expiry < 1 || expiry > 720) errs.push('approvalExpiry');
+  const days = s.api_key_max_lifetime_days;
+  if (days !== undefined && days !== null && (!Number.isInteger(days) || days < 1 || days > 3650)) errs.push('keyLifetime');
   return errs;
 }
 
@@ -43,6 +45,7 @@ export function securityBody(s: OrgSecurity, methodsTouched: boolean): Partial<O
     scim_revoke_keys: s.scim_revoke_keys ?? true,
     two_person_approval: s.two_person_approval ?? false,
     approval_expiry_hours: s.approval_expiry_hours ?? 24,
+    api_key_max_lifetime_days: s.api_key_max_lifetime_days ?? null,
   };
   if (methodsTouched) body.allowed_login_methods = s.allowed_login_methods;
   return body;
@@ -265,6 +268,28 @@ export function SecurityPage() {
                 disabled={!(s.two_person_approval ?? false)}
                 value={s.approval_expiry_hours ?? 24}
                 onChange={(e) => set({ approval_expiry_hours: Number(e.target.value) })}
+              />
+            )}
+          </Field>
+        </fieldset>
+
+        <fieldset className="card" disabled={!writable}>
+          <legend>{t('sec.apiKeys')}</legend>
+          <p className="muted small">
+            {t('sec.apiKeysHelp')}{' '}
+            <a href={href('keys')} onClick={onLink('keys')}>
+              {t('keys.title')}
+            </a>
+          </p>
+          <Field label={t('sec.keyMaxLifetime')} help={t('sec.keyMaxLifetimeHelp')} error={errs.includes('keyLifetime') ? t('sec.keyMaxLifetimeError') : undefined}>
+            {(p) => (
+              <input
+                {...p}
+                type="number"
+                min={1}
+                max={3650}
+                value={s.api_key_max_lifetime_days ?? ''}
+                onChange={(e) => set({ api_key_max_lifetime_days: e.target.value === '' ? null : Number(e.target.value) })}
               />
             )}
           </Field>

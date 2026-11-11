@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"os"
 	"os/signal"
 	"sort"
@@ -21,6 +22,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/google/uuid"
+	"github.com/guard-spec/guard-spec/internal/clientip"
 	appconfig "github.com/guard-spec/guard-spec/internal/config"
 	"github.com/guard-spec/guard-spec/internal/datakey"
 	"github.com/guard-spec/guard-spec/internal/events"
@@ -217,6 +219,7 @@ func main() {
 		pdf:      pdf,
 
 		maxRequestBytes: cfg.Large.MaxRequestBytes,
+		trustedProxies:  cfg.TrustedProxies,
 
 		waitOnHalfClose: cfg.WaitOnHalfClose,
 	}
@@ -313,6 +316,8 @@ type gateway struct {
 	// adminSeparate: ADMIN_LISTEN_ADDR is set, and the /admin routes are
 	// served only there, over mutual TLS (admin_listener.go).
 	adminSeparate bool
+	// trustedProxies is TRUSTED_PROXIES (config.TrustedProxies).
+	trustedProxies []*net.IPNet
 }
 
 // newApp builds the Fiber app with all gateway routes.
@@ -323,6 +328,7 @@ func newApp(gw gateway, lookup tenant.LookupFn) *fiber.App {
 	})
 
 	app.Use(observe()) // metrics and the request span; first, so it sees every response
+	app.Use(clientip.Middleware(gw.trustedProxies))
 	app.Use(cors.New())
 
 	registerProbes(app, gw)
@@ -1599,6 +1605,10 @@ func upstreamError(c *fiber.Ctx, err error) error {
 
 type config struct {
 	ListenAddr string
+	// TrustedProxies is TRUSTED_PROXIES: the reverse proxies whose
+	// X-Forwarded-For names the client (internal/clientip), for API keys
+	// limited to addresses. Empty: the TCP peer is the client.
+	TrustedProxies []*net.IPNet
 	// Detector is DETECTOR_*, MODEL_DIR (or MODELS_PATH), L2_MODEL / L2_MODEL_DIR and L3_MODEL / L3_MODEL_DIR.
 	Detector        ml.Config
 	DatabaseURL     string
@@ -1714,11 +1724,16 @@ func loadConfig() (config, error) {
 	if provider != providerOpenAICompatible && provider != providerAnthropic {
 		return config{}, errors.New("UPSTREAM_LLM_PROVIDER must be openai_compatible or anthropic")
 	}
+	proxies, err := clientip.ParseTrustedProxies(os.Getenv("TRUSTED_PROXIES"))
+	if err != nil {
+		return config{}, err
+	}
 	cfg := config{
 		UpstreamProvider:     provider,
 		ScanCacheSize:        cacheSize,
 		ScanCache:            scanCache,
 		ListenAddr:           getenv("LISTEN_ADDR", ":8080"),
+		TrustedProxies:       proxies,
 		Detector:             detector,
 		DatabaseURL:          getenv("DATABASE_URL", ""),
 		UpstreamURL:          os.Getenv("UPSTREAM_LLM_URL"),
@@ -1817,20 +1832,23 @@ func getenv(key, fallback string) string {
 	return fallback
 }
 
-// dbKeyLookup resolves an API key hash to its org and project.
+// dbKeyLookup resolves an API key hash to its org, project and allowed
+// addresses (lookup_api_key, migration 028): live keys only.
 func dbKeyLookup(db *pgxpool.Pool) tenant.LookupFn {
-	return func(ctx context.Context, keyHash string) (uuid.UUID, uuid.UUID, error) {
-		var orgID uuid.UUID
+	return func(ctx context.Context, keyHash string) (tenant.KeyInfo, error) {
+		var key tenant.KeyInfo
 		var projectID *uuid.UUID
-		err := db.QueryRow(ctx, `SELECT org_id, project_id FROM lookup_api_key($1)`, keyHash).
-			Scan(&orgID, &projectID)
+		var cidrs []string
+		err := db.QueryRow(ctx, `SELECT org_id, project_id, allowed_cidrs FROM lookup_api_key($1)`, keyHash).
+			Scan(&key.OrgID, &projectID, &cidrs)
 		if err != nil {
-			return uuid.Nil, uuid.Nil, err
+			return tenant.KeyInfo{}, err
 		}
-		if projectID == nil {
-			return orgID, uuid.Nil, nil
+		if projectID != nil {
+			key.ProjectID = *projectID
 		}
-		return orgID, *projectID, nil
+		key.AllowedCIDRs = tenant.ParseCIDRs(cidrs)
+		return key, nil
 	}
 }
 

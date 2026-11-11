@@ -520,9 +520,9 @@ export function seedState(rich = false): MockState {
       [strict.id]: [versionOf(strict, 1, 'create', 'admin@example.com', null, strict.created_at)],
     },
     keys: [
-      { key_prefix: 'gs_3fa9c1d2', alias: 'billing prod', project_id: billing.id, rpm_limit: 600, tpm_limit: null, created_at: T0, expires_at: null, revoked: false },
-      { key_prefix: 'gs_8b20e4aa', alias: 'support web', project_id: support.id, rpm_limit: null, tpm_limit: 200000, created_at: T0, expires_at: '2027-01-01T00:00:00Z', revoked: false },
-      { key_prefix: 'gs_11c0ffee', alias: 'old test key', project_id: null, rpm_limit: null, tpm_limit: null, created_at: T0, expires_at: null, revoked: true },
+      { key_prefix: 'gs_3fa9c1d2', alias: 'billing prod', project_id: billing.id, rpm_limit: 600, tpm_limit: null, created_at: T0, expires_at: null, revoked: false, allowed_cidrs: ['203.0.113.0/24'], rotated_to: null, rotated_at: null },
+      { key_prefix: 'gs_8b20e4aa', alias: 'support web', project_id: support.id, rpm_limit: null, tpm_limit: 200000, created_at: T0, expires_at: '2027-01-01T00:00:00Z', revoked: false, allowed_cidrs: [], rotated_to: null, rotated_at: null },
+      { key_prefix: 'gs_11c0ffee', alias: 'old test key', project_id: null, rpm_limit: null, tpm_limit: null, created_at: T0, expires_at: null, revoked: true, allowed_cidrs: [], rotated_to: null, rotated_at: null },
     ],
     guard: { scan_roles: { system: true }, spotlight: 'delimit' },
     exemplars: [
@@ -927,6 +927,7 @@ export function seedIdentity(rich = false): IdentityState {
       scim_revoke_keys: true,
       two_person_approval: false,
       approval_expiry_hours: 24,
+      api_key_max_lifetime_days: null,
     },
     approvals: [
       {
@@ -1630,8 +1631,15 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
       return json(200, listBody(keys, url, legacy));
     }
     if (sub === '/api-keys' && method === 'POST') {
-      const b = body as { alias: string; project_id: string | null; rpm_limit: number | null; tpm_limit: number | null; expires_at?: string };
+      const b = body as { alias: string; project_id: string | null; rpm_limit: number | null; tpm_limit: number | null; expires_at?: string; allowed_cidrs?: string[] };
       const key = 'gs_' + 'f'.repeat(8) + '0123456789abcdef01234567';
+      const maxDays = state.identity.security.api_key_max_lifetime_days ?? null;
+      let expires = b.expires_at ?? null;
+      if (maxDays !== null) {
+        const latest = new Date(Date.now() + maxDays * 24 * 3600 * 1000);
+        if (expires && new Date(expires) > latest) return json(400, { error: `expires_at must be within ${maxDays} days (the organization's maximum key lifetime)` });
+        expires ??= latest.toISOString();
+      }
       state.keys.unshift({
         key_prefix: key.slice(0, 11),
         alias: b.alias,
@@ -1639,10 +1647,29 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
         rpm_limit: b.rpm_limit,
         tpm_limit: b.tpm_limit,
         created_at: new Date().toISOString(),
-        expires_at: b.expires_at ?? null,
+        expires_at: expires,
         revoked: false,
+        allowed_cidrs: b.allowed_cidrs ?? [],
+        rotated_to: null,
+        rotated_at: null,
       });
-      return json(201, { key, key_prefix: key.slice(0, 11), alias: b.alias, project_id: b.project_id, rpm_limit: b.rpm_limit, tpm_limit: b.tpm_limit });
+      return json(201, { key, key_prefix: key.slice(0, 11), alias: b.alias, project_id: b.project_id, rpm_limit: b.rpm_limit, tpm_limit: b.tpm_limit, expires_at: expires, allowed_cidrs: b.allowed_cidrs ?? [] });
+    }
+    if ((mm = /^\/api-keys\/([^/]+)\/rotate$/.exec(sub)) && method === 'POST') {
+      const k = state.keys.find((x) => x.key_prefix === mm?.[1]);
+      if (!k) return json(404, { error: 'not found' });
+      if (k.revoked) return json(409, { error: 'the key is revoked' });
+      if (k.rotated_to) return json(409, { error: 'the key was already rotated; rotate its successor instead' });
+      const b = (body ?? {}) as { overlap_hours?: number };
+      const overlap = b.overlap_hours ?? 24;
+      const key = 'gs_' + 'e'.repeat(8) + 'fedcba9876543210fedcba98';
+      const oldExpires = new Date(Date.now() + overlap * 3600 * 1000).toISOString();
+      const successor: ApiKey = { ...k, key_prefix: key.slice(0, 11), created_at: new Date().toISOString(), expires_at: null, rotated_to: null, rotated_at: null };
+      k.rotated_to = successor.key_prefix;
+      k.rotated_at = new Date().toISOString();
+      k.expires_at = oldExpires;
+      state.keys.unshift(successor);
+      return json(201, { key, key_prefix: successor.key_prefix, alias: k.alias, project_id: k.project_id, rpm_limit: k.rpm_limit, tpm_limit: k.tpm_limit, expires_at: null, allowed_cidrs: k.allowed_cidrs ?? [], rotated_from: k.key_prefix, old_expires_at: oldExpires });
     }
     if ((mm = /^\/api-keys\/([^/]+)$/.exec(sub)) && method === 'DELETE') {
       const k = state.keys.find((x) => x.key_prefix === mm?.[1]);

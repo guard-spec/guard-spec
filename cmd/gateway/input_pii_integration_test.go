@@ -83,8 +83,8 @@ func TestInputPIIWithPostgres(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lookup := func(_ context.Context, keyHash string) (uuid.UUID, uuid.UUID, error) {
-		return org, uuid.Nil, nil
+	lookup := func(_ context.Context, keyHash string) (tenant.KeyInfo, error) {
+		return tenant.KeyInfo{OrgID: org}, nil
 	}
 
 	for _, api := range piiAPIs() {

@@ -46,6 +46,9 @@ type orgSecurity struct {
 	// how long a request waits for a decision (default 24, at most 720).
 	TwoPersonApproval   *bool `json:"two_person_approval"`
 	ApprovalExpiryHours int   `json:"approval_expiry_hours"`
+	// APIKeyMaxLifetimeDays caps the expiry of every new API key of the org
+	// (migration 028); null: no limit.
+	APIKeyMaxLifetimeDays *int `json:"api_key_max_lifetime_days"`
 }
 
 // allLoginMethods lists password and every enabled provider's method.
@@ -70,10 +73,11 @@ func loadOrgSecurity(ctx context.Context, db *pgxpool.Pool, org uuid.UUID) (orgS
 	err := tenant.WithOrg(ctx, db, org, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx,
 			`SELECT require_mfa, sso_satisfies_mfa, allowed_login_methods, domain_join, session_lifetime_hours,
-			        content_read_role, content_view_reason, scim_revoke_keys, two_person_approval, approval_expiry_hours
+			        content_read_role, content_view_reason, scim_revoke_keys, two_person_approval, approval_expiry_hours,
+			        api_key_max_lifetime_days
 			 FROM org_security WHERE org_id = $1`, org).
 			Scan(&s.RequireMFA, &s.SSOSatisfiesMFA, &methods, &joins, &s.SessionLifetimeHours, &s.ContentReadRole,
-				s.ContentViewReason, s.SCIMRevokeKeys, s.TwoPersonApproval, &s.ApprovalExpiryHours)
+				s.ContentViewReason, s.SCIMRevokeKeys, s.TwoPersonApproval, &s.ApprovalExpiryHours, &s.APIKeyMaxLifetimeDays)
 	})
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return s, err
@@ -130,6 +134,9 @@ func (s *orgSecurity) validate(ctx context.Context, db *pgxpool.Pool) error {
 	}
 	if s.ApprovalExpiryHours < 1 || s.ApprovalExpiryHours > maxApprovalExpiryHours {
 		return fmt.Errorf("approval_expiry_hours must be between 1 and %d", maxApprovalExpiryHours)
+	}
+	if d := s.APIKeyMaxLifetimeDays; d != nil && (*d < 1 || *d > maxKeyLifetimeDays) {
+		return fmt.Errorf("api_key_max_lifetime_days must be between 1 and %d, or null for no limit", maxKeyLifetimeDays)
 	}
 	known, err := allLoginMethods(ctx, db)
 	if err != nil {
@@ -223,16 +230,18 @@ func putOrgSecurity(db *pgxpool.Pool) fiber.Handler {
 			_, err := tx.Exec(c.Context(),
 				`INSERT INTO org_security (org_id, require_mfa, sso_satisfies_mfa, allowed_login_methods, domain_join,
 				   session_lifetime_hours, content_read_role, content_view_reason, scim_revoke_keys,
-				   two_person_approval, approval_expiry_hours)
-				 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+				   two_person_approval, approval_expiry_hours, api_key_max_lifetime_days)
+				 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 				 ON CONFLICT (org_id) DO UPDATE SET require_mfa = EXCLUDED.require_mfa,
 				   sso_satisfies_mfa = EXCLUDED.sso_satisfies_mfa, allowed_login_methods = EXCLUDED.allowed_login_methods,
 				   domain_join = EXCLUDED.domain_join, session_lifetime_hours = EXCLUDED.session_lifetime_hours,
 				   content_read_role = EXCLUDED.content_read_role, content_view_reason = EXCLUDED.content_view_reason,
 				   scim_revoke_keys = EXCLUDED.scim_revoke_keys, two_person_approval = EXCLUDED.two_person_approval,
-				   approval_expiry_hours = EXCLUDED.approval_expiry_hours, updated_at = NOW()`,
+				   approval_expiry_hours = EXCLUDED.approval_expiry_hours,
+				   api_key_max_lifetime_days = EXCLUDED.api_key_max_lifetime_days, updated_at = NOW()`,
 				org, s.RequireMFA, s.SSOSatisfiesMFA, s.AllowedLoginMethods, joins, s.SessionLifetimeHours,
-				s.ContentReadRole, *s.ContentViewReason, *s.SCIMRevokeKeys, *s.TwoPersonApproval, s.ApprovalExpiryHours)
+				s.ContentReadRole, *s.ContentViewReason, *s.SCIMRevokeKeys, *s.TwoPersonApproval, s.ApprovalExpiryHours,
+				s.APIKeyMaxLifetimeDays)
 			return err
 		})
 		if err != nil {
@@ -244,7 +253,7 @@ func putOrgSecurity(db *pgxpool.Pool) fiber.Handler {
 			"session_lifetime_hours": s.SessionLifetimeHours,
 			"content_read_role":      s.ContentReadRole, "content_view_reason": *s.ContentViewReason,
 			"scim_revoke_keys": *s.SCIMRevokeKeys, "two_person_approval": *s.TwoPersonApproval,
-			"approval_expiry_hours": s.ApprovalExpiryHours,
+			"approval_expiry_hours": s.ApprovalExpiryHours, "api_key_max_lifetime_days": s.APIKeyMaxLifetimeDays,
 		})
 		out, err := loadOrgSecurity(c.Context(), db, org)
 		if err != nil {

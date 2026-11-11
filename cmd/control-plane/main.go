@@ -2,9 +2,7 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -418,6 +416,8 @@ func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins 
 	authed.Post("/organizations/:orgId/api-keys", admin, createAPIKey(db))
 	authed.Patch("/organizations/:orgId/api-keys/:keyId", admin, updateAPIKey(db))
 	authed.Delete("/organizations/:orgId/api-keys/:keyId", admin, revokeAPIKey(db))
+	// A successor key with an overlap window (keys_policy.go, migration 028).
+	authed.Post("/organizations/:orgId/api-keys/:keyId/rotate", admin, rotateAPIKey(db))
 	authed.Get("/organizations/:orgId/scim/tokens", admin, listSCIMTokens(db, scimBase))
 	authed.Post("/organizations/:orgId/scim/tokens", owner, createSCIMToken(db))
 	authed.Delete("/organizations/:orgId/scim/tokens/:id", owner, revokeSCIMToken(db))
@@ -701,7 +701,8 @@ func listAPIKeys(db *pgxpool.Pool) fiber.Handler {
 				return err
 			}
 			rows, err := tx.Query(c.Context(),
-				`SELECT key_prefix, alias, project_id, rpm_limit::bigint, tpm_limit, created_at, expires_at, revoked_at
+				`SELECT key_prefix, alias, project_id, rpm_limit::bigint, tpm_limit, created_at, expires_at, revoked_at,
+				        allowed_cidrs, rotated_to, rotated_at
 				 FROM api_keys WHERE org_id = $1`+filter+cond+ks.orderLimit(pg), args...)
 			if err != nil {
 				return err
@@ -709,23 +710,31 @@ func listAPIKeys(db *pgxpool.Pool) fiber.Handler {
 			defer rows.Close()
 			for rows.Next() {
 				var prefix string
-				var alias *string
+				var alias, rotatedTo *string
 				var projectID *uuid.UUID
 				var rpm, tpm *int64
 				var createdAt time.Time
-				var expiresAt, revokedAt *time.Time
-				if err := rows.Scan(&prefix, &alias, &projectID, &rpm, &tpm, &createdAt, &expiresAt, &revokedAt); err != nil {
+				var expiresAt, revokedAt, rotatedAt *time.Time
+				var cidrs []string
+				if err := rows.Scan(&prefix, &alias, &projectID, &rpm, &tpm, &createdAt, &expiresAt, &revokedAt,
+					&cidrs, &rotatedTo, &rotatedAt); err != nil {
 					return err
 				}
+				if cidrs == nil {
+					cidrs = []string{}
+				}
 				keys = append(keys, fiber.Map{
-					"key_prefix": prefix,
-					"alias":      alias,
-					"project_id": projectID,
-					"rpm_limit":  rpm, // null: the gateway's RATE_LIMIT_RPM; 0: unlimited
-					"tpm_limit":  tpm,
-					"created_at": createdAt,
-					"expires_at": expiresAt,
-					"revoked":    revokedAt != nil,
+					"key_prefix":    prefix,
+					"alias":         alias,
+					"project_id":    projectID,
+					"rpm_limit":     rpm, // null: the gateway's RATE_LIMIT_RPM; 0: unlimited
+					"tpm_limit":     tpm,
+					"created_at":    createdAt,
+					"expires_at":    expiresAt,
+					"revoked":       revokedAt != nil,
+					"allowed_cidrs": cidrs,
+					"rotated_to":    rotatedTo,
+					"rotated_at":    rotatedAt,
 				})
 			}
 			if err := rows.Err(); err != nil {
@@ -761,47 +770,66 @@ func createAPIKey(db *pgxpool.Pool) fiber.Handler {
 			ExpiresAt *time.Time `json:"expires_at"`
 			RPMLimit  optLimit   `json:"rpm_limit"`
 			TPMLimit  optLimit   `json:"tpm_limit"`
+			// AllowedCIDRs: the networks the key may be used from (migration
+			// 028); empty: any address.
+			AllowedCIDRs []string `json:"allowed_cidrs"`
 		}
 		if len(c.Body()) > 0 {
 			if err := json.Unmarshal(c.Body(), &req); err != nil {
 				return c.Status(400).JSON(fiber.Map{"error": "invalid body: " + err.Error()})
 			}
 		}
+		cidrs, err := normalizeCIDRs(req.AllowedCIDRs)
+		if err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+		}
 
 		// Generate random key: gs_<32 hex chars>.
-		buf := make([]byte, 16)
-		if _, err := rand.Read(buf); err != nil {
+		raw, hash, prefix, err := newRawKey()
+		if err != nil {
 			return c.Status(500).JSON(fiber.Map{"error": "key gen failed"})
 		}
-		raw := "gs_" + hex.EncodeToString(buf)
-		hash := tenant.HashKey(raw)
-		prefix := raw[:11] // "gs_" + 8 chars
 
-		err := tenant.WithOrg(c.Context(), db, id, func(tx pgx.Tx) error {
+		expires := req.ExpiresAt
+		err = tenant.WithOrg(c.Context(), db, id, func(tx pgx.Tx) error {
 			if err := checkProject(c.Context(), tx, id, req.ProjectID); err != nil {
 				return err
 			}
-			_, err := tx.Exec(c.Context(),
-				`INSERT INTO api_keys (key_hash, key_prefix, alias, org_id, project_id, expires_at, rpm_limit, tpm_limit, created_by)
-				 VALUES ($1, $2, $3, $4, $5, $6, $7::int, $8, $9)`,
-				hash, prefix, req.Alias, id, req.ProjectID, req.ExpiresAt, req.RPMLimit.Value, req.TPMLimit.Value, nullUUID(auth.UserID(c)))
+			// The org's maximum key lifetime caps, and fills in, the expiry.
+			maxDays, err := keyMaxLifetime(c.Context(), tx, id)
+			if err != nil {
+				return err
+			}
+			if expires, err = applyKeyLifetime(req.ExpiresAt, maxDays, time.Now()); err != nil {
+				return err
+			}
+			_, err = tx.Exec(c.Context(),
+				`INSERT INTO api_keys (key_hash, key_prefix, alias, org_id, project_id, expires_at, rpm_limit, tpm_limit, created_by, allowed_cidrs)
+				 VALUES ($1, $2, $3, $4, $5, $6, $7::int, $8, $9, $10)`,
+				hash, prefix, req.Alias, id, req.ProjectID, expires, req.RPMLimit.Value, req.TPMLimit.Value, nullUUID(auth.UserID(c)), cidrs)
 			return err
 		})
 		if errors.Is(err, errUnknownProject) {
 			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
 		}
+		if errors.Is(err, errKeyLifetime) {
+			return c.Status(400).JSON(fiber.Map{"error": strings.TrimPrefix(err.Error(), "key lifetime: ")})
+		}
 		if err != nil {
 			return serverError(c, err)
 		}
-		logActivity(c, db, &id, "api_key.created", prefix, map[string]any{"alias": req.Alias, "project_id": req.ProjectID})
+		logActivity(c, db, &id, "api_key.created", prefix, map[string]any{"alias": req.Alias, "project_id": req.ProjectID,
+			"expires_at": expires, "allowed_cidrs": cidrs})
 		// Return plaintext key once only — cannot be recovered after this
 		return c.Status(201).JSON(fiber.Map{
-			"key":        raw,
-			"key_prefix": prefix,
-			"alias":      req.Alias,
-			"project_id": req.ProjectID,
-			"rpm_limit":  req.RPMLimit.Value,
-			"tpm_limit":  req.TPMLimit.Value,
+			"key":           raw,
+			"key_prefix":    prefix,
+			"alias":         req.Alias,
+			"project_id":    req.ProjectID,
+			"rpm_limit":     req.RPMLimit.Value,
+			"tpm_limit":     req.TPMLimit.Value,
+			"expires_at":    expires,
+			"allowed_cidrs": cidrs,
 		})
 	}
 }

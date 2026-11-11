@@ -50,6 +50,7 @@ import type {
   ApprovalStatus,
   PolicyVersions,
   RollbackResult,
+  RotatedApiKey,
   PolicySchema,
   Project,
   Role,
@@ -560,8 +561,17 @@ export class ApiClient {
     return this.request('POST', `/organizations/${enc(orgId)}/api-keys`, { body: input });
   }
 
-  updateApiKey(orgId: UUID, prefix: string, limits: { rpm_limit?: number | null; tpm_limit?: number | null }): Promise<unknown> {
-    return this.request('PATCH', `/organizations/${enc(orgId)}/api-keys/${enc(prefix)}`, { body: limits });
+  updateApiKey(
+    orgId: UUID,
+    prefix: string,
+    changes: { rpm_limit?: number | null; tpm_limit?: number | null; allowed_cidrs?: string[]; expires_at?: string | null },
+  ): Promise<unknown> {
+    return this.request('PATCH', `/organizations/${enc(orgId)}/api-keys/${enc(prefix)}`, { body: changes });
+  }
+
+  /** A successor key (same alias, project, limits and addresses); the old one keeps working for overlap_hours (default 24). */
+  rotateApiKey(orgId: UUID, prefix: string, input: { overlap_hours?: number; expires_at?: string | null }): Promise<RotatedApiKey> {
+    return this.request('POST', `/organizations/${enc(orgId)}/api-keys/${enc(prefix)}/rotate`, { body: input });
   }
 
   revokeApiKey(orgId: UUID, prefix: string): Promise<void> {
