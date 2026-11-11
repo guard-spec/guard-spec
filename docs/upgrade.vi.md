@@ -123,6 +123,27 @@ curl -s localhost:8080/readyz | jq .detector        # 6. or https://<GATEWAY_HOS
   (`-strict` coi cả cảnh báo là lỗi, `-json` dùng cho script). Xem
   [README, Kubernetes](../README.md#kubernetes).
 
+### Ghi chú migration
+
+Các migration của một bản làm gì ngoài việc thêm bảng, và cần kiểm tra gì sau
+đó. [CHANGELOG](../CHANGELOG.md) có đầy đủ ghi chú nâng cấp của từng phiên bản.
+
+- **026 (phiên bản chính sách).** Thêm `policies.log_only` và bảng
+  `policy_versions`, và ghi một phiên bản cho mỗi chính sách đang có (trạng
+  thái lúc nâng cấp) để lần sửa đầu tiên sau nâng cấp có thể khôi phục. Xuống
+  (down): lịch sử bị xóa và chính sách chỉ ghi log trở thành chính sách thật,
+  nên hãy tắt các chính sách đó trước.
+- **027 (phê duyệt hai người).** Thêm bảng `approval_requests` và hai cột
+  `org_security`; tắt với mọi tổ chức. Down: yêu cầu đang chờ bị xóa.
+- **028 (chính sách khóa API).** Thay hàm `lookup_api_key` để trả thêm địa chỉ
+  được phép của khóa. Gateway trước 0.6.0 vẫn chạy với hàm mới (chỉ đọc hai cột
+  đầu); gateway 0.6.0 cần migration này, nên hãy áp dụng trước khi gateway khởi
+  động, như job `migrate` của compose vẫn làm. Đặt `TRUSTED_PROXIES` cho
+  **gateway** khi nó đứng sau reverse proxy và bạn dùng `allowed_cidrs`: nếu
+  không, địa chỉ của proxy sẽ được coi là client. Down: khóa giới hạn địa chỉ
+  dùng được từ mọi nơi trở lại; hãy thu hồi trước nếu điều đó quan trọng. Hạn
+  do xoay khóa hoặc thời hạn tối đa đặt ra vẫn giữ nguyên.
+
 ## Rollback
 
 ### Image, không đổi schema

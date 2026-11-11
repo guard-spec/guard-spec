@@ -696,7 +696,7 @@ in a second table.
 | `GATEWAY_URL` | empty (compose: `http://gateway:8080`) | The gateway's base URL inside the deployment. The control plane reads its `/readyz` (server side, 3 s timeout) for the Models page; empty: the page says it is not configured |
 | `UPSTREAM_KEY_ORGS` | empty (compose: `UPSTREAM_KEY_MAIN=*`) | As on the gateway. Saving an upstream (or a config file) that names a key variable not allowed for the org is refused |
 | `UPSTREAM_KEY_*`, `UPSTREAM_ALLOW_PRIVATE` | empty, `false` (compose: `false`; dev override: `true`) | Used only by `POST .../upstreams/:id/test` (owner only), which applies the gateway's key allowlist and address rules. A key is sent with a test only to orgs `UPSTREAM_KEY_ORGS` lists by id, not through `*` (except with `GUARD_ENV=dev`); the answer says `key_sent`. Give the control plane `UPSTREAM_KEY_*` variables only if tests should use them |
-| `TRUSTED_PROXIES` | empty | Comma-separated CIDRs or addresses of reverse proxies. Their `X-Forwarded-For` is read from the right, and the first address that is not a trusted proxy is the client, for rate limits, sessions and the activity log. Empty: the header is ignored and the TCP peer is the client |
+| `TRUSTED_PROXIES` | empty | Comma-separated CIDRs or addresses of reverse proxies. Their `X-Forwarded-For` is read from the right, and the first address that is not a trusted proxy is the client, for rate limits, sessions and the activity log. The gateway reads it too, for API keys limited to addresses (`allowed_cidrs`). Empty: the header is ignored and the TCP peer is the client |
 | `MFA_ENC_KEY` | empty (dev: a fixed key) | 32 random bytes in base64 (`openssl rand -base64 32`). Encrypts TOTP secrets with AES-256-GCM. Without it 2FA cannot be turned on; when users already have 2FA the control plane refuses to start without it. The development key is refused outside `GUARD_ENV=dev`. Back it up with the database: a lost key disables everyone's 2FA. Several keys, comma-separated and the newest first, for a rotation (`control-plane keys rotate`) |
 | `CONTENT_KEK` | empty | Opens the stored content the gateway encrypted; the same value as on the gateway (or `CONTENT_KEK_FILE`, `CONTENT_KEK_VAULT_KEY`). See [Encryption](docs/security/README.md#encryption) |
 | `<SECRET>_FILE`, `vault:` values | — | Any secret setting can come from a file (`NAME_FILE`) or HashiCorp Vault KV v2 (`NAME=vault:<mount>/<path>#<key>`, with `VAULT_ADDR`, `VAULT_TOKEN` or `VAULT_TOKEN_FILE`, `SECRETS_VAULT_TTL` default `5m`). See [Secrets](docs/security/README.md#where-secrets-come-from) |
@@ -815,9 +815,12 @@ needs `Authorization: Bearer <token from /v1/auth/login>`. Roles are `owner`,
 | `POST /policy/parse` (`{"text"}` to `{"condition"}`; 422 `{"error","position"}`) | any user |
 | `POST /policy/format` (`{"condition"}` to `{"text"}`; 422 on an invalid tree) | any user |
 | `GET /organizations/:orgId` (includes `default_upstream_id`) | viewer |
-| `PATCH /organizations/:orgId` (`audit_store_content`) | admin |
+| `PATCH /organizations/:orgId` (`audit_store_content`; 202 with a pending request under [two-person approval](#governance)) | admin |
+| `DELETE /organizations/:orgId` (`{"confirm": "<slug>"}`; never the default organization; 202 under two-person approval) | owner |
+| `GET /organizations/:orgId/approvals?status=pending\|approved\|rejected\|expired\|all` | admin |
+| `POST /organizations/:orgId/approvals/:id/approve`, `.../reject` (`{"note"}`; the requester cannot approve their own) | admin |
 | `GET`, `PUT /organizations/:orgId/guard-settings` | viewer, admin |
-| `GET`, `PUT /organizations/:orgId/security` (2FA requirement, login methods, domain join, session lifetime, `scim_revoke_keys`) | admin, owner |
+| `GET`, `PUT /organizations/:orgId/security` (2FA requirement, login methods, domain join, session lifetime, `scim_revoke_keys`, `two_person_approval`, `approval_expiry_hours`, `api_key_max_lifetime_days`) | admin, owner |
 | `GET /organizations/:orgId/scim/tokens` (tokens without their value, `base_url`, number of SCIM users and groups) | admin |
 | `POST /organizations/:orgId/scim/tokens` (`{name, expires_at}`; the token is in the answer once), `DELETE .../scim/tokens/:id` | owner |
 | `GET`, `PUT /organizations/:orgId/group-roles` (IdP group to role mappings) | admin, owner |
@@ -826,8 +829,9 @@ needs `Authorization: Bearer <token from /v1/auth/login>`. Roles are `owner`,
 | `POST /organizations/:orgId/members/:userId/reset-mfa` | owner |
 | `GET /organizations/:orgId/activity?actor=&action=` | admin |
 | `GET`, `PUT`, `DELETE /organizations/:orgId/projects/:projectId/members[/:userId]` | viewer, admin |
-| `GET`, `POST /organizations/:orgId/api-keys` | admin |
-| `PATCH`, `DELETE /organizations/:orgId/api-keys/:keyId` | admin |
+| `GET`, `POST /organizations/:orgId/api-keys` (`expires_at`, `allowed_cidrs`; see [API key policy](#governance)) | admin |
+| `PATCH` (`rpm_limit`, `tpm_limit`, `allowed_cidrs`, `expires_at`), `DELETE /organizations/:orgId/api-keys/:keyId` | admin |
+| `POST /organizations/:orgId/api-keys/:keyId/rotate` (`{"overlap_hours": 24}`; the successor key is in the answer once) | admin |
 | `GET`, `POST /organizations/:orgId/projects` (list includes `default_upstream_id`) | viewer, admin |
 | `GET`, `POST /organizations/:orgId/upstreams` | viewer, admin |
 | `PUT`, `DELETE /organizations/:orgId/upstreams/:id` (409 while a rule or default uses it) | admin |
@@ -835,12 +839,15 @@ needs `Authorization: Bearer <token from /v1/auth/login>`. Roles are `owner`,
 | `PUT /organizations/:orgId/default-upstream` (`{"upstream_id": id or null}`) | admin |
 | `PUT /organizations/:orgId/projects/:projectId/default-upstream` | admin |
 | `GET`, `PUT /organizations/:orgId/config[?dry_run=true]` (YAML; `GET` is 409 when the stored config would not apply again) | viewer, admin |
-| `GET`, `POST /organizations/:orgId/policies` (409 on a name the org already uses; `enabled` defaults to true) | viewer, admin |
+| `GET`, `POST /organizations/:orgId/policies` (409 on a name the org already uses; `enabled` defaults to true; `log_only`, `reason`) | viewer, admin |
 | `POST /organizations/:orgId/policies/simulate` | viewer |
-| `PUT`, `DELETE /organizations/:orgId/policies/:id` | admin |
+| `PUT`, `DELETE /organizations/:orgId/policies/:id` (disabling or deleting answers 202 under two-person approval) | admin |
+| `GET /organizations/:orgId/policies/:id/versions`, `GET .../versions/diff?from=&to=` ([policy history](#governance)) | viewer |
+| `POST /organizations/:orgId/policies/:id/rollback` (`{"version", "reason"}`; without `version`, one step back) | admin |
 | `GET /organizations/:orgId/requests?limit=&cursor=&action=` (includes `route_target`, `repeat_count` and `has_content`; never the content) | viewer |
 | `POST /organizations/:orgId/requests/:requestId/content` `{"reason"}`: the stored prompt and answer of one request, logged as `request.content_viewed` with the reason | the org's `content_read_role` (default admin) |
 | `GET /organizations/:orgId/dashboard?window=24h\|7d\|30d&project_id=` (request log aggregates; see below) | viewer |
+| `GET /organizations/:orgId/reports/requests.csv?window=24h\|7d\|30d` or `?from=&to=` (the same per period as CSV, counts only; see [Governance](#governance)) | viewer |
 | `GET`, `POST /organizations/:orgId/exemplars` | viewer, admin |
 | `PUT`, `DELETE /organizations/:orgId/exemplars/:id` | admin |
 | `GET`, `POST /organizations/:orgId/invites`, `DELETE .../invites/:inviteId` (also under `/orgs/:orgId`) | admin |
@@ -936,7 +943,11 @@ rules may not name them, and stored rules that do read `[]` or `0` as they
 always did. A policy holds at most 200 rules; each rule has a CEL
 cost limit, the rules of one request share a cost budget and a timeout, and
 any of these limits fails closed with 503. Project policies run before the
-org-wide ones.
+org-wide ones. A policy with `log_only` is evaluated like any other, but
+what its `allow`, `block` and `route` rules would have decided is only
+recorded in the request log (tag `policy:would_block=<rule id>`); the
+request goes on to the next policy. Every save is kept as a version
+(see [Governance](#governance)).
 
 ## Routing
 
@@ -1166,9 +1177,15 @@ them, each linked to the policy and rule on the Flow page.
 |---|---|
 | ![Upstreams](docs/images/admin-upstreams.png) | ![Config as code with a diff](docs/images/admin-config.png) |
 
-Guard settings, API keys (the secret is shown once, at creation), projects,
+Guard settings, API keys (the secret is shown once, at creation; a key can
+be limited to addresses and rotated with an overlap window), projects,
 exemplars and the audit log (with the route target of each request) have
-pages of their own.
+pages of their own. **Policy history** lists every saved version of a
+policy with its author, time and reason, shows the changes between two
+versions and rolls back to any of them; the Flow page has a **Log only**
+switch per policy. **Approvals** lists the requests waiting for a second
+administrator when the security policy requires one, and the **Dashboard**
+downloads its period as CSV (see [Governance](#governance)).
 
 **Report** on a request log row (or in its details) turns a missed attack or a
 wrongly blocked text into a prefilled GitHub issue for the project's "Bypass"
@@ -2575,8 +2592,11 @@ replaces the current one even when it is lower, and leaving the admins group
 takes the access away (at once with SCIM, at the next login with SAML).
 SAML role changes are logged as `member.role_from_group`.
 
-**Activity log.** Member, invite, API key, policy, upstream, security and
-config changes and 2FA resets are recorded per org
+**Activity log.** Member, invite, API key (`api_key.created`, `.updated`,
+`.rotated`, `.revoked`), policy (`policy.created`, `.updated` with the
+version, `.rolled_back`, `.deleted`), approval (`approval.requested`,
+`.approved`, `.rejected`), report (`report.downloaded`), upstream, security
+and config changes and 2FA resets are recorded per org
 (`GET /v1/organizations/:orgId/activity`); SSO provider and instance user
 changes, logins (success and failure) and the user's own 2FA events at
 `GET /v1/admin/activity`. Details never hold secrets; a failed login keeps
@@ -2611,6 +2631,91 @@ its rows are deleted through a function with the table owner's rights (as
 for audit rows); the application role still cannot read or delete across
 orgs. Expired entries of the shared scan cache (`SCAN_CACHE_BACKEND=postgres`)
 go in the same run, whatever the retention periods are.
+
+### Governance
+
+Four controls for the people who run an organization (migrations 026 to
+028); all off or unchanged by default.
+
+**Policy history.** Every save of a policy (API, admin UI, config as code)
+is kept as a version: the whole policy as it was after the save, the
+author, the time and an optional `reason` (at most 500 characters) given
+with the `POST` or `PUT`. `GET /v1/organizations/{id}/policies/{pid}/versions`
+lists them newest first (`items`, `current`), `GET .../versions/diff?from=1&to=3`
+compares two (`fields` that changed and `rules` added, removed, changed or
+moved, by rule id; without `to` the current version, without `from` the one
+before it), and `POST .../rollback` `{"version": 1, "reason": "..."}` makes
+the policy what it was at that version, as a new version (without `version`,
+one step back). A rollback is checked like any save: the name must still be
+free, the rules must still run on this gateway and route targets must
+exist. The activity log records `policy.updated` (with the version) and
+`policy.rolled_back` (`to_version`, `version`). Policies that existed before
+migration 026 start their history with their state at the upgrade. A policy
+with `log_only: true` records instead of deciding: a matching `block`,
+`allow` or `route` rule of it is written to the request log as
+`policy:would_block=<rule id>` (`would_allow`, `would_route`) and the
+request goes on to the next policy; its `log` rules behave as always. The
+request log row names the first such rule when nothing else decided, the
+simulator reports `log_only` on the rule and the decision, and the Flow
+page shows the switch next to each policy. Config as code carries
+`log_only` per policy.
+
+**Two-person approval.** `PUT /v1/organizations/{id}/security`
+`{"two_person_approval": true, "approval_expiry_hours": 24}` (owner) makes
+four changes wait for a second administrator: disabling a policy (`PUT`
+with `enabled: false`; the rest of the save applies at once), deleting a
+policy, turning on the storage of prompt and answer content
+(`audit_store_content: true`) and deleting the organization. The call
+answers 202 `{"approval_required": true, "request": {...}}` and changes
+nothing; `GET /v1/organizations/{id}/approvals` lists the pending requests
+(`kind`, `target`, `target_label`, `requested_by`, `reason`, `expires_at`);
+`POST .../approvals/{rid}/approve` `{"note"}` applies the change in the same
+transaction, as the approver, and `.../reject` ends it. The requester
+cannot approve their own request (403 `self_approval`) but can reject it; a
+request past `approval_expiry_hours` (1 to 720) expires and changes nothing
+(409 `approval_expired`). Turning storage off, enabling a policy and
+everything else apply at once, as before; with the setting off nothing
+changes. Every step is in the activity log (`approval.requested`,
+`approval.approved` with the effect's own action, `approval.rejected`) and
+reaches the alert channels as `activity.approval.*` events. An approved
+deletion of the organization leaves `org.deleted` in the instance log, as
+the org's own log goes with it. The admin UI lists the requests on
+**Approvals**.
+
+**API key policy.** A key can be limited to addresses:
+`POST /v1/organizations/{id}/api-keys` `{"alias": "edge", "allowed_cidrs":
+["203.0.113.0/24", "198.51.100.7"]}` (at most 32 CIDRs or addresses; also
+`PATCH`). The gateway refuses the key from any other address with 403
+`{"error": "API key is not allowed from this address"}` (the Anthropic error
+shape on `/v1/messages`), using the client address it resolves through
+`TRUSTED_PROXIES`, never a header a client sent on its own; an expired or
+revoked key stays 401. `api_key_max_lifetime_days` in the security policy
+(1 to 3650, null for no limit) caps the `expires_at` of every new key and
+fills it in when a key is created without one; existing keys are not
+changed. `POST .../api-keys/{prefix}/rotate` `{"overlap_hours": 24}` (0 to
+720) creates a successor with the same alias, project, limits and
+addresses, returned once, and gives the old key an expiry at the end of the
+overlap (`rotated_to` and `rotated_at` in the list; a rotated key cannot be
+rotated again, rotate its successor). Logged as `api_key.rotated`.
+
+**Reports.** `GET /v1/organizations/{id}/reports/requests.csv?window=7d`
+(or `?from=2026-11-01T00:00:00Z&to=2026-11-08T00:00:00Z`, at most 92 days;
+`project_id` narrows it) answers the request log per hour (up to 48 hours)
+or day (UTC) in long form, one row per period and item:
+`period_start,period_end,section,key,requests,blocked` with the sections
+`total` (`all`), `action` (`allow`, `block`, `route`, `error`), `reason`
+(why a request was blocked: `policy:<rule name>`, else the detector's label,
+else `other`), `project` (the name, or `none`) and `api_key` (the prefix, or
+`none`). Counts only, never content; empty periods are left out; the file
+name is `guard-spec-<slug>-<from>-<to>.csv`; each download is logged as
+`report.downloaded`. The dashboard's **Download CSV** button fetches its
+window and project. There is no scheduler for per-organization jobs in
+the control plane, so a periodic report is a cron job:
+
+```bash
+0 6 * * 1 curl -sf -H "Authorization: Bearer $TOKEN" \
+  "$CP/organizations/$ORG/reports/requests.csv?window=7d" -o "weekly-$(date +\%F).csv"
+```
 
 ### Scan cache
 

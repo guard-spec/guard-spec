@@ -405,7 +405,9 @@ không gọi model), `POST /guardrail/scan/tools` (chấm định nghĩa tool MC
 
 Control plane (cổng 8081, compose mở ra 18081): đăng nhập, tổ chức, API key,
 project, policy, guard settings, exemplar, lời mời, audit log. Bảng đầy đủ và
-ví dụ curl ở mục [APIs](README.md#apis).
+ví dụ curl ở mục [APIs](README.md#apis). Các endpoint quản trị (lịch sử
+chính sách, phê duyệt hai người, chính sách khóa API, báo cáo CSV) ở mục
+[Quản trị](#quản-trị).
 
 `GET /v1/organizations/:orgId/dashboard?window=24h|7d|30d&project_id=` (vai trò
 viewer trở lên, như `/requests`) trả về số liệu tổng hợp của nhật ký yêu cầu,
@@ -672,6 +674,71 @@ liệu của bạn và xem điểm trong
 nhật ký yêu cầu trước. Quét một tài liệu 200k token mất vài chục giây trên vài
 lõi CPU. `POST /guardrail/scan` và `/v1/embeddings` giữ giới hạn hiện tại.
 
+### Quản trị
+
+Bốn công cụ cho người vận hành một tổ chức (migration 026 đến 028); mặc định
+đều tắt hoặc không đổi gì. Chi tiết tiếng Anh ở
+[Governance](README.md#governance).
+
+**Lịch sử chính sách.** Mỗi lần lưu chính sách (API, giao diện quản trị, cấu
+hình dạng mã) được giữ thành một phiên bản: toàn bộ chính sách sau khi lưu,
+người lưu, thời điểm và lý do (`reason`, tùy chọn, tối đa 500 ký tự).
+`GET /v1/organizations/{id}/policies/{pid}/versions` liệt kê các phiên bản
+(mới nhất trước), `GET .../versions/diff?from=1&to=3` so sánh hai phiên bản
+(các trường và các luật thêm, bỏ, sửa, đổi vị trí theo id luật), và
+`POST .../rollback` `{"version": 1, "reason": "..."}` khôi phục về phiên bản
+đó thành một phiên bản mới (không có `version`: lùi một bước). Khôi phục được
+kiểm tra như mọi lần lưu: tên còn trống, luật còn chạy được trên gateway, đích
+định tuyến còn tồn tại. Nhật ký hoạt động ghi `policy.updated` (kèm phiên bản)
+và `policy.rolled_back`. Chính sách có `log_only: true` chỉ ghi nhận thay vì
+quyết định: luật `block`, `allow`, `route` khớp được ghi vào nhật ký yêu cầu
+dạng `policy:would_block=<id luật>` (`would_allow`, `would_route`) và yêu cầu đi
+tiếp sang chính sách kế; luật `log` vẫn như cũ. Bộ mô phỏng báo `log_only`, trang
+Luồng có công tắc **Chỉ ghi log** cạnh mỗi chính sách, cấu hình dạng mã có
+`log_only` cho từng chính sách. Trang **Lịch sử chính sách** hiển thị các phiên
+bản, so sánh và khôi phục.
+
+**Phê duyệt hai người.** `PUT /v1/organizations/{id}/security`
+`{"two_person_approval": true, "approval_expiry_hours": 24}` (owner) khiến bốn
+thay đổi phải chờ quản trị viên thứ hai: tắt chính sách (`PUT` với
+`enabled: false`; phần còn lại của lần lưu áp dụng ngay), xóa chính sách, bật
+lưu nội dung prompt và câu trả lời (`audit_store_content: true`) và xóa tổ chức
+(`DELETE /v1/organizations/{id}` `{"confirm": "<slug>"}`, owner; không bao giờ
+xóa được tổ chức mặc định). Lời gọi trả về 202
+`{"approval_required": true, "request": {...}}` và chưa đổi gì;
+`GET /v1/organizations/{id}/approvals` liệt kê yêu cầu đang chờ,
+`POST .../approvals/{rid}/approve` `{"note"}` áp dụng thay đổi trong cùng giao
+dịch, `.../reject` kết thúc nó. Người yêu cầu không tự duyệt được (403
+`self_approval`) nhưng có thể từ chối; yêu cầu quá `approval_expiry_hours` (1
+đến 720) sẽ hết hạn và không đổi gì (409 `approval_expired`). Tắt thiết lập này
+thì mọi thứ như trước. Mỗi bước ghi vào nhật ký hoạt động (`approval.requested`,
+`approval.approved`, `approval.rejected`) và tới các kênh cảnh báo dạng sự kiện
+`activity.approval.*`. Giao diện quản trị có trang **Phê duyệt**.
+
+**Chính sách khóa API.** Khóa có thể giới hạn theo địa chỉ:
+`POST /v1/organizations/{id}/api-keys` `{"alias": "edge", "allowed_cidrs":
+["203.0.113.0/24", "198.51.100.7"]}` (tối đa 32 mục; `PATCH` cũng được). Gateway
+từ chối khóa từ địa chỉ khác với 403 `{"error": "API key is not allowed from
+this address"}`, dùng địa chỉ client xác định qua `TRUSTED_PROXIES` (gateway
+cũng đọc biến này), không bao giờ tin header do client tự gửi; khóa hết hạn
+hoặc bị thu hồi vẫn là 401. `api_key_max_lifetime_days` trong chính sách bảo
+mật (1 đến 3650, null là không giới hạn) chặn `expires_at` của mọi khóa mới và
+tự điền khi tạo khóa không có hạn; khóa đang có không đổi.
+`POST .../api-keys/{prefix}/rotate` `{"overlap_hours": 24}` (0 đến 720) tạo khóa
+kế thừa cùng bí danh, dự án, giới hạn và địa chỉ (trả về một lần), khóa cũ hết
+hạn khi hết thời gian chuyển tiếp (`rotated_to`, `rotated_at` trong danh sách).
+Ghi nhật ký `api_key.rotated`.
+
+**Báo cáo.** `GET /v1/organizations/{id}/reports/requests.csv?window=7d` (hoặc
+`?from=...&to=...` tối đa 92 ngày; `project_id` thu hẹp) trả về nhật ký yêu cầu
+theo giờ (đến 48 giờ) hoặc ngày (UTC) dạng dài:
+`period_start,period_end,section,key,requests,blocked` với các mục `total`,
+`action`, `reason` (lý do chặn: `policy:<tên luật>`, nhãn của bộ phát hiện, hoặc
+`other`), `project` và `api_key`. Chỉ có số đếm, không có nội dung; mỗi lần tải
+ghi `report.downloaded`. Nút **Tải CSV** trên Bảng điều khiển lấy đúng khoảng và
+dự án đang xem. Control plane không có bộ lập lịch theo tổ chức, nên báo cáo
+định kỳ là một cron job gọi `curl`.
+
 ### Giao diện quản trị
 
 Control plane phục vụ giao diện quản trị tại `/ui/` (với compose:
@@ -692,8 +759,10 @@ hành động, bước và cạnh đều có dấu **?** giải thích ý nghĩa
 khi nào dùng. Phạm vi chưa có luật nào sẽ gợi ý các luật mẫu thêm bằng một cú
 bấm. Ngoài ra
 có các trang Upstream, Cấu hình dạng mã (YAML: kiểm tra, xem khác biệt, áp
-dụng), Thiết lập bảo vệ, Khóa API, Dự án, Mẫu tham chiếu và Nhật ký kiểm tra.
-Chi tiết ở mục [Admin UI](README.md#admin-ui).
+dụng), Thiết lập bảo vệ, Khóa API (giới hạn địa chỉ, xoay khóa), Dự án, Mẫu
+tham chiếu, Nhật ký kiểm tra, Lịch sử chính sách (phiên bản, so sánh, khôi
+phục) và Phê duyệt (yêu cầu chờ quản trị viên thứ hai); Bảng điều khiển tải
+được CSV. Chi tiết ở mục [Admin UI](README.md#admin-ui).
 
 ![Luồng xử lý, giao diện tối](docs/images/admin-flow-dark-vi.png)
 

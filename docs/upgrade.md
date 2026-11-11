@@ -121,6 +121,30 @@ curl -s localhost:8080/readyz | jq .detector        # 6. or https://<GATEWAY_HOS
   also fails on warnings, `-json` for scripts). See
   [README, Kubernetes](../README.md#kubernetes).
 
+### Migration notes
+
+What a release's migrations do beyond adding tables, and what to check
+after them. The [CHANGELOG](../CHANGELOG.md) has the full upgrade notes of
+every version.
+
+- **026 (policy versions).** Adds `policies.log_only` and `policy_versions`,
+  and writes one version row for every existing policy (its state at the
+  upgrade), so the first edit after the upgrade can be rolled back. Down:
+  the history is dropped and a log-only policy becomes live, so disable
+  such policies first.
+- **027 (two-person approval).** Adds `approval_requests` and two
+  `org_security` columns; off for every organization. Down: pending
+  requests are dropped.
+- **028 (API key policy).** Replaces `lookup_api_key` so it also returns a
+  key's allowed addresses. Gateways from before 0.6.0 keep working against
+  the new function (they read the first two columns); a 0.6.0 gateway
+  needs the migration, so apply it before the gateway starts, as the
+  compose `migrate` job does. Set `TRUSTED_PROXIES` on the **gateway** when
+  it runs behind a reverse proxy and you use `allowed_cidrs`: without it
+  the proxy's address is the client. Down: keys limited to addresses work
+  from anywhere again; revoke them first if that matters. Expiries set by
+  rotations or the maximum lifetime stay.
+
 ## Rolling back
 
 ### Images, no schema change

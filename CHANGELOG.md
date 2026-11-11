@@ -57,6 +57,65 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   is MIT, wazero and the PDFium module Apache-2.0 (`NOTICE`,
   `THIRD_PARTY_LICENSES.md`). See [PDFs](README.md#pdfs) and
   [sizing, PDF documents](docs/sizing.md#pdf-documents).
+- **Policy history** (RF-5f318378). Every save of a policy (API, admin UI,
+  config as code) is kept as a version with its author, time and an
+  optional `reason` (migration 026, `policy_versions`).
+  `GET /v1/organizations/{id}/policies/{pid}/versions` lists them,
+  `.../versions/diff?from=&to=` compares two (fields and rules by id), and
+  `POST .../rollback` `{"version", "reason"}` restores one as a new version
+  (one step back without `version`), checked like any save. Logged as
+  `policy.updated` (with the version) and `policy.rolled_back`. A
+  **log-only** policy (`log_only: true`; the Flow page's "Log only" switch;
+  `log_only` in the YAML config) is evaluated but only records what its
+  allow, block and route rules would have decided, as request-log tags
+  `policy:would_block=<rule id>` (`would_allow`, `would_route`); the request
+  goes on to the next policy. The simulator reports `log_only` too. New
+  **Policy history** page: versions, diff, rollback.
+- **Two-person approval** (RF-5f318378). Per-organization opt-in in the
+  security policy (`two_person_approval`, `approval_expiry_hours`, default
+  24, at most 720; migration 027). On, disabling or deleting a policy,
+  turning on content storage (`audit_store_content`) and deleting the
+  organization answer 202 with a pending request instead of taking effect;
+  another admin approves (`POST .../approvals/{rid}/approve`, the change
+  applies in the same transaction) or rejects it, the requester cannot
+  approve their own, and a request past its time expires. Off, nothing
+  changes. Logged as `approval.requested`, `approval.approved` and
+  `approval.rejected`, and sent to the alert channels as
+  `activity.approval.*`. New: `DELETE /v1/organizations/{id}`
+  `{"confirm": "<slug>"}` (owner; never the default organization),
+  `GET .../approvals`, the **Approvals** page and the setting on the
+  Security page.
+- **API key policy** (RF-5f318378, migration 028). `allowed_cidrs` on a key
+  (create and `PATCH`): the gateway refuses it from any other address with
+  403 `{"error": "API key is not allowed from this address"}`, using the
+  client address resolved through `TRUSTED_PROXIES`, which the gateway now
+  reads too; never a header a client sent itself. `api_key_max_lifetime_days`
+  in the security policy caps and fills in the `expires_at` of new keys.
+  `POST .../api-keys/{prefix}/rotate` `{"overlap_hours": 24}` creates a
+  successor with the same alias, project, limits and addresses (shown once)
+  while the old key keeps working for the overlap and then expires
+  (`rotated_to`, `rotated_at`; logged as `api_key.rotated`). The API keys
+  page gets the address list and rotation; the Security page the maximum
+  lifetime. `PATCH` also takes `expires_at`.
+- **CSV report** (RF-5f318378).
+  `GET /v1/organizations/{id}/reports/requests.csv?window=24h|7d|30d` (or
+  `from` and `to`, at most 92 days; `project_id`) answers the request log
+  per hour or day in long form: totals, actions, block reasons (the policy
+  rule or the detector's label), projects and API key prefixes, with
+  requests and blocked counts; never content. Viewer role, like the
+  dashboard, which gets a **Download CSV** button. Logged as
+  `report.downloaded`. No schedule: the control plane has no
+  per-organization scheduler to reuse; a cron job with `curl` is the way.
+
+### Changed
+
+- `lookup_api_key` (the gateway's key lookup) also returns a key's allowed
+  addresses; older gateways keep working against it.
+- The gateway reads `TRUSTED_PROXIES` (the control plane always did), for
+  keys limited to addresses; the shared logic is `internal/clientip`.
+- `GET /v1/organizations/{id}/policies` and the YAML config carry
+  `log_only`; `POST` and `PUT` take `log_only` and `reason` and answer the
+  new `version`.
 
 ### Upgrade notes
 
@@ -68,6 +127,17 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   `MAX_SCAN_TOKENS` for PDFs over about 30k tokens of text (otherwise they
   are `over_limit` and forwarded unscanned, as before). To keep the 0.5.0
   behaviour, set `PDF_EXTRACT=off`.
+- Migration 026 writes one version row per existing policy (its state at
+  the upgrade). Migration 028 replaces `lookup_api_key`: apply the
+  migrations before a 0.6.0 gateway starts (the compose `migrate` job does).
+  See [docs/upgrade.md](docs/upgrade.md#migration-notes).
+- Behind a reverse proxy, set `TRUSTED_PROXIES` on the gateway before using
+  `allowed_cidrs`; without it the proxy's address is the client and such
+  keys are refused.
+- Two-person approval, the key lifetime and address limits are off until an
+  owner turns them on; existing keys are not changed.
+- Clients that disable a policy should expect 202 `approval_required` when
+  the organization requires a second admin.
 
 ## [0.5.0] - 2026-11-10
 
