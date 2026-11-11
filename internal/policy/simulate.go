@@ -223,6 +223,18 @@ func VarsFromMap(m map[string]any) (*Vars, error) {
 				return nil, fmt.Errorf("%s must not be negative", name)
 			}
 			v.UnscannedCount = int(f)
+		case "input.pdf.count":
+			if f < 0 {
+				return nil, fmt.Errorf("%s must not be negative", name)
+			}
+			v.PDFCount = int(f)
+		case "input.pdf.scanned":
+			if f < 0 {
+				return nil, fmt.Errorf("%s must not be negative", name)
+			}
+			v.PDFScanned = int(f)
+		case "input.pdf.reasons":
+			v.PDFReasons = l
 		default:
 			return nil, fmt.Errorf("field %s cannot be simulated", name)
 		}

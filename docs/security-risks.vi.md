@@ -31,7 +31,7 @@ dụng LLM trở nên an toàn.
 | D1 | Không phát hiện được tấn công | Chỉ dẫn bị chèn đến được model | Tool quyền tối thiểu, người xác nhận, output guard, exemplar |
 | D2 | Chặn nhầm request vô hại | Người dùng bị từ chối | Đo trên lưu lượng thật, allow exemplar, `DETECTOR_LAYERS` |
 | D3 | Lớp model thiếu mà không ai biết | Chỉ chạy L1, tỷ lệ bắt giảm | `DETECTOR_REQUIRE_ML=true`, cảnh báo khi `/readyz` báo `degraded` |
-| D4 | Injection gián tiếp trong phần không quét | Kết quả tool, system prompt, file hoặc ảnh không được kiểm | `SCAN_ROLES`, `scan_roles` theo org, `SPOTLIGHT`, gửi văn bản đã trích, `UNSCANNED_PARTS=block` |
+| D4 | Injection gián tiếp trong phần không quét | System prompt, ảnh, PDF scan hoặc PDF từ xa không được kiểm | `SCAN_ROLES`, `scan_roles` theo org, `SPOTLIGHT`, `PDF_EXTRACT` (mặc định), gửi văn bản đã trích, `UNSCANNED_PARTS=block` |
 | D5 | Lịch sử hội thoại bị giả mạo trên `/v1/messages` và `/v1/responses` | Văn bản chưa quét đặt vào các lượt trước tới được model | Chỉ cấp key cho client tin cậy, hoặc `SCAN_HISTORY=full` |
 | D6 | Trạng thái hội thoại lưu ở upstream (`/v1/responses`) | Các lượt trước mà gateway không thấy tới được model | `RESPONSES_SERVER_STATE=refuse` (mặc định); mỗi org một key upstream riêng |
 | A1 | Agent dùng tool sai mục đích | Mất dữ liệu, hành động ngoài ý muốn | Phân quyền trong ứng dụng, kiểm soát egress, xác nhận |
@@ -100,11 +100,17 @@ Nên làm:
 
 Mặc định gateway phân loại tin nhắn người dùng, kết quả tool và mô tả tool MCP
 (`SCAN_ROLES=user,tool,tool_descriptions`). System prompt và tham số tool call
-của model không được phân loại nếu bạn không thêm vào. Ảnh, file (PDF và các
-loại khác) và âm thanh trong request được chuyển tới model mà không được đọc:
-injection trong PDF hay ảnh không được chấm điểm. Với mặc định
+của model không được phân loại nếu bạn không thêm vào. PDF gửi kèm trong
+request được gateway đọc (`PDF_EXTRACT`, mặc định bật): văn bản của nó, kể cả
+chữ ẩn, chú thích và trường biểu mẫu, được quét như tài liệu. Những gì còn
+lại tới model mà không được đọc: ảnh và âm thanh, PDF không có lớp văn bản
+(bản scan; gateway không chạy OCR), PDF mã hoá hay hỏng, PDF vượt giới hạn
+(quá khoảng 30k token văn bản khi không đặt `MAX_SCAN_TOKENS`, hoặc quá
+`PDF_EXTRACT_MAX_*`), file mà nhà cung cấp tự tải bằng URL hay file id, và
+các loại file khác. Injection trong đó không được chấm điểm. Với mặc định
 `UNSCANNED_PARTS=log`, chúng được đếm trong dòng audit
-(`input:unscanned_<loại>=<số>`), để bạn thấy chúng đến từ đâu.
+(`input:unscanned_<loại>=<số>`, `input:pdf_unscanned_<lý do>=<số>`), để bạn
+thấy chúng đến từ đâu.
 
 Nên làm:
 
@@ -113,10 +119,15 @@ Nên làm:
 - Gửi tài liệu truy xuất qua `/guardrail/scan` với `documents[]` trước khi đưa
   vào prompt.
 - Bật `SPOTLIGHT` (`delimit` hoặc `datamark`) để model phân biệt dữ liệu với chỉ dẫn.
-- Để ứng dụng gửi văn bản của file (đã trích, OCR với bản scan) thay cho file,
-  rồi đặt `UNSCANNED_PARTS=block` (hoặc `unscanned_parts` theo tổ chức, hoặc
-  luật trên `input.unscanned.kinds`). Khi ngữ cảnh có ảnh không tin cậy, giới
-  hạn tool của agent và xác nhận các thao tác rủi ro. Xem
+- Giữ `PDF_EXTRACT=on` và đặt `MAX_SCAN_TOKENS` đủ lớn cho tài liệu người
+  dùng của bạn gửi, để PDF dài được quét thay vì thành `over_limit`; từ chối
+  những gì gateway không đọc được bằng luật trên `input.pdf.reasons` (ví dụ
+  `no_text`, `encrypted`, `remote`).
+- Để ứng dụng gửi văn bản của những file gateway không đọc được (OCR với bản
+  scan, văn bản đã trích với file nhà cung cấp đang giữ) thay cho file, rồi
+  đặt `UNSCANNED_PARTS=block` (hoặc `unscanned_parts` theo tổ chức, hoặc luật
+  trên `input.unscanned.kinds`). Khi ngữ cảnh có ảnh không tin cậy, giới hạn
+  tool của agent và xác nhận các thao tác rủi ro. Xem
   [File, PDF và ảnh](integrations.vi.md#file-pdf-và-ảnh).
 
 ### D5. Lịch sử hội thoại bị giả mạo trên `/v1/messages`
@@ -364,7 +375,7 @@ và cảnh báo theo tỷ lệ 503 và `/readyz`.
 - [ ] `UPSTREAM_ALLOW_PRIVATE=false` và `UPSTREAM_KEY_ORGS` hẹp
 - [ ] `TRUSTED_PROXIES` liệt kê đúng các proxy
 - [ ] `SCAN_ROLES` bao mọi chỗ văn bản không tin cậy đi vào prompt
-- [ ] File được gửi dưới dạng văn bản đã trích; `UNSCANNED_PARTS=block` nếu không ứng dụng nào cần gửi file, ảnh hay âm thanh
+- [ ] `PDF_EXTRACT=on` và `MAX_SCAN_TOKENS` đặt theo cỡ tài liệu của bạn; file khác gửi dưới dạng văn bản đã trích; `UNSCANNED_PARTS=block` nếu không ứng dụng nào cần gửi file, ảnh hay âm thanh
 - [ ] Allowlist link ngắn; UI không tự tạo link từ câu trả lời của model
 - [ ] Tắt lưu nội dung; đã đặt `AUDIT_RETENTION_DAYS`
 - [ ] SSO hoặc bắt buộc 2FA cho mọi người có quyền admin

@@ -22,6 +22,12 @@ const (
 // gateway does not know, so a new provider part type is not missed.
 var UnscannedKinds = []string{"image", "file", "audio", "other"}
 
+// PDFReasons are the reasons a PDF part stays unscanned, in the order the
+// audit tags and input.pdf.reasons list them: the outcomes of
+// internal/pdftext other than ok, and remote for a PDF the gateway cannot
+// fetch (a url, file_id or file_url source).
+var PDFReasons = []string{"no_text", "encrypted", "damaged", "timeout", "over_limit", "internal", "remote"}
+
 var unscannedRank = map[string]int{UnscannedAllow: 0, UnscannedLog: 1, UnscannedBlock: 2}
 
 // ParseUnscannedMode checks an UNSCANNED_PARTS value; "" is the default, log.

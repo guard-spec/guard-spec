@@ -615,23 +615,36 @@ Các bước: [examples/n8n](../examples/n8n/README.md).
 
 ## File, PDF và ảnh
 
-Bộ phát hiện của gateway chỉ đọc văn bản. Ảnh, PDF hay file khác, hoặc âm thanh
-trong request (`image_url`, `file`, `input_audio` trên chat completions; block
-`image` và `document` có source `base64`, `url` hoặc `file` trên
-`/v1/messages`; `input_image`, `input_file`, `input_audio` trên
-`/v1/responses`) được chuyển nguyên tới model, và model đọc được chúng: model
-vision đọc chữ trong ảnh, nhà cung cấp đưa văn bản của PDF cho model. Vì vậy
-một chỉ dẫn giấu trong những file đó không được chấm điểm. Gateway không trích
-văn bản PDF và không chạy OCR. Mặc định (`UNSCANNED_PARTS=log`) gateway cho
-các phần này qua và đếm chúng trong dòng audit (`input:unscanned_file=1`, ...),
-để bạn thấy ứng dụng nào gửi chúng; chi tiết ở
+Bộ phát hiện của gateway chỉ đọc văn bản. PDF gửi kèm trong request (part
+`file` có `file_data` trên chat completions, block `document` nguồn `base64`
+trên `/v1/messages`, mục `input_file` có `file_data` trên `/v1/responses`)
+được chính gateway đọc nhờ `PDF_EXTRACT` (mặc định bật): văn bản của nó, kể
+cả chữ ẩn, chú thích và trường biểu mẫu, được quét như tài liệu không tin cậy
+và theo `INDIRECT_ACTION`, nên một chỉ dẫn giấu trong PDF có lớp văn bản được
+chấm điểm mà ứng dụng không phải đổi gì. PDF dài cần `MAX_SCAN_TOKENS` (quá
+khoảng 30k token văn bản thì là `over_limit` và không được quét), và
+`INDIRECT_ACTION=redact` là lựa chọn tốt hơn cho ứng dụng xử lý nhiều tài
+liệu khi classifier vẫn chặn nhầm một số tài liệu dài vô hại; giới hạn và thẻ
+audit ở [README: PDF](../README.vi.md#pdf).
+
+Những gì gateway vẫn không đọc được thì được chuyển nguyên tới model, và model
+đọc được chúng: ảnh (`image_url`, `image`, `input_image`; model vision đọc
+chữ trong ảnh), âm thanh, PDF không có lớp văn bản (bản scan, ảnh chụp trang:
+gateway không chạy OCR), PDF mã hoá hay hỏng, PDF vượt giới hạn, và file mà
+nhà cung cấp tự tải bằng URL hay file id (`file_id`, `file_url`, nguồn `url`
+hay `file`), thứ gateway không bao giờ thấy. Chỉ dẫn giấu trong đó không
+được chấm điểm. Mặc định (`UNSCANNED_PARTS=log`) gateway cho các phần này
+qua và đếm chúng trong dòng audit (`input:unscanned_file=1`,
+`input:pdf_unscanned_no_text=1`, ...), để bạn thấy ứng dụng nào gửi chúng;
+chi tiết ở
 [README: Phần gateway không đọc được](../README.vi.md#phần-gateway-không-đọc-được).
-Muốn nội dung được kiểm tra thì phải đổi thứ ứng dụng gửi đi:
+Muốn nội dung đó được kiểm tra thì phải đổi thứ ứng dụng gửi đi:
 
 **1. Gửi văn bản đã trích, không gửi file.** Trích văn bản trong ứng dụng
-(`pdftotext` hoặc `pdfplumber` cho PDF có lớp văn bản, OCR cho PDF scan và
-ảnh chụp) rồi gửi văn bản đó thay cho file. Giữ kèm những metadata model cần,
-như tên file, tiêu đề, số trang. Khi đó gateway quét đúng thứ model đọc. Trên
+(OCR cho PDF scan và ảnh chụp; `pdftotext` hoặc `pdfplumber` cho PDF mà
+gateway không thấy, như file đã tải lên nhà cung cấp và tham chiếu bằng id)
+rồi gửi văn bản đó thay cho file. Giữ kèm những metadata model cần, như tên
+file, tiêu đề, số trang. Khi đó gateway quét đúng thứ model đọc. Trên
 `/v1/messages`, block `document` có source dạng text được quét như tài liệu
 không tin cậy, giống kết quả tool:
 
@@ -662,9 +675,10 @@ curl -s $GUARDSPEC_URL/guardrail/scan -H "Authorization: Bearer $GUARDSPEC_API_K
 
 Cách này bắt được file bị cài cắm trước khi có người dùng tới, nhưng chỉ kiểm
 tra văn bản đã trích. Nếu ứng dụng vẫn gửi file gốc cho model, model có thể
-đọc được thứ mà bước trích bỏ sót (chữ trắng hoặc rất nhỏ, chữ trong ảnh nhúng
-trong PDF, nội dung mà một parser khác đọc ra khác). Khi điều đó quan trọng,
-hãy gửi chính văn bản đã quét (cách 1).
+đọc được thứ mà bước trích bỏ sót (chữ trong ảnh nhúng trong PDF, nội dung mà
+một parser khác đọc ra khác); PDF gửi kèm trong request được gateway đọc lại,
+kể cả chữ trắng và chữ rất nhỏ, nhưng file gửi bằng id thì không. Khi điều đó
+quan trọng, hãy gửi chính văn bản đã quét (cách 1).
 
 **3. Ảnh.** Khi ảnh mang chữ từ nguồn không tin cậy (ảnh chụp màn hình, biểu
 mẫu scan, ảnh từ web), chạy OCR rồi quét kết quả như trên. Cách này có ích
@@ -677,11 +691,12 @@ quyền).
 **4. Bắt buộc áp dụng.** Khi ứng dụng đã gửi văn bản, đặt
 `UNSCANNED_PARTS=block` trên gateway, hoặc `"unscanned_parts": "block"` trong
 guard settings của tổ chức, để phần file, ảnh hay âm thanh bị từ chối (400
-`unscanned_content`) thay vì tới model mà không được đọc. Muốn chặt hơn chỉ
-cho một số ứng dụng, giữ `log` và thêm luật như
-`"file" in input.unscanned.kinds` với hành động `block` vào policy của project
-chứa key của các ứng dụng đó (ví dụ trong
-[README](../README.vi.md#phần-gateway-không-đọc-được)).
+`unscanned_content`) thay vì tới model mà không được đọc; PDF gateway đã đọc
+không phải phần không quét, nên `block` chỉ từ chối những gì nó không đọc
+được. Muốn chặt hơn chỉ cho một số ứng dụng, giữ `log` và thêm luật như
+`"file" in input.unscanned.kinds` hay `"no_text" in input.pdf.reasons` với
+hành động `block` vào policy của project chứa key của các ứng dụng đó (ví dụ
+trong [README](../README.vi.md#phần-gateway-không-đọc-được)).
 
 ## Công cụ khác
 

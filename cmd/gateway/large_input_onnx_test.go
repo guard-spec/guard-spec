@@ -23,7 +23,7 @@ import (
 
 // liveRunner loads the model layers behind ml.Live, as the gateway does, with
 // one ONNX thread per run (the production compose setting).
-func liveRunner(t *testing.T) *inference.Runner {
+func liveRunner(t testing.TB) *inference.Runner {
 	t.Helper()
 	root, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {

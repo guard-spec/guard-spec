@@ -99,6 +99,14 @@ type Vars struct {
 	// kinds (image, file, audio, other) and how many, in the turns it scans.
 	UnscannedKinds []string
 	UnscannedCount int
+
+	// PDF parts (input.pdf.*): how many the request has in the turns the
+	// gateway scans, how many of them were read (text extracted and
+	// scanned), and why the others were not (no_text, encrypted, damaged,
+	// timeout, over_limit, internal, remote).
+	PDFCount   int
+	PDFScanned int
+	PDFReasons []string
 }
 
 // toActivation converts Vars to the map cel.Program.ContextEval expects.
@@ -127,6 +135,9 @@ func (v *Vars) toActivation() map[string]any {
 		"input.pii.count":       int64(v.InputPIICount),
 		"input.unscanned.kinds": stringList(v.UnscannedKinds),
 		"input.unscanned.count": int64(v.UnscannedCount),
+		"input.pdf.count":       int64(v.PDFCount),
+		"input.pdf.scanned":     int64(v.PDFScanned),
+		"input.pdf.reasons":     stringList(v.PDFReasons),
 		"toxicity.score":        0.0,
 		"pii.entities":          []string{},
 		"topic.categories":      []string{},
@@ -186,6 +197,9 @@ var fieldTypes = map[string]*cel.Type{
 	"input.pii.count":       cel.IntType,
 	"input.unscanned.kinds": listOfStrings,
 	"input.unscanned.count": cel.IntType,
+	"input.pdf.count":       cel.IntType,
+	"input.pdf.scanned":     cel.IntType,
+	"input.pdf.reasons":     listOfStrings,
 }
 
 // removedFields were offered to rules, but no detector ever produced them, so
