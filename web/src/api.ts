@@ -27,6 +27,9 @@ import type {
   ExemplarInput,
   GatewayModels,
   GuardSettings,
+  InputSettings,
+  InputSettingsPending,
+  InputSettingsState,
   IdentityProvider,
   IdentityProviderInput,
   InstanceUser,
@@ -667,6 +670,22 @@ export class ApiClient {
 
   putGuardSettings(orgId: UUID, s: GuardSettings): Promise<GuardSettings> {
     return this.request('PUT', `/organizations/${enc(orgId)}/guard-settings`, { body: s });
+  }
+
+  // ── Input settings (migration 030) ────────────────────────────────────────
+
+  getInputSettings(orgId: UUID): Promise<InputSettingsState> {
+    return this.request('GET', `/organizations/${enc(orgId)}/input-settings`);
+  }
+
+  /** 202 with approval_required when it loosens the settings and the org wants a second admin. */
+  putInputSettings(orgId: UUID, s: InputSettings, reason?: string): Promise<InputSettingsState | InputSettingsPending> {
+    return this.request('PUT', `/organizations/${enc(orgId)}/input-settings`, { body: { ...s, reason } });
+  }
+
+  /** Back to the instance's behaviour, which loosens whatever the org had set. */
+  resetInputSettings(orgId: UUID, reason?: string): Promise<InputSettingsState | InputSettingsPending> {
+    return this.request('DELETE', `/organizations/${enc(orgId)}/input-settings`, { body: { reason } });
   }
 
   // ── Exemplars ─────────────────────────────────────────────────────────────
