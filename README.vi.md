@@ -376,7 +376,7 @@ dùng nhất:
 | `MAX_SCAN_TOKENS` | rỗng (giới hạn hiện tại) | Số token tối đa gateway quét cho một request được proxy. Rỗng hoặc `0`: giữ giới hạn theo byte như trước (khoảng 28 KB văn bản của người dùng, system và tham số tool call; 128 KiB kết quả tool, tài liệu và mô tả tool; 1 MiB lượt cũ), vượt thì 413. Khi đặt: là trần token của request (vượt thì 413), và request vượt các giới hạn byte đó được quét theo đường dài trong làn input lớn thay vì bị từ chối. Xem [Input lớn](#input-lớn) |
 | `INFERENCE_LARGE_MAX_CONCURRENCY` / `LARGE_SCAN_ORG_CONCURRENCY` | số CPU / 4 (ít nhất 1) / một nửa của nó | Số request lớn được quét cùng lúc (và các lượt chạy model của chúng, trên limiter riêng) / của một tổ chức |
 | `LARGE_SCAN_QUEUE_TIMEOUT` | `30s` | Thời gian request lớn chờ làn trước khi nhận 429 kèm `Retry-After`; cũng là thời gian request chờ một bộ trích xuất PDF rảnh (`PDF_EXTRACT`) |
-| `PDF_EXTRACT` | `on` | `on` hoặc `off`. `on`: văn bản của PDF gửi kèm trong request (khối `document` nguồn base64 trên `/v1/messages`, phần `file` có `file_data` trên chat completions, mục `input_file` có `file_data` trên `/v1/responses`) được trích xuất (kể cả chữ ẩn, chú thích và trường biểu mẫu) và quét như một tài liệu, nên `INDIRECT_ACTION` và `MAX_SCAN_TOKENS` áp dụng; body chuyển tiếp giữ nguyên, trừ khi `redact` thay phần đó bằng placeholder tài liệu. PDF không lấy được chữ (`no_text`, `encrypted`, `damaged`, `timeout`, `over_limit`, `internal`) hoặc gateway không tải được (url hay file id: `remote`) vẫn là phần không quét theo `UNSCANNED_PARTS`, với thẻ audit `input:pdf_scanned=<số>` và `input:pdf_unscanned_<lý do>=<số>` và các trường luật `input.pdf.count`, `input.pdf.scanned`, `input.pdf.reasons`. `off`: PDF là phần không quét như ở 0.5.0. Không có ghi đè theo tổ chức. Xem [PDF](#pdf) |
+| `PDF_EXTRACT` | `on` | `on` hoặc `off`. `on`: văn bản của PDF gửi kèm trong request (khối `document` nguồn base64 trên `/v1/messages`, phần `file` có `file_data` trên chat completions, mục `input_file` có `file_data` trên `/v1/responses`) được trích xuất (kể cả chữ ẩn, chú thích và trường biểu mẫu) và quét như một tài liệu, nên `INDIRECT_ACTION` và `MAX_SCAN_TOKENS` áp dụng; body chuyển tiếp giữ nguyên, trừ khi `redact` thay phần đó bằng placeholder tài liệu. PDF không lấy được chữ (`no_text`, `encrypted`, `damaged`, `timeout`, `over_limit`, `internal`) hoặc gateway không tải được (url hay file id: `remote`) vẫn là phần không quét theo `UNSCANNED_PARTS`, với thẻ audit `input:pdf_scanned=<số>` và `input:pdf_unscanned_<lý do>=<số>` và các trường luật `input.pdf.count`, `input.pdf.scanned`, `input.pdf.reasons`. `off`: PDF là phần không quét như ở 0.5.0. Không có ghi đè việc trích xuất theo tổ chức; tổ chức có thể từ chối PDF hoặc PDF không đọc được bằng [thiết lập đầu vào](#thiết-lập-đầu-vào-theo-tổ-chức). Xem [PDF](#pdf) |
 | `PDF_EXTRACT_MAX_BYTES` | `33554432` (32 MiB) | PDF lớn nhất bộ trích xuất mở, tính bằng byte (`1024` đến `1073741824`); lớn hơn là `over_limit`. Giới hạn body áp dụng trước: PDF đến dưới dạng base64, nên PDF lớn nhất tới được gateway chỉ khoảng 3/4 `MAX_REQUEST_BYTES` (3 MiB theo mặc định). Log lúc khởi động ghi giới hạn hiệu lực và cảnh báo khi biến này được đặt cao hơn |
 | `PDF_EXTRACT_MAX_PAGES` | `600` | Số trang tối đa trích xuất từ một PDF (`1` đến `100000`); nhiều hơn là `over_limit` |
 | `PDF_EXTRACT_MAX_TEXT_BYTES` | `4194304` (4 MiB), hoặc 4 × `MAX_SCAN_TOKENS` nếu nhỏ hơn | Lượng chữ tối đa trích từ một PDF, tính bằng byte (`1024` đến `1073741824`); nhiều hơn là `over_limit`. Khi `MAX_SCAN_TOKENS` không đặt, chữ vượt 128 KiB tài liệu của đường ngắn cũng là `over_limit` |
@@ -438,6 +438,10 @@ nhiêu phần đã được đọc nhờ `PDF_EXTRACT`) và `input.pdf.reasons` 
 phần còn lại không đọc được: `no_text`, `encrypted`, `damaged`, `timeout`,
 `over_limit`, `internal`, `remote`) mô tả các PDF. Ví dụ: `"encrypted" in
 input.pdf.reasons` với hành động `block`.
+`input.files.types` liệt kê loại của hình ảnh, file và âm thanh trong các lượt
+đó, nhận diện từ nội dung (`pdf`, `png`, `jpeg`, `gif`, `webp`, `docx`,
+`xlsx`, `pptx`, `zip`, `wav`, `mp3`, `ogg`, `flac`, `unknown`, `remote`); xem
+[Thiết lập đầu vào theo tổ chức](#thiết-lập-đầu-vào-theo-tổ-chức).
 Các trường `pii.entities`, `toxicity.score` và `topic.categories` đã bị bỏ:
 luật mới không được dùng chúng, còn luật đã lưu có dùng thì vẫn đọc `[]` hoặc
 `0` như trước. Chi tiết ở mục [APIs](README.md#apis).
@@ -613,6 +617,54 @@ từng byte, trừ khi một phần bị redact.
   không được đọc; luật trên `input.pdf.reasons` từ chối những loại bạn
   không muốn. `PDF_EXTRACT=off` là hành vi của 0.5.0: mọi PDF là phần không
   quét.
+
+### Thiết lập đầu vào theo tổ chức
+
+Admin của tổ chức có thể đặt những gì gateway nhận từ các ứng dụng của tổ
+chức (giao diện: **Thiết lập đầu vào**, hoặc
+`PUT /v1/organizations/:orgId/input-settings`). Biến môi trường của instance
+luôn là trần. Tổ chức chưa có thiết lập giữ nguyên hành vi của instance
+(`PDF_EXTRACT`, `UNSCANNED_PARTS`, `MAX_SCAN_TOKENS`, như mô tả ở trên).
+
+| Thiết lập | Giá trị | Tác dụng |
+| --- | --- | --- |
+| `input_mode` | `text_only`, `hybrid` | `text_only`: mọi phần hình ảnh, file và âm thanh bị từ chối với 415 `files_not_accepted`, thông báo yêu cầu ứng dụng chuyển file thành văn bản. `hybrid`: văn bản và các file thuộc loại được phép. |
+| `max_input_tokens` | 1 đến giới hạn của instance, hoặc `null` | Request có nhiều token văn bản cần quét hơn bị từ chối với 413 `max_input_tokens_exceeded` trước khi quét. Giới hạn là `MAX_SCAN_TOKENS` của gateway, hoặc 40.000 (đường ngắn) nếu không đặt; giá trị lớn hơn bị từ chối với 400. `null`: dùng giới hạn của instance. |
+| `allowed_file_types` | `pdf` (các loại gateway đọc được) | Chỉ với `hybrid`. Loại file khác bị từ chối với 415 `file_type_not_allowed`. |
+| `unreadable_file_action` | `block` (mặc định), `pass` | File được phép nhưng gateway không đọc được (PDF dạng ảnh scan, mã hoá, hỏng, vượt giới hạn của bộ trích xuất, hoặc mọi PDF khi `PDF_EXTRACT=off`): `block` từ chối request với 422 `file_unreadable`; `pass` chuyển tiếp như phần không quét và gắn thẻ audit `input:unreadable_passed=<số>` (`UNSCANNED_PARTS=block` vẫn từ chối). |
+
+Loại của mỗi phần được nhận diện từ nội dung (`%PDF-`, chữ ký PNG, JPEG,
+GIF, WebP, zip Office Open XML, WAV, MP3, Ogg, FLAC) và đối chiếu với loại
+phần đó khai báo: `media_type`, loại của data URL, phần mở rộng của
+`filename` hoặc `format` của âm thanh. Không khớp thì bị từ chối với 415
+`file_type_mismatch`; không bao giờ chỉ tin phần mở rộng. File gateway không
+nhận trực tiếp (URL, `file_id` hoặc `file_url`) không kiểm tra được và bị từ
+chối với 415 `file_not_inline`. Các loại nhận diện được là trường luật
+`input.files.types` (có hay không có thiết lập) và, với tổ chức có thiết
+lập, thẻ audit `input:file_<loại>=<số>`. Mỗi lần từ chối có thẻ
+`input:refused=<lý do>` và được đếm trong
+`guardspec_gateway_input_refused_total{reason}`; các loại file được đếm
+trong `guardspec_gateway_input_files_total{type}`.
+
+Siết chặt một thiết lập có hiệu lực ngay. Nới lỏng (thêm loại file, tăng
+hoặc bỏ `max_input_tokens`, `pass` thay cho `block`, `text_only` sang
+`hybrid`, hoặc `DELETE` để quay về hành vi của instance) luôn được ghi vào
+nhật ký hoạt động (`input_settings.updated`, kèm những gì được nới) và, khi
+tổ chức bật [phê duyệt hai người](#quản-trị), trả về 202 với yêu cầu
+`input_settings.loosen` để một admin khác duyệt: phần siết chặt trong cùng
+thay đổi vẫn áp dụng ngay. Mỗi lúc chỉ có một yêu cầu như vậy đang chờ (một
+thay đổi nới lỏng khác trong lúc đó bị từ chối với 409 `approval_pending`),
+và một thay đổi thiết lập sau đó sẽ hủy yêu cầu.
+
+| API (control plane, tiền tố `/v1`) | Vai trò |
+| --- | --- |
+| `GET /organizations/:orgId/input-settings` (thiết lập hoặc `inherit`, giới hạn của instance đọc từ gateway, yêu cầu nới lỏng đang chờ) | viewer |
+| `PUT /organizations/:orgId/input-settings` (`{input_mode, max_input_tokens, allowed_file_types, unreadable_file_action, reason}`), `DELETE` (quay về hành vi của instance, `{reason}`) | admin |
+
+Control plane đọc giới hạn của instance từ `/readyz` của gateway (`input`),
+qua `GATEWAY_URL`; nếu không đặt, giới hạn của `max_input_tokens` là 40.000
+và gateway vẫn áp `MAX_SCAN_TOKENS` của chính nó. File Office, file tải qua
+`/v1/files` và OCR không được đọc.
 
 ### Input lớn
 

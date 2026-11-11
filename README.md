@@ -668,7 +668,7 @@ in a second table.
 | `INFERENCE_LARGE_MAX_CONCURRENCY` | CPUs / 4 (the container's CPU limit counts; at least 1) | Large requests scanned at once, and their model runs, on a limiter of their own |
 | `LARGE_SCAN_ORG_CONCURRENCY` | half of `INFERENCE_LARGE_MAX_CONCURRENCY` (at least 1) | Large requests of one org scanned at once |
 | `LARGE_SCAN_QUEUE_TIMEOUT` | `30s` | How long a large request waits for the lane before 429 with `Retry-After`; also how long a request waits for a free PDF extractor (`PDF_EXTRACT`) |
-| `PDF_EXTRACT` | `on` | `on` or `off`. `on`: the text of a PDF sent inline (a `document` block with a base64 source on `/v1/messages`, a `file` part with `file_data` on chat completions, an `input_file` item with `file_data` on `/v1/responses`) is extracted (hidden text, annotations and form fields included) and scanned as a document, so `INDIRECT_ACTION` and `MAX_SCAN_TOKENS` apply; the forwarded body is unchanged unless `redact` replaces the part with the document placeholder. A PDF that yields no text (`no_text`, `encrypted`, `damaged`, `timeout`, `over_limit`, `internal`) or that the gateway cannot fetch (a url or file id: `remote`) stays an unscanned part under `UNSCANNED_PARTS`, with audit tags `input:pdf_scanned=<n>` and `input:pdf_unscanned_<reason>=<n>` and the rule fields `input.pdf.count`, `input.pdf.scanned`, `input.pdf.reasons`. `off`: PDFs are unscanned parts, as in 0.5.0. No per-org override. See [PDFs](#pdfs) |
+| `PDF_EXTRACT` | `on` | `on` or `off`. `on`: the text of a PDF sent inline (a `document` block with a base64 source on `/v1/messages`, a `file` part with `file_data` on chat completions, an `input_file` item with `file_data` on `/v1/responses`) is extracted (hidden text, annotations and form fields included) and scanned as a document, so `INDIRECT_ACTION` and `MAX_SCAN_TOKENS` apply; the forwarded body is unchanged unless `redact` replaces the part with the document placeholder. A PDF that yields no text (`no_text`, `encrypted`, `damaged`, `timeout`, `over_limit`, `internal`) or that the gateway cannot fetch (a url or file id: `remote`) stays an unscanned part under `UNSCANNED_PARTS`, with audit tags `input:pdf_scanned=<n>` and `input:pdf_unscanned_<reason>=<n>` and the rule fields `input.pdf.count`, `input.pdf.scanned`, `input.pdf.reasons`. `off`: PDFs are unscanned parts, as in 0.5.0. No per-org override of extraction; an organization can refuse PDFs or unreadable ones with its [input settings](#per-organization-input-settings). See [PDFs](#pdfs) |
 | `PDF_EXTRACT_MAX_BYTES` | `33554432` (32 MiB) | Largest PDF the extractor opens, in bytes (`1024` to `1073741824`); larger ones are `over_limit`. The body limit applies first: a PDF arrives base64-encoded, so the largest PDF that can reach the gateway is about 3/4 of `MAX_REQUEST_BYTES` (3 MiB by default). The start-up log states the effective limit and warns when this is set above it |
 | `PDF_EXTRACT_MAX_PAGES` | `600` | Most pages extracted from one PDF (`1` to `100000`); more is `over_limit` |
 | `PDF_EXTRACT_MAX_TEXT_BYTES` | `4194304` (4 MiB), or 4 × `MAX_SCAN_TOKENS` when that is smaller | Most text extracted from one PDF, in bytes (`1024` to `1073741824`); more is `over_limit`. With `MAX_SCAN_TOKENS` unset, text past the short path's 128 KiB of documents is `over_limit` as well |
@@ -820,6 +820,8 @@ needs `Authorization: Bearer <token from /v1/auth/login>`. Roles are `owner`,
 | `GET /organizations/:orgId/approvals?status=pending\|approved\|rejected\|expired\|cancelled\|all` | admin, instance admin |
 | `POST /organizations/:orgId/approvals/:id/approve`, `.../reject` (`{"note"}`; the requester cannot approve their own; an organization's deletion is approved by another owner or an instance administrator) | admin, instance admin |
 | `GET`, `PUT /organizations/:orgId/guard-settings` | viewer, admin |
+| `GET /organizations/:orgId/input-settings` (the settings or `inherit`, the instance limits read from the gateway, a pending loosening) | viewer |
+| `PUT /organizations/:orgId/input-settings` (`{input_mode, max_input_tokens, allowed_file_types, unreadable_file_action, reason}`), `DELETE` (back to the instance's behaviour, `{reason}`); 202 with a pending request when it loosens and [two-person approval](#governance) is on. See [Per-organization input settings](#per-organization-input-settings) | admin |
 | `GET`, `PUT /organizations/:orgId/security` (2FA requirement, login methods, domain join, session lifetime, `scim_revoke_keys`, `two_person_approval`, `approval_expiry_hours`, `api_key_max_lifetime_days`) | admin, owner |
 | `GET /organizations/:orgId/scim/tokens` (tokens without their value, `base_url`, number of SCIM users and groups) | admin |
 | `POST /organizations/:orgId/scim/tokens` (`{name, expires_at}`; the token is in the answer once), `DELETE .../scim/tokens/:id` | owner |
@@ -938,6 +940,10 @@ of them were read with `PDF_EXTRACT`) and `input.pdf.reasons` (why the others
 were not: `no_text`, `encrypted`, `damaged`, `timeout`, `over_limit`,
 `internal`, `remote`) describe the PDFs. Example: `"encrypted" in
 input.pdf.reasons` with action `block`.
+`input.files.types` lists the types of the images, files and audio in those
+turns, detected from their content (`pdf`, `png`, `jpeg`, `gif`, `webp`,
+`docx`, `xlsx`, `pptx`, `zip`, `wav`, `mp3`, `ogg`, `flac`, `unknown`,
+`remote`); see [Per-organization input settings](#per-organization-input-settings).
 `pii.entities`, `toxicity.score` and `topic.categories` were removed: new
 rules may not name them, and stored rules that do read `[]` or `0` as they
 always did. A policy holds at most 200 rules; each rule has a CEL
@@ -2212,6 +2218,60 @@ forwarded body is byte-identical unless a part is redacted.
   you do not want. `PDF_EXTRACT=off` is the behaviour of 0.5.0: every PDF is
   an unscanned part.
 
+### Per-organization input settings
+
+An organization's admins can set what the gateway accepts from the
+organization's applications (admin UI: **Input settings**, or
+`PUT /v1/organizations/:orgId/input-settings`). The instance's environment
+stays the ceiling. An organization without settings keeps the instance's
+behaviour exactly (`PDF_EXTRACT`, `UNSCANNED_PARTS`, `MAX_SCAN_TOKENS`, as
+described above).
+
+| Setting | Values | Effect |
+| --- | --- | --- |
+| `input_mode` | `text_only`, `hybrid` | `text_only`: every image, file and audio part is refused with 415 `files_not_accepted`, whose message tells the application to convert files to text. `hybrid`: text and the files whose type is allowed. |
+| `max_input_tokens` | 1 to the instance's limit, or `null` | A request with more tokens of text to scan is refused with 413 `max_input_tokens_exceeded` before it is scanned. The limit is the gateway's `MAX_SCAN_TOKENS`, or 40,000 (the short path) without it; a larger value is refused with 400. `null`: the instance's limit. |
+| `allowed_file_types` | `pdf` (types the gateway can read) | `hybrid` only. Any other file type is refused with 415 `file_type_not_allowed`. |
+| `unreadable_file_action` | `block` (default), `pass` | An allowed file the gateway cannot read (a scanned, encrypted or damaged PDF, one over the extractor's limits, or any PDF with `PDF_EXTRACT=off`): `block` refuses the request with 422 `file_unreadable`; `pass` forwards it as an unscanned part and tags the audit row `input:unreadable_passed=<n>` (`UNSCANNED_PARTS=block` still refuses it). |
+
+The type of every part is detected from its content (`%PDF-`, the PNG,
+JPEG, GIF and WebP signatures, an Office Open XML zip, WAV, MP3, Ogg,
+FLAC) and checked against what the part declares: the `media_type`, the
+type of a data URL, the `filename` extension or the audio `format`. A
+mismatch is refused with 415 `file_type_mismatch`; the extension alone is
+never trusted. A file the gateway does not receive (a URL, `file_id` or
+`file_url`) cannot be checked and is refused with 415 `file_not_inline`.
+The detected types are the policy field `input.files.types` (with or
+without settings) and, for an organization with settings, the audit tags
+`input:file_<type>=<n>`. A refusal is tagged `input:refused=<reason>` and
+counted in `guardspec_gateway_input_refused_total{reason}`.
+
+Tightening a setting applies at once. Loosening one (a file type added,
+`max_input_tokens` raised or cleared, `pass` instead of `block`,
+`text_only` to `hybrid`, or `DELETE` back to the instance's behaviour) is
+always written to the activity log (`input_settings.updated`, with what it
+loosened) and, when the organization has
+[two-person approval](#governance) on, answers 202 with an
+`input_settings.loosen` request that another admin approves: the
+tightening part of the same change applies at once. One such request is
+pending at a time (a different loosening meanwhile is refused with 409
+`approval_pending`), and a later change of the settings cancels it.
+
+The control plane reads the instance's limits from the gateway's `/readyz`
+(`input`), through `GATEWAY_URL`; without it the bound of
+`max_input_tokens` is 40,000, and the gateway still applies its own
+`MAX_SCAN_TOKENS`. Office files, `/v1/files` uploads and OCR are not
+read.
+
+```bash
+# Text only for this organization, at most 8,000 tokens a request
+curl -s -X PUT $CP/organizations/$ORG/input-settings -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"input_mode":"text_only","max_input_tokens":8000}'
+# Accept PDFs and refuse those the gateway cannot read
+curl -s -X PUT $CP/organizations/$ORG/input-settings -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"input_mode":"hybrid","allowed_file_types":["pdf"],"unreadable_file_action":"block","reason":"contracts"}'
+```
+
 ### Large inputs
 
 By default a proxied request may carry about 28 KB of user, system and
@@ -2306,6 +2366,8 @@ Keep that port on the internal network.
 | `scan_windows_total` | `result` (`scored`, `duplicate`: an identical window was scored, `skipped`: its text was already refused): token windows of long-path scans ([Large inputs](#large-inputs)) |
 | `scan_tokens` | none: histogram of the tokens each large request scanned |
 | `scan_queue_wait_seconds` | `outcome` (`admitted`, `timeout`, `full`, `canceled`): wait for the large-input lane |
+| `input_refused_total` | `reason` (`text_only`, `type_not_allowed`, `type_mismatch`, `not_inline`, `unreadable`, `max_input_tokens`): requests an organization's [input settings](#per-organization-input-settings) refused |
+| `input_files_total` | `type` (`pdf`, `png`, `jpeg`, ..., `unknown`, `remote`): image, file and audio parts by detected type |
 
 The control plane exports `guardspec_control_plane_requests_total`,
 `guardspec_control_plane_request_duration_seconds`,

@@ -69,6 +69,35 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   dashboard, which gets a **Download CSV** button. Logged as
   `report.downloaded`. No schedule: the control plane has no
   per-organization scheduler to reuse; a cron job with `curl` is the way.
+- **Per-organization input settings** (RF-113cd269, migration 030,
+  `org_input_settings`). `GET`, `PUT` and `DELETE`
+  `/v1/organizations/{id}/input-settings` set what the gateway accepts from
+  an organization, within the instance's limits: `input_mode` `text_only`
+  (every image, file and audio part refused with 415
+  `files_not_accepted`, telling the app to send text) or `hybrid` (text and
+  the files in `allowed_file_types`, today `pdf`; others 415
+  `file_type_not_allowed`); `max_input_tokens` (413
+  `max_input_tokens_exceeded` before scanning; at most the gateway's
+  `MAX_SCAN_TOKENS`, or 40,000 without it, else 400); and
+  `unreadable_file_action` for an allowed file the gateway cannot read
+  (`block`: 422 `file_unreadable`; `pass`: forwarded unscanned and tagged).
+  File types are detected from the content (`%PDF-`, PNG, JPEG, OOXML zip
+  signatures, ...) and checked against the declared media type, data URL
+  or file name: a mismatch is 415 `file_type_mismatch`, and a file the
+  gateway does not receive (a URL or file id) 415 `file_not_inline`. An
+  organization without settings keeps the instance's behaviour exactly.
+  Tightening applies at once; loosening is always in the activity log
+  (`input_settings.updated` with what it loosened) and, with two-person
+  approval on, waits as an `input_settings.loosen` request (the tightening
+  part of the same change applies at once; one pending request per
+  organization; a later change of the settings cancels it). The gateway
+  reads the settings with the guard settings, tags refusals
+  `input:refused=<reason>`, and counts them in
+  `guardspec_gateway_input_refused_total{reason}` and the detected types in
+  `guardspec_gateway_input_files_total{type}`. New policy field
+  `input.files.types`. `/readyz` reports the input limits (`input`), which
+  the control plane reads through `GATEWAY_URL`. New **Input settings**
+  page.
 
 ### Changed
 
@@ -103,6 +132,13 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   a file). Migration 029 cancels pending policy deletion requests and
   duplicate pending requests. Deleting an organization always waits for
   another owner or an instance administrator.
+- Migration 030 adds `org_input_settings` and the approval kind
+  `input_settings.loosen`. A 0.7.0 gateway reads the table with every
+  request's guard settings: apply the migration before it starts, or its
+  requests fail closed (503). No organization has input settings after the
+  upgrade, so every one keeps 0.6.0's behaviour until an admin sets them.
+  Set `GATEWAY_URL` on the control plane so it checks `max_input_tokens`
+  against the gateway's `MAX_SCAN_TOKENS`; without it the bound is 40,000.
 
 ## [0.6.0] - 2026-11-11
 
