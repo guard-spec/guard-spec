@@ -417,7 +417,8 @@ khối 16 đơn vị.
 `holdout`) theo quy ước của `eval/`: chữ số hex cuối của SHA-256 của id tài
 liệu, hoặc của id payload với tài liệu tấn công và `control`, để mọi biến thể
 của một payload nằm trong cùng một lát cắt (profile full: 38 / 34 tài liệu
-lành tính, 384 / 384 tài liệu tấn công). Báo cáo có bảng false positive và
+lành tính, 384 / 384 tài liệu tấn công; profile `long`: 66 / 62 tài liệu lành
+tính). Báo cáo có bảng false positive và
 bảng phát hiện cho cả hai lát cắt bên cạnh tổng (`doc_fpr_by_split`,
 `tpr_by_split`); mọi thứ được tinh chỉnh trên benchmark này chỉ đọc lát cắt
 dev. Các builder dữ liệu huấn luyện giữ corpus này ngoài training: không
@@ -470,6 +471,94 @@ của một nhóm:
 | zero-width / ký tự tag | 86.7% / 67.6% | 67.6% / 73.3% | 100% / 94.1% | 100% / 96.7% |
 | chú thích code / trường JSON | 96.7% / 67.6% | 82.4% / 80.0% | 100% / 91.2% | 100% / 100% |
 | nhúng, mọi biến thể | 71.7% / 51.5% | 50.0% / 56.1% | 99.4% / 85.3% | 95.6% / 97.8% |
+
+**Thêm tài liệu ở 100k và 200k token: profile `long`.** Profile full chỉ có
+một tài liệu cho mỗi thể loại và cỡ, nên mỗi ô 100k và 200k của nó có 3 đến 6
+tài liệu: dù không tài liệu nào bị chặn, cận trên Clopper-Pearson 95% của tỷ
+lệ báo động nhầm vẫn khoảng 0.4 đến 0.6 mỗi ô (0.22 trên 15 tài liệu dev của
+gate G6 v6). Profile `long` (`make bench-long PROFILE=long`, 2026-11-11, task
+RF-895d3533 R2b) thêm 128 tài liệu lành tính, 32 tiếng Anh và 33 / 31 tiếng
+Việt mỗi cỡ (100k / 200k token; tổng 19.08M token, 66 dev / 62 holdout),
+không có tấn công, từ các nguồn có văn bản tách biệt với quick/full (giấy phép
+trong [`bench/long/corpus.yaml`](../bench/long/corpus.yaml)):
+
+- Tiếng Anh: Wikipedia (6 mỗi cỡ), Bộ luật Hoa Kỳ các title 5, 7, 10, 12, 15,
+  18 và 29 (5), file thư viện chuẩn và toolchain Go xen kẽ với manifest ví dụ
+  của Kubernetes (4), tài liệu Kubernetes (tasks, concepts, reference; 5),
+  sách, tiểu luận, diễn văn và các văn bản khác của Wikisource tiếng Anh (5),
+  35 RFC (4), mẫu access log Apache của elastic/examples (2) và log tổng hợp
+  (1);
+- Tiếng Việt: Wikipedia (11), luật và bộ luật trên Wikisource tiếng Việt (7),
+  văn học, thơ, sử và các văn bản khác của Wikisource (6), bản dịch tiếng Việt
+  của tài liệu Kubernetes, React và Vue (2 ở 100k; không đủ cho 200k), và log
+  tổng hợp (2), JSON, CSV, chuỗi email, đoạn chat và hard negative (mỗi loại
+  1).
+
+Mọi nguồn đều được ghim (revision hoặc commit, SHA của file hoặc cây thư mục,
+SHA-256 của văn bản trích xuất), các thể loại tổng hợp dùng seed riêng, và
+[`bench/long/exclude.json`](../bench/long/exclude.json) liệt kê các đơn vị
+nguồn có chung một chuỗi 50 token classifier với một dòng huấn luyện hoặc
+validation của v6 (`train/data/bench_guard.py`, 22,461 dòng): 2,467 đơn vị
+trên 10 nguồn, phần lớn là ghi chú luật định của Bộ luật Hoa Kỳ và luật Việt
+Nam (dữ liệu v6 lấy từ cả hai), mà bộ dựng bỏ qua. Tài liệu thư viện Python bị
+loại khỏi nguồn vì cùng lý do (dữ liệu v6 chứa nó). Sau khi loại trừ, bộ kiểm
+tra không còn thấy trùng lặp nào giữa 128 tài liệu và bất kỳ dòng v6 nào. Đây
+là phép đo, không phải lựa chọn: v6 (arm A) đã được chọn trước, và nửa holdout
+được chấm một lần cho mỗi model.
+
+Chấm trên Apple M3 Max (14 core), ONNX Runtime 1.31.1, 2026-11-11, commit
+`2b805cc` (docs.jsonl `ccd7b905…`), `l1,l2` ở ngưỡng chặn 0.85 với
+calibration riêng của từng model (`-l2cap on`: v5 và v6 với cap 0.88, v3b
+không có cap), chỉ score pass (`-skip-latency -workers 4`, số thread mặc định
+của ONNX Runtime): 38 đến 42 phút mỗi model (v3b 2,288 s, v5 2,426 s, v6
+2,521 s; 7,900 / 7,400 / 7,100 token/s với 4 tài liệu cùng lúc; 24,700 đến
+26,900 CPU-giây). Số tài liệu lành tính bị chặn / số tài liệu, kèm tỷ lệ và
+cận trên Clopper-Pearson 95%:
+
+| Lát cắt | Ngôn ngữ | Cỡ | v3b | v5 (cap) | v6 (cap) |
+|---|---|---|---:|---:|---:|
+| dev | EN | 100k | 13 / 16 (81%, ≤ 95%) | 7 / 16 (44%, ≤ 67%) | 6 / 16 (38%, ≤ 61%) |
+| dev | EN | 200k | 11 / 13 (85%, ≤ 97%) | 5 / 13 (38%, ≤ 65%) | 2 / 13 (15%, ≤ 41%) |
+| dev | VI | 100k | 14 / 18 (78%, ≤ 92%) | 5 / 18 (28%, ≤ 50%) | 1 / 18 (6%, ≤ 24%) |
+| dev | VI | 200k | 16 / 19 (84%, ≤ 96%) | 13 / 19 (68%, ≤ 85%) | 8 / 19 (42%, ≤ 63%) |
+| holdout | EN | 100k | 11 / 16 (69%, ≤ 87%) | 5 / 16 (31%, ≤ 55%) | 3 / 16 (19%, ≤ 42%) |
+| holdout | EN | 200k | 18 / 19 (95%, ≤ 100%) | 8 / 19 (42%, ≤ 63%) | 5 / 19 (26%, ≤ 48%) |
+| holdout | VI | 100k | 11 / 15 (73%, ≤ 90%) | 8 / 15 (53%, ≤ 76%) | 3 / 15 (20%, ≤ 44%) |
+| holdout | VI | 200k | 8 / 12 (67%, ≤ 88%) | 7 / 12 (58%, ≤ 82%) | 4 / 12 (33%, ≤ 61%) |
+| dev | cả hai | 100k + 200k | 54 / 66 (81.8%, ≤ 89.2%) | 30 / 66 (45.5%, ≤ 56.3%) | 17 / 66 (25.8%, ≤ 36.1%) |
+| holdout | cả hai | 100k + 200k | 48 / 62 (77.4%, ≤ 85.8%) | 28 / 62 (45.2%, ≤ 56.4%) | 15 / 62 (24.2%, ≤ 34.8%) |
+| holdout | EN | 100k + 200k | 29 / 35 (82.9%) | 13 / 35 (37.1%) | 8 / 35 (22.9%, ≤ 37.5%) |
+| holdout | VI | 100k + 200k | 19 / 27 (70.4%) | 15 / 27 (55.6%) | 7 / 27 (25.9%, ≤ 43.2%) |
+
+- **Mẫu lớn hơn nói gì.** Gate G6 của v6 thấy 0 trong 15 tài liệu dev bị
+  chặn (cận trên 0.22); trên 66 tài liệu dev và 62 holdout, v6 chặn khoảng
+  một trong bốn tài liệu lành tính ở 100k đến 200k token (cả 128: 25.0%,
+  khoảng tin cậy 95% từ 17.9% đến 31.8%), như nhau ở cả hai lát cắt và cả hai
+  ngôn ngữ. Đó là một phần ba của v3b (80%) và khoảng một nửa của v5 (45%)
+  trên cùng những tài liệu ấy, và còn xa mức 1% mà gate yêu cầu: con số 0 / 15
+  là kết quả của mẫu nhỏ. Tỷ lệ chunk đạt từ 0.85 trở lên giảm từ 12% trên mã
+  nguồn và tài liệu tiếng Anh, 10% trên RFC, 7% trên văn xuôi Wikisource và 47%
+  trên log tiếng Việt tổng hợp của v3b xuống tối đa 0.4% ở mọi thể loại với v6
+  (v5: 15.6% trên hard negative tiếng Việt, dưới 1% ở chỗ khác); một tài liệu
+  50 đến 100 chunk vẫn bị chặn bởi chunk tệ nhất duy nhất của nó.
+- **Sanitizer, chứ không phải model, quyết định một số tài liệu.** Sanitizer
+  của gateway chạy trước khi chấm. Nó từ chối cả hai tài liệu tài liệu kỹ thuật
+  tiếng Việt ở 100k ("input exceeds 8 layers of encoding": một trang React mà
+  JSX trông như thẻ lồng nhau với bước lột HTML, không ổn định sau 8 lượt);
+  chúng được tính là bị chặn ở cột gateway của báo cáo, không tính vào tỷ lệ
+  của model ở trên (hai ô VI 100k có 18 và 15 tài liệu, mỗi ô một tài liệu
+  không được chấm). Bước lột HTML cũng làm ngắn 11 tài liệu tiếng Anh trước
+  khi model thấy chúng: mã Go kèm manifest Kubernetes ở 200k còn 138k và 141k
+  token, tài liệu Kubernetes ở 100k còn 72k đến 89k và ở 200k còn 122k đến 154k
+  (một tài liệu còn 25k), và một tài liệu RFC từ 200k còn 1,177 token (một dấu
+  `<` không đóng nuốt phần còn lại). Các ô dùng cỡ danh nghĩa của tài liệu.
+  `cmd/benchlong` gắn nhãn cỡ theo số token của corpus kể từ commit này; ba
+  lần chạy trên được gắn nhãn theo số token đã chấm và được ghép lại theo
+  từng tài liệu (ba tài liệu được chấm lại riêng để quy một ô lẫn:
+  `long-docs-en-100000-4` là tài liệu bị v5 và v6 chặn).
+- Các file báo cáo được giữ cùng dữ liệu huấn luyện ngoài repository
+  (`guardspec-data/v6/bench-long/long-{v3b,v5,v6}.{json,md}`). Thời gian xử lý
+  từng tài liệu dài nằm ở [sizing, Input dài](sizing.vi.md#input-dài).
 
 Profile quick được chạy cùng ngày với cả hai model (và cả bộ `l1,l2,l3`); các
 con số khớp với profile full trong phạm vi cỡ mẫu. Báo cáo của các lần chạy
@@ -537,7 +626,8 @@ gateway, EN / VI):
 - Số liệu tiếng Việt là tạm thời: corpus tiếng Việt có ít nguồn và kém đa
   dạng hơn (không có code; chỉ luật, văn học, Wikipedia và văn bản tổng hợp).
 
-Tái lập: `make bench-long` (quick) hoặc `make bench-long PROFILE=full`; xem
+Tái lập: `make bench-long` (quick), `make bench-long PROFILE=full` hoặc
+`make bench-long PROFILE=long` (các tài liệu 100k và 200k); xem
 [định cỡ, Input dài](sizing.vi.md#input-dài) để chạy trên phần cứng hoặc tài
 liệu của bạn.
 

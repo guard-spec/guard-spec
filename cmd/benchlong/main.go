@@ -841,6 +841,19 @@ func maxOf(x []float64) float64 {
 	return m
 }
 
+// nominalTokens is the size a document is labelled with: the corpus's own
+// count (build.py, the text as built) when it has one, else the tokens the
+// classifier saw. The sanitizer can shorten a document a lot before scoring
+// (its HTML stripping on code, documentation or RFC text; see docs/benchmark.md
+// "Long documents"), and a 200k document that reached the model as 140k
+// tokens still belongs in the 200k cell.
+func nominalTokens(d Doc, r docScore) int {
+	if d.Tokens > 0 {
+		return d.Tokens
+	}
+	return r.tokens
+}
+
 func sizeLabel(tokens int) string {
 	for _, g := range []int{20000, 50000, 100000, 200000, 500000} {
 		if tokens >= g*9/10 && tokens <= g*11/10 {
@@ -1002,7 +1015,7 @@ func docFPR(docs []Doc, res []docScore, layers []string, split string, keep func
 			if d.Kind != "benign" || !keep(d) {
 				continue
 			}
-			k := key{d.Lang, sizeLabel(res[i].tokens)}
+			k := key{d.Lang, sizeLabel(nominalTokens(d, res[i]))}
 			a := m[k]
 			if a == nil {
 				a = &acc{}

@@ -160,6 +160,21 @@ mỗi lần chạy.
   rút ngắn thời gian của một tài liệu, không giảm chi phí của nó. Một server
   quét tài liệu cho nhiều người cùng lúc đạt cùng tổng throughput với intra 1
   và nhiều lần chạy đồng thời như với ít lần chạy rộng hơn.
+- **Tài liệu 100k và 200k token, đã đo** (Apple M3 Max, 2026-11-11,
+  `guardspec-classifier-v3b`, commit `2b805cc`; một tài liệu Wikipedia mỗi cỡ
+  cho mỗi ngôn ngữ từ profile `long`, chấm riêng lẻ bằng
+  `cmd/benchlong -docs`, `l1,l2`). Chi phí tuyến tính theo độ dài: một tài
+  liệu 100k token mất 44.7 s (EN) / 39.8 s (VI) ở intra 1 với từng chunk một
+  (2,200 đến 2,500 token/s, 0.45 / 0.39 CPU-s mỗi 1k token), 11.2 / 10.0 s với
+  K = 4 (8,800 đến 10,100 token/s), và 6.6 / 5.7 s với số thread mặc định của
+  ONNX Runtime và K = 4 (15,300 đến 17,900 token/s, 0.64 / 0.55 CPU-s mỗi 1k
+  token); tài liệu 200k token mất gấp đôi (90.0 / 77.9 s, 22.7 / 19.6 s và
+  13.1 / 11.1 s). Riêng classifier (`l2`, cửa sổ theo lô) quét 100k token
+  trong 32.8 s ở intra 1 và 5.8 s với thread mặc định. Bốn tài liệu dài chấm
+  cùng lúc (score pass của profile `long`, 128 tài liệu, 18.0M token sau
+  sanitizer) đạt tổng 7,100 đến 7,900 token/s, 38 đến 42 phút cho cả profile.
+  Trên runner cloud 4 vCPU, chậm hơn 3 đến 4 lần mỗi core, hãy tính khoảng 40
+  đến 50 s cho mỗi 100k token trong trường hợp tốt nhất.
 - Bảng đầy đủ của từng lần chạy (riêng L2, mọi K, thời gian từng tài liệu)
   nằm trong [`bench/results/long-m3max-local.md`](../bench/results/long-m3max-local.md),
   [`long-gh-ubuntu-24.04-4vcpu.md`](../bench/results/long-gh-ubuntu-24.04-4vcpu.md)
@@ -172,6 +187,7 @@ mỗi lần chạy.
 ```bash
 make bench-long                    # PROFILE=quick: about 1.6M tokens, about 7 minutes on an M3 Max
 make bench-long PROFILE=full       # about 9.5M tokens
+make bench-long PROFILE=long       # chỉ tài liệu lành tính 100k và 200k, 19M token, khoảng 40 phút mỗi model trên M3 Max
 # your own documents, no Python needed: one .txt file per document
 go run -tags onnx ./cmd/benchlong -docs ./my-docs -lang vi -host my-server
 ```

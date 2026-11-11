@@ -409,7 +409,7 @@ maxima.
 `holdout`), the `eval/` convention: the last hex digit of a SHA-256 of the
 document id, or of the payload id for attack and control documents so that all
 variants of one payload fall in one slice (full profile: 38 / 34 benign, 384 /
-384 attack documents). The report has the false-positive and detection tables
+384 attack documents; `long` profile: 66 / 62 benign). The report has the false-positive and detection tables
 for both slices next to the totals (`doc_fpr_by_split`, `tpr_by_split`);
 anything tuned on this benchmark reads the dev slice only. The training data
 builders keep the corpus out of training: no 50-token shingle of any bench/long
@@ -471,6 +471,97 @@ every fused chunk as the gateway does and the report header records it
 (`l2_cap`); `-l2cap off` reproduces the earlier behaviour. v3b has no cap, so
 its rows are unchanged. v5 with the cap is in `train/MODEL_CARD.md` ("v6",
 hold-outs).
+
+**More documents at 100k and 200k tokens: the `long` profile.** The full
+profile has one document per genre and size, so its 100k and 200k cells hold
+3 to 6 documents: with none blocked, the Clopper-Pearson 95% upper bound of
+the false-positive rate is still about 0.4 to 0.6 per cell (0.22 over the 15
+dev documents of the v6 gate G6). The `long` profile
+(`make bench-long PROFILE=long`, 2026-11-11, task RF-895d3533 R2b) adds 128
+benign documents, 32 English and 33 / 31 Vietnamese per size (100k / 200k
+tokens; 19.08M tokens in all, 66 dev / 62 holdout), and no attacks, from
+sources whose text is disjoint from the quick/full ones (licences in
+[`bench/long/corpus.yaml`](../bench/long/corpus.yaml)):
+
+- English: Wikipedia (6 per size), the U.S. Code titles 5, 7, 10, 12, 15, 18
+  and 29 (5), Go standard library and toolchain files interleaved with
+  Kubernetes example manifests (4), the Kubernetes documentation (tasks,
+  concepts, reference; 5), books, essays, speeches and other texts of the
+  English Wikisource (5), 35 RFCs (4), the Apache access log sample of
+  elastic/examples (2) and synthetic logs (1);
+- Vietnamese: Wikipedia (11), laws and codes of the Vietnamese Wikisource (7),
+  its literature, poetry, history and other texts (6), Vietnamese translations
+  of the Kubernetes, React and Vue documentation (2 at 100k; too short for
+  200k), and synthetic logs (2), JSON, CSV, e-mail threads, chat transcripts
+  and hard negatives (1 each).
+
+Every source is pinned (revision or commit, file or subtree SHA, SHA-256 of
+the extracted text), the synthetic genres use their own seed, and
+[`bench/long/exclude.json`](../bench/long/exclude.json) lists the source
+units that share a run of 50 classifier tokens with a v6 training or
+validation row (`train/data/bench_guard.py`, 22,461 rows): 2,467 units over
+10 sources, mostly U.S. Code statutory notes and Vietnamese laws (the v6 data
+draws on both), which the builder skips. The Python library reference was
+dropped as a source for the same reason (the v6 data holds it). After the
+exclusion the guard finds no overlap between the 128 documents and any v6
+row. This is a measurement, not a selection: v6 (arm A) was chosen before,
+and the holdout half is scored once per model.
+
+Scored on the Apple M3 Max (14 cores), ONNX Runtime 1.31.1, 2026-11-11,
+commit `2b805cc` (docs.jsonl `ccd7b905…`), `l1,l2` at the 0.85 block
+threshold with each model's own calibration (`-l2cap on`: v5 and v6 with
+their cap 0.88, v3b has none), score pass only (`-skip-latency -workers 4`,
+ONNX Runtime's default threads): 38 to 42 minutes per model (v3b 2,288 s,
+v5 2,426 s, v6 2,521 s; 7,900 / 7,400 / 7,100 tokens/s over 4 documents at a
+time; 24,700 to 26,900 CPU-seconds). Blocked benign documents / documents,
+with the rate and its Clopper-Pearson 95% upper bound:
+
+| Split | Lang | Size | v3b | v5 (cap) | v6 (cap) |
+|---|---|---|---:|---:|---:|
+| dev | EN | 100k | 13 / 16 (81%, ≤ 95%) | 7 / 16 (44%, ≤ 67%) | 6 / 16 (38%, ≤ 61%) |
+| dev | EN | 200k | 11 / 13 (85%, ≤ 97%) | 5 / 13 (38%, ≤ 65%) | 2 / 13 (15%, ≤ 41%) |
+| dev | VI | 100k | 14 / 18 (78%, ≤ 92%) | 5 / 18 (28%, ≤ 50%) | 1 / 18 (6%, ≤ 24%) |
+| dev | VI | 200k | 16 / 19 (84%, ≤ 96%) | 13 / 19 (68%, ≤ 85%) | 8 / 19 (42%, ≤ 63%) |
+| holdout | EN | 100k | 11 / 16 (69%, ≤ 87%) | 5 / 16 (31%, ≤ 55%) | 3 / 16 (19%, ≤ 42%) |
+| holdout | EN | 200k | 18 / 19 (95%, ≤ 100%) | 8 / 19 (42%, ≤ 63%) | 5 / 19 (26%, ≤ 48%) |
+| holdout | VI | 100k | 11 / 15 (73%, ≤ 90%) | 8 / 15 (53%, ≤ 76%) | 3 / 15 (20%, ≤ 44%) |
+| holdout | VI | 200k | 8 / 12 (67%, ≤ 88%) | 7 / 12 (58%, ≤ 82%) | 4 / 12 (33%, ≤ 61%) |
+| dev | both | 100k + 200k | 54 / 66 (81.8%, ≤ 89.2%) | 30 / 66 (45.5%, ≤ 56.3%) | 17 / 66 (25.8%, ≤ 36.1%) |
+| holdout | both | 100k + 200k | 48 / 62 (77.4%, ≤ 85.8%) | 28 / 62 (45.2%, ≤ 56.4%) | 15 / 62 (24.2%, ≤ 34.8%) |
+| holdout | EN | 100k + 200k | 29 / 35 (82.9%) | 13 / 35 (37.1%) | 8 / 35 (22.9%, ≤ 37.5%) |
+| holdout | VI | 100k + 200k | 19 / 27 (70.4%) | 15 / 27 (55.6%) | 7 / 27 (25.9%, ≤ 43.2%) |
+
+- **What the larger sample says.** The v6 gate G6 saw 0 of 15 dev documents
+  blocked (upper bound 0.22); on 66 dev and 62 holdout documents v6 blocks
+  about one benign document in four at 100k to 200k tokens (all 128:
+  25.0%, 95% interval 17.9% to 31.8%), the same on both slices and both
+  languages. That is a third of v3b (80%) and about half of v5 (45%) on the
+  same documents, and far from the 1% the gate asked for: the 0 / 15 was a
+  small-sample result. The share of chunks at or above 0.85 drops from v3b's
+  12% on English code and documentation, 10% on RFCs, 7% on Wikisource
+  prose and 47% on synthetic Vietnamese logs to at most 0.4% in any genre
+  for v6 (v5: 15.6% on the Vietnamese hard negatives, under 1% elsewhere);
+  a document of 50 to 100 chunks is still blocked by its single worst
+  chunk.
+- **The sanitizer, not the model, decides some documents.** The gateway's
+  sanitizer runs before scoring. It rejects both Vietnamese documentation
+  documents at 100k ("input exceeds 8 layers of encoding": a React page whose
+  JSX reads as nested tags to the HTML stripping, which does not settle in 8
+  passes); they count as blocked in the report's gateway column, not in the
+  model rates above (the two 100k VI cells hold 18 and 15 documents, one of
+  each unscored). Its HTML stripping also shortens 11 English documents
+  before the model sees them: Go code with Kubernetes manifests at 200k to
+  138k and 141k tokens, Kubernetes documentation at 100k to 72k to 89k and
+  at 200k to 122k to 154k (one to 25k), and one RFC document from 200k to
+  1,177 tokens (an unclosed `<` swallows the rest). The cells use the
+  document's nominal size. `cmd/benchlong` labels sizes by the corpus's own
+  token count since this commit; the three runs above were labelled by the
+  scored count and re-assembled by document (three documents were scored
+  again alone to attribute one mixed cell: `long-docs-en-100000-4` is the
+  one blocked by v5 and v6).
+- The report files are kept with the training data outside the repository
+  (`guardspec-data/v6/bench-long/long-{v3b,v5,v6}.{json,md}`). The timing
+  of single long documents is in [sizing, Long inputs](sizing.md#long-inputs).
 
 The quick profile was run the same day with both models (and the `l1,l2,l3`
 set as well); its numbers agree with the full ones within the sample sizes.
@@ -539,7 +630,8 @@ Detection of a payload in a 2k-token host (`l1,l2`, gateway decision, EN / VI):
 - Vietnamese numbers are provisional: the Vietnamese corpus has fewer and
   less varied sources (no code; laws, literature, Wikipedia and synthetic text).
 
-Reproduce: `make bench-long` (quick) or `make bench-long PROFILE=full`; see
+Reproduce: `make bench-long` (quick), `make bench-long PROFILE=full` or
+`make bench-long PROFILE=long` (the 100k and 200k documents); see
 [sizing, Long inputs](sizing.md#long-inputs) for running it on your own
 hardware or your own documents.
 

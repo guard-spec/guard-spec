@@ -222,6 +222,16 @@ exactly as it does for v5 (`val_v5_holdout` 0.623, `eval/embedded` 0.857 at 0.85
 capped benign twins share the same fused score, so the 1% threshold falls above them; v5's 0.748 comes
 from an L2 Platt scale that leaves more attacks above the cap region).
 
+**G6 measured on more documents (R2b, 2026-11-11).** The bench/long `long` profile (128 benign documents of 100k
+and 200k tokens, 66 dev / 62 holdout, about 30 per language and size, in eight English and ten Vietnamese genres,
+none of whose text is in the v6 training or validation data; `docs/benchmark.md`, "Long documents") scored once per
+model with `l1,l2` and each model's own cap: v6 blocks 17 / 66 dev documents (25.8%, Clopper-Pearson 95% upper bound
+36.1%) and 15 / 62 holdout (24.2%, upper bound 34.8%; EN 8 / 35, VI 7 / 27), v5 30 / 66 and 28 / 62 (45%), v3b 54 / 66
+and 48 / 62 (80%). The gate's 0 / 15 was a small-sample result: at 100k to 200k tokens v6 still blocks about one
+benign document in four, a third of v3b's rate and half of v5's on the same documents, and not the 1% the gate
+asked for. Two Vietnamese documentation documents are rejected by the sanitizer before any model sees them (not
+counted above), and the sanitizer's HTML stripping shortens 11 English code, documentation and RFC documents.
+
 **Known weaknesses.** G6 rests on 15 dev documents: with none blocked, the Clopper-Pearson 95% upper bound
 of the false-positive rate is 0.218, so the gate shows the rate is not large, not that it is under 1%;
 the hold-out slice (2 of 18 blocked at 100k / 200k, both at 200k, one per language) is the honest
