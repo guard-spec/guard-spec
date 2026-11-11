@@ -44,6 +44,7 @@ import {
   type Project,
   type Rule,
   type GatewayModels,
+  type GettingStarted,
   type ShadowDisagreement,
   type ShadowSummary,
   type ShadowWindow,
@@ -795,6 +796,8 @@ export interface MockOptions {
   storeContent?: boolean;
   /** Stored content is encrypted and this control plane has no key: rows carry content_error instead. */
   encryptedContent?: boolean;
+  /** GET /getting-started answers for an org with nothing set up (it lands on getting started). */
+  newOrg?: boolean;
 }
 
 /** The user message of every stored request body (storeContent). */
@@ -1179,6 +1182,26 @@ function gatewayModelsBody(opts: MockOptions): GatewayModels {
     return { ...gatewayModelsBody({ gateway: 'unconfigured' }), configured: true, error: 'dial tcp 10.0.0.5:8080: connect: connection refused' };
   }
   return GATEWAY_MODELS;
+}
+
+/** GET /getting-started of the mock's org; newOrg answers for an org with nothing set up. */
+export function gettingStartedBody(state: MockState, opts: MockOptions): GettingStarted {
+  const gw = gatewayModelsBody(opts);
+  const fresh = opts.newOrg === true;
+  const upstreams = fresh ? 0 : state.upstreams.filter((u) => u.enabled).length;
+  const last = fresh ? undefined : state.requests.find((r) => r.action !== 'block')?.created_at;
+  const body: GettingStarted = {
+    upstream: { configured: upstreams > 0, upstreams, env: false, reachable: last ? true : null, last_answer_at: last ?? null, last_error_at: null },
+    api_keys: fresh ? 0 : state.keys.filter((k) => !k.revoked).length,
+    policies: fresh ? 0 : state.policies.filter((p) => p.enabled).length,
+    models: { configured: gw.configured, reachable: gw.reachable, layers: gw.layers ?? [], version: gw.gateway_version, error: gw.error },
+    alert_channels: fresh ? 0 : state.alerts.channels.filter((c) => c.enabled).length,
+    input_settings: !fresh && Boolean(state.input?.settings),
+    complete: false,
+    checked_at: '2026-11-04T08:00:00Z',
+  };
+  body.complete = body.upstream.configured && body.api_keys > 0 && body.policies > 0 && body.models.reachable && body.models.layers.length > 0;
+  return body;
 }
 
 /** Disagreements of the shadow model, newest first. */
@@ -1859,6 +1882,11 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
     if (sub === '/dashboard' && method === 'GET') {
       if (legacy) return json(404, { error: `Cannot ${method} /v1${path}` });
       return json(200, dashboardBody(state, url));
+    }
+    // The getting started checklist (cmd/control-plane/getting_started.go): counts only.
+    if (sub === '/getting-started' && method === 'GET') {
+      if (legacy) return json(404, { error: `Cannot ${method} /v1${path}` });
+      return json(200, gettingStartedBody(state, opts));
     }
     // The request log per period as CSV (cmd/control-plane/reports.go): counts only.
     if (sub === '/reports/requests.csv' && method === 'GET') {

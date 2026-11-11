@@ -930,3 +930,27 @@ export interface LinkResult {
   display_name?: string;
   email?: string | null;
 }
+
+// ── Getting started, false-positive impact, sample sentences (RF-a1dbafea) ──
+
+/** GET /organizations/{org}/getting-started: the setup checklist, counts only. */
+export interface GettingStarted {
+  upstream: {
+    /** An enabled model provider, or the gateway's UPSTREAM_LLM_URL. */
+    configured: boolean;
+    upstreams: number;
+    env: boolean;
+    /** From the request log of the last 7 days; null without traffic. */
+    reachable: boolean | null;
+    last_answer_at: string | null;
+    last_error_at: string | null;
+  };
+  api_keys: number;
+  policies: number;
+  models: { configured: boolean; reachable: boolean; layers: string[]; version?: string; error?: string };
+  alert_channels: number;
+  input_settings: boolean;
+  /** The required steps (provider, API key, policy, detection layers) are done. */
+  complete: boolean;
+  checked_at: string;
+}

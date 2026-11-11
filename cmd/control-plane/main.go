@@ -411,6 +411,8 @@ func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins 
 	authed.Get("/organizations/:orgId/input-settings", viewer, getInputSettings(db, settings))
 	authed.Put("/organizations/:orgId/input-settings", admin, putInputSettings(db, settings))
 	authed.Delete("/organizations/:orgId/input-settings", admin, deleteInputSettings(db, settings))
+	// The admin UI's getting started checklist (getting_started.go): counts only.
+	authed.Get("/organizations/:orgId/getting-started", viewer, getGettingStarted(db, settings))
 	authed.Get("/organizations/:orgId/security", admin, getOrgSecurity(db))
 	authed.Put("/organizations/:orgId/security", owner, putOrgSecurity(db))
 	authed.Get("/organizations/:orgId/activity", admin, listOrgActivity(db))

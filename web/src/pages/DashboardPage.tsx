@@ -1,16 +1,18 @@
 // Copyright 2026 The Guard Spec Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { Activity, Download, Gauge, ShieldAlert, Timer } from 'lucide-react';
-import { useCallback, useId, useState, type ReactNode } from 'react';
+import { Activity, Download, Gauge, Rocket, ShieldAlert, Timer } from 'lucide-react';
+import { useCallback, useEffect, useId, useState, type ReactNode } from 'react';
 import { EmptyState, Forbidden, NotAvailable } from '../components/DataTable';
 import { downloadText, ErrorBanner, Loading, PageHeader, useLoad } from '../components/ui';
 import { errorText, useApp, useOrg } from '../context';
 import type { MessageKey } from '../i18n';
-import { href, onLink } from '../router';
+import { atRoot, href, navigate, onLink, takeParam } from '../router';
 import type { DashboardWindow } from '../types';
 import { DASH_WINDOWS, reportFilename, share, volumeBars } from './dashboard';
 import { formatShort } from '../dates';
+import { isStartDismissed, landOnStart, progress, showSetupCard, startSteps } from './start';
+
 
 function Tile({ icon, label, value, sub }: { icon: ReactNode; label: string; value: string; sub?: string }) {
   return (
@@ -21,6 +23,35 @@ function Tile({ icon, label, value, sub }: { icon: ReactNode; label: string; val
       </div>
       <div className="tile-value">{value}</div>
       {sub ? <div className="muted small">{sub}</div> : null}
+    </div>
+  );
+}
+
+/**
+ * The setup card of an organization that has not finished getting started.
+ * A landing (sign-in, a chosen org, the app's root) goes to getting started
+ * instead, until the required steps are done or the user puts it away.
+ */
+function SetupCard() {
+  const { api, t } = useApp();
+  const { org } = useOrg();
+  // Read once, at mount: a landing is the address the page opened with.
+  const [landing] = useState(() => takeParam('landing') !== null || atRoot());
+  const status = useLoad(useCallback(() => api.getGettingStarted(org.id), [api, org.id]));
+  const dismissed = isStartDismissed(org.id);
+  const land = landOnStart(status.data, dismissed);
+  useEffect(() => {
+    if (landing && land) navigate('getting-started', true);
+  }, [landing, land]);
+  if (!showSetupCard(status.data, dismissed) || !status.data) return null;
+  const p = progress(startSteps(status.data));
+  return (
+    <div className="banner banner-info setup-card" role="note" data-testid="setup-card">
+      <Rocket size={16} aria-hidden="true" />
+      <span>{t('start.card', { n: p.requiredLeft })}</span>
+      <a className="btn btn-small" href={href('getting-started')} onClick={onLink('getting-started')}>
+        {t('start.open')}
+      </a>
     </div>
   );
 }
@@ -88,6 +119,7 @@ export function DashboardPage() {
   return (
     <div>
       <PageHeader title={t('dash.title')} help={t('dash.help')} actions={actions} />
+      <SetupCard />
       {stats.notFound ? <NotAvailable feature={t('dash.title')} /> : stats.forbidden ? <Forbidden /> : <ErrorBanner error={stats.error} />}
       {stats.loading && !s ? <Loading /> : null}
       {s?.total === 0 ? (

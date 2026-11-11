@@ -68,6 +68,7 @@ import type {
   Upstream,
   UpstreamInput,
   UUID,
+  GettingStarted,
 } from './types';
 
 /** An error response. message is the server's `error`, or a generic text. */
@@ -720,6 +721,11 @@ export class ApiClient {
 
   getDashboard(orgId: UUID, q: { window?: DashboardWindow; project_id?: UUID } = {}): Promise<DashboardStats> {
     return this.request('GET', `/organizations/${enc(orgId)}/dashboard`, { query: q });
+  }
+
+  /** The setup checklist of the getting started page (counts only). */
+  getGettingStarted(orgId: UUID): Promise<GettingStarted> {
+    return this.request('GET', `/organizations/${enc(orgId)}/getting-started`);
   }
 
   // ── Classifier models and shadow comparison ──────────────────────────────

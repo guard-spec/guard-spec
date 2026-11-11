@@ -21,6 +21,7 @@ export const ROUTE_CHANGED = CHANGED;
 
 export const PATHS = {
   dashboard: 'dashboard',
+  'getting-started': 'start',
   flow: 'flow',
   'policy-history': 'policies/history',
   guard: 'guard',
@@ -110,6 +111,11 @@ function current(): Route {
 
 export function href(route: Route): string {
   return `${BASE}/${PATHS[route]}`;
+}
+
+/** The app was opened at its root (/ui/), not at a page's address: a landing. */
+export function atRoot(): boolean {
+  return window.location.pathname.replace(/\/+$/, '') === BASE && !window.location.hash;
 }
 
 /**
