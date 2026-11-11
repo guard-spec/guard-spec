@@ -955,6 +955,14 @@ export interface GettingStarted {
   checked_at: string;
 }
 
+/** POST /policy/sample: rule fields of a sample sentence, scored with L1, the sanitizer and the PII patterns (L2 and L3 are -1). */
+export interface SampleScore {
+  vars: Record<string, SimValue>;
+  layers: string[];
+  /** The L1 rules and categories that fired. */
+  rules: string[];
+}
+
 /** GET /organizations/{org}/requests/{id}/impact: what a false-positive fix concerns, counted from stored scores and hashes over 7 days. */
 export interface RequestImpact {
   window: '7d';

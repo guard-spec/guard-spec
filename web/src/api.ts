@@ -70,6 +70,7 @@ import type {
   UUID,
   GettingStarted,
   RequestImpact,
+  SampleScore,
 } from './types';
 
 /** An error response. message is the server's `error`, or a generic text. */
@@ -651,6 +652,11 @@ export class ApiClient {
 
   simulate(orgId: UUID, req: SimulateRequest): Promise<SimulateResponse> {
     return this.request('POST', `/organizations/${enc(orgId)}/policies/simulate`, { body: req });
+  }
+
+  /** Rule fields of a sample sentence for the simulator (L1, the sanitizer and PII patterns; nothing stored). */
+  samplePolicy(text: string): Promise<SampleScore> {
+    return this.request('POST', '/policy/sample', { body: { text } });
   }
 
   getPolicySchema(): Promise<PolicySchema> {

@@ -306,6 +306,9 @@ func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins 
 	}
 	perUser := limiter.New(limiter.Config{Max: 10, Expiration: time.Minute,
 		KeyGenerator: func(c *fiber.Ctx) string { return "user:" + auth.UserID(c).String() }})
+	// Sample sentences of the policy editor: a person trying texts, not a script.
+	perUserSample := limiter.New(limiter.Config{Max: 60, Expiration: time.Minute,
+		KeyGenerator: func(c *fiber.Ctx) string { return "sample:" + auth.UserID(c).String() }})
 
 	v1.Post("/auth/login", perIP(10), id.login)
 	// The token is the credential here, so it gets the login's limit.
@@ -389,6 +392,8 @@ func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins 
 	authed.Get("/policy/schema", policySchema())
 	authed.Post("/policy/parse", parseCondition(eng))
 	authed.Post("/policy/format", formatCondition())
+	// A sample sentence scored for the simulator (policy_sample.go): L1, the sanitizer, PII patterns.
+	authed.Post("/policy/sample", perUserSample, samplePolicyVars())
 
 	viewer := auth.RequireRole(db, auth.RoleViewer)
 	admin := auth.RequireRole(db, auth.RoleAdmin)

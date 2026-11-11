@@ -79,7 +79,7 @@ export const SCHEMA: PolicySchema = {
       name: 'injection.category',
       type: 'string',
       description: 'Top injection category',
-      values: ['benign', 'jailbreak', 'instruction_override', 'exfiltration', 'role_play'],
+      values: ['benign', 'jailbreak', 'instruction_override', 'exfiltration', 'role_play', 'data_exfiltration', 'prompt_extraction'],
     },
     { name: 'scores.l1', type: 'double', description: 'L1 rules score; -1 when not run' },
     { name: 'scores.l2', type: 'double', description: 'L2 classifier score; -1 when not run' },
@@ -1226,6 +1226,39 @@ function gatewayModelsBody(opts: MockOptions): GatewayModels {
   return GATEWAY_MODELS;
 }
 
+/** POST /policy/sample: an attack phrase scores high on L1, e-mails and Vietnamese phones count as personal data. */
+export function sampleBody(text: string): { vars: Record<string, SimValue>; layers: string[]; rules: string[] } {
+  const attack = /ignore (all |the )?previous|bỏ qua (các |mọi )?hướng dẫn|system prompt|\botp\b/i.test(text);
+  const extraction = /otp|password|mật khẩu|system prompt/i.test(text);
+  const kinds: string[] = [];
+  let count = 0;
+  const emails = text.match(/[\w.+-]+@[\w-]+\.[\w.]+/g) ?? [];
+  if (emails.length) kinds.push('email');
+  count += emails.length;
+  const phones = text.match(/\b0\d{9}\b/g) ?? [];
+  if (phones.length) kinds.push('phone');
+  count += phones.length;
+  const category = attack ? (extraction ? 'prompt_extraction' : 'jailbreak') : '';
+  return {
+    vars: {
+      'injection.score': attack ? 0.93 : 0.04,
+      'injection.label': attack ? category : 'BENIGN',
+      'injection.category': category,
+      'injection.source_role': 'user',
+      'scores.l1': attack ? 0.95 : 0.02,
+      'scores.l2': -1,
+      'scores.l3': -1,
+      'anomaly.score': 0,
+      'anomaly.has_tag_chars': false,
+      'anomaly.has_bidi': false,
+      'input.pii.kinds': kinds,
+      'input.pii.count': count,
+    },
+    layers: ['l1'],
+    rules: attack ? ['di.override.qualified', 'pe.reveal'] : [],
+  };
+}
+
 /** GET /getting-started of the mock's org; newOrg answers for an org with nothing set up. */
 export function gettingStartedBody(state: MockState, opts: MockOptions): GettingStarted {
   const gw = gatewayModelsBody(opts);
@@ -1494,6 +1527,11 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
         await json(422, { error: (e as Error).message, position });
         return;
       }
+    }
+    // A sample sentence (cmd/control-plane/policy_sample.go): a crude L1 and the PII patterns.
+    if (method === 'POST' && path === '/policy/sample') {
+      const text = (body as { text?: string } | undefined)?.text ?? '';
+      return json(200, sampleBody(text));
     }
     if (method === 'POST' && path === '/policy/format') {
       return json(200, { text: formatCondition((body as { condition: ConditionNode }).condition) });

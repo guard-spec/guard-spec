@@ -50,7 +50,7 @@ import { RulePanel, type TextState } from './RulePanel';
 import { FALLBACK_SCHEMA, fieldTypesOf } from './schema';
 import { deletable, mergeAfterSave } from './save';
 import { Simulator } from './Simulator';
-import { ruleFromTemplate, ruleTemplates, type RuleTemplate } from './templates';
+import { freePolicyName, POLICY_TEMPLATES, policyTemplateRules, ruleFromTemplate, ruleTemplates, type PolicyTemplate, type RuleTemplate } from './templates';
 import { hasErrors, INJECTION_BLOCK, validateCondition } from './validate';
 
 const EDGE_CLASS: Record<string, string> = {
@@ -113,6 +113,7 @@ function FlowPageInner() {
   const [activePolicy, setActivePolicy] = useState<string | null>(null);
   // The new-policy dialog; with key, it renames that policy.
   const [newPolicy, setNewPolicy] = useState<{ key?: string; name: string; project: string } | null>(null);
+  const [choosingTemplate, setChoosingTemplate] = useState(false);
   const [deleting, setDeleting] = useState<EditablePolicy | null>(null);
   const { setViewport } = useReactFlow();
   const paneRef = useRef<HTMLDivElement>(null);
@@ -352,6 +353,29 @@ function FlowPageInner() {
     notify(t('tpl.added'));
   };
 
+  // A whole policy from a template (RF-a1dbafea U3): added to the scope as an
+  // unsaved, log-only policy; Save creates it.
+  const onPolicyTemplate = (tpl: PolicyTemplate) => {
+    if (!policies) return;
+    const name = freePolicyName(t(tpl.name), (n) => policyNameTaken(policies, n));
+    const draft: EditablePolicy = {
+      id: undefined,
+      key: newKey('policy'),
+      name,
+      description: null,
+      project_id: projectId,
+      enabled: true,
+      log_only: true,
+      created_at: '',
+      rules: policyTemplateRules(tpl, (k) => t(k)),
+      dirty: true,
+    };
+    edit((ps) => [...ps, draft]);
+    setActivePolicy(draft.key);
+    setChoosingTemplate(false);
+    notify(t('ptpl.added', { name }));
+  };
+
   // Unsaved edits: ask before leaving the page, and before closing the tab.
   const hasEdits = (policies ?? []).some((p) => p.dirty) || guardDirty;
   useEffect(() => {
@@ -490,6 +514,9 @@ function FlowPageInner() {
         </button>
         <button type="button" className="btn" onClick={() => setNewPolicy({ name: '', project: projectId ?? '' })} disabled={!writable}>
           + {t('flow.addPolicy')}
+        </button>
+        <button type="button" className="btn" onClick={() => setChoosingTemplate(true)} disabled={!writable}>
+          + {t('ptpl.open')}
         </button>
       </div>
       {!writable ? (
@@ -781,6 +808,31 @@ function FlowPageInner() {
             )}
           </Field>
         )}
+      </Dialog>
+
+      <Dialog open={choosingTemplate} wide title={t('ptpl.title')} onClose={() => setChoosingTemplate(false)}>
+        <p className="muted">{t('ptpl.intro', { scope: scopeLabel })}</p>
+        <ul className="template-list" data-testid="policy-templates">
+          {POLICY_TEMPLATES.map((tpl) => (
+            <li key={tpl.id}>
+              <div>
+                <strong>{t(tpl.name)}</strong>
+                <div className="small muted">{t(tpl.desc)}</div>
+                <ul className="small tpl-rules">
+                  {tpl.rules.map((r) => (
+                    <li key={r.name}>
+                      <span className={`action action-${r.action}`}>{r.action}</span> {t(r.name)}
+                    </li>
+                  ))}
+                </ul>
+                {tpl.needsPii && !guard?.input_pii ? <div className="small tpl-warn">{t('ptpl.needsPii')}</div> : null}
+              </div>
+              <button type="button" className="btn btn-small btn-primary" aria-label={`${t('ptpl.create')}: ${t(tpl.name)}`} onClick={() => onPolicyTemplate(tpl)}>
+                {t('ptpl.create')}
+              </button>
+            </li>
+          ))}
+        </ul>
       </Dialog>
 
       <ConfirmDialog

@@ -3273,3 +3273,29 @@ fieldset.plain {
 .fp-form input {
   width: 100%;
 }
+
+/* ── Sample sentences and policy templates (RF-a1dbafea U3) ─────────────── */
+.sim-sample {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.sim-sample textarea {
+  width: 100%;
+}
+.sim-sample p {
+  margin: 0;
+}
+.tpl-rules {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+.tpl-warn {
+  color: var(--warn);
+  margin-top: 4px;
+}
