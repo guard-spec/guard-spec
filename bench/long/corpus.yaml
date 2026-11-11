@@ -611,6 +611,219 @@ sources:
     terms: GitHub raw file URL at a pinned commit; used locally, never redistributed.
     sha256: fcf40417ae1dba6e08550e603934b9f0b83c2b1a0ae1cd81080e9285c2901784
 
+  # ---------------------------------------------------------------------
+  # Sources of the `long5` profile (2026-11-11, RF-895d3533 R5): a second set
+  # of benign documents of 100k and 200k tokens, for the R5 selection and its
+  # hold-out (train/reports/r5_preregistration.md), because the dev and
+  # hold-out halves of `long` were both scored in R2b and R3. No text of a
+  # `long5` document is in a `long`, quick or full document: other Wikipedia
+  # and Wikisource files, other U.S. Code titles, other RFCs, other
+  # repositories, and for the Vietnamese laws and prose the units of the
+  # Wikisource dump that `long` left unused (`units_of`, from `unit_start`,
+  # the first unit after the last one a `long` document holds).
+  wikipedia5-en:
+    lang: en
+    genre: wiki
+    kind: hf-parquet
+    repo: wikimedia/wikipedia
+    revision: b04c8d1ceb2f5cd4588862100d08de323dccfbaa
+    file: 20231101.en/train-00001-of-00041.parquet
+    file_sha256: 6cd57a5825312ca966313d4a1b614690b5c4fb53cee9b124bc0e999977eb36cf
+    row_groups: [0, 1, 2, 3]
+    license: CC-BY-SA-3.0 / GFDL
+    terms: Dataset card license field; used locally for measurement, never redistributed.
+    sha256: 7612f369e63c0e46ab540c73545e94986e709f5ded777ba845b446756144c33d
+  wikipedia5-vi:
+    lang: vi
+    genre: wiki
+    kind: hf-parquet
+    repo: wikimedia/wikipedia
+    revision: b04c8d1ceb2f5cd4588862100d08de323dccfbaa
+    file: 20231101.vi/train-00001-of-00004.parquet
+    file_sha256: d1e724ebca841a6ca38d7b32a62cb99e81c32368ae05f48c779f5f11d0122b35
+    row_group_range: [0, 323] # every row group of the file (322,170 articles; those of 1,500 characters or more)
+    license: CC-BY-SA-3.0 / GFDL
+    terms: Dataset card license field; used locally for measurement, never redistributed.
+    sha256: 9bad0ea32bb513255dcd048c9808b0f12d46d5cf36ab6a3c90d63b5671a0da93
+  uscode5-en:
+    lang: en
+    genre: legal
+    kind: http-html
+    # United States Code, 2023 main edition (GovInfo), titles not used above:
+    # 16 (Conservation), 20 (Education), 33 (Navigation and Navigable
+    # Waters), 38 (Veterans' Benefits) and 49 (Transportation).
+    urls:
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title16/html/USCODE-2023-title16.htm
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title20/html/USCODE-2023-title20.htm
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title33/html/USCODE-2023-title33.htm
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title38/html/USCODE-2023-title38.htm
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title49/html/USCODE-2023-title49.htm
+    license: Public domain (17 U.S.C. 105)
+    terms: GovInfo content is public domain U.S. Government work; bulk use is allowed.
+    sha256: 0a8e665d77a192512c6a8fd38221cab87e71c447ab1a25a74185d3ebe26e0ee4
+  k8s-kubelet5-en:
+    lang: en
+    genre: code
+    kind: github-tree
+    # Go source of the kubelet (kubernetes/kubernetes pkg/kubelet at the
+    # v1.31.0 tag, Apache-2.0), files sorted by path, cut at 60,000 characters.
+    repo: kubernetes/kubernetes
+    commit: 9edcffcde5595e8a5b1a35f88c421764e575afce
+    prefix: pkg/kubelet
+    tree_sha: 1bea85da9acfd9ea84253f425a11963be6eb4b00
+    suffixes: [.go]
+    min_bytes: 2000
+    strip: license-header # the Apache-2.0 comment at the top of every file (in other code of the training data)
+    file_header: "// File: {path}\n"
+    max_unit_chars: 60000
+    license: Apache-2.0 (kubernetes/kubernetes LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: af507358d7ca7444c5b291bbc49755f314288f780b7830fb1209a89be23b30b2
+  rustbook5-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    # The Rust Programming Language book (rust-lang/book, MIT or Apache-2.0),
+    # its Markdown chapters; with k8s-blog5-en one `docs` pool.
+    repo: rust-lang/book
+    commit: 2771df165f092a4fbb9f46b5b2e7450f19010adb
+    prefix: src
+    tree_sha: 2f39a1b15a99720fa98e1ebd5df01f1dc96d56ad
+    suffixes: [.md]
+    min_bytes: 2000
+    max_unit_chars: 60000
+    license: MIT OR Apache-2.0 (rust-lang/book COPYRIGHT)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: cc2c38a1f5018e80d2e168e2f90da518cc8ee0bd3c9c888ae845a2889b8cd5a8
+  k8s-blog5-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    # The Kubernetes blog (kubernetes/website content/en/blog at the commit
+    # pinned above, CC-BY-4.0), front matter stripped.
+    repo: kubernetes/website
+    commit: 4c77b36edb121506e7eb2983777e7c4b49f98ab1
+    prefix: content/en/blog
+    tree_sha: c1b1af609aefdf841795e4218dca83e4e9c80706
+    suffixes: [.md]
+    min_bytes: 4000
+    strip: front-matter
+    max_unit_chars: 60000
+    license: CC-BY-4.0 (kubernetes/website LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: f50a41c1c81437fe1a89df782d0d2f42f38538303e7b86ac8e71b9fad7de1f94
+  wikisource5-en:
+    lang: en
+    genre: prose
+    kind: hf-parquet
+    repo: wikimedia/wikisource
+    revision: f31a033f5f3d2107b3e864e578710df104a00baa
+    file: 20231201.en/train-00001-of-00005.parquet
+    file_sha256: 3c745191f991fc741307bb038489745f6484861e9fd5c15197e2bd6dd001edb9
+    row_groups: [0, 1]
+    license: CC-BY-SA-3.0 / GFDL
+    terms: Dataset card license field; used locally for measurement, never redistributed.
+    sha256: b5e84448a1c815fee6a9ee884d7edd4ae032b6bd7efa2a2adf7543c94b72c172
+  rfc5-en:
+    lang: en
+    genre: rfc
+    kind: http-text
+    # 53 further RFCs (IP, DNS and DNSSEC, DHCP, OSPF, IMAP, POP3, cookies,
+    # JOSE/JWT, JSON, crypto primitives, STUN/ICE/TURN, SDP, QPACK, DoH/DoT,
+    # SSH, NETCONF/RESTCONF, IPFIX, syslog, SPF/DKIM/DMARC, JMAP), none of
+    # them in rfc-en (IETF Trust Legal Provisions, BCP 78).
+    base: https://www.rfc-editor.org/rfc/
+    file_header: ""
+    strip: rfc
+    max_unit_chars: 60000
+    paths:
+      - rfc791.txt
+      - rfc768.txt
+      - rfc792.txt
+      - rfc826.txt
+      - rfc1034.txt
+      - rfc2131.txt
+      - rfc2328.txt
+      - rfc4033.txt
+      - rfc4034.txt
+      - rfc4035.txt
+      - rfc3501.txt
+      - rfc9051.txt
+      - rfc1939.txt
+      - rfc6265.txt
+      - rfc6454.txt
+      - rfc6762.txt
+      - rfc6763.txt
+      - rfc7519.txt
+      - rfc7515.txt
+      - rfc7516.txt
+      - rfc7517.txt
+      - rfc7518.txt
+      - rfc8259.txt
+      - rfc4648.txt
+      - rfc5234.txt
+      - rfc9562.txt
+      - rfc8032.txt
+      - rfc7748.txt
+      - rfc8439.txt
+      - rfc5869.txt
+      - rfc2104.txt
+      - rfc6125.txt
+      - rfc6960.txt
+      - rfc5389.txt
+      - rfc8445.txt
+      - rfc8656.txt
+      - rfc3264.txt
+      - rfc8866.txt
+      - rfc9204.txt
+      - rfc8484.txt
+      - rfc7858.txt
+      - rfc6066.txt
+      - rfc4252.txt
+      - rfc4254.txt
+      - rfc6241.txt
+      - rfc8040.txt
+      - rfc7011.txt
+      - rfc5424.txt
+      - rfc7208.txt
+      - rfc6376.txt
+      - rfc7489.txt
+      - rfc8620.txt
+      - rfc8621.txt
+    license: IETF Trust Legal Provisions (BCP 78)
+    terms: RFC Editor text files; used locally for measurement, never redistributed.
+    sha256: 56c47e860de7be01ab95f006f4548430557042ebbaef3443eb644ca86c4655d1
+  nginx-logs5-en:
+    lang: en
+    genre: weblog
+    kind: http-text
+    # nginx access logs of elastic/examples (Apache-2.0), in units of 400 lines.
+    base: https://raw.githubusercontent.com/elastic/examples/6d86454ebb7a850bcd7e80abe86fe683370018a6/
+    file_header: ""
+    unit_lines: 400
+    paths:
+      - Common%20Data%20Formats/nginx_logs/nginx_logs
+    license: Apache-2.0
+    terms: GitHub raw file URL at a pinned commit; used locally, never redistributed.
+    sha256: 8b121b4f7e6f0eb2c6de45beeba188e930c7fa32dd9676dd64e4cfabc8e0a627
+  wikisource5-vi-laws:
+    lang: vi
+    genre: legal
+    # The units of wikisource-vi-laws after the last one a `long` document holds.
+    units_of: wikisource-vi-laws
+    unit_start: 573
+    license: Public domain (Viet Nam IP Law art. 15); dump CC-BY-SA-3.0 / GFDL
+    terms: Dataset card license field; used locally for measurement, never redistributed.
+    sha256: a016b29d9bc5665d6d095c9f43c9da9d7872c639940204e73113d59804f376e1
+  wikisource5-vi-prose:
+    lang: vi
+    genre: prose
+    units_of: wikisource-vi-prose
+    unit_start: 646
+    license: CC-BY-SA-3.0 / GFDL
+    terms: Dataset card license field; used locally for measurement, never redistributed.
+    sha256: 32e6a4ace1521214b46f7bf2a62ac840b951f94d5655e244458c0ffdf136d765
+
 # Synthetic genres: generated by build.py from a fixed seed (project-written,
 # Apache-2.0). "hardneg" is benign text about prompt injection and security.
 synthetic:
@@ -705,6 +918,43 @@ profiles:
     payloads_per_lang: 0
     host_tokens: 2000
     segment_host_bytes: 28000
+  long5:
+    # Benign documents of 100k and 200k tokens from the `long5` sources and
+    # the synthetic genres with their own seed: 38 English and 37
+    # Vietnamese documents per size (RF-895d3533 R5,
+    # train/reports/r5_preregistration.md). No attacks here: the embedded
+    # attack documents of R5 are built from these hosts by
+    # bench/long/embed_long.py. Ids carry the prefix `long5-`, so the
+    # dev/holdout split is independent of every other profile.
+    sources: [wikipedia5-en, uscode5-en, k8s-kubelet5-en, rustbook5-en, k8s-blog5-en, wikisource5-en, rfc5-en,
+              nginx-logs5-en, wikipedia5-vi, wikisource5-vi-laws, wikisource5-vi-prose]
+    synthetic: [logs, json, csv, email, chat, hardneg]
+    synthetic_seed: 20261112
+    id_prefix: long5-
+    sizes:
+      default: [100000, 200000]
+      synthetic: [100000, 200000]
+    docs_per_size:
+      default: 0
+      wiki-en: 8
+      legal-en: 5
+      code-en: 3
+      docs-en: 5
+      prose-en: 5
+      rfc-en: 4
+      weblog-en: 2
+      wiki-vi: 23
+      legal-vi: 6
+      prose-vi: 2
+      logs: 1
+      json: 1
+      csv: 1
+      email: 1
+      chat: 1
+      hardneg: 1
+    payloads_per_lang: 0
+    host_tokens: 2000
+    segment_host_bytes: 28000
 
 # Dev/holdout split of every document (build.py split_of, the eval/ convention):
 # the last hex digit of SHA-256(key) is 0-7 for dev and 8-f for holdout, with
@@ -730,6 +980,9 @@ outputs:
   # long: pinned on 2026-11-11 (R2b); 128 benign documents, 19.08M tokens,
   # after exclude.json (the quick and full files are unchanged).
   long: ccd7b905eb65a3efdff54e8f1040ee95db19d348e44fc7f1d808694e9169eb14
+  # long5: pinned on 2026-11-11 (R5); 150 benign documents, 22.48M tokens, after
+  # exclude.json (74 dev, 76 holdout).
+  long5: 3f1378dcaac3cff3a389896150b7612749a069d349a96964909d40cac8ea6a89
 
 dropped:
   - source: Project Gutenberg (gutenberg.org)
@@ -749,3 +1002,10 @@ dropped:
       data holds the same documentation (rows doc_en cpython@v3.12.7), so 98 of
       its 265 files shared a 50-token shingle with a training row. The
       Kubernetes documentation is used instead.
+  - source: Vietnamese legal datasets on Hugging Face (minhnguyent546/vietnamese-legal-documents and its source th1nhng0/vietnamese-legal-documents; YuITC/Vietnamese-Legal-Documents)
+    reason: >-
+      Considered for `long5` (2026-11-11, R5) and not used: the first is a copy
+      of thuvienphapluat.vn (its card says so), the portal dropped above; the
+      second is a retrieval corpus without a stated origin of its text. The
+      Vietnamese laws of `long5` are the units of the Vietnamese Wikisource dump
+      that `long` left unused.

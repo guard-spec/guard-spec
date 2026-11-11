@@ -268,8 +268,19 @@ def github_tree(repo: str, tree_sha: str, cache: Path) -> list[dict]:
     return [e for e in d["tree"] if e["type"] == "blob"]
 
 
-def load_source(name: str, src: dict, cache: Path) -> list[str]:
-    """Units of text (articles, paragraphs, files) of one source, in a fixed order."""
+def load_source(name: str, src: dict, cache: Path, sources: dict | None = None) -> list[str]:
+    """Units of text (articles, paragraphs, files) of one source, in a fixed order.
+
+    A source with `units_of` is the part of another source's units from index `unit_start` on (the
+    units an earlier profile left unused), after that source's own sha256 is checked."""
+    if src.get("units_of"):
+        base_name = src["units_of"]
+        base = (sources or {})[base_name]
+        units = load_source(base_name, base, cache, sources)
+        got = sha256_text("\n\x1e\n".join(units))
+        if base.get("sha256") and base["sha256"] != got:
+            raise SystemExit(f"{name}: {base_name} has SHA-256 {got}, corpus.yaml pins {base['sha256']}")
+        return units[int(src["unit_start"]):]
     p = cache / "units" / f"{name}.json"
     if p.exists():
         return json.loads(p.read_text("utf-8"))
@@ -284,7 +295,10 @@ def load_source(name: str, src: dict, cache: Path) -> list[str]:
         if lfs != src["file_sha256"]:
             raise SystemExit(f"{name}: {src['file']} has SHA-256 {lfs}, corpus.yaml pins {src['file_sha256']}")
         path = f"datasets/{src['repo']}@{src['revision']}/{src['file']}"
-        groups = src.get("row_groups") or [src["row_group"]]
+        if src.get("row_group_range"):
+            groups = list(range(*src["row_group_range"]))  # [first, last + 1)
+        else:
+            groups = src.get("row_groups") or [src["row_group"]]
         match = re.compile(src["title_match"]) if src.get("title_match") else None
         exclude = re.compile(src["title_exclude"]) if src.get("title_exclude") else None
         units = []
@@ -337,6 +351,10 @@ def load_source(name: str, src: dict, cache: Path) -> list[str]:
             text = raw.decode("utf-8", errors="replace").replace("\r\n", "\n")
             if src.get("strip") == "front-matter":
                 text = strip_front_matter(text)
+            elif src.get("strip") == "license-header":
+                # The licence comment every file of the repository starts with: the same text in every file,
+                # and in other code of the training data, so it says nothing about the file (R5).
+                text = re.sub(r"\A\s*/\*.*?Licensed under the Apache License.*?\*/\s*", "", text, count=1, flags=re.S)
             text = tidy(text)
             if src.get("lang_filter") == "vi" and vietnamese_share(text) < 0.05:
                 continue
@@ -775,7 +793,7 @@ def main() -> int:
     for name, src in cfg["sources"].items():
         if prof.get("sources") and name not in prof["sources"]:
             continue
-        units = load_source(name, src, src_cache)
+        units = load_source(name, src, src_cache, cfg["sources"])
         got = sha256_text("\n\x1e\n".join(units))
         if src.get("sha256") and src["sha256"] != got:
             raise SystemExit(f"{name}: extracted text has SHA-256 {got}, corpus.yaml pins {src['sha256']}")

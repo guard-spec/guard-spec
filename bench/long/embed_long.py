@@ -1,6 +1,6 @@
 # Copyright 2026 The Guard Spec Authors
 # SPDX-License-Identifier: Apache-2.0
-"""Attack payloads embedded in long benign documents (RF-895d3533 R3).
+"""Attack payloads embedded in long benign documents (RF-895d3533 R3, R5).
 
 The `full` profile puts each payload into a 2k-token host; the long document
 rule of the long path (train/reports/r3_preregistration.md) depends on the
@@ -31,6 +31,17 @@ gateway's sanitizer rejects are left out as hosts (--exclude-hosts).
         --full $BENCH_CACHE/long/full/docs.jsonl --long $BENCH_CACHE/long/long/docs.jsonl \\
         --split dev --out <dir> [--exclude-hosts ids.txt]
 
+R5 (train/reports/r5_preregistration.md) takes payloads the R3 documents did
+not use: with --eval-payloads N --eval-skip K, the payloads are the attack
+rows of the eval/ dev half in build.py's seeded order (load_payloads, the
+order the `full` profile takes its first 32 per language from), rows K to
+K + N - 1 of each language, and their bench split is build.split_of of the
+payload id; the hosts are a `long5` profile's documents.
+
+    uv run --project bench --frozen python bench/long/embed_long.py \\
+        --eval-payloads 40 --eval-skip 32 --long $BENCH_CACHE/long/long5/docs.jsonl \\
+        --split dev --out <dir>
+
 Output: <dir>/docs.jsonl in the format of build.py (cmd/benchlong -corpus <dir>).
 """
 
@@ -45,9 +56,11 @@ from pathlib import Path
 from tokenizers import Tokenizer
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import yaml  # noqa: E402
+
 from build import (  # noqa: E402
-    CHUNK_BYTES, CHUNK_STEP, L2_CONTENT, L2_STEP, SEGMENT_BYTES,
-    byte_to_char, find_tokenizer, insert, seeded, split_halves, token_char,
+    CHUNK_BYTES, CHUNK_STEP, HERE, L2_CONTENT, L2_STEP, SEGMENT_BYTES,
+    byte_to_char, find_tokenizer, insert, load_payloads, seeded, split_halves, split_of, token_char,
 )
 
 SEED = 20261111
@@ -96,7 +109,9 @@ def embed(v: str, payload: str, lang: str, host: str, tok, rng) -> tuple[str, li
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--full", required=True, help="docs.jsonl of the full profile (its control documents are the payloads)")
+    ap.add_argument("--full", help="docs.jsonl of the full profile (its control documents are the payloads)")
+    ap.add_argument("--eval-payloads", type=int, help="payloads per language from eval/ instead of --full (R5)")
+    ap.add_argument("--eval-skip", type=int, default=0, help="with --eval-payloads: skip the first K of each language")
     ap.add_argument("--long", required=True, help="docs.jsonl of the long profile (the hosts)")
     ap.add_argument("--split", required=True, choices=["dev", "holdout"])
     ap.add_argument("--out", required=True)
@@ -112,11 +127,29 @@ def main() -> int:
         exclude = {ln.strip() for ln in Path(args.exclude_hosts).read_text("utf-8").splitlines() if ln.strip()}
 
     payloads = []
-    with open(args.full, encoding="utf-8") as fh:
-        for line in fh:
-            d = json.loads(line)
-            if d["kind"] == "control" and d["split"] == args.split:
-                payloads.append(d)
+    if args.eval_payloads:
+        cfg = yaml.safe_load((HERE / "corpus.yaml").read_text("utf-8"))
+        per_lang = args.eval_skip + args.eval_payloads
+        rows = load_payloads(cfg["payloads"], per_lang, cfg["synthetic"]["seed"])
+        by_lang: dict[str, list[dict]] = {}
+        for r in rows:
+            by_lang.setdefault(r["lang"], []).append(r)
+        for lang, lst in sorted(by_lang.items()):
+            for r in lst[args.eval_skip:per_lang]:
+                d = {"id": f"control-{r['id']}", "kind": "control", "lang": lang, "genre": "payload", "text": r["text"],
+                     "variant": "control", "spans": [[0, len(r["text"].encode("utf-8"))]], "payload_id": r["id"],
+                     "category": r["category"], "source": f"eval:{r['source']}", "license": r["license"]}
+                d["split"] = split_of(d)
+                if d["split"] == args.split:
+                    payloads.append(d)
+    elif args.full:
+        with open(args.full, encoding="utf-8") as fh:
+            for line in fh:
+                d = json.loads(line)
+                if d["kind"] == "control" and d["split"] == args.split:
+                    payloads.append(d)
+    else:
+        raise SystemExit("--full or --eval-payloads")
     hosts: dict[str, list[dict]] = {}
     with open(args.long, encoding="utf-8") as fh:
         for line in fh:
