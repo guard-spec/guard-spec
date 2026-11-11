@@ -90,6 +90,9 @@ func instanceInputLimits(ctx context.Context, settings *appSettings, client *htt
 		out.MaxScanTokens = &in.MaxScanTokens
 	}
 	out.PDFExtract, out.UnscannedParts = &in.PDFExtract, &in.UnscannedParts
+	if len(in.ReadableFileTypes) > 0 {
+		out.ReadableFileTypes = in.ReadableFileTypes
+	}
 	return out
 }
 

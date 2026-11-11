@@ -404,8 +404,9 @@ func (g *textGuard) guardPDF(kind string, data []byte, remote bool) error {
 		res.Reason = pdftext.ReasonOverLimit
 	}
 	if res.Reason != pdftext.ReasonOK {
-		g.pdfUnscanned(kind, res.Reason)
-		return nil
+		// Unscanned as before; refused under the org's
+		// unreadable_file_action block (input_settings.go).
+		return g.fileUnreadable(kind, res.Reason, true)
 	}
 	if !g.history {
 		g.pdfs.Scanned++
@@ -428,9 +429,13 @@ func (g *textGuard) pdfUnscanned(kind, reason string) {
 // placeholder. A part that is not a PDF the gateway can read is an unscanned
 // part, as before.
 func (g *textGuard) guardFilePart(kind string, file map[string]any, redact func()) error {
-	if g.pdf == nil || file == nil {
+	if file == nil {
 		g.noteUnscanned(kind)
 		return nil
+	}
+	if g.pdf == nil {
+		// With input settings, the part is an allowed file (checkFile).
+		return g.fileUnreadable(kind, "PDF_EXTRACT is off", false)
 	}
 	if err := rejectShadowKeys(file, "file_data", "file_id", "file_url"); err != nil {
 		return err
@@ -438,14 +443,13 @@ func (g *textGuard) guardFilePart(kind string, file map[string]any, redact func(
 	return g.as(indirect.SourceDocument, redact, func() error {
 		if raw, ok := file["file_data"].(string); ok && raw != "" {
 			if base64Len(raw) > g.pdf.limits.MaxBytes {
-				g.pdfUnscanned(kind, pdftext.ReasonOverLimit)
 				metrics.PDFExtract.WithLabelValues(pdftext.ReasonOverLimit).Inc()
-				return nil
+				return g.fileUnreadable(kind, pdftext.ReasonOverLimit, true)
 			}
 			data, pdf, ok := decodeFileData(raw)
 			if !ok || !pdf {
-				g.noteUnscanned(kind) // not a PDF, or not readable as one
-				return nil
+				// Not a PDF, or not readable as one.
+				return g.fileUnreadable(kind, pdftext.ReasonDamaged, false)
 			}
 			return g.guardPDF(kind, data, false)
 		}
@@ -454,8 +458,7 @@ func (g *textGuard) guardFilePart(kind string, file map[string]any, redact func(
 				return g.guardPDF(kind, nil, true)
 			}
 		}
-		g.noteUnscanned(kind)
-		return nil
+		return g.unreadPart(kind)
 	})
 }
 

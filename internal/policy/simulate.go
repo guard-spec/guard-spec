@@ -245,6 +245,8 @@ func VarsFromMap(m map[string]any) (*Vars, error) {
 			v.PDFScanned = int(f)
 		case "input.pdf.reasons":
 			v.PDFReasons = l
+		case "input.files.types":
+			v.FileTypes = l
 		default:
 			return nil, fmt.Errorf("field %s cannot be simulated", name)
 		}

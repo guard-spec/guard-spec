@@ -75,6 +75,9 @@ type scanConfig struct {
 	// past those limits (large_input.go). ScanTokens is the cap with the
 	// org's max_scan_tokens, which can only lower it.
 	MaxScanTokens, ScanTokens int
+	// Input is the org's input settings (input_settings.go); nil: the
+	// instance's behaviour.
+	Input *indirect.InputSettings
 }
 
 // Values of SCAN_HISTORY.
@@ -203,12 +206,20 @@ func (g *textGuard) trustedTool(name string) bool {
 // settingsLoader returns an organization's scan overrides.
 type settingsLoader func(ctx context.Context, orgID uuid.UUID) (indirect.Settings, error)
 
-// dbSettingsLoader reads organizations.guard_settings in the org's RLS scope.
+// dbSettingsLoader reads organizations.guard_settings and the org's input
+// settings (org_input_settings, migration 030) in the org's RLS scope, in
+// one query.
 func dbSettingsLoader(db *pgxpool.Pool) settingsLoader {
 	return func(ctx context.Context, orgID uuid.UUID) (indirect.Settings, error) {
 		var raw []byte
+		var mode, action *string
+		var maxTokens *int
+		var types []string
 		err := tenant.WithOrg(ctx, db, orgID, func(tx pgx.Tx) error {
-			return tx.QueryRow(ctx, `SELECT guard_settings FROM organizations WHERE id = $1`, orgID).Scan(&raw)
+			return tx.QueryRow(ctx,
+				`SELECT o.guard_settings, i.input_mode, i.max_input_tokens, i.allowed_file_types, i.unreadable_file_action
+				 FROM organizations o LEFT JOIN org_input_settings i ON i.org_id = o.id WHERE o.id = $1`, orgID).
+				Scan(&raw, &mode, &maxTokens, &types, &action)
 		})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return indirect.Settings{}, nil
@@ -216,7 +227,21 @@ func dbSettingsLoader(db *pgxpool.Pool) settingsLoader {
 		if err != nil {
 			return indirect.Settings{}, err
 		}
-		return indirect.ParseSettings(raw)
+		s, err := indirect.ParseSettings(raw)
+		if err != nil || mode == nil {
+			return s, err
+		}
+		in := indirect.InputSettings{InputMode: *mode, MaxInputTokens: maxTokens, AllowedFileTypes: types}
+		if action != nil {
+			in.UnreadableFileAction = *action
+		}
+		// The table's checks hold what Normalize checks; a row it refuses
+		// fails the request closed, as unreadable guard settings do.
+		if err := in.Normalize(indirect.MaxScanTokensLimit); err != nil {
+			return indirect.Settings{}, fmt.Errorf("input settings: %w", err)
+		}
+		s.Input = &in
+		return s, nil
 	}
 }
 
@@ -244,6 +269,11 @@ func (gw gateway) scanConfigFor(orgID uuid.UUID) (scanConfig, error) {
 	cfg.PIIAction, cfg.PIIKinds = s.PIIAction(), s.InputPIIKinds
 	cfg.Unscanned = s.Unscanned(cfg.Unscanned)
 	cfg.ScanTokens = s.ScanTokens(cfg.MaxScanTokens)
+	if cfg.Input = s.Input; cfg.Input != nil && cfg.Unscanned == indirect.UnscannedAllow {
+		// What the org's settings let through unread is tagged: pass is
+		// "forward with a log" (input_settings.go).
+		cfg.Unscanned = indirect.UnscannedLog
+	}
 	return cfg, nil
 }
 
