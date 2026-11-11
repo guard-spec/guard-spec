@@ -153,6 +153,17 @@ Các migration của một bản làm gì ngoài việc thêm bảng, và cần 
   trước. Xóa tổ chức luôn thành yêu cầu do một owner khác hoặc quản trị viên hệ
   thống duyệt, dù phê duyệt hai người bật hay tắt. Down: yêu cầu đã hủy được
   coi là hết hạn và yêu cầu trùng lại được phép.
+- **030 (thiết lập đầu vào).** Thêm `org_input_settings` (một dòng cho mỗi tổ
+  chức tự đặt chế độ đầu vào, giới hạn token, loại file và cách xử lý file
+  không đọc được) và loại phê duyệt `input_settings.loosen`. Sau migration
+  không tổ chức nào có dòng này, nên mọi tổ chức giữ hành vi của instance
+  (`PDF_EXTRACT`, `UNSCANNED_PARTS`, `MAX_SCAN_TOKENS`) cho đến khi admin đặt
+  thiết lập. Gateway 0.7.0 đọc bảng này cùng thiết lập bảo vệ của mỗi request:
+  hãy chạy migration trước khi gateway khởi động, nếu không request sẽ bị từ
+  chối an toàn với 503. Đặt `GATEWAY_URL` cho control plane để nó kiểm tra
+  `max_input_tokens` theo `MAX_SCAN_TOKENS` của gateway (không đặt thì giới
+  hạn là 40.000). Down: thiết lập và các yêu cầu nới lỏng đang chờ bị xóa, mọi
+  tổ chức quay về hành vi của instance.
 
 ## Rollback
 

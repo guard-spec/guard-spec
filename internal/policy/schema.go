@@ -57,6 +57,7 @@ var fieldDescriptions = map[string]string{
 	"input.pdf.count":       "How many PDF parts the request has (inline documents and file references), in the turns the gateway scans.",
 	"input.pdf.scanned":     "How many of those PDFs the gateway read: text extracted and scanned as a document. 0 when PDF_EXTRACT is off.",
 	"input.pdf.reasons":     "Why the other PDFs were not read: no_text (no text layer), encrypted, damaged, timeout, over_limit, internal, remote (a url or file id the gateway cannot fetch). Such PDFs are unscanned parts.",
+	"input.files.types":     "Types of the images, files and audio in the request, detected from their content and checked against what they declare, in the turns the gateway scans: pdf, png, jpeg, gif, webp, docx, xlsx, pptx, zip, wav, mp3, ogg, flac, unknown, remote (a url or file id the gateway cannot check).",
 }
 
 var categoryValues = []string{"direct_injection", "indirect_injection", "jailbreak", "prompt_extraction",
@@ -70,6 +71,8 @@ var fieldValues = map[string][]string{
 	"input.pii.kinds":       {"email", "phone", "card", "cccd", "ipv4"},                                         // outputguard.PIIKinds
 	"input.unscanned.kinds": {"image", "file", "audio", "other"},                                                // indirect.UnscannedKinds
 	"input.pdf.reasons":     {"no_text", "encrypted", "damaged", "timeout", "over_limit", "internal", "remote"}, // indirect.PDFReasons
+	"input.files.types": {"pdf", "png", "jpeg", "gif", "webp", "docx", "xlsx", "pptx", "zip", "wav", "mp3", "ogg", "flac",
+		"unknown", "remote"}, // cmd/gateway fileTypes
 }
 
 // typeName maps a CEL type to the schema's type name.

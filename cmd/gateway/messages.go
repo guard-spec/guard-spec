@@ -369,13 +369,20 @@ func (g *textGuard) guardBlocks(blocks []any) error {
 		case "input_file":
 			// A Responses API file item: a PDF sent inline is scanned as a
 			// document (pdf_extract.go); otherwise forwarded unread.
-			err = g.guardFilePart(kind, b, func() { replaceWithText(b, "input_text") })
+			if err = g.checkFile(kind, b); err == nil {
+				err = g.guardFilePart(kind, b, func() { replaceWithText(b, "input_text") })
+			}
 		default:
 			// text, and any block with a text field. Images, files and
 			// audio have none: they are forwarded unread and counted
-			// (unscanned.go).
+			// (unscanned.go), once the org's input settings let them.
 			if _, hasText := b["text"]; !hasText {
-				g.noteUnscanned(kind)
+				if err = g.checkFile(kind, b); err != nil {
+					break
+				}
+				if err = g.unreadPart(kind); err != nil {
+					break
+				}
 			}
 			err = g.guardStrings(b, "text")
 		}
@@ -458,27 +465,28 @@ func (g *textGuard) guardDocument(b map[string]any) error {
 	case "content":
 		return g.guardNested(src, "content")
 	}
+	// A file: the org's input settings first (input_settings.go).
+	if err := g.checkFile("document", b); err != nil {
+		return err
+	}
 	if g.pdf == nil {
-		g.noteUnscanned("document") // a PDF or an image: base64, url or file
-		return nil
+		// A PDF or an image: base64, url or file.
+		return g.fileUnreadable("document", "PDF_EXTRACT is off", false)
 	}
 	switch src["type"] {
 	case "base64":
 		if src["media_type"] != "application/pdf" {
-			g.noteUnscanned("document") // an image
-			return nil
+			return g.unreadPart("document") // an image
 		}
 		raw, _ := src["data"].(string)
 		if base64Len(raw) > g.pdf.limits.MaxBytes {
-			g.pdfUnscanned("document", pdftext.ReasonOverLimit)
 			metrics.PDFExtract.WithLabelValues(pdftext.ReasonOverLimit).Inc()
-			return nil
+			return g.fileUnreadable("document", pdftext.ReasonOverLimit, true)
 		}
 		data, err := decodeBase64(raw)
 		if err != nil {
-			g.pdfUnscanned("document", pdftext.ReasonDamaged)
 			metrics.PDFExtract.WithLabelValues(pdftext.ReasonDamaged).Inc()
-			return nil
+			return g.fileUnreadable("document", pdftext.ReasonDamaged, true)
 		}
 		return g.guardPDF("document", data, false)
 	case "url", "file":
@@ -486,8 +494,7 @@ func (g *textGuard) guardDocument(b map[string]any) error {
 		// cannot read it.
 		return g.guardPDF("document", nil, true)
 	}
-	g.noteUnscanned("document")
-	return nil
+	return g.unreadPart("document")
 }
 
 // toolUseTexts returns the string values of the input of an assistant

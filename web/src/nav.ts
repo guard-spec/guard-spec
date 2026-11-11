@@ -4,7 +4,7 @@
 // The sidebar (identity contract §8): groups in sentence case, one lucide
 // icon per page. Instance admin pages show only to instance admins.
 
-import { Bell, BellRing, Boxes, Building2, ClipboardCheck, Cpu, FileCode, Fingerprint, FlaskConical, FolderKanban, History, Key, KeyRound, LayoutDashboard, Library, ListChecks, Lock, Radio, ScrollText, Send, ShieldCheck, UserCheck, UserCog, Users, UsersRound, Workflow, type LucideIcon } from 'lucide-react';
+import { Bell, BellRing, Boxes, Building2, ClipboardCheck, Cpu, FileCode, FileInput, Fingerprint, FlaskConical, FolderKanban, History, Key, KeyRound, LayoutDashboard, Library, ListChecks, Lock, Radio, ScrollText, Send, ShieldCheck, UserCheck, UserCog, Users, UsersRound, Workflow, type LucideIcon } from 'lucide-react';
 import type { MessageKey } from './i18n';
 import type { Route } from './router';
 
@@ -31,6 +31,7 @@ export const NAV: NavGroup[] = [
     items: [
       { route: 'flow', label: 'nav.flow', icon: Workflow },
       { route: 'guard', label: 'nav.guard', icon: ShieldCheck },
+      { route: 'input', label: 'nav.input', icon: FileInput },
       { route: 'exemplars', label: 'nav.exemplars', icon: Library },
       { route: 'simulator', label: 'nav.simulator', icon: FlaskConical },
       { route: 'policy-history', label: 'nav.policyHistory', icon: History },

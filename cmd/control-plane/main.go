@@ -407,6 +407,10 @@ func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins 
 	authed.Post("/organizations/:orgId/approvals/:id/reject", adminOrInstance, rejectRequest(db))
 	authed.Get("/organizations/:orgId/guard-settings", viewer, getGuardSettings(db))
 	authed.Put("/organizations/:orgId/guard-settings", admin, putGuardSettings(db))
+	// What the gateway accepts as input (input_settings.go, migration 030).
+	authed.Get("/organizations/:orgId/input-settings", viewer, getInputSettings(db, settings))
+	authed.Put("/organizations/:orgId/input-settings", admin, putInputSettings(db, settings))
+	authed.Delete("/organizations/:orgId/input-settings", admin, deleteInputSettings(db, settings))
 	authed.Get("/organizations/:orgId/security", admin, getOrgSecurity(db))
 	authed.Put("/organizations/:orgId/security", owner, putOrgSecurity(db))
 	authed.Get("/organizations/:orgId/activity", admin, listOrgActivity(db))

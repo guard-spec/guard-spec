@@ -131,6 +131,7 @@ describe('help metadata', () => {
       'input.pdf.count',
       'input.pdf.scanned',
       'input.pdf.reasons',
+      'input.files.types',
     ]);
     expect(FALLBACK_SCHEMA.fields.find((f) => f.name === 'input.pdf.reasons')?.values).toEqual(['no_text', 'encrypted', 'damaged', 'timeout', 'over_limit', 'internal', 'remote']);
     expect(FALLBACK_SCHEMA.fields.find((f) => f.name === 'input.unscanned.kinds')?.values).toEqual(['image', 'file', 'audio', 'other']);

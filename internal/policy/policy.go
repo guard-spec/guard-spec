@@ -133,6 +133,11 @@ type Vars struct {
 	PDFCount   int
 	PDFScanned int
 	PDFReasons []string
+
+	// File types (input.files.types): the types the gateway detected in the
+	// image, file and audio parts, in the turns it scans, each once, sorted
+	// (pdf, png, jpeg, docx, unknown, remote, ...).
+	FileTypes []string
 }
 
 // toActivation converts Vars to the map cel.Program.ContextEval expects.
@@ -164,6 +169,7 @@ func (v *Vars) toActivation() map[string]any {
 		"input.pdf.count":       int64(v.PDFCount),
 		"input.pdf.scanned":     int64(v.PDFScanned),
 		"input.pdf.reasons":     stringList(v.PDFReasons),
+		"input.files.types":     stringList(v.FileTypes),
 		"toxicity.score":        0.0,
 		"pii.entities":          []string{},
 		"topic.categories":      []string{},
@@ -226,6 +232,7 @@ var fieldTypes = map[string]*cel.Type{
 	"input.pdf.count":       cel.IntType,
 	"input.pdf.scanned":     cel.IntType,
 	"input.pdf.reasons":     listOfStrings,
+	"input.files.types":     listOfStrings,
 }
 
 // removedFields were offered to rules, but no detector ever produced them, so

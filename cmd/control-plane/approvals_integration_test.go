@@ -31,6 +31,8 @@ type approvalHarness struct {
 	ctx context.Context
 	db  *pgxpool.Pool
 	app *fiber.App
+	// gw is what the input settings handlers know of the gateway.
+	gw *appSettings
 }
 
 func newApprovalHarness(t *testing.T) *approvalHarness {
@@ -70,7 +72,11 @@ func newApprovalHarness(t *testing.T) *approvalHarness {
 	app.Get("/o/:orgId/approvals", setOrg, listApprovals(db))
 	app.Post("/o/:orgId/approvals/:id/approve", setOrg, approveRequest(db))
 	app.Post("/o/:orgId/approvals/:id/reject", setOrg, rejectRequest(db))
-	return &approvalHarness{t: t, ctx: ctx, db: db, app: app}
+	gw := &appSettings{}
+	app.Get("/o/:orgId/input-settings", setOrg, getInputSettings(db, gw))
+	app.Put("/o/:orgId/input-settings", setOrg, putInputSettings(db, gw))
+	app.Delete("/o/:orgId/input-settings", setOrg, deleteInputSettings(db, gw))
+	return &approvalHarness{t: t, ctx: ctx, db: db, app: app, gw: gw}
 }
 
 // user creates a user; instance makes them an instance administrator.

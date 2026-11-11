@@ -9,6 +9,7 @@ import type { Page, Route } from '@playwright/test';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { FALLBACK_MATRIX } from '../src/auth/permissions';
 import { conditionText } from '../src/flow/conditionText';
+import { inputBody, loosened } from '../src/pages/inputSettings';
 import { handleAlertsOrg, handleAlertsUser, seedAlerts, type AlertsState } from './mockAlerts';
 import {
   isGroup,
@@ -34,6 +35,7 @@ import {
   type Exemplar,
   type FieldType,
   type GuardSettings,
+  type InputSettings,
   type Org,
   type Policy,
   type PolicyDiff,
@@ -356,6 +358,8 @@ export interface MockState {
   policyVersions: Record<string, PolicyVersion[]>;
   keys: ApiKey[];
   guard: GuardSettings;
+  /** Input settings (migration 030); unset: the instance's behaviour. */
+  input?: { settings: InputSettings | null; updated_at: string | null };
   exemplars: Exemplar[];
   requests: AuditRow[];
   /** The identity contract (N15): users, members, security, activity, SSO. */
@@ -804,6 +808,9 @@ export const RECOVERY_CODE = 'k7p2-9xqm';
 export const SSO_CODE = 'sso-one-time';
 const MFA_TOKEN = 'mock-mfa-token';
 const ME_ID = '20000000-0000-4000-8000-000000000001';
+
+/** The instance limits the mock gateway reports (MAX_SCAN_TOKENS=200000). */
+const INPUT_INSTANCE = { source: 'gateway' as const, max_input_tokens_ceiling: 200000, max_scan_tokens: 200000, pdf_extract: true, unscanned_parts: 'log' as const, readable_file_types: ['pdf'] };
 
 export interface IdentityState {
   me: Me;
@@ -1634,6 +1641,52 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
       }
     }
 
+    // Input settings (migration 030): an org without them inherits the instance.
+    const inputState = () => ({
+      inherit: !state.input?.settings,
+      settings: state.input?.settings ?? null,
+      updated_at: state.input?.updated_at ?? null,
+      instance: { ...INPUT_INSTANCE },
+      two_person_approval: id.security.two_person_approval ?? false,
+      pending: id.approvals.find((a) => a.kind === 'input_settings.loosen' && a.status === 'pending') ?? null,
+    });
+    if (sub === '/input-settings' && method === 'GET') return json(200, inputState());
+    if (sub === '/input-settings' && (method === 'PUT' || method === 'DELETE')) {
+      if (opts.role === 'viewer' || opts.role === 'member') return json(403, { error: 'requires role admin' });
+      const b = (body ?? {}) as Partial<InputSettings> & { reason?: string };
+      let to: InputSettings | null = null;
+      if (method === 'PUT') {
+        if (b.input_mode !== 'text_only' && b.input_mode !== 'hybrid') return json(400, { error: 'input_mode is required: text_only or hybrid' });
+        const n = b.max_input_tokens ?? null;
+        if (n !== null && (n < 1 || n > INPUT_INSTANCE.max_input_tokens_ceiling)) {
+          return json(400, { error: `max_input_tokens must be at most ${INPUT_INSTANCE.max_input_tokens_ceiling}, the instance's limit` });
+        }
+        to = inputBody({ input_mode: b.input_mode, max_input_tokens: n, allowed_file_types: b.allowed_file_types ?? [], unreadable_file_action: b.unreadable_file_action ?? 'block' });
+      }
+      const from = state.input?.settings ?? null;
+      const loose = loosened(from, to);
+      if (loose.length > 0 && id.security.two_person_approval) {
+        const request: ApprovalRequest = {
+          id: uuid(),
+          kind: 'input_settings.loosen',
+          target: 'input_settings',
+          payload: { from, to, loosened: loose },
+          reason: b.reason ?? null,
+          status: 'pending',
+          requested_by: { id: ME_ID, email: EMAIL },
+          decided_by: null,
+          decided_at: null,
+          decision_note: null,
+          expires_at: '2099-01-01T00:00:00Z',
+          created_at: new Date().toISOString(),
+        };
+        id.approvals.unshift(request);
+        return json(202, { approval_required: true, already_pending: false, request, applied_now: false, state: inputState() });
+      }
+      state.input = { settings: to, updated_at: new Date().toISOString() };
+      return json(200, inputState());
+    }
+
     if (sub === '/guard-settings' && method === 'GET') return json(200, state.guard);
     if (sub === '/guard-settings' && method === 'PUT') {
       // As indirect.ParseSettings: an org threshold is a number in (0, 0.85].
@@ -1848,6 +1901,9 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
           if (p) p.enabled = false;
         }
         if (a.kind === 'content_storage.enable') state.org.audit_store_content = true;
+        if (a.kind === 'input_settings.loosen') {
+          state.input = { settings: (a.payload as { to: InputSettings | null }).to, updated_at: new Date().toISOString() };
+        }
       } else {
         a.status = 'rejected';
       }

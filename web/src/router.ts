@@ -24,6 +24,7 @@ export const PATHS = {
   flow: 'flow',
   'policy-history': 'policies/history',
   guard: 'guard',
+  input: 'input',
   exemplars: 'exemplars',
   simulator: 'simulator',
   providers: 'providers',

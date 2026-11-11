@@ -700,8 +700,9 @@ export interface OrgSecurity {
 // ── Two-person approval (migrations 027 and 029) ────────────────────────────
 
 /** policy.delete is history only: deleting a policy needs it disabled instead (migration 029). */
-export type ApprovalKind = 'policy.disable' | 'policy.delete' | 'content_storage.enable' | 'org.delete';
-export const APPROVAL_KINDS: readonly ApprovalKind[] = ['policy.disable', 'policy.delete', 'content_storage.enable', 'org.delete'];
+/** input_settings.loosen: loosening the input settings (migration 030). */
+export type ApprovalKind = 'policy.disable' | 'policy.delete' | 'content_storage.enable' | 'org.delete' | 'input_settings.loosen';
+export const APPROVAL_KINDS: readonly ApprovalKind[] = ['policy.disable', 'policy.delete', 'content_storage.enable', 'org.delete', 'input_settings.loosen'];
 /** cancelled: what the request was about is gone or already done (migration 029). */
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'expired' | 'cancelled';
 export const APPROVAL_STATUSES: readonly ApprovalStatus[] = ['pending', 'approved', 'rejected', 'expired', 'cancelled'];
@@ -732,6 +733,51 @@ export interface ApprovalPending {
   /** The same change was already waiting: this is that request. */
   already_pending?: boolean;
   request: ApprovalRequest;
+}
+
+// ── Input settings (migration 030) ─────────────────────────────────────────
+
+export type InputMode = 'text_only' | 'hybrid';
+export type UnreadableFileAction = 'block' | 'pass';
+
+/** What the gateway accepts as input for one organization. */
+export interface InputSettings {
+  input_mode: InputMode;
+  /** null: the instance's limit. */
+  max_input_tokens: number | null;
+  /** hybrid only; among the instance's readable_file_types. */
+  allowed_file_types: string[];
+  unreadable_file_action: UnreadableFileAction;
+}
+
+/** The instance limits the settings stay within, from the gateway's /readyz. */
+export interface InstanceInput {
+  /** gateway: read from the gateway; default: it could not be read, the short path's limit is assumed. */
+  source: 'gateway' | 'default';
+  max_input_tokens_ceiling: number;
+  max_scan_tokens: number | null;
+  pdf_extract: boolean | null;
+  unscanned_parts: UnscannedMode | null;
+  readable_file_types: string[];
+  error?: string;
+}
+
+/** GET /organizations/{id}/input-settings. */
+export interface InputSettingsState {
+  /** No settings: the instance's behaviour applies. */
+  inherit: boolean;
+  settings: InputSettings | null;
+  updated_at: string | null;
+  instance: InstanceInput;
+  two_person_approval: boolean;
+  /** The loosening waiting for a second admin. */
+  pending: ApprovalRequest | null;
+}
+
+/** A 202 answer of a loosening: the tightening part applied (applied_now), the rest waits. */
+export interface InputSettingsPending extends ApprovalPending {
+  applied_now: boolean;
+  state: InputSettingsState;
 }
 
 // ── SCIM provisioning and IdP group roles (migration 025) ──────────────────

@@ -23,9 +23,10 @@ import (
 
 // Two-person approval (approval_requests, migrations 027 and 029).
 //
-// With the org's two_person_approval on, two changes do not take effect
-// when asked for: disabling a policy and turning on the storage of prompt
-// and answer content. Deleting the organization always waits, whatever the
+// With the org's two_person_approval on, three changes do not take effect
+// when asked for: disabling a policy, turning on the storage of prompt
+// and answer content, and loosening the input settings (input_settings.go,
+// migration 030). Deleting the organization always waits, whatever the
 // setting: an owner asks, and another owner or an instance administrator
 // approves (an instance administrator may also delete it at once, giving a
 // reason). The handler records a pending request and answers 202 with it;
@@ -50,6 +51,9 @@ const (
 	approvalPolicyDelete   = "policy.delete"
 	approvalContentStorage = "content_storage.enable"
 	approvalOrgDelete      = "org.delete"
+	// approvalInputLoosen loosens the org's input settings (migration 030,
+	// input_settings.go); its target is the org id.
+	approvalInputLoosen = "input_settings.loosen"
 
 	defaultApprovalExpiryHours = 24
 	maxApprovalExpiryHours     = 720
@@ -57,7 +61,7 @@ const (
 )
 
 // approvalKinds names every kind a change can ask for.
-var approvalKinds = []string{approvalPolicyDisable, approvalContentStorage, approvalOrgDelete}
+var approvalKinds = []string{approvalPolicyDisable, approvalContentStorage, approvalOrgDelete, approvalInputLoosen}
 
 // twoPersonSettings reads the org's two-person approval settings: whether
 // it is on and how many hours a request lives.
@@ -171,7 +175,11 @@ func cancelOrphanedApprovals(ctx context.Context, tx pgx.Tx, org uuid.UUID) ([]c
 		}
 		out = append(out, got...)
 	}
-	return out, nil
+	stale, err := cancelStaleInputRequest(ctx, tx, org)
+	if err != nil {
+		return nil, err
+	}
+	return append(out, stale...), nil
 }
 
 // logCancelled records cancelled requests in the org's activity log.
@@ -200,28 +208,8 @@ func requestApproval(c *fiber.Ctx, db *pgxpool.Pool, org uuid.UUID, kind, target
 		if err := expireApprovals(c.Context(), tx, org); err != nil {
 			return err
 		}
-		_, hours, err := twoPersonSettings(c.Context(), tx, org)
-		if err != nil {
-			return err
-		}
-		var id uuid.UUID
-		err = tx.QueryRow(c.Context(),
-			`INSERT INTO approval_requests (org_id, kind, target, payload, reason, requested_by, requested_by_email, expires_at)
-			 VALUES ($1, $2, NULLIF($3, ''), $4, NULLIF($5, ''), $6, (SELECT email FROM users WHERE id = $6),
-			   NOW() + make_interval(hours => $7))
-			 ON CONFLICT (org_id, kind, (COALESCE(target, ''))) WHERE status = 'pending' DO NOTHING
-			 RETURNING id`,
-			org, kind, target, raw, reason, nullUUID(auth.UserID(c)), hours).Scan(&id)
-		if errors.Is(err, pgx.ErrNoRows) {
-			existing = true
-			err = tx.QueryRow(c.Context(),
-				`SELECT id FROM approval_requests WHERE org_id = $1 AND kind = $2 AND COALESCE(target, '') = $3 AND status = 'pending'`,
-				org, kind, target).Scan(&id)
-		}
-		if err != nil {
-			return err
-		}
-		out, err = scanApproval(tx.QueryRow(c.Context(), `SELECT `+approvalColumns+approvalFrom+` WHERE a.id = $1`, id))
+		var err error
+		out, existing, err = insertApproval(c.Context(), tx, org, kind, target, raw, reason, auth.UserID(c))
 		return err
 	})
 	if err != nil {
@@ -232,6 +220,36 @@ func requestApproval(c *fiber.Ctx, db *pgxpool.Pool, org uuid.UUID, kind, target
 			"approval_id": out.ID, "kind": kind, "reason": reason, "expires_at": out.ExpiresAt})
 	}
 	return c.Status(fiber.StatusAccepted).JSON(fiber.Map{"approval_required": true, "already_pending": existing, "request": out})
+}
+
+// insertApproval records a pending request in tx, or returns the one already
+// pending for the same org, kind and target (existing true). The caller
+// expires the org's old requests first.
+func insertApproval(ctx context.Context, tx pgx.Tx, org uuid.UUID, kind, target string, payload []byte, reason string,
+	requester uuid.UUID) (out approvalRequest, existing bool, err error) {
+	_, hours, err := twoPersonSettings(ctx, tx, org)
+	if err != nil {
+		return out, false, err
+	}
+	var id uuid.UUID
+	err = tx.QueryRow(ctx,
+		`INSERT INTO approval_requests (org_id, kind, target, payload, reason, requested_by, requested_by_email, expires_at)
+		 VALUES ($1, $2, NULLIF($3, ''), $4, NULLIF($5, ''), $6, (SELECT email FROM users WHERE id = $6),
+		   NOW() + make_interval(hours => $7))
+		 ON CONFLICT (org_id, kind, (COALESCE(target, ''))) WHERE status = 'pending' DO NOTHING
+		 RETURNING id`,
+		org, kind, target, payload, reason, nullUUID(requester), hours).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		existing = true
+		err = tx.QueryRow(ctx,
+			`SELECT id FROM approval_requests WHERE org_id = $1 AND kind = $2 AND COALESCE(target, '') = $3 AND status = 'pending'`,
+			org, kind, target).Scan(&id)
+	}
+	if err != nil {
+		return out, false, err
+	}
+	out, err = scanApproval(tx.QueryRow(ctx, `SELECT `+approvalColumns+approvalFrom+` WHERE a.id = $1`, id))
+	return out, existing, err
 }
 
 // approvalStatuses are the values of ?status= besides all.
@@ -412,6 +430,8 @@ func applyApproval(ctx context.Context, tx pgx.Tx, org uuid.UUID, r approvalRequ
 		return recordPolicyVersion(ctx, tx, org, pID, approver, versionUpdate, "disabled by approved request "+r.ID.String(), nil)
 	case approvalPolicyDelete:
 		return &approvalVoid{reasonDeleteNoLonger}
+	case approvalInputLoosen:
+		return applyInputLoosen(ctx, tx, org, r, approver)
 	case approvalOrgDelete:
 		if org == defaultOrgID {
 			return &approvalVoid{"the default organization cannot be deleted"}
@@ -449,6 +469,8 @@ func effectAction(kind string) string {
 		return "policy.updated"
 	case approvalOrgDelete:
 		return "org.deleted"
+	case approvalInputLoosen:
+		return "input_settings.updated"
 	}
 	return "approval.applied"
 }
@@ -539,7 +561,11 @@ func approveRequest(db *pgxpool.Pool) fiber.Handler {
 			return c.Status(204).Send(nil)
 		}
 		logActivity(c, db, &org, "approval.approved", r.target(), details)
-		logActivity(c, db, &org, effectAction(r.Kind), r.target(), map[string]any{"approval_id": id, "kind": r.Kind})
+		effect := map[string]any{"approval_id": id, "kind": r.Kind}
+		if r.Kind == approvalInputLoosen {
+			effect["change"] = r.Payload // from, to and what it loosens
+		}
+		logActivity(c, db, &org, effectAction(r.Kind), r.target(), effect)
 		out, err := loadApproval(c.Context(), db, org, id)
 		if err != nil {
 			return serverError(c, err)

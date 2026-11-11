@@ -428,6 +428,10 @@ type requestEntry struct {
 	// PDF counts the PDF parts: scanned, and unscanned by reason
 	// (pdf_extract.go): input.pdf.* for policies and the input:pdf_* tags.
 	PDF pdfCounts
+	// Input is what the org's input settings did (input_settings.go):
+	// input.files.types for policies, and the input:file_* and
+	// input:refused tags when the org has settings.
+	Input inputAudit
 	// PIIAction and PIIProtected: what the org's input_pii_action replaced
 	// before the request went upstream, by kind (input_pii_protect.go).
 	PIIAction    string
@@ -572,6 +576,7 @@ func auditTags(e requestEntry) []string {
 		tags = append(tags, unscannedTags(e.Unscanned)...)
 	}
 	tags = append(tags, pdfTags(e.PDF, e.UnscannedQuiet)...)
+	tags = append(tags, inputTags(e.Input)...)
 	tags = append(tags, piiProtectTags(e.PIIAction, e.PIIProtected)...)
 	if e.Redacted > 0 {
 		tags = append(tags, fmt.Sprintf("input:redacted=%d", e.Redacted))
@@ -757,6 +762,13 @@ type textGuard struct {
 	// pdfs counts them: scanned, and unscanned by reason.
 	pdf  *pdfExtractor
 	pdfs pdfCounts
+	// input is the org's input settings (input_settings.go); nil: the
+	// instance's behaviour. files counts the image, file and audio parts by
+	// detected type, and passed the unreadable files forwarded under
+	// unreadable_file_action pass, in the turns the gateway scans.
+	input  *indirect.InputSettings
+	files  map[string]int
+	passed int
 }
 
 func (g *textGuard) toolSchemaKey() string {
@@ -849,6 +861,9 @@ func (g *textGuard) guardContent(m map[string]any) error {
 				// An image, a file or audio: forwarded, never read, except
 				// a PDF sent inline, whose text is scanned (pdf_extract.go).
 				kind, _ := p["type"].(string)
+				if err := g.checkFile(kind, p); err != nil {
+					return err // the org's input settings (input_settings.go)
+				}
 				if kind == "file" {
 					if err := rejectShadowKeys(p, "file"); err != nil {
 						return err
@@ -859,7 +874,9 @@ func (g *textGuard) guardContent(m map[string]any) error {
 					}
 					continue
 				}
-				g.noteUnscanned(kind)
+				if err := g.unreadPart(kind); err != nil {
+					return err
+				}
 				continue
 			}
 			// Anything but a string would reach the upstream unscanned.
@@ -1043,13 +1060,18 @@ func proxyHandler(gw gateway, f apiFormat) fiber.Handler {
 			allowServerState: scanCfg.ServerState == serverStateAllow,
 			windowTurns:      scanCfg.WindowTurns, windowBytes: scanCfg.WindowBytes, detectPII: scanCfg.InputPII,
 			pseudo: outputguard.NewPseudonymizer(scanCfg.PIIAction, scanCfg.PIIKinds), limits: gw.limitsFor(scanCfg),
-			pdf: gw.pdf}
+			pdf: gw.pdf, input: scanCfg.Input}
 		_, endSpan := tracing.Start(tctx, "sanitize")
 		err = f.guardBody(&guard, body)
 		endSpan(err)
 		entry.Report, entry.ServerState, entry.InputPII = guard.report, guard.serverState, guard.pii
 		if guard.pseudo != nil {
 			entry.PIIAction, entry.PIIProtected = scanCfg.PIIAction, guard.pseudo.Counts
+		}
+		entry.Input = inputAudit{Settings: scanCfg.Input != nil, Types: guard.files, Passed: guard.passed}
+		var refused *inputRefusal
+		if errors.As(err, &refused) {
+			return refuseInput(c, &entry, refused)
 		}
 		if err != nil {
 			if errors.Is(err, errBlocked) {
@@ -1068,6 +1090,13 @@ func proxyHandler(gw gateway, f apiFormat) fiber.Handler {
 			entry.Scores.Injection.Label = "unscanned_content" // the refusal's reason in the request log
 			return c.Status(fiber.StatusBadRequest).
 				JSON(errorBody(unscannedMessage(guard.unscanned), "invalid_request_error", "unscanned_content"))
+		}
+		// The org's max_input_tokens, before anything is scored.
+		if err := gw.checkInputTokens(&guard); err != nil {
+			if errors.As(err, &refused) {
+				return refuseInput(c, &entry, refused)
+			}
+			return scanError(c, err)
 		}
 
 		// Classify: user, system and tool-call text together, each tool result
@@ -1534,6 +1563,7 @@ func policyVars(entry requestEntry, body map[string]any, bodyBytes int) *policy.
 	vars.InputPIIKinds, vars.InputPIICount = piiVars(entry.InputPII)
 	vars.UnscannedKinds, vars.UnscannedCount = unscannedVars(entry.Unscanned)
 	vars.PDFCount, vars.PDFScanned, vars.PDFReasons = pdfVars(entry.PDF)
+	vars.FileTypes = fileTypesVar(entry.Input.Types)
 	vars.ScoreL1, vars.ScoreL2, vars.ScoreL3 = vars.InjectionScore, -1, -1
 	if d := entry.Scores.Injection.Detail; d != nil {
 		vars.ScoreL1, vars.ScoreL2, vars.ScoreL3, vars.InjectionCat = d.L1, d.L2, d.L3, d.Category

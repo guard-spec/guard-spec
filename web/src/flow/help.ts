@@ -50,6 +50,7 @@ export const VARIABLES: Readonly<Record<string, VariableHelp>> = {
   'input.pdf.count': { group: 'unscanned', example: 'input.pdf.count > 0', min: 0 },
   'input.pdf.scanned': { group: 'unscanned', example: 'input.pdf.scanned < input.pdf.count', min: 0 },
   'input.pdf.reasons': { group: 'unscanned', example: '"encrypted" in input.pdf.reasons' },
+  'input.files.types': { group: 'unscanned', example: '"png" in input.files.types' },
   'request.model': { group: 'request', example: 'request.model.startsWith("gpt-4")' },
   'request.tenant_id': { group: 'request', example: 'request.tenant_id == "00000000-0000-0000-0000-000000000001"' },
   'request.tokens': { group: 'request', example: 'request.tokens > 8000', min: 0 },

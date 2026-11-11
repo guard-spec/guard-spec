@@ -155,6 +155,17 @@ every version.
   organization always becomes a request another owner or an instance
   administrator approves, two-person approval on or off. Down: cancelled
   requests read as expired and duplicates are allowed again.
+- **030 (input settings).** Adds `org_input_settings` (one row per
+  organization that sets its own input mode, token limit, file types and
+  unreadable-file action) and the approval kind `input_settings.loosen`.
+  No organization has a row after it, so every one keeps the instance's
+  behaviour (`PDF_EXTRACT`, `UNSCANNED_PARTS`, `MAX_SCAN_TOKENS`) until an
+  admin sets them. A 0.7.0 gateway reads the table with each request's
+  guard settings: apply the migration before it starts, or requests fail
+  closed with 503. Set `GATEWAY_URL` on the control plane so that it checks
+  `max_input_tokens` against the gateway's `MAX_SCAN_TOKENS` (without it,
+  40,000). Down: the settings and pending loosening requests are dropped,
+  and every organization is back to the instance's behaviour.
 
 ## Rolling back
 
