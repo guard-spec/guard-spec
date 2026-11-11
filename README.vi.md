@@ -676,8 +676,9 @@ lõi CPU. `POST /guardrail/scan` và `/v1/embeddings` giữ giới hạn hiện 
 
 ### Quản trị
 
-Bốn công cụ cho người vận hành một tổ chức (migration 026 đến 028); mặc định
-đều tắt hoặc không đổi gì. Chi tiết tiếng Anh ở
+Bốn công cụ cho người vận hành một tổ chức (migration 026 đến 029); mặc định
+đều tắt hoặc không đổi gì, trừ hai điều: xóa tổ chức luôn cần hai người, và chỉ
+xóa được chính sách đã tắt. Chi tiết tiếng Anh ở
 [Governance](README.md#governance).
 
 **Lịch sử chính sách.** Mỗi lần lưu chính sách (API, giao diện quản trị, cấu
@@ -699,20 +700,48 @@ Luồng có công tắc **Chỉ ghi log** cạnh mỗi chính sách, cấu hình
 bản, so sánh và khôi phục.
 
 **Phê duyệt hai người.** `PUT /v1/organizations/{id}/security`
-`{"two_person_approval": true, "approval_expiry_hours": 24}` (owner) khiến bốn
+`{"two_person_approval": true, "approval_expiry_hours": 24}` (owner) khiến hai
 thay đổi phải chờ quản trị viên thứ hai: tắt chính sách (`PUT` với
-`enabled: false`; phần còn lại của lần lưu áp dụng ngay), xóa chính sách, bật
-lưu nội dung prompt và câu trả lời (`audit_store_content: true`) và xóa tổ chức
-(`DELETE /v1/organizations/{id}` `{"confirm": "<slug>"}`, owner; không bao giờ
-xóa được tổ chức mặc định). Lời gọi trả về 202
-`{"approval_required": true, "request": {...}}` và chưa đổi gì;
+`enabled: false`, hoặc khôi phục về một phiên bản đang tắt; phần còn lại của
+lần lưu áp dụng ngay) và bật lưu nội dung prompt và câu trả lời
+(`audit_store_content: true`). Lời gọi trả về 202
+`{"approval_required": true, "request": {...}}` và chưa đổi gì; gửi lại cùng
+thay đổi khi nó đang chờ sẽ nhận lại chính yêu cầu đó (`"already_pending":
+true`): mỗi tổ chức, loại và đối tượng chỉ có tối đa một yêu cầu đang chờ.
 `GET /v1/organizations/{id}/approvals` liệt kê yêu cầu đang chờ,
 `POST .../approvals/{rid}/approve` `{"note"}` áp dụng thay đổi trong cùng giao
 dịch, `.../reject` kết thúc nó. Người yêu cầu không tự duyệt được (403
 `self_approval`) nhưng có thể từ chối; yêu cầu quá `approval_expiry_hours` (1
-đến 720) sẽ hết hạn và không đổi gì (409 `approval_expired`). Tắt thiết lập này
-thì mọi thứ như trước. Mỗi bước ghi vào nhật ký hoạt động (`approval.requested`,
-`approval.approved`, `approval.rejected`) và tới các kênh cảnh báo dạng sự kiện
+đến 720) sẽ hết hạn và không đổi gì (409 `approval_expired`). Duyệt việc tắt
+chính sách sẽ khóa yêu cầu và chính sách rồi chỉ tắt `enabled`: các chỉnh sửa
+chính sách sau khi gửi yêu cầu vẫn được giữ. Yêu cầu không còn gì để áp dụng
+(chính sách đã bị xóa hoặc đã tắt) sẽ bị hủy thay vì báo lỗi khó hiểu: lời
+duyệt trả về 409 `approval_cancelled` kèm yêu cầu, và danh sách tự hủy các yêu
+cầu như vậy khi gặp. Tắt thiết lập này thì mọi thứ như trước.
+
+**Xóa chính sách** không bao giờ phải chờ duyệt, nhưng chỉ xóa được chính sách
+đã tắt: `DELETE .../policies/{pid}` với chính sách đang bật trả về 409
+`{"error": "disable the policy before deleting it", "code": "policy_enabled"}`,
+bất kể chính sách bảo mật. Nhờ vậy khi bật phê duyệt hai người, không thể né
+bước tắt (bước cần duyệt) bằng cách xóa. Cấu hình dạng mã theo cùng quy tắc:
+tệp bỏ sót một chính sách đang bật sẽ bị từ chối (422; đặt `enabled: false`,
+áp dụng, rồi mới xóa khỏi tệp), và khi bật phê duyệt hai người thì tệp không
+tắt được chính sách đang bật (hãy tắt ở trang Luồng chính sách hoặc bằng
+`PUT`). Trang Luồng chính sách chỉ cho xóa chính sách khi nó đã tắt và đã lưu.
+
+**Xóa tổ chức** luôn cần hai người, bất kể `two_person_approval`:
+`DELETE /v1/organizations/{id}` `{"confirm": "<slug>", "reason": "..."}` do một
+owner gửi trả về 202 kèm yêu cầu mà một owner khác của tổ chức hoặc quản trị
+viên hệ thống duyệt (admin có thể từ chối, người yêu cầu có thể rút lại). Quản
+trị viên hệ thống có thể xóa ngay một tổ chức, dù là thành viên hay không,
+nhưng phải ghi `reason` (thiếu thì 400 `reason_required`); tổ chức mặc định
+không bao giờ xóa được (409 `default_org`). Quản trị viên hệ thống xem mọi yêu
+cầu xóa tổ chức đang chờ ở `GET /v1/admin/approvals` và trên trang **Phê
+duyệt**. Nhật ký của tổ chức bị xóa theo nó, nên `org.deleted` (kèm slug, lý do
+và yêu cầu nếu có) và `approval.approved` được ghi vào nhật ký hệ thống.
+
+Mỗi bước ghi vào nhật ký hoạt động (`approval.requested`, `approval.approved`,
+`approval.rejected`, `approval.cancelled`) và tới các kênh cảnh báo dạng sự kiện
 `activity.approval.*`. Giao diện quản trị có trang **Phê duyệt**.
 
 **Chính sách khóa API.** Khóa có thể giới hạn theo địa chỉ:
@@ -761,7 +790,9 @@ bấm. Ngoài ra
 có các trang Upstream, Cấu hình dạng mã (YAML: kiểm tra, xem khác biệt, áp
 dụng), Thiết lập bảo vệ, Khóa API (giới hạn địa chỉ, xoay khóa), Dự án, Mẫu
 tham chiếu, Nhật ký kiểm tra, Lịch sử chính sách (phiên bản, so sánh, khôi
-phục) và Phê duyệt (yêu cầu chờ quản trị viên thứ hai); Bảng điều khiển tải
+phục) và Phê duyệt (yêu cầu chờ quản trị viên thứ hai; với quản trị viên hệ
+thống, cả yêu cầu xóa tổ chức của mọi tổ chức); trang Luồng chỉ cho xóa chính
+sách đã tắt; Bảng điều khiển tải
 được CSV. Chi tiết ở mục [Admin UI](README.md#admin-ui).
 
 ![Luồng xử lý, giao diện tối](docs/images/admin-flow-dark-vi.png)

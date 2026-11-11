@@ -816,9 +816,9 @@ needs `Authorization: Bearer <token from /v1/auth/login>`. Roles are `owner`,
 | `POST /policy/format` (`{"condition"}` to `{"text"}`; 422 on an invalid tree) | any user |
 | `GET /organizations/:orgId` (includes `default_upstream_id`) | viewer |
 | `PATCH /organizations/:orgId` (`audit_store_content`; 202 with a pending request under [two-person approval](#governance)) | admin |
-| `DELETE /organizations/:orgId` (`{"confirm": "<slug>"}`; never the default organization; 202 under two-person approval) | owner |
-| `GET /organizations/:orgId/approvals?status=pending\|approved\|rejected\|expired\|all` | admin |
-| `POST /organizations/:orgId/approvals/:id/approve`, `.../reject` (`{"note"}`; the requester cannot approve their own) | admin |
+| `DELETE /organizations/:orgId` (`{"confirm": "<slug>", "reason"}`; never the default organization; an owner gets 202 with a request another owner or an instance administrator approves; an instance administrator deletes at once with a `reason`) | owner, instance admin |
+| `GET /organizations/:orgId/approvals?status=pending\|approved\|rejected\|expired\|cancelled\|all` | admin, instance admin |
+| `POST /organizations/:orgId/approvals/:id/approve`, `.../reject` (`{"note"}`; the requester cannot approve their own; an organization's deletion is approved by another owner or an instance administrator) | admin, instance admin |
 | `GET`, `PUT /organizations/:orgId/guard-settings` | viewer, admin |
 | `GET`, `PUT /organizations/:orgId/security` (2FA requirement, login methods, domain join, session lifetime, `scim_revoke_keys`, `two_person_approval`, `approval_expiry_hours`, `api_key_max_lifetime_days`) | admin, owner |
 | `GET /organizations/:orgId/scim/tokens` (tokens without their value, `base_url`, number of SCIM users and groups) | admin |
@@ -841,7 +841,7 @@ needs `Authorization: Bearer <token from /v1/auth/login>`. Roles are `owner`,
 | `GET`, `PUT /organizations/:orgId/config[?dry_run=true]` (YAML; `GET` is 409 when the stored config would not apply again) | viewer, admin |
 | `GET`, `POST /organizations/:orgId/policies` (409 on a name the org already uses; `enabled` defaults to true; `log_only`, `reason`) | viewer, admin |
 | `POST /organizations/:orgId/policies/simulate` | viewer |
-| `PUT`, `DELETE /organizations/:orgId/policies/:id` (disabling or deleting answers 202 under two-person approval) | admin |
+| `PUT`, `DELETE /organizations/:orgId/policies/:id` (disabling answers 202 under two-person approval; only a disabled policy is deleted, else 409 `policy_enabled`) | admin |
 | `GET /organizations/:orgId/policies/:id/versions`, `GET .../versions/diff?from=&to=` ([policy history](#governance)) | viewer |
 | `POST /organizations/:orgId/policies/:id/rollback` (`{"version", "reason"}`; without `version`, one step back) | admin |
 | `GET /organizations/:orgId/requests?limit=&cursor=&action=` (includes `route_target`, `repeat_count` and `has_content`; never the content) | viewer |
@@ -1183,8 +1183,10 @@ exemplars and the audit log (with the route target of each request) have
 pages of their own. **Policy history** lists every saved version of a
 policy with its author, time and reason, shows the changes between two
 versions and rolls back to any of them; the Flow page has a **Log only**
-switch per policy. **Approvals** lists the requests waiting for a second
-administrator when the security policy requires one, and the **Dashboard**
+switch per policy and offers to delete a policy only once it is disabled.
+**Approvals** lists the requests waiting for a second administrator (and,
+for instance administrators, every organization's pending deletion), and
+the **Dashboard**
 downloads its period as CSV (see [Governance](#governance)).
 
 **Report** on a request log row (or in its details) turns a missed attack or a
@@ -2595,7 +2597,7 @@ SAML role changes are logged as `member.role_from_group`.
 **Activity log.** Member, invite, API key (`api_key.created`, `.updated`,
 `.rotated`, `.revoked`), policy (`policy.created`, `.updated` with the
 version, `.rolled_back`, `.deleted`), approval (`approval.requested`,
-`.approved`, `.rejected`), report (`report.downloaded`), upstream, security
+`.approved`, `.rejected`, `.cancelled`), report (`report.downloaded`), upstream, security
 and config changes and 2FA resets are recorded per org
 (`GET /v1/organizations/:orgId/activity`); SSO provider and instance user
 changes, logins (success and failure) and the user's own 2FA events at
@@ -2635,7 +2637,8 @@ go in the same run, whatever the retention periods are.
 ### Governance
 
 Four controls for the people who run an organization (migrations 026 to
-028); all off or unchanged by default.
+029); all off or unchanged by default, except that deleting an organization
+always takes two people and a policy is deleted only once it is disabled.
 
 **Policy history.** Every save of a policy (API, admin UI, config as code)
 is kept as a version: the whole policy as it was after the save, the
@@ -2662,24 +2665,57 @@ page shows the switch next to each policy. Config as code carries
 
 **Two-person approval.** `PUT /v1/organizations/{id}/security`
 `{"two_person_approval": true, "approval_expiry_hours": 24}` (owner) makes
-four changes wait for a second administrator: disabling a policy (`PUT`
-with `enabled: false`; the rest of the save applies at once), deleting a
-policy, turning on the storage of prompt and answer content
-(`audit_store_content: true`) and deleting the organization. The call
-answers 202 `{"approval_required": true, "request": {...}}` and changes
-nothing; `GET /v1/organizations/{id}/approvals` lists the pending requests
-(`kind`, `target`, `target_label`, `requested_by`, `reason`, `expires_at`);
-`POST .../approvals/{rid}/approve` `{"note"}` applies the change in the same
-transaction, as the approver, and `.../reject` ends it. The requester
-cannot approve their own request (403 `self_approval`) but can reject it; a
-request past `approval_expiry_hours` (1 to 720) expires and changes nothing
-(409 `approval_expired`). Turning storage off, enabling a policy and
-everything else apply at once, as before; with the setting off nothing
-changes. Every step is in the activity log (`approval.requested`,
-`approval.approved` with the effect's own action, `approval.rejected`) and
-reaches the alert channels as `activity.approval.*` events. An approved
-deletion of the organization leaves `org.deleted` in the instance log, as
-the org's own log goes with it. The admin UI lists the requests on
+two changes wait for a second administrator: disabling a policy (`PUT`
+with `enabled: false`, or a rollback to a disabled version; the rest of the
+save applies at once) and turning on the storage of prompt and answer
+content (`audit_store_content: true`). The call answers 202
+`{"approval_required": true, "request": {...}}` and changes nothing; asking
+again while the same change is pending answers that request
+(`"already_pending": true`): there is at most one pending request per
+organization, kind and target. `GET /v1/organizations/{id}/approvals` lists
+the pending requests (`kind`, `target`, `target_label`, `requested_by`,
+`reason`, `expires_at`); `POST .../approvals/{rid}/approve` `{"note"}`
+applies the change in the same transaction, as the approver, and
+`.../reject` ends it. The requester cannot approve their own request (403
+`self_approval`) but can reject it; a request past `approval_expiry_hours`
+(1 to 720) expires and changes nothing (409 `approval_expired`). Approving
+a disable locks the request and the policy and only turns `enabled` off:
+edits made to the policy after the request stay. A request whose change no
+longer applies (the policy was deleted, or is already disabled) is
+cancelled instead of failing: the approval answers 409 `approval_cancelled`
+with the request, and the list cancels such requests as it finds them.
+Turning storage off, enabling a policy and everything else apply at once,
+as before; with the setting off nothing changes.
+
+**Deleting a policy** never waits for approval, but only a disabled policy
+can be deleted: `DELETE .../policies/{pid}` on an enabled one answers 409
+`{"error": "disable the policy before deleting it", "code": "policy_enabled"}`,
+whatever the security policy says. Under two-person approval the guarded
+step, disabling, cannot be skipped by deleting instead. Config as code
+follows the same rule: a file that leaves out an enabled policy is refused
+(422; set `enabled: false`, apply, then remove it), and with two-person
+approval on a file cannot disable an enabled policy (disable it on the
+Policy flow page or with `PUT`). The Policy flow page offers to delete a
+policy only while it is disabled as saved.
+
+**Deleting an organization** always takes two people, whatever
+`two_person_approval` says: `DELETE /v1/organizations/{id}`
+`{"confirm": "<slug>", "reason": "..."}` by an owner answers 202 with a
+pending request that another owner of the organization or an instance
+administrator approves (an admin may reject it, the requester may withdraw
+it). An instance administrator may delete an organization at once, member
+or not, but must give a `reason` (400 `reason_required` without one); the
+default organization is never deleted (409 `default_org`). Instance
+administrators see every organization's pending deletion at
+`GET /v1/admin/approvals` and on the **Approvals** page. The organization's
+own log goes with it, so `org.deleted` (with the slug, the reason and, for
+an approval, the request) and `approval.approved` are written to the
+instance log.
+
+Every step is in the activity log (`approval.requested`,
+`approval.approved` with the effect's own action, `approval.rejected`,
+`approval.cancelled`) and reaches the alert channels as
+`activity.approval.*` events. The admin UI lists the requests on
 **Approvals**.
 
 **API key policy.** A key can be limited to addresses:

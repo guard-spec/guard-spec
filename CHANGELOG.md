@@ -27,18 +27,27 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   **Policy history** page: versions, diff, rollback.
 - **Two-person approval** (RF-5f318378). Per-organization opt-in in the
   security policy (`two_person_approval`, `approval_expiry_hours`, default
-  24, at most 720; migration 027). On, disabling or deleting a policy,
-  turning on content storage (`audit_store_content`) and deleting the
-  organization answer 202 with a pending request instead of taking effect;
-  another admin approves (`POST .../approvals/{rid}/approve`, the change
-  applies in the same transaction) or rejects it, the requester cannot
-  approve their own, and a request past its time expires. Off, nothing
-  changes. Logged as `approval.requested`, `approval.approved` and
-  `approval.rejected`, and sent to the alert channels as
+  24, at most 720; migrations 027 and 029). On, disabling a policy (also by
+  a rollback to a disabled version) and turning on content storage
+  (`audit_store_content`) answer 202 with a pending request instead of
+  taking effect; another admin approves (`POST .../approvals/{rid}/approve`,
+  the change applies in the same transaction under row locks: approving a
+  disable only turns `enabled` off and keeps later edits) or rejects it, the
+  requester cannot approve their own, and a request past its time expires.
+  At most one request per organization, kind and target is pending: asking
+  again answers that one (`already_pending`). A request whose policy was
+  deleted or is already disabled is cancelled (409 `approval_cancelled` on
+  approval; status `cancelled`). Off, nothing changes. Logged as
+  `approval.requested`, `approval.approved`, `approval.rejected` and
+  `approval.cancelled`, and sent to the alert channels as
   `activity.approval.*`. New: `DELETE /v1/organizations/{id}`
-  `{"confirm": "<slug>"}` (owner; never the default organization),
-  `GET .../approvals`, the **Approvals** page and the setting on the
-  Security page.
+  `{"confirm": "<slug>", "reason"}`, which always takes two people: an
+  owner's call is a request that another owner or an instance administrator
+  approves, whatever the setting; an instance administrator may delete at
+  once with a `reason`, kept in the instance activity log; never the
+  default organization. `GET .../approvals`, `GET /v1/admin/approvals`
+  (every organization's pending deletion, for instance administrators), the
+  **Approvals** page and the setting on the Security page.
 - **API key policy** (RF-5f318378, migration 028). `allowed_cidrs` on a key
   (create and `PATCH`): the gateway refuses it from any other address with
   403 `{"error": "API key is not allowed from this address"}`, using the
@@ -63,6 +72,12 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ### Changed
 
+- Only a disabled policy can be deleted: `DELETE .../policies/{pid}` on an
+  enabled policy answers 409 `policy_enabled` ("disable the policy before
+  deleting it"), and a config-as-code file that leaves out an enabled
+  policy is refused (422). Deleting a policy needs no approval, so it can
+  no longer be used to skip the approval of disabling it. The Policy flow
+  page offers to delete a policy only once it is disabled.
 - `lookup_api_key` (the gateway's key lookup) also returns a key's allowed
   addresses; older gateways keep working against it.
 - The gateway reads `TRUSTED_PROXIES` (the control plane always did), for
@@ -83,7 +98,11 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 - Two-person approval, the key lifetime and address limits are off until an
   owner turns them on; existing keys are not changed.
 - Clients that disable a policy should expect 202 `approval_required` when
-  the organization requires a second admin.
+  the organization requires a second admin, and clients or config files
+  that delete a policy must disable it first (409 `policy_enabled`, 422 for
+  a file). Migration 029 cancels pending policy deletion requests and
+  duplicate pending requests. Deleting an organization always waits for
+  another owner or an instance administrator.
 
 ## [0.6.0] - 2026-11-11
 

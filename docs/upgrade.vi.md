@@ -143,6 +143,16 @@ Các migration của một bản làm gì ngoài việc thêm bảng, và cần 
   không, địa chỉ của proxy sẽ được coi là client. Down: khóa giới hạn địa chỉ
   dùng được từ mọi nơi trở lại; hãy thu hồi trước nếu điều đó quan trọng. Hạn
   do xoay khóa hoặc thời hạn tối đa đặt ra vẫn giữ nguyên.
+- **029 (phê duyệt nhất quán).** Thêm trạng thái `cancelled`, một chỉ mục duy
+  nhất một phần để mỗi tổ chức, loại và đối tượng chỉ có một yêu cầu đang chờ,
+  và cho quản trị viên hệ thống đọc các yêu cầu xóa tổ chức đang chờ. Migration
+  hủy các yêu cầu `policy.delete` đang chờ (xóa chính sách không còn cần duyệt;
+  chỉ xóa được chính sách đã tắt) và, nếu một thay đổi đang chờ hai lần, hủy mọi
+  yêu cầu trừ yêu cầu cũ nhất. Sau migration: client API và tệp cấu hình xóa
+  chính sách **đang bật** sẽ nhận 409 `policy_enabled` (422 với tệp): hãy tắt
+  trước. Xóa tổ chức luôn thành yêu cầu do một owner khác hoặc quản trị viên hệ
+  thống duyệt, dù phê duyệt hai người bật hay tắt. Down: yêu cầu đã hủy được
+  coi là hết hạn và yêu cầu trùng lại được phép.
 
 ## Rollback
 

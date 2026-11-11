@@ -144,6 +144,17 @@ every version.
   the proxy's address is the client. Down: keys limited to addresses work
   from anywhere again; revoke them first if that matters. Expiries set by
   rotations or the maximum lifetime stay.
+- **029 (approval consistency).** Adds the `cancelled` status, a partial
+  unique index that allows one pending request per organization, kind and
+  target, and lets instance administrators read pending organization
+  deletions. It cancels pending `policy.delete` requests (deleting a policy
+  no longer needs approval; only a disabled policy can be deleted) and,
+  where a change was pending twice, every request but the oldest. After
+  it: API clients and config files that delete an **enabled** policy get
+  409 `policy_enabled` (422 for a file): disable it first. Deleting an
+  organization always becomes a request another owner or an instance
+  administrator approves, two-person approval on or off. Down: cancelled
+  requests read as expired and duplicates are allowed again.
 
 ## Rolling back
 
