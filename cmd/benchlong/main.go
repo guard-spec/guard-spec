@@ -13,7 +13,7 @@
 // the way cmd/eval builds -detector fusion-ml (ml.ConfigFromEnv, ml.Build,
 // inference.FusedBackend), so it runs the gateway's fused and calibrated code.
 //
-// Two paths are measured, in process:
+// These paths are measured, in process:
 //
 //   - "l2": the classifier alone on every 256-token window of the whole
 //     text (onnx.Classifier.ScoreWindows, no window cap), Platt-calibrated as
@@ -25,6 +25,10 @@
 //     With -l2cap on (the default) each chunk gets the classifier's cap for
 //     untrusted content (calibration.json l2_untrusted_max), as the gateway
 //     applies it to documents and tool results.
+//   - with -long on, "long": the gateway's long path (MAX_SCAN_TOKENS) as it
+//     runs, ml.ScoreLong on 256-token windows with the document adjustment
+//     and the calibration's long document rule (longpath.go); -dump writes
+//     its window scores.
 //
 // Every text first goes through the gateway's sanitizer, as in cmd/eval.
 // Output: bench/results/long-<host>.{json,md}. The JSON holds quantiles and
