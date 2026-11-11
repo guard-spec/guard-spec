@@ -40,6 +40,12 @@ type orgSecurity struct {
 	// SCIMRevokeKeys revokes the API keys a user created in the org when the
 	// org's SCIM client deactivates them (migration 025, default true).
 	SCIMRevokeKeys *bool `json:"scim_revoke_keys"`
+	// TwoPersonApproval makes disabling or deleting a policy, turning on
+	// content storage and deleting the org wait for a second admin
+	// (migration 027, approvals.go; default false). ApprovalExpiryHours is
+	// how long a request waits for a decision (default 24, at most 720).
+	TwoPersonApproval   *bool `json:"two_person_approval"`
+	ApprovalExpiryHours int   `json:"approval_expiry_hours"`
 }
 
 // allLoginMethods lists password and every enabled provider's method.
@@ -56,18 +62,18 @@ func allLoginMethods(ctx context.Context, db *pgxpool.Pool) ([]string, error) {
 }
 
 func loadOrgSecurity(ctx context.Context, db *pgxpool.Pool, org uuid.UUID) (orgSecurity, error) {
-	reason, revoke := true, true
+	reason, revoke, twoPerson := true, true, false
 	s := orgSecurity{SessionLifetimeHours: 12, DomainJoin: []domainJoinRule{}, ContentReadRole: string(auth.RoleAdmin),
-		ContentViewReason: &reason, SCIMRevokeKeys: &revoke}
+		ContentViewReason: &reason, SCIMRevokeKeys: &revoke, TwoPersonApproval: &twoPerson, ApprovalExpiryHours: defaultApprovalExpiryHours}
 	var methods []string
 	var joins []byte
 	err := tenant.WithOrg(ctx, db, org, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx,
 			`SELECT require_mfa, sso_satisfies_mfa, allowed_login_methods, domain_join, session_lifetime_hours,
-			        content_read_role, content_view_reason, scim_revoke_keys
+			        content_read_role, content_view_reason, scim_revoke_keys, two_person_approval, approval_expiry_hours
 			 FROM org_security WHERE org_id = $1`, org).
 			Scan(&s.RequireMFA, &s.SSOSatisfiesMFA, &methods, &joins, &s.SessionLifetimeHours, &s.ContentReadRole,
-				s.ContentViewReason, s.SCIMRevokeKeys)
+				s.ContentViewReason, s.SCIMRevokeKeys, s.TwoPersonApproval, &s.ApprovalExpiryHours)
 	})
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return s, err
@@ -114,6 +120,16 @@ func (s *orgSecurity) validate(ctx context.Context, db *pgxpool.Pool) error {
 	if s.SCIMRevokeKeys == nil {
 		on := true
 		s.SCIMRevokeKeys = &on
+	}
+	if s.TwoPersonApproval == nil {
+		off := false
+		s.TwoPersonApproval = &off
+	}
+	if s.ApprovalExpiryHours == 0 {
+		s.ApprovalExpiryHours = defaultApprovalExpiryHours
+	}
+	if s.ApprovalExpiryHours < 1 || s.ApprovalExpiryHours > maxApprovalExpiryHours {
+		return fmt.Errorf("approval_expiry_hours must be between 1 and %d", maxApprovalExpiryHours)
 	}
 	known, err := allLoginMethods(ctx, db)
 	if err != nil {
@@ -206,15 +222,17 @@ func putOrgSecurity(db *pgxpool.Pool) fiber.Handler {
 		err = tenant.WithOrg(c.Context(), db, org, func(tx pgx.Tx) error {
 			_, err := tx.Exec(c.Context(),
 				`INSERT INTO org_security (org_id, require_mfa, sso_satisfies_mfa, allowed_login_methods, domain_join,
-				   session_lifetime_hours, content_read_role, content_view_reason, scim_revoke_keys)
-				 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+				   session_lifetime_hours, content_read_role, content_view_reason, scim_revoke_keys,
+				   two_person_approval, approval_expiry_hours)
+				 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 				 ON CONFLICT (org_id) DO UPDATE SET require_mfa = EXCLUDED.require_mfa,
 				   sso_satisfies_mfa = EXCLUDED.sso_satisfies_mfa, allowed_login_methods = EXCLUDED.allowed_login_methods,
 				   domain_join = EXCLUDED.domain_join, session_lifetime_hours = EXCLUDED.session_lifetime_hours,
 				   content_read_role = EXCLUDED.content_read_role, content_view_reason = EXCLUDED.content_view_reason,
-				   scim_revoke_keys = EXCLUDED.scim_revoke_keys, updated_at = NOW()`,
+				   scim_revoke_keys = EXCLUDED.scim_revoke_keys, two_person_approval = EXCLUDED.two_person_approval,
+				   approval_expiry_hours = EXCLUDED.approval_expiry_hours, updated_at = NOW()`,
 				org, s.RequireMFA, s.SSOSatisfiesMFA, s.AllowedLoginMethods, joins, s.SessionLifetimeHours,
-				s.ContentReadRole, *s.ContentViewReason, *s.SCIMRevokeKeys)
+				s.ContentReadRole, *s.ContentViewReason, *s.SCIMRevokeKeys, *s.TwoPersonApproval, s.ApprovalExpiryHours)
 			return err
 		})
 		if err != nil {
@@ -225,7 +243,8 @@ func putOrgSecurity(db *pgxpool.Pool) fiber.Handler {
 			"allowed_login_methods": s.AllowedLoginMethods, "domain_join": s.DomainJoin,
 			"session_lifetime_hours": s.SessionLifetimeHours,
 			"content_read_role":      s.ContentReadRole, "content_view_reason": *s.ContentViewReason,
-			"scim_revoke_keys": *s.SCIMRevokeKeys,
+			"scim_revoke_keys": *s.SCIMRevokeKeys, "two_person_approval": *s.TwoPersonApproval,
+			"approval_expiry_hours": s.ApprovalExpiryHours,
 		})
 		out, err := loadOrgSecurity(c.Context(), db, org)
 		if err != nil {

@@ -400,6 +400,7 @@ function FlowPageInner() {
       if (errors.length === 0) {
         notify(dirtyPolicies > 0 && result.guard ? t('flow.savedAll') : result.guard ? t('flow.guardSaved') : t('flow.savedOk'));
       }
+      if (result.pending.length > 0) notify(t('flow.disablePending', { names: result.pending.join(', ') }), 'error');
     } catch (e) {
       setSaveErrors([...errors, errorText(e)]);
     } finally {
@@ -794,7 +795,15 @@ function FlowPageInner() {
           const p = deleting;
           if (!p) return;
           try {
-            if (p.id) await api.deletePolicy(org.id, p.id);
+            if (p.id) {
+              const r = await api.deletePolicy(org.id, p.id);
+              if (r && 'approval_required' in r) {
+                // The org wants a second admin: the policy stays until then.
+                notify(t('flow.deletePending', { name: p.name }), 'error');
+                setDeleting(null);
+                return;
+              }
+            }
             setPolicies((ps) => (ps ? ps.filter((x) => x.key !== p.key) : ps));
             setOriginal((ps) => (ps ? ps.filter((x) => x.key !== p.key) : ps));
             if (sel?.policy.key === p.key) setSelected(null);

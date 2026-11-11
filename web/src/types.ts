@@ -674,6 +674,40 @@ export interface OrgSecurity {
   content_view_reason?: boolean;
   /** A SCIM deactivation also revokes the API keys the user created in the org (default true). */
   scim_revoke_keys?: boolean;
+  /** Disabling or deleting a policy, turning content storage on and deleting the org wait for a second admin (migration 027, default false). */
+  two_person_approval?: boolean;
+  /** How long such a request waits for a decision (default 24, at most 720). */
+  approval_expiry_hours?: number;
+}
+
+// ── Two-person approval (migration 027) ─────────────────────────────────────
+
+export type ApprovalKind = 'policy.disable' | 'policy.delete' | 'content_storage.enable' | 'org.delete';
+export const APPROVAL_KINDS: readonly ApprovalKind[] = ['policy.disable', 'policy.delete', 'content_storage.enable', 'org.delete'];
+export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'expired';
+
+export interface ApprovalRequest {
+  id: UUID;
+  kind: ApprovalKind;
+  /** A policy id or the organization id. */
+  target: string | null;
+  /** The policy's name while it exists. */
+  target_label?: string | null;
+  payload: Record<string, unknown>;
+  reason: string | null;
+  status: ApprovalStatus;
+  requested_by: { id: UUID | null; email: string | null } | null;
+  decided_by: { id: UUID | null; email: string | null } | null;
+  decided_at: string | null;
+  decision_note: string | null;
+  expires_at: string;
+  created_at: string;
+}
+
+/** A 202 answer of a guarded change: the request that must be approved first. */
+export interface ApprovalPending {
+  approval_required: true;
+  request: ApprovalRequest;
 }
 
 // ── SCIM provisioning and IdP group roles (migration 025) ──────────────────

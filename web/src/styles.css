@@ -3160,3 +3160,20 @@ fieldset.plain {
 .diff-to {
   background: color-mix(in srgb, var(--ok) 12%, transparent);
 }
+
+/* ── Two-person approval (migration 027) ──────────────────────────────── */
+.approval-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.approval-item {
+  display: grid;
+  gap: 6px;
+}
+.approval-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}

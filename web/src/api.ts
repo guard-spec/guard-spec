@@ -45,6 +45,9 @@ import type {
   Policy,
   PolicyInput,
   PolicyDiff,
+  ApprovalPending,
+  ApprovalRequest,
+  ApprovalStatus,
   PolicyVersions,
   RollbackResult,
   PolicySchema,
@@ -576,12 +579,29 @@ export class ApiClient {
     return this.request('POST', `/organizations/${enc(orgId)}/policies`, { body: input });
   }
 
-  updatePolicy(orgId: UUID, id: UUID, input: Partial<PolicyInput>): Promise<{ id: UUID; updated: boolean }> {
+  /** 202 with approval_required when the org wants a second admin for disabling the policy (migration 027). */
+  updatePolicy(orgId: UUID, id: UUID, input: Partial<PolicyInput>): Promise<{ id: UUID; updated: boolean; version?: number } | ApprovalPending> {
     return this.request('PUT', `/organizations/${enc(orgId)}/policies/${enc(id)}`, { body: input });
   }
 
-  deletePolicy(orgId: UUID, id: UUID): Promise<void> {
+  /** undefined, or the pending request when the org wants a second admin. */
+  deletePolicy(orgId: UUID, id: UUID): Promise<ApprovalPending | undefined> {
     return this.request('DELETE', `/organizations/${enc(orgId)}/policies/${enc(id)}`);
+  }
+
+  // ── Two-person approval (migration 027) ───────────────────────────────────
+
+  async listApprovals(orgId: UUID, status: ApprovalStatus | 'all' = 'pending'): Promise<ApprovalRequest[]> {
+    const r = await this.request<{ items: ApprovalRequest[] }>('GET', `/organizations/${enc(orgId)}/approvals`, { query: { status } });
+    return r.items;
+  }
+
+  approveRequest(orgId: UUID, id: UUID, note?: string): Promise<ApprovalRequest | undefined> {
+    return this.request('POST', `/organizations/${enc(orgId)}/approvals/${enc(id)}/approve`, { body: { note } });
+  }
+
+  rejectRequest(orgId: UUID, id: UUID, note?: string): Promise<ApprovalRequest> {
+    return this.request('POST', `/organizations/${enc(orgId)}/approvals/${enc(id)}/reject`, { body: { note } });
   }
 
   // ── Policy history (migration 026) ────────────────────────────────────────

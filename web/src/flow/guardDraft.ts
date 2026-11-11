@@ -91,7 +91,7 @@ export async function saveAll(
   guard: { saved: GuardSettings | null; draft: GuardSettings | null },
   policies: EditablePolicy[],
 ): Promise<SaveAllResult> {
-  const out: SaveAllResult = { errors: [], ruleErrors: {}, keep: [] };
+  const out: SaveAllResult = { errors: [], ruleErrors: {}, keep: [], pending: [] };
   if (guard.draft && guardChanged(guard.saved, guard.draft)) {
     try {
       out.guard = await api.putGuardSettings(orgId, guardBody(guard.draft));
@@ -100,5 +100,5 @@ export async function saveAll(
     }
   }
   const r = await savePolicies(api, orgId, policies);
-  return { ...out, errors: r.errors, ruleErrors: r.ruleErrors, keep: r.keep };
+  return { ...out, errors: r.errors, ruleErrors: r.ruleErrors, keep: r.keep, pending: r.pending };
 }

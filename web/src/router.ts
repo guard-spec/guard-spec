@@ -35,6 +35,7 @@ export const PATHS = {
   roles: 'roles',
   keys: 'keys',
   security: 'security',
+  approvals: 'approvals',
   provisioning: 'provisioning',
   config: 'config',
   organization: 'organization',

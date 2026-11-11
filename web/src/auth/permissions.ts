@@ -37,6 +37,9 @@ export const FALLBACK_MATRIX: PermissionMatrix = {
     { key: 'alerts.deliveries.read', min_role: 'admin', description: 'View the notification delivery log' },
     { key: 'siem.manage', min_role: 'admin', description: 'Manage SIEM export sinks and send test events' },
     { key: 'security.write', min_role: 'owner', description: 'Change the security policy (2FA, login methods, domain join)' },
+    { key: 'org.delete', min_role: 'owner', description: 'Delete the organization (with two-person approval when the security policy requires it)' },
+    { key: 'approvals.read', min_role: 'admin', description: 'View two-person approval requests' },
+    { key: 'approvals.decide', min_role: 'admin', description: "Approve or reject another admin's request" },
   ],
 };
 

@@ -25,6 +25,7 @@ import {
   type Role,
   type SessionInfo,
   type ApiKey,
+  type ApprovalRequest,
   type AuditRow,
   type ConditionLeaf,
   type ConditionNode,
@@ -776,6 +777,8 @@ export interface MockOptions {
   mfa?: 'totp' | 'enroll';
   /** The user's role in the org (GET /organizations). */
   role?: Role;
+  /** The org requires a second admin for guarded changes (migration 027). */
+  twoPerson?: boolean;
   /** More rows (requests, members, activity) for screenshots and paging. */
   rich?: boolean;
   /** A control plane without the alerts endpoints (404). */
@@ -816,6 +819,8 @@ export interface IdentityState {
   scimUsers: number;
   scimGroups: number;
   groupRoles: GroupRole[];
+  /** Two-person approval requests (migration 027), newest first. */
+  approvals: ApprovalRequest[];
 }
 
 /** The SAML metadata of the mock IdP (an EntityDescriptor with an IDPSSODescriptor). */
@@ -920,7 +925,55 @@ export function seedIdentity(rich = false): IdentityState {
       content_read_role: 'admin',
       content_view_reason: true,
       scim_revoke_keys: true,
+      two_person_approval: false,
+      approval_expiry_hours: 24,
     },
+    approvals: [
+      {
+        id: 'apr-1',
+        kind: 'policy.disable',
+        target: 'policy-strict',
+        target_label: 'strict',
+        payload: { enabled: false },
+        reason: 'too many false positives on the billing bot',
+        status: 'pending',
+        requested_by: { id: '20000000-0000-4000-8000-000000000002', email: 'ops@example.com' },
+        decided_by: null,
+        decided_at: null,
+        decision_note: null,
+        expires_at: '2099-01-01T00:00:00Z',
+        created_at: '2026-11-10T08:00:00Z',
+      },
+      {
+        id: 'apr-2',
+        kind: 'content_storage.enable',
+        target: ORG_ID,
+        payload: { audit_store_content: true },
+        reason: null,
+        status: 'pending',
+        requested_by: { id: ME_ID, email: EMAIL },
+        decided_by: null,
+        decided_at: null,
+        decision_note: null,
+        expires_at: '2099-01-01T00:00:00Z',
+        created_at: '2026-11-10T09:00:00Z',
+      },
+      {
+        id: 'apr-3',
+        kind: 'policy.delete',
+        target: 'policy-gone',
+        target_label: null,
+        payload: {},
+        reason: null,
+        status: 'rejected',
+        requested_by: { id: '20000000-0000-4000-8000-000000000002', email: 'ops@example.com' },
+        decided_by: { id: ME_ID, email: EMAIL },
+        decided_at: '2026-11-09T10:00:00Z',
+        decision_note: 'still needed',
+        expires_at: '2026-11-10T09:00:00Z',
+        created_at: '2026-11-09T09:00:00Z',
+      },
+    ],
     scimTokens: [
       { id: 'scim-1', name: 'Okta production', prefix: 'gss_q8Zt3kLm', created_at: '2026-10-02T09:00:00Z', last_used_at: '2026-11-04T07:58:00Z', expires_at: null, revoked_at: null },
       { id: 'scim-2', name: 'Old connector', prefix: 'gss_A1b2C3d4', created_at: '2026-09-01T09:00:00Z', last_used_at: '2026-09-20T10:00:00Z', expires_at: null, revoked_at: '2026-10-01T09:00:00Z' },
@@ -1164,6 +1217,7 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
     state.org.audit_store_content = true;
     for (const r of state.requests) r.request_content = JSON.stringify({ model: r.model, messages: [{ role: 'system', content: 'You are the Acme support bot.' }, { role: 'user', content: STORED_PROMPT }] });
   }
+  if (opts.twoPerson) state.identity.security.two_person_approval = true;
   await page.route('**/v1/**', async (route: Route) => {
     const req = route.request();
     const url = new URL(req.url());
@@ -1509,11 +1563,31 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
           p.rules = withIds(b.rules);
         }
         if (b.name) p.name = b.name;
-        if (b.enabled !== undefined) p.enabled = b.enabled;
+        // With two-person approval, disabling waits; the rest of the save applies.
+        let pending: ApprovalRequest | null = null;
+        if (b.enabled === false && p.enabled && state.identity.security.two_person_approval) {
+          pending = {
+            id: uuid(),
+            kind: 'policy.disable',
+            target: p.id,
+            target_label: p.name,
+            payload: { enabled: false },
+            reason: b.reason ?? null,
+            status: 'pending',
+            requested_by: { id: ME_ID, email: EMAIL },
+            decided_by: null,
+            decided_at: null,
+            decision_note: null,
+            expires_at: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
+            created_at: new Date().toISOString(),
+          };
+          state.identity.approvals.unshift(pending);
+        } else if (b.enabled !== undefined) p.enabled = b.enabled;
         if (b.log_only !== undefined) p.log_only = b.log_only;
         p.version += 1;
         p.updated_at = new Date().toISOString();
         recordVersion(state, p, 'update', b.reason ?? null);
+        if (pending) return json(202, { approval_required: true, request: pending });
         return json(200, { id: p.id, updated: true, version: p.version });
       }
       if (method === 'DELETE') {
@@ -1671,7 +1745,33 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
     }
 
     // Members, invites, security, activity (identity contract §3–§5): admin and up.
-    if (opts.role === 'viewer' && /^\/(members|security|activity|invites|scim|group-roles)(\/|$)/.test(sub)) return json(403, { error: 'requires role admin' });
+    if (opts.role === 'viewer' && /^\/(members|security|activity|invites|scim|group-roles|approvals)(\/|$)/.test(sub)) return json(403, { error: 'requires role admin' });
+    // Two-person approval (migration 027).
+    if (sub === '/approvals' && method === 'GET') {
+      const status = url.searchParams.get('status') ?? 'pending';
+      return json(200, { items: id.approvals.filter((a) => status === 'all' || a.status === status) });
+    }
+    if ((mm = /^\/approvals\/([^/]+)\/(approve|reject)$/.exec(sub)) && method === 'POST') {
+      const a = id.approvals.find((x) => x.id === mm?.[1]);
+      if (!a) return json(404, { error: 'not found' });
+      if (a.status !== 'pending') return json(409, { error: 'this request is no longer pending', code: 'approval_not_pending' });
+      const note = (body as { note?: string } | undefined)?.note ?? null;
+      if (mm[2] === 'approve') {
+        if (a.requested_by?.id === ME_ID) return json(403, { error: 'the admin who asked for a change cannot approve it', code: 'self_approval' });
+        a.status = 'approved';
+        if (a.kind === 'policy.disable') {
+          const p = state.policies.find((x) => x.id === a.target || x.name === a.target_label);
+          if (p) p.enabled = false;
+        }
+        if (a.kind === 'content_storage.enable') state.org.audit_store_content = true;
+      } else {
+        a.status = 'rejected';
+      }
+      a.decided_by = { id: ME_ID, email: EMAIL };
+      a.decided_at = new Date().toISOString();
+      a.decision_note = note;
+      return json(200, a);
+    }
     if (sub === '/members' && method === 'GET') {
       const q = (url.searchParams.get('q') ?? '').toLowerCase();
       const role = url.searchParams.get('role');

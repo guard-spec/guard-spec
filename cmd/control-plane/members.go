@@ -778,6 +778,9 @@ type capability struct {
 var capabilities = []capability{
 	{"org.read", auth.RoleViewer, "View the organization, its projects, upstreams and settings"},
 	{"org.settings.write", auth.RoleAdmin, "Change organization settings and guard settings"},
+	{"org.delete", auth.RoleOwner, "Delete the organization (with two-person approval when the security policy requires it)"},
+	{"approvals.read", auth.RoleAdmin, "View two-person approval requests"},
+	{"approvals.decide", auth.RoleAdmin, "Approve or reject another admin's request"},
 	{"policies.read", auth.RoleViewer, "View policies and run the simulator"},
 	{"policies.write", auth.RoleAdmin, "Create, edit and delete policies"},
 	{"requests.read", auth.RoleViewer, "View the request log"},

@@ -397,6 +397,11 @@ func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins 
 
 	authed.Get("/organizations/:orgId", viewer, getOrg(db))
 	authed.Patch("/organizations/:orgId", admin, updateOrgSettings(db))
+	authed.Delete("/organizations/:orgId", owner, deleteOrg(db))
+	// Two-person approval (approvals.go, migration 027).
+	authed.Get("/organizations/:orgId/approvals", admin, listApprovals(db))
+	authed.Post("/organizations/:orgId/approvals/:id/approve", admin, approveRequest(db))
+	authed.Post("/organizations/:orgId/approvals/:id/reject", admin, rejectRequest(db))
 	authed.Get("/organizations/:orgId/guard-settings", viewer, getGuardSettings(db))
 	authed.Put("/organizations/:orgId/guard-settings", admin, putGuardSettings(db))
 	authed.Get("/organizations/:orgId/security", admin, getOrgSecurity(db))
@@ -622,12 +627,29 @@ func updateOrgSettings(db *pgxpool.Pool) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		id := orgID(c)
 		var req struct {
-			AuditStoreContent *bool `json:"audit_store_content"`
+			AuditStoreContent *bool  `json:"audit_store_content"`
+			Reason            string `json:"reason"` // for a two-person approval request
 		}
 		if err := c.BodyParser(&req); err != nil || req.AuditStoreContent == nil {
 			return c.Status(400).JSON(fiber.Map{"error": "audit_store_content (boolean) is required"})
 		}
+		// Turning storage on waits for a second admin when the org asks for it.
+		var deferred bool
 		err := tenant.WithOrg(c.Context(), db, id, func(tx pgx.Tx) error {
+			if *req.AuditStoreContent {
+				on, _, err := twoPersonSettings(c.Context(), tx, id)
+				if err != nil {
+					return err
+				}
+				var current bool
+				if err := tx.QueryRow(c.Context(), `SELECT audit_store_content FROM organizations WHERE id = $1`, id).Scan(&current); err != nil {
+					return err
+				}
+				if on && !current {
+					deferred = true
+					return nil
+				}
+			}
 			_, err := tx.Exec(c.Context(),
 				`UPDATE organizations SET audit_store_content = $1, updated_at = NOW() WHERE id = $2`,
 				*req.AuditStoreContent, id)
@@ -635,6 +657,9 @@ func updateOrgSettings(db *pgxpool.Pool) fiber.Handler {
 		})
 		if err != nil {
 			return serverError(c, err)
+		}
+		if deferred {
+			return requestApproval(c, db, id, approvalContentStorage, id.String(), map[string]any{"audit_store_content": true}, req.Reason)
 		}
 		slog.Info("org audit content storage changed", "org", id, "enabled", *req.AuditStoreContent,
 			"by", auth.UserID(c))
@@ -955,6 +980,10 @@ func updatePolicy(db *pgxpool.Pool, eng *policy.Engine) fiber.Handler {
 		var (
 			updated int64
 			version int
+			// deferDisable: the org wants a second admin for disabling a
+			// policy, and this save turns an enabled one off. Everything
+			// else in the save applies now; the disable becomes a request.
+			deferDisable bool
 		)
 		err = tenant.WithOrg(c.Context(), db, org, func(tx pgx.Tx) error {
 			if err := checkProject(c.Context(), tx, org, req.ProjectID.Value); err != nil {
@@ -965,6 +994,21 @@ func updatePolicy(db *pgxpool.Pool, eng *policy.Engine) fiber.Handler {
 			}
 			if err := checkRouteTargets(c.Context(), tx, org, targets); err != nil {
 				return err
+			}
+			if req.Enabled != nil && !*req.Enabled {
+				on, _, err := twoPersonSettings(c.Context(), tx, org)
+				if err != nil {
+					return err
+				}
+				var enabled bool
+				err = tx.QueryRow(c.Context(), `SELECT enabled FROM policies WHERE id = $1 AND org_id = $2`, pID, org).Scan(&enabled)
+				if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+					return err
+				}
+				if on && enabled {
+					deferDisable = true
+					req.Enabled = nil
+				}
 			}
 			err := tx.QueryRow(c.Context(),
 				`UPDATE policies SET
@@ -1003,6 +1047,9 @@ func updatePolicy(db *pgxpool.Pool, eng *policy.Engine) fiber.Handler {
 		}
 		logActivity(c, db, &org, "policy.updated", pID.String(), map[string]any{"enabled": req.Enabled, "log_only": req.LogOnly,
 			"rules_changed": req.Rules != nil, "version": version, "reason": strings.TrimSpace(req.Reason)})
+		if deferDisable {
+			return requestApproval(c, db, org, approvalPolicyDisable, pID.String(), map[string]any{"enabled": false, "version": version}, req.Reason)
+		}
 		return c.JSON(fiber.Map{"id": pID, "updated": true, "version": version})
 	}
 }
@@ -1014,13 +1061,30 @@ func deletePolicy(db *pgxpool.Pool) fiber.Handler {
 		if err != nil {
 			return c.Status(400).JSON(fiber.Map{"error": "invalid policy id"})
 		}
+		var deferred bool
 		err = tenant.WithOrg(c.Context(), db, org, func(tx pgx.Tx) error {
-			_, err := tx.Exec(c.Context(),
+			on, _, err := twoPersonSettings(c.Context(), tx, org)
+			if err != nil {
+				return err
+			}
+			if on {
+				var exists bool
+				if err := tx.QueryRow(c.Context(), `SELECT EXISTS (SELECT 1 FROM policies WHERE id = $1 AND org_id = $2)`, pID, org).
+					Scan(&exists); err != nil {
+					return err
+				}
+				deferred = exists
+				return nil
+			}
+			_, err = tx.Exec(c.Context(),
 				`DELETE FROM policies WHERE id = $1 AND org_id = $2`, pID, org)
 			return err
 		})
 		if err != nil {
 			return serverError(c, err)
+		}
+		if deferred {
+			return requestApproval(c, db, org, approvalPolicyDelete, pID.String(), nil, c.Query("reason"))
 		}
 		logActivity(c, db, &org, "policy.deleted", pID.String(), nil)
 		return c.Status(204).Send(nil)
