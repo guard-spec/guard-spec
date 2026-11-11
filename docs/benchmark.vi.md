@@ -560,6 +560,31 @@ cận trên Clopper-Pearson 95%:
   (`guardspec-data/v6/bench-long/long-{v3b,v5,v6}.{json,md}`). Thời gian xử lý
   từng tài liệu dài nằm ở [sizing, Input dài](sizing.vi.md#input-dài).
 
+**Tuyến dài của gateway và một quy tắc ở mức tài liệu (task RF-895d3533 R3).**
+Một tài liệu 100k token đi vào tuyến dài của gateway (`MAX_SCAN_TOKENS`), nơi
+chấm các cửa sổ 256 token (fuse với L1, cap và code corroboration), không phải
+các chunk 2,048 byte ở trên; `cmd/benchlong -long on` đo đúng tuyến đó như khi
+chạy (layer `long`). Theo đó v6 chặn 9 / 65 tài liệu `long` dev và 14 / 61
+holdout (13.8% và 23.0%; hai tài liệu bị từ chối không được tính). Payload
+nhúng trong các tài liệu như vậy (`bench/long/embed_long.py`: 32 payload dev
+và 32 holdout của profile full ở bảy vị trí của gate G7 của v6, mỗi payload
+trong một tài liệu dài cùng ngôn ngữ và lát cắt) bị bắt tốt như khi đứng
+riêng: 95.9% của 221 tài liệu dev và 88.1% của 218 tài liệu holdout, so với
+93.8% và 90.6% khi payload đứng riêng. Bốn quy tắc ở mức tài liệu được đăng ký
+trước và fit chỉ trên dev
+([`train/reports/r3_preregistration.md`](../train/reports/r3_preregistration.md)):
+chỉ tính một cửa sổ trên 0.85 khi các rule (L1) xác nhận nó, một ngưỡng tăng
+theo số cửa sổ (fit giá trị cực trị), cả hai, hoặc k cửa sổ trên 0.85. Không
+quy tắc nào đạt 1% mà không mất các tấn công nhúng: trên dev, mọi cửa sổ lành
+tính trên 0.85 đều là chỗ một rule L1 bắt (10 trong 12 có classifier đồng ý, 2
+chỉ nhờ floor của L1), cửa sổ tệ nhất của các tài liệu bị chặn có điểm 0.92 đến
+0.985, và các cửa sổ của payload có điểm trong cùng khoảng đó (trung vị 0.986). Quy tắc được
+chọn (xác nhận bởi L1) chặn 13 / 61 tài liệu holdout (21.3%, khoảng tin cậy 95%
+từ 11.9% đến 33.7%) với tỷ lệ phát hiện không đổi 88.1%, nên không được dùng;
+`calibration.json` có thể mang một quy tắc như vậy (`long_doc`) nhưng không
+model nào được phát hành có nó. Chi tiết trong
+[`train/MODEL_CARD.md`](../train/MODEL_CARD.md) (v6, R3).
+
 Profile quick được chạy cùng ngày với cả hai model (và cả bộ `l1,l2,l3`); các
 con số khớp với profile full trong phạm vi cỡ mẫu. Báo cáo của các lần chạy
 được giữ cùng dữ liệu huấn luyện ngoài repository; các bảng đã commit trong

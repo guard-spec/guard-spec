@@ -232,6 +232,69 @@ benign document in four, a third of v3b's rate and half of v5's on the same docu
 asked for. Two Vietnamese documentation documents are rejected by the sanitizer before any model sees them (not
 counted above), and the sanitizer's HTML stripping shortens 11 English code, documentation and RFC documents.
 
+**R3: a document-level decision for the long path (2026-11-11, not met).** Todo R3 asked for a rule that
+decides a long document from its windows so that at most 1% of benign 100k and 200k-token documents are
+blocked while attacks embedded in long documents are caught at least as often as the same payloads alone
+minus 5 points. The candidates, the fitting, α = 0.01 and the selection rule were committed in
+[`reports/r3_preregistration.md`](reports/r3_preregistration.md) before any candidate was fitted and before
+any holdout evaluation; `longdoc_r3.py` applies them; the dev result (`reports/r3_dev.{json,md}`) and the
+decision not to package the chosen rule were committed before the holdout was scored, once
+(`reports/r3_holdout.{json,md}`).
+
+- **What was measured.** The gateway's long path as it runs (`cmd/benchlong -long on`: `ml.ScoreLong`,
+  256-token windows fused `l1,l2`, v6's cap 0.88 and code corroboration, as documents get them), not the
+  2,048-byte chunks of R2b, which are the short path's unit. Benign: the `long` profile (65 dev / 61
+  holdout documents scored; the sanitizer rejects the two Vietnamese documentation documents).
+  Attacks: `bench/long/embed_long.py` puts each of the 32 dev and 32 holdout payloads of the `full`
+  profile alone and into a long document of its own language and slice in the seven G7 variants
+  (`pos_start`, `pos_end`, `pos_random`, `straddle_window`, `straddle_chunk`, `straddle_segment`,
+  `split_adjacent`); 221 dev and 218 holdout embedded documents of 468 to 1,053 windows were scored in
+  full (3 and 6 dropped because the sanitizer removed the payload). Every window of every document was
+  scored; window scores, never text, are kept outside the repository (`guardspec-data/v6/r3/`). The
+  shingle guard (`data/bench_guard.py`) finds no 50-token run of the 512 attack and control documents
+  in any of the 22,461 v6 rows or the 33,366 rows of the v4-A training build.
+- **Candidates** (texts of at most n0 = 41 windows unchanged; n0 from the dev rate of windows at or above
+  0.85, 2.4 × 10⁻⁴): `corr` (a window over 0.85 counts only when L1 corroborates it: a rule with raw score
+  0.5 or more, or a floor), `tn` (a threshold T(n) growing with the number of windows, the larger of a
+  block bootstrap and a GEV extrapolation at α), `combo` (either) and `kofn` (at least k windows over
+  0.85).
+- **Dev** (blocked benign / 65; detection of the 221 embedded documents, payloads alone 30 / 32 = 93.8%):
+  `base` (today) 9 (13.8%), 95.9%; `corr` 9, 95.5%; `combo` 9, 95.5%; `tn` 0, 0.0%; `kofn` (k = 4) 0,
+  1.4%. No candidate met both criteria; the rule's second step chose `corr`. Why nothing works: with the
+  cap, a window can reach 0.85 only when L1 fires a rule, and every one of the 12 dev benign windows over
+  0.85 is corroborated by L1 (two are L1 floors on a decisive rule in Vietnamese Wikipedia text, with L2
+  at 0.002 and 0.003; the others pair an L1 rule — `tp.secrecy`, `pe.password_tricks`,
+  `de.send_sensitive`, `jb.refusal_suppression`, `obf.decode_follow` — with L2 at 0.75 to 0.95). The
+  blocked documents' worst windows score 0.92 to 0.985; the embedded payloads' own windows score 0.970 to 0.993 (10th to 90th
+  percentile, median 0.986). The tail of benign window scores is heavy (GEV shape −0.25), so T(n) is
+  0.9999 at 64 windows and above every payload; a payload lifts one to three windows, so k = 4 catches 3
+  of 221.
+- **Holdout, once** (`corr` with n0 41, next to `base`; two-sided Clopper–Pearson 95%): blocked benign
+  documents EN 100k 3 / 16 and 3 / 16, EN 200k 4 / 19 and 4 / 19, VI 100k 3 / 14 and 3 / 14, VI 200k
+  4 / 12 and 3 / 12; all **13 / 61 (21.3%, 11.9% to 33.7%)** for `corr`, 14 / 61 (23.0%, 13.2% to 35.5%)
+  for `base`. Detection, the same under both: payloads alone 29 / 32 (90.6%), embedded 192 / 218
+  (**88.1%**, 83.0% to 92.1%; EN 82.5%, VI 94.2%), per variant 80.6% (`split_adjacent`) to 93.5%
+  (`straddle_chunk`). The detection criterion holds (−2.5 points), the false-positive target does not.
+  The holdout benign documents' decisions at 0.85 had been seen in R2b on chunks (15 / 62); the holdout
+  attack documents had never been scored.
+- **Not packaged.** As recorded before the holdout, `long_doc` was not added to the v6 package (it would
+  only cost detection); `calibration.json` and `SHA256SUMS` are unchanged. The mechanism stays:
+  `calibration.json` `long_doc` (`ml.LongDoc`: `min_windows`, `corroborate`, `threshold` as [n, T]
+  points, `base`), applied by `ml.ScoreLong` after the document adjustment and before early exit, and by
+  `cmd/benchlong -long on`; no built-in or shipped calibration has one.
+- **Reading.** On the long path the document false positives of v6 at 100k to 200k tokens are about
+  14% to 23% (dev / holdout), close to R2b's chunk numbers, and they are L1 rules firing on benign text,
+  mostly text the classifier also finds suspicious, the same evidence an embedded attack gives; no rule on
+  window scores and length separates them. 1% at 500 to 1,000 windows needs a per-window rate near
+  10⁻⁵, about 20 times lower than today's 2.4 × 10⁻⁴. The next steps lie in the layers, each needing its
+  own pre-registration and new long documents (this holdout is spent for document rules): L1 precision on
+  the rules above (and L2 agreement before an L1 floor counts in a long document: 2 of the 9 dev
+  documents), v7 training with benign long text that trips those rules, or, for operators, flagging or
+  redacting long documents instead of blocking them.
+- **Cost.** The rule adds a constant per window. The long path itself ran 15,600 tokens/s (0.51 CPU-s per
+  1k tokens) on the benign documents and 17,000 to 17,900 on the attack documents, 4 documents at a time
+  on the M3 Max (`docs/sizing.md`, "Long inputs").
+
 **Known weaknesses.** G6 rests on 15 dev documents: with none blocked, the Clopper-Pearson 95% upper bound
 of the false-positive rate is 0.218, so the gate shows the rate is not large, not that it is under 1%;
 the hold-out slice (2 of 18 blocked at 100k / 200k, both at 200k, one per language) is the honest

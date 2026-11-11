@@ -175,6 +175,21 @@ mỗi lần chạy.
   sanitizer) đạt tổng 7,100 đến 7,900 token/s, 38 đến 42 phút cho cả profile.
   Trên runner cloud 4 vCPU, chậm hơn 3 đến 4 lần mỗi core, hãy tính khoảng 40
   đến 50 s cho mỗi 100k token trong trường hợp tốt nhất.
+- **Tuyến dài của gateway tốn ít hơn các số theo chunk ở trên.** Khi đặt
+  `MAX_SCAN_TOKENS`, một tài liệu vượt 128 KiB văn bản không tin cậy được
+  tokenize một lần và chấm theo các cửa sổ 256 token của classifier, theo lô,
+  mỗi cửa sổ được fuse với L1 (`ml.ScoreLong`), không theo chunk 2,048 byte.
+  Đo đúng như khi chạy bằng `cmd/benchlong -long on` (Apple M3 Max,
+  2026-11-11, `guardspec-classifier-v6` với cap và code corroboration, 4 tài
+  liệu cùng lúc, số thread mặc định của ONNX Runtime): 128 tài liệu của
+  profile `long` (18.0M token sau sanitizer) trong 19 phút, 15,600 token/s và
+  0.51 CPU-s mỗi 1k token, so với 7,100 token/s và 1.49 CPU-s mỗi 1k token của
+  phép đo theo chunk trên cùng các tài liệu (chạy classifier hai lần, theo cửa
+  sổ cho `l2` và theo chunk cho `l1,l2`); 256 tài liệu 100k đến 200k token có
+  một tấn công bên trong (31.9M token) đạt 17,900 token/s. Vậy một tài liệu
+  100k token tốn khoảng 50 CPU-giây trên máy này, khoảng 26 s thời gian thực
+  mỗi tài liệu khi bốn tài liệu được chấm cùng lúc trên 14 core (chưa đo
+  riêng lẻ).
 - Bảng đầy đủ của từng lần chạy (riêng L2, mọi K, thời gian từng tài liệu)
   nằm trong [`bench/results/long-m3max-local.md`](../bench/results/long-m3max-local.md),
   [`long-gh-ubuntu-24.04-4vcpu.md`](../bench/results/long-gh-ubuntu-24.04-4vcpu.md)

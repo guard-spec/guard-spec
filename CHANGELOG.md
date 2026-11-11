@@ -9,6 +9,20 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ## [Unreleased]
 
+### Added
+
+- `cmd/benchlong -long on` measures the gateway's long path itself
+  (`MAX_SCAN_TOKENS`: 256-token windows fused with L1, the classifier's cap
+  and code corroboration, as documents get them) as the layer `long`, next to
+  the 2,048-byte chunks of the short path; `-dump` writes every window's
+  scores (no text) for analysis (RF-895d3533).
+- `calibration.json` may carry an optional `long_doc` object, a document-level
+  rule for texts on the long path (a window over the threshold counts only
+  when L1 corroborates it, or against a threshold that grows with the number
+  of windows). No shipped calibration has one, so nothing changes; the first
+  candidate rules did not meet their target on bench/long (see
+  `train/MODEL_CARD.md`, v6, "R3") (RF-895d3533).
+
 ## [0.5.0] - 2026-11-10
 
 ### Added

@@ -563,6 +563,31 @@ with the rate and its Clopper-Pearson 95% upper bound:
   (`guardspec-data/v6/bench-long/long-{v3b,v5,v6}.{json,md}`). The timing
   of single long documents is in [sizing, Long inputs](sizing.md#long-inputs).
 
+**The gateway's long path and a document-level rule (task RF-895d3533 R3).**
+A document of 100k tokens reaches the gateway's long path (`MAX_SCAN_TOKENS`),
+which scores 256-token windows (fused with L1, the cap and code corroboration),
+not the 2,048-byte chunks above; `cmd/benchlong -long on` measures that path
+as it runs (layer `long`). With it, v6 blocks 9 / 65 dev and 14 / 61 holdout
+`long` documents (13.8% and 23.0%; the two rejected documents are not
+counted). Payloads embedded in such documents (`bench/long/embed_long.py`:
+the full profile's 32 dev and 32 holdout payloads in the seven placements of
+the v6 gate G7, each in a long document of its own language and slice) are
+caught as well as alone: 95.9% of 221 dev and 88.1% of 218 holdout documents,
+against 93.8% and 90.6% for the payloads alone. Four document-level rules
+were pre-registered and fitted on dev only
+([`train/reports/r3_preregistration.md`](../train/reports/r3_preregistration.md)):
+counting a window over 0.85 only when the rules (L1) corroborate it, a
+threshold that grows with the number of windows (extreme-value fit), both, or
+k windows over 0.85. None reached 1% without losing the embedded attacks: on
+dev every benign window over 0.85 is one where an L1 rule fires (10 of 12 with
+the classifier agreeing, 2 on an L1 floor alone), the blocked documents' worst
+windows score 0.92 to 0.985, and the payloads' windows score in the same range
+(median 0.986). The chosen rule (corroboration) blocks 13 / 61 holdout
+documents (21.3%, 95% interval 11.9% to 33.7%) at an unchanged 88.1%
+detection, so it is not used; `calibration.json` can carry such a rule
+(`long_doc`) but no shipped model has one. Details in
+[`train/MODEL_CARD.md`](../train/MODEL_CARD.md) (v6, R3).
+
 The quick profile was run the same day with both models (and the `l1,l2,l3`
 set as well); its numbers agree with the full ones within the sample sizes.
 The run reports are kept with the training data outside the repository; the

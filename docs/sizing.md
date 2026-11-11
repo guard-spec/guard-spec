@@ -174,6 +174,21 @@ for each run.
   the sanitizer) run at 7,100 to 7,900 tokens/s in total, 38 to 42 minutes
   for the whole profile. On a 4 vCPU cloud runner, 3 to 4 times slower per
   core, expect roughly 40 to 50 s per 100k tokens at best.
+- **The gateway's long path costs less than the chunked numbers above.**
+  With `MAX_SCAN_TOKENS` set, a document past 128 KiB of untrusted text is
+  tokenized once and scored in the classifier's 256-token windows, in
+  batches, each window fused with L1 (`ml.ScoreLong`), not in 2,048-byte
+  chunks. Measured as it runs with `cmd/benchlong -long on` (Apple M3 Max,
+  2026-11-11, `guardspec-classifier-v6` with its cap and code corroboration,
+  4 documents at a time, ONNX Runtime's default threads): the `long`
+  profile's 128 documents (18.0M tokens after the sanitizer) in 19 minutes,
+  15,600 tokens/s and 0.51 CPU-s per 1k tokens, against 7,100 tokens/s and
+  1.49 CPU-s per 1k tokens for the chunked measurement of the same documents
+  (which runs the classifier twice, per window for `l2` and per chunk for
+  `l1,l2`); 256 documents of 100k to 200k tokens with an attack inside
+  (31.9M tokens) at 17,900 tokens/s. So a 100k-token document costs about
+  50 CPU-seconds on this machine, about 26 s of wall time each when four
+  are scored at once on its 14 cores (not measured alone).
 - The full per-run tables (L2 alone, every K, wall time per document) are in
   [`bench/results/long-m3max-local.md`](../bench/results/long-m3max-local.md),
   [`long-gh-ubuntu-24.04-4vcpu.md`](../bench/results/long-gh-ubuntu-24.04-4vcpu.md)
