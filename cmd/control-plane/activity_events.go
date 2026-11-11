@@ -135,7 +135,7 @@ func activityEvents(e activityEntry) []events.Event {
 	case "identity_provider.created", "identity_provider.updated", "identity_provider.deleted":
 		return []events.Event{ev(events.SecuritySSOChanged, events.Warning, map[string]any{
 			"actor_id": actor, "provider_id": detailString(e.Details, "id"), "action": verb})}
-	case "policy.created", "policy.updated", "policy.deleted":
+	case "policy.created", "policy.updated", "policy.deleted", "policy.rolled_back":
 		id := detailString(e.Details, "id")
 		if id == "" {
 			id = e.Target

@@ -11,6 +11,7 @@ export type AuditTag =
   | { type: 'unscanned'; kind: UnscannedKind; n: number; raw: string }
   | { type: 'pii'; kind: PiiKind; n: number; raw: string }
   | { type: 'piiProtected'; verb: 'redacted' | 'tokenized'; kind: PiiKind; n: number; raw: string }
+  | { type: 'wouldDecide'; action: 'block' | 'allow' | 'route'; ruleId: string; raw: string }
   | { type: 'other'; raw: string };
 
 const isPii = (k: string): k is PiiKind => (PII_KINDS as string[]).includes(k);
@@ -18,6 +19,9 @@ const isUnscanned = (k: string): k is UnscannedKind => (UNSCANNED_KINDS as strin
 
 /** Reads one tag: "input:unscanned_image=2", "input:pii_email=1", "input:pii_redacted_card=1" or another. */
 export function parseAuditTag(raw: string): AuditTag {
+  // "policy:would_block=<rule id>": a log-only policy's decision (migration 026).
+  const w = /^policy:would_(block|allow|route)=([0-9a-f-]{36})$/.exec(raw);
+  if (w) return { type: 'wouldDecide', action: w[1] as 'block' | 'allow' | 'route', ruleId: w[2] ?? '', raw };
   const m = /^input:(unscanned|pii)_([a-z0-9_]+)=(\d+)$/.exec(raw);
   if (!m) return { type: 'other', raw };
   const [, family, rest = '', count = '0'] = m;
@@ -47,6 +51,8 @@ export function auditTagLabel(t: Translate, tag: AuditTag): string {
       return t('audit.tag.pii', { kind: t(`guard.piiKind.${tag.kind}`), n: tag.n });
     case 'piiProtected':
       return t(`audit.tag.pii.${tag.verb}` as MessageKey, { kind: t(`guard.piiKind.${tag.kind}`), n: tag.n });
+    case 'wouldDecide':
+      return t(tag.action === 'block' ? 'audit.tag.wouldBlock' : tag.action === 'route' ? 'audit.tag.wouldRoute' : 'audit.tag.wouldAllow');
     default:
       return tag.raw;
   }

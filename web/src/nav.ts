@@ -33,6 +33,7 @@ export const NAV: NavGroup[] = [
       { route: 'guard', label: 'nav.guard', icon: ShieldCheck },
       { route: 'exemplars', label: 'nav.exemplars', icon: Library },
       { route: 'simulator', label: 'nav.simulator', icon: FlaskConical },
+      { route: 'policy-history', label: 'nav.policyHistory', icon: History },
     ],
   },
   {

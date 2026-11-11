@@ -446,6 +446,10 @@ func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins 
 	authed.Post("/organizations/:orgId/policies", admin, createPolicy(db, eng))
 	authed.Put("/organizations/:orgId/policies/:id", admin, updatePolicy(db, eng))
 	authed.Delete("/organizations/:orgId/policies/:id", admin, deletePolicy(db))
+	// Policy history (policy_versions.go, migration 026).
+	authed.Get("/organizations/:orgId/policies/:id/versions", viewer, listPolicyVersions(db))
+	authed.Get("/organizations/:orgId/policies/:id/versions/diff", viewer, diffPolicyVersions(db))
+	authed.Post("/organizations/:orgId/policies/:id/rollback", admin, rollbackPolicy(db, eng))
 
 	authed.Get("/organizations/:orgId/requests", viewer, listRequests(db))
 	// Stored content: the org's content_read_role, a reason when required,
@@ -811,6 +815,7 @@ func listPolicies(db *pgxpool.Pool) fiber.Handler {
 			Description *string         `json:"description"`
 			Version     int             `json:"version"`
 			Enabled     bool            `json:"enabled"`
+			LogOnly     bool            `json:"log_only"`
 			Rules       json.RawMessage `json:"rules"`
 			CreatedAt   time.Time       `json:"created_at"`
 			UpdatedAt   time.Time       `json:"updated_at"`
@@ -823,7 +828,7 @@ func listPolicies(db *pgxpool.Pool) fiber.Handler {
 				return err
 			}
 			rows, err := tx.Query(c.Context(),
-				`SELECT id, project_id, name, description, version, enabled, rules, created_at, updated_at
+				`SELECT id, project_id, name, description, version, enabled, log_only, rules, created_at, updated_at
 				 FROM policies WHERE org_id = $1`+cond+ks.orderLimit(pg), args...)
 			if err != nil {
 				return err
@@ -831,7 +836,7 @@ func listPolicies(db *pgxpool.Pool) fiber.Handler {
 			defer rows.Close()
 			for rows.Next() {
 				var p pRow
-				if err := rows.Scan(&p.ID, &p.ProjectID, &p.Name, &p.Description, &p.Version, &p.Enabled,
+				if err := rows.Scan(&p.ID, &p.ProjectID, &p.Name, &p.Description, &p.Version, &p.Enabled, &p.LogOnly,
 					&p.Rules, &p.CreatedAt, &p.UpdatedAt); err != nil {
 					return err
 				}
@@ -870,9 +875,16 @@ func createPolicy(db *pgxpool.Pool, eng *policy.Engine) fiber.Handler {
 			// Absent: enabled. A policy created disabled is never live, not
 			// even between a create and a second PUT.
 			Enabled *bool `json:"enabled"`
+			// LogOnly: decisions are recorded, not applied (migration 026).
+			LogOnly bool `json:"log_only"`
+			// Reason is kept with the version (policy_versions.go).
+			Reason string `json:"reason"`
 		}
 		if err := c.BodyParser(&req); err != nil || req.Name == "" {
 			return c.Status(400).JSON(fiber.Map{"error": "name and rules are required"})
+		}
+		if len([]rune(req.Reason)) > maxReasonRunes {
+			return c.Status(400).JSON(fiber.Map{"error": fmt.Sprintf("reason must be at most %d characters", maxReasonRunes)})
 		}
 		rules, targets, err := validateRules(eng, req.Rules)
 		if err != nil {
@@ -889,11 +901,13 @@ func createPolicy(db *pgxpool.Pool, eng *policy.Engine) fiber.Handler {
 			if err := checkRouteTargets(c.Context(), tx, org, targets); err != nil {
 				return err
 			}
-			_, err := tx.Exec(c.Context(),
-				`INSERT INTO policies (id, org_id, project_id, name, description, rules, enabled)
-				 VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-				id, org, req.ProjectID, req.Name, req.Description, rules, req.Enabled == nil || *req.Enabled)
-			return err
+			if _, err := tx.Exec(c.Context(),
+				`INSERT INTO policies (id, org_id, project_id, name, description, rules, enabled, log_only)
+				 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+				id, org, req.ProjectID, req.Name, req.Description, rules, req.Enabled == nil || *req.Enabled, req.LogOnly); err != nil {
+				return err
+			}
+			return recordPolicyVersion(c.Context(), tx, org, id, auth.UserID(c), versionCreate, req.Reason, nil)
 		})
 		var unknownTarget *unknownTargetError
 		if errors.Is(err, errUnknownProject) || errors.As(err, &unknownTarget) {
@@ -905,8 +919,8 @@ func createPolicy(db *pgxpool.Pool, eng *policy.Engine) fiber.Handler {
 		if err != nil {
 			return serverError(c, err)
 		}
-		logActivity(c, db, &org, "policy.created", req.Name, map[string]any{"id": id})
-		return c.Status(201).JSON(fiber.Map{"id": id})
+		logActivity(c, db, &org, "policy.created", req.Name, map[string]any{"id": id, "log_only": req.LogOnly})
+		return c.Status(201).JSON(fiber.Map{"id": id, "version": 1})
 	}
 }
 
@@ -921,11 +935,16 @@ func updatePolicy(db *pgxpool.Pool, eng *policy.Engine) fiber.Handler {
 			Name        string          `json:"name"`
 			Description string          `json:"description"`
 			Enabled     *bool           `json:"enabled"`
+			LogOnly     *bool           `json:"log_only"` // absent: unchanged
 			Rules       json.RawMessage `json:"rules"`
 			ProjectID   optUUID         `json:"project_id"` // absent: unchanged; null: org-wide
+			Reason      string          `json:"reason"`     // kept with the version
 		}
 		if err := c.BodyParser(&req); err != nil {
 			return c.Status(400).JSON(fiber.Map{"error": "invalid body"})
+		}
+		if len([]rune(req.Reason)) > maxReasonRunes {
+			return c.Status(400).JSON(fiber.Map{"error": fmt.Sprintf("reason must be at most %d characters", maxReasonRunes)})
 		}
 		var targets []string
 		if req.Rules != nil {
@@ -933,7 +952,10 @@ func updatePolicy(db *pgxpool.Pool, eng *policy.Engine) fiber.Handler {
 				return c.Status(400).JSON(fiber.Map{"error": err.Error()})
 			}
 		}
-		var updated int64
+		var (
+			updated int64
+			version int
+		)
 		err = tenant.WithOrg(c.Context(), db, org, func(tx pgx.Tx) error {
 			if err := checkProject(c.Context(), tx, org, req.ProjectID.Value); err != nil {
 				return err
@@ -944,20 +966,27 @@ func updatePolicy(db *pgxpool.Pool, eng *policy.Engine) fiber.Handler {
 			if err := checkRouteTargets(c.Context(), tx, org, targets); err != nil {
 				return err
 			}
-			tag, err := tx.Exec(c.Context(),
+			err := tx.QueryRow(c.Context(),
 				`UPDATE policies SET
 				 name = COALESCE(NULLIF($1,''), name),
 				 description = COALESCE(NULLIF($2,''), description),
 				 rules = COALESCE($3, rules),
 				 enabled = COALESCE($4, enabled),
 				 project_id = CASE WHEN $7 THEN $8::uuid ELSE project_id END,
+				 log_only = COALESCE($9, log_only),
 				 version = version + 1,
 				 updated_at = NOW()
-				 WHERE id = $5 AND org_id = $6`,
+				 WHERE id = $5 AND org_id = $6 RETURNING version`,
 				req.Name, req.Description, req.Rules, req.Enabled, pID, org,
-				req.ProjectID.Set, req.ProjectID.Value)
-			updated = tag.RowsAffected()
-			return err
+				req.ProjectID.Set, req.ProjectID.Value, req.LogOnly).Scan(&version)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			updated = 1
+			return recordPolicyVersion(c.Context(), tx, org, pID, auth.UserID(c), versionUpdate, req.Reason, nil)
 		})
 		var unknownTarget *unknownTargetError
 		if errors.Is(err, errUnknownProject) || errors.As(err, &unknownTarget) {
@@ -972,8 +1001,9 @@ func updatePolicy(db *pgxpool.Pool, eng *policy.Engine) fiber.Handler {
 		if updated == 0 {
 			return c.Status(404).JSON(fiber.Map{"error": "not found"})
 		}
-		logActivity(c, db, &org, "policy.updated", pID.String(), map[string]any{"enabled": req.Enabled, "rules_changed": req.Rules != nil})
-		return c.JSON(fiber.Map{"id": pID, "updated": true})
+		logActivity(c, db, &org, "policy.updated", pID.String(), map[string]any{"enabled": req.Enabled, "log_only": req.LogOnly,
+			"rules_changed": req.Rules != nil, "version": version, "reason": strings.TrimSpace(req.Reason)})
+		return c.JSON(fiber.Map{"id": pID, "updated": true, "version": version})
 	}
 }
 

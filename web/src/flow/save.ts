@@ -30,9 +30,9 @@ export async function savePolicies(api: SaveApi, orgId: string, policies: Editab
     try {
       const rules = toWireRules(p.rules);
       if (p.id) {
-        await api.updatePolicy(orgId, p.id, { name: p.name, rules, enabled: p.enabled });
+        await api.updatePolicy(orgId, p.id, { name: p.name, rules, enabled: p.enabled, log_only: p.log_only });
       } else {
-        await api.createPolicy(orgId, { name: p.name, rules, project_id: p.project_id, enabled: p.enabled });
+        await api.createPolicy(orgId, { name: p.name, rules, project_id: p.project_id, enabled: p.enabled, log_only: p.log_only });
       }
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);

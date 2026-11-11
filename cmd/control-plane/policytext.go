@@ -94,7 +94,9 @@ type simDecision struct {
 	RuleName    string      `json:"rule_name"`
 	RouteTarget string      `json:"route_target"`
 	Logged      []uuid.UUID `json:"logged"`
-	Error       string      `json:"error,omitempty"`
+	// LogOnly: what log-only policies would have decided (recorded, not applied).
+	LogOnly []policy.LogOnlyMatch `json:"log_only"`
+	Error   string                `json:"error,omitempty"`
 }
 
 // simulatePolicies runs policies against the given field values and reports
@@ -165,15 +167,18 @@ func simulatePolicies(db *pgxpool.Pool, eng *policy.Engine, settings *appSetting
 			return serverError(c, err)
 		}
 		out := simDecision{Action: string(decision.Action), RuleName: decision.RuleName,
-			RouteTarget: decision.RouteTarget, Logged: decision.Logged}
+			RouteTarget: decision.RouteTarget, Logged: decision.Logged, LogOnly: decision.LogOnly}
 		if decision.RuleID != uuid.Nil {
 			out.RuleID = &decision.RuleID
 		}
 		if out.Logged == nil {
 			out.Logged = []uuid.UUID{}
 		}
+		if out.LogOnly == nil {
+			out.LogOnly = []policy.LogOnlyMatch{}
+		}
 		if failed != nil {
-			out = simDecision{Action: "error", Logged: []uuid.UUID{}, Error: failed.Error()}
+			out = simDecision{Action: "error", Logged: []uuid.UUID{}, LogOnly: []policy.LogOnlyMatch{}, Error: failed.Error()}
 		}
 		return c.JSON(fiber.Map{"trace": trace, "decision": out, "upstream": up})
 	}
@@ -184,12 +189,12 @@ var errPolicyNotFound = errors.New("policy not found")
 // loadSimPolicies loads one policy (enabled or not), or the enabled policies
 // the gateway would run for a key of project, in its order (dbPolicyLoader).
 func loadSimPolicies(ctx context.Context, tx pgx.Tx, org uuid.UUID, policyID, project *uuid.UUID) ([]policy.SimPolicy, error) {
-	query := `SELECT id, rules FROM policies
+	query := `SELECT id, rules, log_only FROM policies
 	          WHERE org_id = $1 AND enabled AND (project_id IS NULL OR project_id = $2)
 	          ORDER BY project_id IS NULL, created_at, id`
 	args := []any{org, project}
 	if policyID != nil {
-		query = `SELECT id, rules FROM policies WHERE org_id = $1 AND id = $2`
+		query = `SELECT id, rules, log_only FROM policies WHERE org_id = $1 AND id = $2`
 		args = []any{org, *policyID}
 	}
 	rows, err := tx.Query(ctx, query, args...)
@@ -201,10 +206,11 @@ func loadSimPolicies(ctx context.Context, tx pgx.Tx, org uuid.UUID, policyID, pr
 	for rows.Next() {
 		var id uuid.UUID
 		var raw []byte
-		if err := rows.Scan(&id, &raw); err != nil {
+		var logOnly bool
+		if err := rows.Scan(&id, &raw, &logOnly); err != nil {
 			return nil, err
 		}
-		p := policy.SimPolicy{ID: &id}
+		p := policy.SimPolicy{ID: &id, LogOnly: logOnly}
 		if err := json.Unmarshal(raw, &p.Rules); err != nil {
 			return nil, fmt.Errorf("policy %s: %w", id, err)
 		}

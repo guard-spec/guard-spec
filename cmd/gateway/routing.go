@@ -221,7 +221,7 @@ func dbPolicyRouteLoader(db *pgxpool.Pool) policyRouteLoader {
 // editing a policy does not reorder it.
 func queryPolicies(ctx context.Context, tx pgx.Tx, orgID, projectID uuid.UUID) ([]policy.Policy, error) {
 	rows, err := tx.Query(ctx,
-		`SELECT id, version, rules FROM policies
+		`SELECT id, version, rules, log_only FROM policies
 		 WHERE org_id = $1 AND enabled AND (project_id IS NULL OR project_id = $2)
 		 ORDER BY project_id IS NULL, created_at, id`,
 		orgID, nullUUID(projectID))
@@ -233,7 +233,7 @@ func queryPolicies(ctx context.Context, tx pgx.Tx, orgID, projectID uuid.UUID) (
 	for rows.Next() {
 		p := policy.Policy{OrgID: orgID, ProjectID: projectID}
 		var rules []byte
-		if err := rows.Scan(&p.ID, &p.Version, &rules); err != nil {
+		if err := rows.Scan(&p.ID, &p.Version, &rules, &p.LogOnly); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal(rules, &p.Rules); err != nil {

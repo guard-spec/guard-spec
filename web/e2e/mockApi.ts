@@ -35,7 +35,9 @@ import {
   type GuardSettings,
   type Org,
   type Policy,
+  type PolicyDiff,
   type PolicySchema,
+  type PolicyVersion,
   type Project,
   type Rule,
   type GatewayModels,
@@ -349,6 +351,8 @@ export interface MockState {
   projects: Project[];
   upstreams: Upstream[];
   policies: Policy[];
+  /** Policy history (migration 026), by policy id, newest first. */
+  policyVersions: Record<string, PolicyVersion[]>;
   keys: ApiKey[];
   guard: GuardSettings;
   exemplars: Exemplar[];
@@ -506,6 +510,14 @@ export function seedState(rich = false): MockState {
         ]
       : [main, safe, sandbox],
     policies: [baseline, strict],
+    policyVersions: {
+      [baseline.id]: [
+        versionOf(baseline, 3, 'update', 'admin@example.com', 'route suspicious requests to the safe model', '2026-10-20T09:00:00Z'),
+        { ...versionOf(baseline, 2, 'update', 'ops@example.com', null, '2026-10-10T09:00:00Z'), rules: baseline.rules.slice(0, 2) },
+        { ...versionOf(baseline, 1, 'create', 'admin@example.com', 'first rules', '2026-10-01T09:00:00Z'), rules: baseline.rules.slice(0, 1) },
+      ],
+      [strict.id]: [versionOf(strict, 1, 'create', 'admin@example.com', null, strict.created_at)],
+    },
     keys: [
       { key_prefix: 'gs_3fa9c1d2', alias: 'billing prod', project_id: billing.id, rpm_limit: 600, tpm_limit: null, created_at: T0, expires_at: null, revoked: false },
       { key_prefix: 'gs_8b20e4aa', alias: 'support web', project_id: support.id, rpm_limit: null, tpm_limit: 200000, created_at: T0, expires_at: '2027-01-01T00:00:00Z', revoked: false },
@@ -545,6 +557,53 @@ function validateRules(state: MockState, rules: Rule[]): string | null {
 
 function withIds(rules: Rule[]): Rule[] {
   return rules.map((r) => ({ ...r, id: r.id ?? uuid() }));
+}
+
+/** A policy's state as one version row (policy_versions, migration 026). */
+function versionOf(p: Policy, version: number, kind: PolicyVersion['kind'], email: string | null, reason: string | null, at: string, rolledBackTo: number | null = null): PolicyVersion {
+  return {
+    version,
+    kind,
+    name: p.name,
+    description: p.description,
+    project_id: p.project_id,
+    enabled: p.enabled,
+    log_only: p.log_only === true,
+    rules: p.rules.map((r) => ({ ...r })),
+    author: email ? { id: uuid(), email } : null,
+    reason,
+    rolled_back_to: rolledBackTo,
+    created_at: at,
+  };
+}
+
+function recordVersion(state: MockState, p: Policy, kind: PolicyVersion['kind'], reason: string | null, rolledBackTo: number | null = null): void {
+  const list = state.policyVersions[p.id] ?? [];
+  list.unshift(versionOf(p, p.version, kind, 'admin@example.com', reason, new Date().toISOString(), rolledBackTo));
+  state.policyVersions[p.id] = list;
+}
+
+/** The control plane's diff: fields, then rules by id. */
+function diffVersions(a: PolicyVersion, b: PolicyVersion): PolicyDiff {
+  const d: PolicyDiff = { from: a.version, to: b.version, fields: [], rules: [] };
+  if (a.name !== b.name) d.fields.push({ field: 'name', from: a.name, to: b.name });
+  if ((a.description ?? '') !== (b.description ?? '')) d.fields.push({ field: 'description', from: a.description ?? '', to: b.description ?? '' });
+  if (a.project_id !== b.project_id) d.fields.push({ field: 'project_id', from: a.project_id, to: b.project_id });
+  if (a.enabled !== b.enabled) d.fields.push({ field: 'enabled', from: a.enabled, to: b.enabled });
+  if (a.log_only !== b.log_only) d.fields.push({ field: 'log_only', from: a.log_only, to: b.log_only });
+  const same = (x: Rule, y: Rule) => x.name === y.name && x.action === y.action && (x.route_target ?? '') === (y.route_target ?? '') && JSON.stringify(x.condition) === JSON.stringify(y.condition);
+  a.rules.forEach((r, i) => {
+    const j = b.rules.findIndex((x) => x.id === r.id);
+    const to = b.rules[j];
+    const base = { rule_id: r.id ?? '', name: r.name, from_index: i, to_index: j };
+    if (!to) d.rules.push({ ...base, op: 'removed', from: r });
+    else if (!same(r, to)) d.rules.push({ ...base, op: 'changed', name: to.name, from: r, to });
+    else if (i !== j) d.rules.push({ ...base, op: 'moved' });
+  });
+  b.rules.forEach((r, j) => {
+    if (!a.rules.some((x) => x.id === r.id)) d.rules.push({ op: 'added', rule_id: r.id ?? '', name: r.name, to: r, from_index: -1, to_index: j });
+  });
+  return d;
 }
 
 function chainFor(state: MockState, projectId: string | null): Policy[] {
@@ -1379,7 +1438,7 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
 
     if (sub === '/policies' && method === 'GET') return json(200, listBody(state.policies, url, legacy));
     if (sub === '/policies' && method === 'POST') {
-      const b = body as { name: string; rules: Rule[]; project_id?: string | null; enabled?: boolean };
+      const b = body as { name: string; rules: Rule[]; project_id?: string | null; enabled?: boolean; log_only?: boolean; reason?: string };
       if (state.policies.some((x) => x.name === b.name)) return json(409, { error: 'a policy with this name already exists in this organization' });
       const err = validateRules(state, b.rules);
       if (err) return json(400, { error: err });
@@ -1390,19 +1449,57 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
         description: null,
         version: 1,
         enabled: b.enabled ?? true,
+        log_only: b.log_only === true,
         rules: withIds(b.rules),
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
       state.policies.push(p);
-      return json(201, { id: p.id });
+      recordVersion(state, p, 'create', b.reason ?? null);
+      return json(201, { id: p.id, version: 1 });
     }
     if (sub === '/policies/simulate' && method === 'POST') return json(200, simulate(state, body as Parameters<typeof simulate>[1]));
+    // Policy history (migration 026).
+    if ((mm = /^\/policies\/([^/]+)\/versions$/.exec(sub)) && method === 'GET') {
+      const p = state.policies.find((x) => x.id === mm?.[1]);
+      if (!p) return json(404, { error: 'not found' });
+      return json(200, { items: state.policyVersions[p.id] ?? [], current: p.version });
+    }
+    if ((mm = /^\/policies\/([^/]+)\/versions\/diff$/.exec(sub)) && method === 'GET') {
+      const p = state.policies.find((x) => x.id === mm?.[1]);
+      if (!p) return json(404, { error: 'not found' });
+      const list = state.policyVersions[p.id] ?? [];
+      const to = Number(url.searchParams.get('to') ?? p.version);
+      const from = Number(url.searchParams.get('from') ?? to - 1);
+      const a = list.find((v) => v.version === from);
+      const b = list.find((v) => v.version === to);
+      if (!a || !b) return json(404, { error: `no version ${from} or ${to} of this policy` });
+      return json(200, diffVersions(a, b));
+    }
+    if ((mm = /^\/policies\/([^/]+)\/rollback$/.exec(sub)) && method === 'POST') {
+      if (opts.role === 'viewer' || opts.role === 'member') return json(403, { error: 'requires role admin' });
+      const p = state.policies.find((x) => x.id === mm?.[1]);
+      if (!p) return json(404, { error: 'not found' });
+      const b = (body ?? {}) as { version?: number; reason?: string };
+      const want = b.version !== undefined && b.version > 0 ? b.version : p.version - 1;
+      const target = (state.policyVersions[p.id] ?? []).find((v) => v.version === want);
+      if (!target) return json(404, { error: 'no such version of this policy' });
+      p.name = target.name;
+      p.description = target.description;
+      p.project_id = target.project_id;
+      p.enabled = target.enabled;
+      p.log_only = target.log_only;
+      p.rules = target.rules.map((r) => ({ ...r }));
+      p.version += 1;
+      p.updated_at = new Date().toISOString();
+      recordVersion(state, p, 'rollback', b.reason ?? null, target.version);
+      return json(200, { id: p.id, version: p.version, rolled_back_to: target.version });
+    }
     if ((mm = /^\/policies\/([^/]+)$/.exec(sub))) {
       const p = state.policies.find((x) => x.id === mm?.[1]);
       if (!p) return json(404, { error: 'not found' });
       if (method === 'PUT') {
-        const b = body as { name?: string; rules?: Rule[]; enabled?: boolean };
+        const b = body as { name?: string; rules?: Rule[]; enabled?: boolean; log_only?: boolean; reason?: string };
         if (b.name && b.name !== p.name && state.policies.some((x) => x.name === b.name)) {
           return json(409, { error: 'a policy with this name already exists in this organization' });
         }
@@ -1413,8 +1510,11 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
         }
         if (b.name) p.name = b.name;
         if (b.enabled !== undefined) p.enabled = b.enabled;
+        if (b.log_only !== undefined) p.log_only = b.log_only;
         p.version += 1;
-        return json(200, { id: p.id, updated: true });
+        p.updated_at = new Date().toISOString();
+        recordVersion(state, p, 'update', b.reason ?? null);
+        return json(200, { id: p.id, updated: true, version: p.version });
       }
       if (method === 'DELETE') {
         state.policies = state.policies.filter((x) => x !== p);

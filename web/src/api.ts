@@ -44,6 +44,9 @@ import type {
   PermissionMatrix,
   Policy,
   PolicyInput,
+  PolicyDiff,
+  PolicyVersions,
+  RollbackResult,
   PolicySchema,
   Project,
   Role,
@@ -579,6 +582,24 @@ export class ApiClient {
 
   deletePolicy(orgId: UUID, id: UUID): Promise<void> {
     return this.request('DELETE', `/organizations/${enc(orgId)}/policies/${enc(id)}`);
+  }
+
+  // ── Policy history (migration 026) ────────────────────────────────────────
+
+  /** Every saved version of a policy, newest first, and the current version number. */
+  async listPolicyVersions(orgId: UUID, id: UUID): Promise<PolicyVersions> {
+    const r = await this.request<PolicyVersions>('GET', `/organizations/${enc(orgId)}/policies/${enc(id)}/versions`);
+    return { current: r.current, items: r.items.map((v) => ({ ...v, rules: Array.isArray(v.rules) ? v.rules : [] })) };
+  }
+
+  /** The changes between two versions (fields and rules by id). */
+  diffPolicyVersions(orgId: UUID, id: UUID, from: number, to: number): Promise<PolicyDiff> {
+    return this.request('GET', `/organizations/${enc(orgId)}/policies/${enc(id)}/versions/diff`, { query: { from, to } });
+  }
+
+  /** Restores a version (the one before the current when omitted) as a new version. */
+  rollbackPolicy(orgId: UUID, id: UUID, input: { version?: number; reason?: string }): Promise<RollbackResult> {
+    return this.request('POST', `/organizations/${enc(orgId)}/policies/${enc(id)}/rollback`, { body: input });
   }
 
   simulate(orgId: UUID, req: SimulateRequest): Promise<SimulateResponse> {

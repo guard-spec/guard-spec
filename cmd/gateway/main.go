@@ -426,6 +426,9 @@ type requestEntry struct {
 	// before the request went upstream, by kind (input_pii_protect.go).
 	PIIAction    string
 	PIIProtected outputguard.Counts
+	// LogOnly lists what the org's log-only policies would have decided
+	// (tags policy:would_<action>=<rule id>); nothing was done about it.
+	LogOnly []policy.LogOnlyMatch
 	// RouteTarget is the named upstream the request went to, or was meant to
 	// go to when it failed closed; "" for UPSTREAM_LLM_URL and the stub.
 	RouteTarget string
@@ -574,7 +577,36 @@ func auditTags(e requestEntry) []string {
 		// The conversation window decided; the row's label and score are its.
 		tags = append(tags, "input:signal="+sourceConversation)
 	}
+	for _, m := range e.LogOnly {
+		tags = append(tags, logOnlyTag(m))
+	}
 	return tags
+}
+
+// logOnlyTag is how a log-only policy's match appears in the request log:
+// "policy:would_block=<rule id>" for a rule that would have blocked.
+func logOnlyTag(m policy.LogOnlyMatch) string {
+	return "policy:would_" + string(m.Action) + "=" + m.RuleID.String()
+}
+
+// recordPolicyMatches keeps the rule the row names: the deciding rule, else
+// the first rule a log-only policy would have decided with, else the first
+// log rule; and every log-only match for the tags.
+func recordPolicyMatches(entry *requestEntry, decision policy.Decision) {
+	entry.RuleID = decision.RuleID
+	entry.LogOnly = decision.LogOnly
+	if len(decision.LogOnly) > 0 {
+		slog.Info("log-only policy rules matched", "rules", decision.LogOnly)
+		if entry.RuleID == uuid.Nil {
+			entry.RuleID = decision.LogOnly[0].RuleID
+		}
+	}
+	if len(decision.Logged) > 0 {
+		slog.Info("policy log rules matched", "rules", decision.Logged)
+		if entry.RuleID == uuid.Nil {
+			entry.RuleID = decision.Logged[0] // the row has room for one rule
+		}
+	}
 }
 
 // logRequest writes one requests row without content encryption, logging a
@@ -1094,13 +1126,7 @@ func proxyHandler(gw gateway, f apiFormat) fiber.Handler {
 			slog.Error("policy evaluation failed", "org", entry.OrgID, "err", err)
 			return policyUnavailable(c)
 		}
-		entry.RuleID = decision.RuleID
-		if len(decision.Logged) > 0 {
-			slog.Info("policy log rules matched", "rules", decision.Logged)
-			if entry.RuleID == uuid.Nil {
-				entry.RuleID = decision.Logged[0] // the row has room for one rule
-			}
-		}
+		recordPolicyMatches(&entry, decision)
 		switch decision.Action {
 		case policy.ActionAllow, policy.ActionRoute:
 		case policy.ActionBlock:

@@ -42,6 +42,7 @@ function draft(over: Partial<EditablePolicy> = {}): EditablePolicy {
     description: null,
     project_id: null,
     enabled: false,
+    log_only: false,
     created_at: '',
     rules: [makeRule('r')],
     dirty: true,

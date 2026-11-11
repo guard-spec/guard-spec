@@ -39,6 +39,7 @@ const AccountPage = lazy(() => import('./pages/AccountPage'));
 const AdminUsersPage = lazy(() => import('./pages/AdminUsersPage'));
 const IdentityProvidersPage = lazy(() => import('./pages/IdentityProvidersPage'));
 const ProvisioningPage = lazy(() => import('./pages/ProvisioningPage'));
+const PolicyHistoryPage = lazy(() => import('./pages/PolicyHistoryPage'));
 const AlertRulesPage = lazy(() => import('./alerts/RulesPage'));
 const ChannelsPage = lazy(() => import('./alerts/ChannelsPage'));
 const GroupsPage = lazy(() => import('./alerts/GroupsPage'));
@@ -53,6 +54,7 @@ const ORG_PAGES: Partial<Record<Route, ComponentType>> = {
   guard: GuardPage,
   exemplars: ExemplarsPage,
   simulator: SimulatorPage,
+  'policy-history': PolicyHistoryPage,
   providers: ProvidersPage,
   projects: ProjectsPage,
   models: ModelsPage,

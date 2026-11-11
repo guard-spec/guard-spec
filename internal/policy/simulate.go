@@ -18,12 +18,16 @@ type TraceEntry struct {
 	Matched  bool       `json:"matched"`
 	Action   Action     `json:"action"`
 	Error    string     `json:"error"`
+	// LogOnly: the rule matched in a log-only policy, so its action was
+	// recorded and not applied.
+	LogOnly bool `json:"log_only,omitempty"`
 }
 
 // SimPolicy is a policy to simulate. ID is nil for an unsaved rule list.
 type SimPolicy struct {
-	ID    *uuid.UUID
-	Rules []Rule
+	ID      *uuid.UUID
+	Rules   []Rule
+	LogOnly bool
 }
 
 // Simulate runs every rule of policies, in order, and reports each outcome.
@@ -73,7 +77,7 @@ func (e *Engine) Simulate(ctx context.Context, policies []SimPolicy, v *Vars) (t
 		if c.program == nil {
 			continue
 		}
-		rule := ruleAt(policies, i)
+		rule, pol := ruleAt(policies, i)
 		out, details, err := c.program.ContextEval(ctx, activation)
 		if err == nil && (details == nil || details.ActualCost() == nil) {
 			err = errors.New("evaluation cost not tracked")
@@ -105,22 +109,28 @@ func (e *Engine) Simulate(ctx context.Context, policies []SimPolicy, v *Vars) (t
 			decision.Logged = append(decision.Logged, rule.ID)
 			continue
 		}
+		if pol.LogOnly {
+			t.LogOnly = true
+			decision.LogOnly = append(decision.LogOnly, LogOnlyMatch{RuleID: rule.ID, RuleName: rule.Name, Action: rule.Action})
+			continue
+		}
 		decided = true
 		decision = Decision{Matched: true, Action: rule.Action, RuleID: rule.ID, RuleName: rule.Name,
-			RouteTarget: rule.RouteTarget, Logged: decision.Logged}
+			RouteTarget: rule.RouteTarget, Logged: decision.Logged, LogOnly: decision.LogOnly}
 	}
 	return trace, decision, failed
 }
 
-// ruleAt returns the i-th rule across policies.
-func ruleAt(policies []SimPolicy, i int) *Rule {
-	for _, p := range policies {
+// ruleAt returns the i-th rule across policies, with its policy.
+func ruleAt(policies []SimPolicy, i int) (*Rule, *SimPolicy) {
+	for pi := range policies {
+		p := &policies[pi]
 		if i < len(p.Rules) {
-			return &p.Rules[i]
+			return &p.Rules[i], p
 		}
 		i -= len(p.Rules)
 	}
-	return nil
+	return nil, nil
 }
 
 // VarsFromMap builds rule inputs from field names, for the simulator. Fields

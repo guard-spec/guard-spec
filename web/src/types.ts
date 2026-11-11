@@ -102,6 +102,8 @@ export interface Policy {
   description: string | null;
   version: number;
   enabled: boolean;
+  /** Decisions are recorded in the request log (policy:would_<action> tags), not applied (migration 026). */
+  log_only?: boolean;
   rules: Rule[];
   created_at: string;
   updated_at: string;
@@ -113,6 +115,67 @@ export interface PolicyInput {
   rules: Rule[];
   project_id?: UUID | null;
   enabled?: boolean;
+  log_only?: boolean;
+  /** Kept with the version the save creates (at most 500 characters). */
+  reason?: string;
+}
+
+// ── Policy history (migration 026) ──────────────────────────────────────────
+
+export type PolicyVersionKind = 'create' | 'update' | 'rollback' | 'config';
+
+export interface PolicyVersion {
+  version: number;
+  kind: PolicyVersionKind;
+  name: string;
+  description: string | null;
+  project_id: UUID | null;
+  enabled: boolean;
+  log_only: boolean;
+  rules: Rule[];
+  author: { id: UUID | null; email: string | null } | null;
+  reason: string | null;
+  /** A rollback: the version it restored. */
+  rolled_back_to: number | null;
+  created_at: string;
+}
+
+/** GET /organizations/:orgId/policies/:id/versions: newest first. */
+export interface PolicyVersions {
+  items: PolicyVersion[];
+  current: number;
+}
+
+export interface PolicyFieldChange {
+  field: 'name' | 'description' | 'project_id' | 'enabled' | 'log_only';
+  from: unknown;
+  to: unknown;
+}
+
+export interface PolicyRuleChange {
+  op: 'added' | 'removed' | 'changed' | 'moved';
+  rule_id: UUID;
+  name: string;
+  from?: Rule;
+  to?: Rule;
+  /** 0-based positions; -1 when the rule is not in that version. */
+  from_index: number;
+  to_index: number;
+}
+
+/** GET .../versions/diff?from=&to= */
+export interface PolicyDiff {
+  from: number;
+  to: number;
+  fields: PolicyFieldChange[];
+  rules: PolicyRuleChange[];
+}
+
+/** POST .../policies/:id/rollback */
+export interface RollbackResult {
+  id: UUID;
+  version: number;
+  rolled_back_to: number;
 }
 
 // ── Guard settings ──────────────────────────────────────────────────────────
@@ -444,6 +507,15 @@ export interface TraceEntry {
   matched: boolean;
   action: Action;
   error?: string;
+  /** Matched in a log-only policy: recorded, not applied. */
+  log_only?: boolean;
+}
+
+/** A rule of a log-only policy that would have decided. */
+export interface LogOnlyMatch {
+  rule_id: UUID;
+  rule_name: string;
+  action: Action;
 }
 
 export type UpstreamSource = 'rule' | 'project' | 'org' | 'env' | 'stub';
@@ -457,6 +529,7 @@ export interface SimulateResponse {
     rule_name?: string;
     route_target?: string | null;
     logged?: UUID[];
+    log_only?: LogOnlyMatch[];
     error?: string;
   };
   /** error is set when the chosen upstream is missing or disabled (502). */
