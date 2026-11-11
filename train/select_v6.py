@@ -141,7 +141,7 @@ def gates_for(arm, rep, ref):
     g["G4"] = dict(ok=a <= b, value=a, v3b=b, what="eval/embedded dev FPR at 0.85 (tool path, corroboration off) <= v3b")
     a, b = top(rep["val_v3"], "at_0.85", "tpr"), top(ref["v3b"]["val_v3"], "at_0.85", "tpr")
     g["G5"] = dict(ok=a >= b - G5_MARGIN - 1e-12, value=a, v3b=b, margin=G5_MARGIN,
-                   n_attack=rep["val_v3"].get("n_attack"),
+                   n_attack=rep["val_v3"]["groups"]["all"].get("n_attack"),
                    what="val_v3 (the v4-A build's selection split, direct path) TPR at 0.85 >= v3b - 0.01")
     blocked, docs, cells = bench_dev_fpr(rep["bench"])
     g["G6"] = dict(ok=docs > 0 and blocked / docs <= G6_MAX_FPR, value=blocked / docs if docs else float("nan"),
@@ -160,11 +160,11 @@ def gates_for(arm, rep, ref):
 
 
 def top(report, metric, field):
-    """<metric>.<field> of a cmd/eval -json report over all its rows (G5 reads the whole val_v3 file)."""
+    """groups.all.<metric>.<field> of a cmd/eval -json report: all its rows (G5 reads the whole val_v3 file)."""
     try:
-        return report[metric][field]
+        return report["groups"]["all"][metric][field]
     except (KeyError, TypeError):
-        raise SystemExit(f"cmd/eval report without {metric}.{field}")
+        raise SystemExit(f"cmd/eval report without groups.all.{metric}.{field}")
 
 
 def rank_key(arm, gates):

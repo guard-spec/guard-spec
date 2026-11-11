@@ -32,7 +32,7 @@ def eval_rep(metric, fields, latency=5000.0):
 
 
 def val_v3_rep(tpr):
-    return {"at_0.85": {"tpr": tpr, "fpr": 0.0}, "n_attack": 31, "slices": {"dev": {"at_0.85": {"tpr": 0.0}}}}
+    return {"groups": {"all": {"at_0.85": {"tpr": tpr, "fpr": 0.0}, "n_attack": 31}}, "slices": {"dev": {"at_0.85": {"tpr": 0.0}}}}
 
 
 def bench_rep(fpr100=(0.0, 0.0), fpr200=(0.0, 0.0), prose_tpr=0.9, control_tpr=0.9, cap=True):
