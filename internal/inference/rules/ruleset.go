@@ -339,8 +339,16 @@ func New() *Engine {
 			"never says it can t", "never says it cannot", "never say you can t", "can do anything",
 			"khong bao gio noi", "lam duoc moi thu", "khong duoc thoat vai", "never break character",
 			"without breaking character", "do not break character", "don t break character"))})
+	// "without warning and" is an idiom of narrative prose: "without" counts
+	// only with the plural, a disclaimer or a gerund (RF-895d3533 R5).
+	b.add(rule{id: "jb.refusal_suppression.without", cat: Jailbreak, w: 0.7, gap: 6,
+		seq: seq(b.t("without"),
+			b.t("warnings", "disclaimers", "disclaimer", "apologies", "apologizing", "apologising", "refusing",
+				"refusals", "moralizing", "moralising", "lecturing", "caveats", "any warning", "any warnings",
+				"any disclaimer", "any disclaimers"),
+			b.t("again", "ever", "any", "and", "just", "simply", "or"))})
 	b.add(rule{id: "jb.refusal_suppression", cat: Jailbreak, w: 0.7, gap: 6,
-		seq: seq(b.t("do not", "don t", "never", "without", "khong", "dung", "khong duoc"),
+		seq: seq(b.t("do not", "don t", "never", "khong", "dung", "khong duoc"),
 			b.t("apologize", "apologise", "warn", "warning", "warnings", "disclaimers", "disclaimer",
 				"say you can t", "say you cannot", "refuse", "mention ethics", "moralize", "lecture",
 				"xin loi", "canh bao", "tu choi", "giang dao duc"),
@@ -589,12 +597,26 @@ func New() *Engine {
 			"repeat the text above", "repeat your instructions", "starting with you are",
 			"begin with you are", "the first line of your", "ban duoc huong dan gi", "ban duoc dan gi",
 			"ban duoc lap trinh", "ban khong duoc phep lam gi", "nhung gi viet o tren"))})
+	pwWord := b.t("password", "secret", "mat khau", "bi mat", "passcode", "the word")
 	b.add(rule{id: "pe.password_tricks", cat: PromptExtraction, w: 0.75, gap: 6, anyOrder: true,
-		seq: seq(b.t("password", "secret", "mat khau", "bi mat", "passcode", "the word"),
+		seq: seq(pwWord,
 			b.t("backwards", "reversed", "in reverse", "letter by letter", "each letter", "every letter",
-				"spell", "spelled", "with spaces", "base64", "hex", "encode", "encoded", "hint", "riddle",
+				"spell", "spelled", "with spaces", "hint", "riddle",
 				"rhyme", "poem", "acrostic", "first letter", "characters of", "synonym", "translate",
-				"nguoc", "tung chu", "tung ky tu", "goi y", "ma hoa", "bai tho", "chu cai dau", "dich"))})
+				"nguoc", "tung chu", "tung ky tu", "goi y", "bai tho", "chu cai dau", "dich"))})
+	// An encoding of a password is what documentation about secrets describes
+	// ("encode the password with base64"): it is a trick only when the text
+	// also asks for it to be disclosed (RF-895d3533 R5).
+	pwEncode := b.t("base64", "hex", "encode", "encoded", "ma hoa")
+	pwDisclose := b.t("reveal", "tell me", "tell us", "give me", "say", "print", "output", "write", "write out",
+		"spell", "show me", "share", "provide", "send me", "what is", "what s", "tiet lo", "cho toi biet",
+		"noi cho toi", "in ra", "viet ra", "dua cho toi", "cho biet", "cho minh biet", "noi ra")
+	b.add(rule{id: "pe.password_encoded", cat: PromptExtraction, w: 0.75, gap: 6,
+		seq: seq(pwDisclose, pwWord, pwEncode)})
+	b.add(rule{id: "pe.password_encoded.post", cat: PromptExtraction, w: 0.75, gap: 6,
+		seq: seq(pwEncode, pwWord, pwDisclose)})
+	b.add(rule{id: "pe.password_encoded.pre", cat: PromptExtraction, w: 0.75, gap: 6,
+		seq: seq(pwWord, pwEncode, pwDisclose)})
 	b.add(rule{id: "pe.ignore_then_reveal", decisive: true, cat: PromptExtraction, w: 0.95, gap: 14, crossSent: true,
 		seq: seq(overrideVerb, target, peVerb, peTarget)})
 	b.cue(peTarget)
@@ -706,16 +728,22 @@ func New() *Engine {
 		"don t inform", "do not notify", "do not reveal this", "do not show the user", "never tell the user",
 		"never mention", "without telling", "without informing", "without notifying", "without the user",
 		"without asking", "user must not know", "user should not know", "user does not need to know",
-		"hidden from the user", "silently", "secretly", "quietly", "covertly", "behind the scenes",
+		"hidden from the user", "behind the scenes",
 		"invisible to the user", "do not ask for confirmation", "without confirmation",
 		"khong noi voi nguoi dung", "khong bao nguoi dung", "khong thong bao", "khong cho nguoi dung biet",
 		"dung noi voi nguoi dung", "dung bao nguoi dung", "dung de nguoi dung biet", "dung cho nguoi dung biet",
-		"khong duoc noi", "khong duoc de cap", "dung de cap", "am tham", "lang le", "mot cach bi mat", "giau",
+		"khong duoc noi", "khong duoc de cap", "dung de cap", "mot cach bi mat",
 		"khong can xac nhan", "khong hoi y kien", "do not ask the user", "don t ask the user", "without asking",
 		"khong can hoi nguoi dung", "tuyet doi khong", "do not mention this note", "khong nhac den",
 		"dung nhac toi", "dung nhac den", "khong nhac toi",
 	)
 	b.add(rule{id: "tp.secrecy", cat: ToolPoisoning, w: 0.55, gap: 1, seq: seq(secrecy)})
+	// A single adverb of secrecy ("quietly", "secretly", "lặng lẽ", "giấu") is
+	// ordinary in prose: alone it stays under the corroboration bar (0.5), and
+	// it makes a hidden note only with an action in the same sentence
+	// (RF-895d3533 R5).
+	secrecyWord := b.t("silently", "secretly", "quietly", "covertly", "am tham", "lang le", "giau")
+	b.add(rule{id: "tp.secrecy.word", cat: ToolPoisoning, w: 0.45, gap: 1, seq: seq(secrecyWord)})
 	toolHook := b.t("before using this tool", "before calling this tool", "before you use this tool",
 		"when this tool is called", "whenever this tool", "every time this tool", "when using this tool",
 		"after calling this tool", "before using any", "before calling any", "each time you call",
@@ -773,9 +801,20 @@ func New() *Engine {
 	b.add(rule{id: "tp.run_download", cat: ToolPoisoning, w: 0.85, gap: 8, needFlag: "dest",
 		seq: seq(b.t("download", "install", "curl", "wget", "tai", "cai dat", "tai ve"),
 			b.t("run it", "run", "execute", "sudo", "chay", "thuc thi", "bash", "sh"))})
+	noteAction := b.or(imperative, sendVerb, b.t("translate", "recommend", "add a link", "include a link",
+		"dich", "gioi thieu", "them lien ket", "chen lien ket"))
 	b.add(rule{id: "ii.hidden_note", cat: IndirectInjection, w: 0.85, gap: 8, crossSent: true,
-		seq: seq(secrecy, b.or(imperative, sendVerb, b.t("translate", "recommend", "add a link", "include a link",
-			"dich", "gioi thieu", "them lien ket", "chen lien ket")))})
+		seq: seq(secrecy, noteAction)})
+	// The single adverbs: an action of the note's kind in the same sentence;
+	// the vaguest imperatives ("làm", "nói", "in", "only") do not count with
+	// them.
+	b.add(rule{id: "ii.hidden_note.word", cat: IndirectInjection, w: 0.85, gap: 8,
+		seq: seq(secrecyWord, b.or(sendVerb, b.t("translate", "recommend", "add a link", "include a link",
+			"dich", "gioi thieu", "them lien ket", "chen lien ket", "say", "print", "tell", "write", "output",
+			"respond", "reply", "answer", "reveal", "execute", "run", "follow", "obey", "lam theo", "nghe theo",
+			"tuan theo", "thuc hien", "tra loi", "tiet lo", "gui", "phan hoi", "liet ke",
+			"change", "replace", "set", "modify", "update", "alter", "redirect", "delete", "remove",
+			"thay", "thay doi", "doi", "sua", "xoa")))})
 	b.add(rule{id: "ii.future_replies", cat: IndirectInjection, w: 0.6, gap: 1,
 		seq: seq(b.t("every future reply", "all future replies", "every future response", "all future responses",
 			"every reply", "every response", "all your replies", "all subsequent", "each reply", "all replies",
@@ -873,7 +912,8 @@ func New() *Engine {
 	// ------------------------------------------------- obfuscation
 	b.add(rule{id: "obf.decode_follow", cat: Obfuscation, w: 0.85, gap: 10,
 		seq: seq(b.t("decode", "decrypt", "deobfuscate", "reverse", "read backwards", "rot13", "base64",
-			"backwards", "in reverse", "reversed", "giai ma", "dao nguoc", "doc nguoc", "nguoc lai"),
+			// not "ngược lại" alone: "on the contrary" in Vietnamese prose (R5)
+			"backwards", "in reverse", "reversed", "giai ma", "dao nguoc", "doc nguoc", "doc nguoc lai"),
 			b.t("follow", "execute", "do", "run", "obey", "act on", "perform", "carry out", "comply",
 				"thuc hien", "lam theo", "tuan theo", "chay", "thi hanh"))})
 	b.add(rule{id: "obf.decode", cat: Obfuscation, w: 0.35, gap: 4,
