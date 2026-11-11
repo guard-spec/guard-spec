@@ -118,3 +118,19 @@ The chosen rule's parameters go into the classifier's calibration as an optional
 gateway's long path (`ml.ScoreLong`) and `cmd/benchlong -long on` apply it. Only the v6 package gets it
 (not shipped); the shipped v3b and v5 calibrations are not changed. The short path (texts within the
 16-chunk / 128 KiB limits) is not changed.
+
+## Recorded after the dev fit, before the holdout (2026-11-11)
+
+`r3_dev.{json,md}` (committed before any holdout evaluation): no candidate meets both criteria. On the dev
+slice every window at or above 0.85 in a benign long document is corroborated by L1 (12 windows in 9
+documents; 2 of them L1 floors on a decisive rule with L2 at 0.002 and 0.003, the others an L1 rule with
+L2 at 0.75 to 0.95), so `corr` and `combo` block the same 9 / 65 documents as `base`; the GEV fit of the
+dev windows has a heavy tail (Hosking k −0.25), T(n) is 0.9999 at 64 windows, and `tn` detects none of the
+embedded attacks; `kofn` needs k = 4 and detects 3 of 221. Step 2 of the rule picks `corr` (9 blocked,
+embedded detection 95.5% against 93.8% alone); it does not meet the target.
+
+Decision on the implementation commitment, taken now so that the holdout cannot influence it: the
+`long_doc` parameters of `corr` (min_windows 41, corroborate) are **not** written into the v6 package's
+`calibration.json`. On dev the rule changes no benign decision and loses one embedded detection, so it
+would only cost detection; the mechanism (`ml.LongDoc`, `cmd/benchlong -long on`) stays in the code for a
+rule that meets the target. The holdout evaluation below is run once as planned, `corr` next to `base`.
