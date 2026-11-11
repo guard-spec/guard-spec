@@ -1890,7 +1890,7 @@ export const en = {
   'fp.impact.sameInput': 'Identical requests in the last 7 days: {total}, of which {blocked} refused. An allow exemplar of this text lowers their similarity score (L3) as it does this one\'s.',
   'fp.impact.noHash': 'This request has no stored hash, so identical requests cannot be counted.',
   'fp.impact.sameRule': 'The policy rule that refused it decided {total} requests in the last 7 days ({blocked} refused).',
-  'fp.impact.threshold': 'The detector refused {n} requests in the last 7 days with a score of {score} or less (this one included): raising the block threshold above {score} would let all of them through.',
+  'fp.impact.threshold': 'Detector refusals in the last 7 days with a score of {score} or less (this one included): {n}. Raising the block threshold above {score} would let all of them through.',
   'fp.impact.aboveDefault': 'The score {score} is at or above the gateway\'s block threshold ({threshold}); the organization\'s threshold can only be stricter, so only an allow exemplar or a model fix lets this text through.',
   'fp.impact.limit': 'Limit: the control plane has neither the texts nor the detector\'s models, so it cannot score other requests again to tell exactly which ones an exemplar would flip. These counts come from the stored scores and hashes.',
   'fp.impact.unavailable': 'This control plane cannot preview the impact (an older version).',

@@ -61,7 +61,7 @@ test('a request the detector refused: what a threshold change would let through'
   mock.guard.injection_threshold = 0.6;
   const dialog = await openDetails(page, 2);
   const impact = dialog.getByTestId('impact');
-  await expect(impact).toContainText('The detector refused 1 requests in the last 7 days with a score of 0.70 or less');
+  await expect(impact).toContainText('Detector refusals in the last 7 days with a score of 0.70 or less (this one included): 1.');
   await expect(dialog.getByTestId('fp-rule-note')).toHaveCount(0);
 
   await dialog.getByRole('button', { name: 'Close' }).click();
