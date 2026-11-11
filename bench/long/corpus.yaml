@@ -120,6 +120,497 @@ sources:
     terms: Wikimedia API with a descriptive User-Agent, per the Wikimedia User-Agent policy.
     sha256: 29e96b3cdfad5e349bafccf08b85b7905a7f2842c79475fc4c4c1a00bbea5eb3
 
+  # ---------------------------------------------------------------------
+  # Sources of the `long` profile (2026-11-11, RF-895d3533 R2b): benign
+  # documents of 100k and 200k tokens, about 30 per language and size, in
+  # several genres. Their text is disjoint from the sources above (other row
+  # groups, titles, files and pages), so the `long` documents never repeat a
+  # quick/full document. Several sources of one genre and language make one
+  # pool, their units interleaved (build.py). exclude.json lists, per source,
+  # the units that share a 50-token shingle with a v6 training or validation
+  # row (train/data/bench_guard.py); build.py skips them after checking the
+  # source's sha256 (which pins the extraction before the exclusion).
+  wikipedia2-en:
+    lang: en
+    genre: wiki
+    kind: hf-parquet
+    repo: wikimedia/wikipedia
+    revision: b04c8d1ceb2f5cd4588862100d08de323dccfbaa
+    file: 20231101.en/train-00000-of-00041.parquet
+    file_sha256: 382e7f6f09e488b24793a7f7cfc659879d5a22da2cf2efec6491665f0c019677
+    row_groups: [1, 2] # articles 1,000 to 2,999 of the file (row group 0 is wikipedia-en)
+    license: CC-BY-SA-3.0 / GFDL
+    terms: Dataset card license field; used locally for measurement, never redistributed.
+    sha256: 15e3aa07e9f237f38c239829fcccfd83625a6c8c6cc2efa601b5345b0889834a
+  wikipedia2-vi:
+    lang: vi
+    genre: wiki
+    kind: hf-parquet
+    repo: wikimedia/wikipedia
+    revision: b04c8d1ceb2f5cd4588862100d08de323dccfbaa
+    file: 20231101.vi/train-00000-of-00004.parquet
+    file_sha256: ec53cc9899be9287b10785c794745eeef94b2df52970ba2ebd1808bfa8d1599a
+    row_groups: [1, 2, 3]
+    license: CC-BY-SA-3.0 / GFDL
+    terms: Dataset card license field; used locally for measurement, never redistributed.
+    sha256: d980826c3ab26ed8038141d342f2748c5224cbfa3e5e9c412bff661259863b12
+  uscode2-en:
+    lang: en
+    genre: legal
+    kind: http-html
+    # Further titles of the United States Code, 2023 main edition (GovInfo):
+    # 5 (Government Organization and Employees), 7 (Agriculture), 10 (Armed
+    # Forces), 12 (Banks and Banking), 15 (Commerce and Trade), 18 (Crimes
+    # and Criminal Procedure) and 29 (Labor).
+    urls:
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title5/html/USCODE-2023-title5.htm
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title7/html/USCODE-2023-title7.htm
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title10/html/USCODE-2023-title10.htm
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title12/html/USCODE-2023-title12.htm
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title15/html/USCODE-2023-title15.htm
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title18/html/USCODE-2023-title18.htm
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title29/html/USCODE-2023-title29.htm
+    license: Public domain (17 U.S.C. 105)
+    terms: GovInfo content is public domain U.S. Government work; bulk use is allowed.
+    sha256: 73b2c5478405d8bb7199dac3dee64c74139bd6160b5d2d69a835d16081c27b6b
+  gostd2-en:
+    lang: en
+    genre: code
+    kind: http-text
+    # 184 further files of the Go standard library and toolchain at go1.23.4
+    # (BSD-3-Clause), none of them in gostd-en; files longer than 60,000
+    # characters are cut at line boundaries into several units.
+    base: https://raw.githubusercontent.com/golang/go/go1.23.4/
+    max_unit_chars: 60000
+    paths:
+      - src/runtime/malloc.go
+      - src/runtime/mheap.go
+      - src/runtime/mgcmark.go
+      - src/runtime/chan.go
+      - src/runtime/select.go
+      - src/runtime/map.go
+      - src/runtime/traceback.go
+      - src/runtime/runtime2.go
+      - src/runtime/stack.go
+      - src/runtime/sema.go
+      - src/runtime/time.go
+      - src/runtime/netpoll.go
+      - src/runtime/panic.go
+      - src/runtime/mprof.go
+      - src/runtime/symtab.go
+      - src/runtime/mbitmap.go
+      - src/runtime/mgcsweep.go
+      - src/net/dial.go
+      - src/net/dnsclient_unix.go
+      - src/net/http/client.go
+      - src/net/http/request.go
+      - src/net/http/response.go
+      - src/net/http/fs.go
+      - src/net/http/cookie.go
+      - src/net/http/httputil/reverseproxy.go
+      - src/net/http/transfer.go
+      - src/net/url/url.go
+      - src/net/netip/netip.go
+      - src/net/textproto/reader.go
+      - src/net/mail/message.go
+      - src/net/rpc/server.go
+      - src/go/types/check.go
+      - src/go/types/call.go
+      - src/go/types/decl.go
+      - src/go/types/stmt.go
+      - src/go/types/typexpr.go
+      - src/go/types/infer.go
+      - src/go/types/unify.go
+      - src/go/types/lookup.go
+      - src/go/types/operand.go
+      - src/go/types/assignments.go
+      - src/go/types/conversions.go
+      - src/go/types/predicates.go
+      - src/go/types/resolver.go
+      - src/go/types/signature.go
+      - src/go/types/typeset.go
+      - src/go/types/universe.go
+      - src/go/types/api.go
+      - src/go/types/builtins.go
+      - src/go/types/index.go
+      - src/go/types/named.go
+      - src/go/types/subst.go
+      - src/go/types/typestring.go
+      - src/crypto/tls/conn.go
+      - src/crypto/tls/handshake_client.go
+      - src/crypto/tls/common.go
+      - src/crypto/tls/key_agreement.go
+      - src/crypto/tls/handshake_messages.go
+      - src/crypto/tls/handshake_client_tls13.go
+      - src/crypto/tls/handshake_server_tls13.go
+      - src/crypto/tls/cipher_suites.go
+      - src/crypto/x509/x509.go
+      - src/crypto/x509/verify.go
+      - src/crypto/x509/parser.go
+      - src/crypto/rsa/rsa.go
+      - src/math/big/int.go
+      - src/math/big/float.go
+      - src/math/big/ratconv.go
+      - src/math/big/natconv.go
+      - src/math/big/natdiv.go
+      - src/math/big/floatconv.go
+      - src/math/big/prime.go
+      - src/math/big/rat.go
+      - src/encoding/json/encode.go
+      - src/encoding/json/stream.go
+      - src/encoding/json/scanner.go
+      - src/encoding/xml/marshal.go
+      - src/encoding/xml/xml.go
+      - src/encoding/xml/read.go
+      - src/encoding/xml/typeinfo.go
+      - src/encoding/gob/decode.go
+      - src/encoding/gob/encode.go
+      - src/encoding/gob/type.go
+      - src/encoding/asn1/asn1.go
+      - src/encoding/asn1/marshal.go
+      - src/encoding/csv/reader.go
+      - src/encoding/binary/binary.go
+      - src/database/sql/convert.go
+      - src/os/file.go
+      - src/os/exec/exec.go
+      - src/os/file_unix.go
+      - src/text/template/exec.go
+      - src/text/template/parse/parse.go
+      - src/text/template/parse/lex.go
+      - src/text/template/funcs.go
+      - src/html/template/escape.go
+      - src/html/template/js.go
+      - src/regexp/regexp.go
+      - src/regexp/syntax/parse.go
+      - src/regexp/syntax/compile.go
+      - src/regexp/exec.go
+      - src/regexp/onepass.go
+      - src/regexp/backtrack.go
+      - src/strconv/ftoa.go
+      - src/strconv/atof.go
+      - src/strconv/quote.go
+      - src/strconv/eisel_lemire.go
+      - src/time/format.go
+      - src/time/time.go
+      - src/time/zoneinfo.go
+      - src/time/zoneinfo_read.go
+      - src/time/sleep.go
+      - src/sync/pool.go
+      - src/sync/map.go
+      - src/sync/rwmutex.go
+      - src/sort/sort.go
+      - src/bufio/bufio.go
+      - src/bufio/scan.go
+      - src/bytes/buffer.go
+      - src/bytes/bytes.go
+      - src/strings/strings.go
+      - src/strings/replace.go
+      - src/io/io.go
+      - src/io/fs/fs.go
+      - src/context/context.go
+      - src/flag/flag.go
+      - src/fmt/print.go
+      - src/fmt/scan.go
+      - src/fmt/format.go
+      - src/log/slog/handler.go
+      - src/log/slog/logger.go
+      - src/log/slog/value.go
+      - src/archive/tar/reader.go
+      - src/archive/tar/writer.go
+      - src/archive/tar/common.go
+      - src/archive/zip/reader.go
+      - src/archive/zip/writer.go
+      - src/archive/zip/struct.go
+      - src/compress/flate/deflate.go
+      - src/compress/flate/inflate.go
+      - src/compress/gzip/gunzip.go
+      - src/image/png/reader.go
+      - src/image/png/writer.go
+      - src/image/jpeg/reader.go
+      - src/mime/multipart/multipart.go
+      - src/path/filepath/path.go
+      - src/reflect/type.go
+      - src/reflect/value.go
+      - src/runtime/pprof/pprof.go
+      - src/testing/testing.go
+      - src/unicode/utf8/utf8.go
+      - src/cmd/go/internal/modload/load.go
+      - src/cmd/go/internal/modload/buildlist.go
+      - src/cmd/go/internal/modget/get.go
+      - src/cmd/go/internal/work/exec.go
+      - src/cmd/go/internal/work/build.go
+      - src/cmd/go/internal/load/pkg.go
+      - src/cmd/go/internal/vcs/vcs.go
+      - src/cmd/compile/internal/ssagen/ssa.go
+      - src/cmd/compile/internal/types2/check.go
+      - src/cmd/compile/internal/walk/order.go
+      - src/cmd/compile/internal/noder/noder.go
+      - src/cmd/compile/internal/escape/escape.go
+      - src/cmd/compile/internal/inline/inl.go
+      - src/cmd/compile/internal/ssa/regalloc.go
+      - src/cmd/compile/internal/ssa/schedule.go
+      - src/cmd/compile/internal/ssa/prove.go
+      - src/cmd/compile/internal/ssa/func.go
+      - src/cmd/compile/internal/ssa/value.go
+      - src/cmd/compile/internal/ssa/compile.go
+      - src/cmd/compile/internal/ssa/rewriteARM64.go
+      - src/cmd/compile/internal/syntax/parser.go
+      - src/cmd/compile/internal/syntax/scanner.go
+      - src/cmd/compile/internal/typecheck/subr.go
+      - src/cmd/link/internal/ld/data.go
+      - src/cmd/link/internal/ld/lib.go
+      - src/cmd/link/internal/ld/dwarf.go
+      - src/cmd/link/internal/ld/macho.go
+      - src/cmd/link/internal/ld/pe.go
+      - src/cmd/link/internal/loader/loader.go
+      - src/cmd/internal/obj/x86/asm6.go
+      - src/cmd/internal/obj/arm64/asm7.go
+      - src/cmd/internal/obj/riscv/obj.go
+      - src/cmd/asm/internal/asm/parse.go
+    license: BSD-3-Clause
+    terms: Source code at a pinned tag, fetched from GitHub raw file URLs; used locally, never redistributed.
+    sha256: e9f2f061eeb65dadbb8f001d12a5b411d6da83e3ae6aa518e60903f7cc2be296
+  k8s-examples-en:
+    lang: en
+    genre: code
+    kind: github-tree
+    # Configuration: the Kubernetes manifests (YAML, JSON) of the kubernetes/website
+    # examples directory (content/en/examples) at a pinned commit; merged with
+    # gostd2-en into the `code` pool (unit by unit, so a document mixes both).
+    repo: kubernetes/website
+    commit: 4c77b36edb121506e7eb2983777e7c4b49f98ab1
+    prefix: content/en/examples
+    tree_sha: 352dac787e3b91ffec29fa3cac2611baa3748304 # the subtree content/en/examples at that commit
+    suffixes: [.yaml, .yml, .json]
+    min_bytes: 500
+    min_chars: 400
+    file_header: "# File: {path}\n"
+    license: CC-BY-4.0 (kubernetes/website LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 7d8a560993048e34320980144bf75aa64cd8028b3ed0028326ec44a043c2b3aa
+  k8s-docs-tasks-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    # Kubernetes documentation (kubernetes/website at a pinned commit of main,
+    # 2026-11-11; CC-BY-4.0): the tasks, concepts and reference sections,
+    # Markdown pages of at least 4,000 bytes, front matter stripped; the
+    # three sections make one `docs` pool. (The Python library reference was
+    # tried first and dropped: its text is in the v6 training data, see
+    # `dropped` below.)
+    repo: kubernetes/website
+    commit: 4c77b36edb121506e7eb2983777e7c4b49f98ab1
+    prefix: content/en/docs/tasks
+    tree_sha: 4a778e791d120448ca35197829dab2368c129ac3
+    suffixes: [.md]
+    min_bytes: 4000
+    strip: front-matter
+    max_unit_chars: 60000
+    license: CC-BY-4.0 (kubernetes/website LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 63d8122fb9b9ff5f429cf7bcbf43d630d852bb89fd7c41fb5cd3aceaef11cb13
+  k8s-docs-reference-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    # The first 120 pages (by path) of the reference section: the command
+    # line tools reference (feature gates, component flags, kubectl) and the
+    # start of the API reference.
+    repo: kubernetes/website
+    commit: 4c77b36edb121506e7eb2983777e7c4b49f98ab1
+    prefix: content/en/docs/reference
+    tree_sha: c43fd1f6abff04194d7bef57cefd77eb657e2cd4
+    suffixes: [.md]
+    min_bytes: 4000
+    max_files: 120
+    strip: front-matter
+    max_unit_chars: 60000
+    license: CC-BY-4.0 (kubernetes/website LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 456196cca3a2aaebab98bad5caca0687c621d95816e8200aed70e7cda121075b
+  k8s-docs-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    # The concepts section (see k8s-docs-tasks-en).
+    repo: kubernetes/website
+    commit: 4c77b36edb121506e7eb2983777e7c4b49f98ab1
+    prefix: content/en/docs/concepts
+    tree_sha: 6bb59ac48cec71d727ea8d2021c51640dabc00d4
+    suffixes: [.md]
+    min_bytes: 4000
+    strip: front-matter
+    max_unit_chars: 60000
+    license: CC-BY-4.0 (kubernetes/website LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: f672e3bbc32e66829d021061fa113166c5f61fc52e3210a2a97d903dcb0c95ab
+  wikisource-en:
+    lang: en
+    genre: prose
+    kind: hf-parquet
+    # Books, essays, speeches and other public-domain texts of the English
+    # Wikisource, from the wikimedia/wikisource dump (dataset card
+    # CC-BY-SA-3.0 / GFDL, like wikimedia/wikipedia above): the first two row
+    # groups (2,000 pages) of the first file.
+    repo: wikimedia/wikisource
+    revision: f31a033f5f3d2107b3e864e578710df104a00baa
+    file: 20231201.en/train-00000-of-00005.parquet
+    file_sha256: ca66d881e1831470ba3cc0fd843158ad37cee15f82843cc599376e3dedd29d51
+    row_groups: [0, 1]
+    license: CC-BY-SA-3.0 / GFDL
+    terms: Dataset card license field; used locally for measurement, never redistributed.
+    sha256: 5171f48fca757904f4ff4e57fda27ce31402118d3e2cd3ae58a4a3a66c24d81c
+  wikisource-vi-laws:
+    lang: vi
+    genre: legal
+    kind: hf-parquet
+    # Vietnamese laws, codes, decrees and the like on the Vietnamese Wikisource
+    # (public domain by law, see wikisource-vi-legal), from the
+    # wikimedia/wikisource dump: every page of the single file whose title
+    # starts with a legal-document word.
+    repo: wikimedia/wikisource
+    revision: f31a033f5f3d2107b3e864e578710df104a00baa
+    file: 20231201.vi/train-00000-of-00001.parquet
+    file_sha256: eb2ed9b6f9a587865de211cc08f51931f85c9736eab553cf3da2aae53d6f53d1
+    row_groups: [0, 1, 2, 3, 4, 5]
+    title_match: '^(Luật|Bộ luật|Hiến pháp|Pháp lệnh|Nghị định|Nghị quyết|Thông tư|Quyết định|Sắc lệnh|Chỉ thị|Hiệp định|Công ước|Điều lệ|Tuyên ngôn|Thông cáo|Lệnh)\b'
+    license: Public domain (Viet Nam IP Law art. 15); dump CC-BY-SA-3.0 / GFDL
+    terms: Dataset card license field; used locally for measurement, never redistributed.
+    sha256: 0904d882c1a983b298d0a4210b8e66208f4241b56349e58e0ce9cb56067a3b66
+  wikisource-vi-prose:
+    lang: vi
+    genre: prose
+    kind: hf-parquet
+    # The other pages of the Vietnamese Wikisource dump: literature, poetry,
+    # history, religious and other public-domain texts.
+    repo: wikimedia/wikisource
+    revision: f31a033f5f3d2107b3e864e578710df104a00baa
+    file: 20231201.vi/train-00000-of-00001.parquet
+    file_sha256: eb2ed9b6f9a587865de211cc08f51931f85c9736eab553cf3da2aae53d6f53d1
+    row_groups: [0, 1, 2, 3, 4, 5]
+    title_exclude: '^(Luật|Bộ luật|Hiến pháp|Pháp lệnh|Nghị định|Nghị quyết|Thông tư|Quyết định|Sắc lệnh|Chỉ thị|Hiệp định|Công ước|Điều lệ|Tuyên ngôn|Thông cáo|Lệnh)\b'
+    license: CC-BY-SA-3.0 / GFDL
+    terms: Dataset card license field; used locally for measurement, never redistributed.
+    sha256: 437f22154db22e21ff28f168057773f866c6f9050daf482554fed50108c2e6a4
+  k8s-docs-vi:
+    lang: vi
+    genre: docs
+    kind: github-tree
+    # Vietnamese technical documentation: the Vietnamese translations of the
+    # Kubernetes, React and Vue documentation sites (CC-BY-4.0 each), pages
+    # whose letters are at least 5% Vietnamese-specific (pages left in English
+    # are skipped), front matter stripped; the three make one `docs` pool.
+    repo: kubernetes/website
+    commit: 4c77b36edb121506e7eb2983777e7c4b49f98ab1
+    prefix: content/vi/docs
+    tree_sha: 0ec49d8e6b4b4720430b099d5442be2d5bf960ba
+    suffixes: [.md]
+    min_bytes: 2000
+    strip: front-matter
+    lang_filter: vi
+    max_unit_chars: 60000
+    license: CC-BY-4.0 (kubernetes/website LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 73985bf67467af577ea29b1722e3866618e7105dfd8bec1fa316b106eb9f81ab
+  react-docs-vi:
+    lang: vi
+    genre: docs
+    kind: github-tree
+    repo: reactjs/vi.react.dev
+    commit: b149357cfb8ae87f02ef108132114e5641d5c16f
+    prefix: src/content
+    tree_sha: a7d570b3cf09e5695b37fb5014602b04b1fd69e4
+    suffixes: [.md]
+    min_bytes: 2000
+    strip: front-matter
+    lang_filter: vi
+    max_unit_chars: 60000
+    license: CC-BY-4.0 (LICENSE-DOCS.md)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 4ff28afad3421d4a9ab9eb35e282e10a51ee5d43e9df79a3da9f4a1e37cefe1b
+  vue-docs-vi:
+    lang: vi
+    genre: docs
+    kind: github-tree
+    repo: vuejs-translations/docs-vi
+    commit: 0969e056b75945999b3c6c0156fdaaee74989150
+    prefix: src
+    tree_sha: 4ff90d2ae8c1350fdc4ddf2206e1167016cdc7b0
+    suffixes: [.md]
+    min_bytes: 2000
+    strip: front-matter
+    lang_filter: vi
+    max_unit_chars: 60000
+    license: CC-BY-4.0 (LICENSE; images excluded)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 12da824980f7306cb4d4596aeb081fe8f2676b7387c5b19b8d554671b717d287
+  rfc-en:
+    lang: en
+    genre: rfc
+    kind: http-text
+    # Technical specifications: 35 RFCs (HTTP, QUIC, TLS, TCP, BGP, SIP, DNS,
+    # IPsec, YANG, NTP, SSH, PKIX, ...) as the RFC Editor's text renderings,
+    # page headers and footers removed. The IETF Trust Legal Provisions
+    # (BCP 78) allow RFCs to be copied and distributed without restriction;
+    # rfc-editor.org/robots.txt allows /rfc/.
+    base: https://www.rfc-editor.org/rfc/
+    file_header: ""
+    strip: rfc
+    max_unit_chars: 60000
+    paths:
+      - rfc9110.txt
+      - rfc9111.txt
+      - rfc9112.txt
+      - rfc9113.txt
+      - rfc9114.txt
+      - rfc9000.txt
+      - rfc9001.txt
+      - rfc9002.txt
+      - rfc8446.txt
+      - rfc5246.txt
+      - rfc5280.txt
+      - rfc9293.txt
+      - rfc7540.txt
+      - rfc6749.txt
+      - rfc3986.txt
+      - rfc5321.txt
+      - rfc5322.txt
+      - rfc8949.txt
+      - rfc4271.txt
+      - rfc3261.txt
+      - rfc6455.txt
+      - rfc4960.txt
+      - rfc7296.txt
+      - rfc6020.txt
+      - rfc7950.txt
+      - rfc3550.txt
+      - rfc5905.txt
+      - rfc4253.txt
+      - rfc1035.txt
+      - rfc8200.txt
+      - rfc4301.txt
+      - rfc2616.txt
+      - rfc8555.txt
+      - rfc8017.txt
+      - rfc5652.txt
+    license: IETF Trust Legal Provisions (BCP 78)
+    terms: RFC Editor text files; used locally for measurement, never redistributed.
+    sha256: 17da8bf716da61768cb8bc38282e5190420e00778633d2572d8cf0758eeee721
+  apache-logs-en:
+    lang: en
+    genre: weblog
+    kind: http-text
+    # Real web server logs: the Apache access log sample of elastic/examples
+    # (Apache-2.0), 10,000 lines, in units of 400 lines.
+    base: https://raw.githubusercontent.com/elastic/examples/6d86454ebb7a850bcd7e80abe86fe683370018a6/
+    file_header: ""
+    unit_lines: 400
+    paths:
+      - Common%20Data%20Formats/apache_logs/apache_logs
+    license: Apache-2.0
+    terms: GitHub raw file URL at a pinned commit; used locally, never redistributed.
+    sha256: fcf40417ae1dba6e08550e603934b9f0b83c2b1a0ae1cd81080e9285c2901784
+
 # Synthetic genres: generated by build.py from a fixed seed (project-written,
 # Apache-2.0). "hardneg" is benign text about prompt injection and security.
 synthetic:
@@ -142,9 +633,13 @@ payloads:
   min_chars: 40
   max_chars: 600
 
+# A profile names its sources (`sources`; all of them when absent) and its
+# synthetic genres (`synthetic`; all when absent). docs_per_size is one number
+# or a map by "<genre>-<lang>", "<genre>" or "default".
 profiles:
   quick:
     # About 0.86M tokens of benign documents plus 0.7M in attack variants.
+    sources: [wikipedia-en, wikipedia-vi, uscode-en, gostd-en, wikisource-vi-literature, wikisource-vi-legal]
     sizes:
       wiki: [20000, 50000, 100000]
       default: [20000, 50000]
@@ -155,6 +650,7 @@ profiles:
     segment_host_bytes: 28000
   full:
     # About 7.6M tokens of benign documents plus 1.9M in attack variants.
+    sources: [wikipedia-en, wikipedia-vi, uscode-en, gostd-en, wikisource-vi-literature, wikisource-vi-legal]
     sizes:
       wiki: [20000, 50000, 100000, 200000, 500000]
       default: [20000, 50000, 100000, 200000, 500000]
@@ -163,6 +659,50 @@ profiles:
     # literature stops at 50k tokens, Vietnamese laws at 100k).
     docs_per_size: 1
     payloads_per_lang: 32
+    host_tokens: 2000
+    segment_host_bytes: 28000
+  long:
+    # Benign documents only, 100k and 200k tokens: the false-positive rate
+    # at those sizes with enough documents per cell (docs/benchmark.md "Long
+    # documents"; RF-895d3533 R2b). About 19.5M tokens: 32 EN and 33 VI
+    # documents per size from the `long` sources above plus the synthetic
+    # genres with their own seed (so no synthetic text of quick/full
+    # repeats). No hosts and no attacks (payloads_per_lang 0): the fused
+    # score is a maximum over 2,048-byte chunks, so a payload's detection
+    # does not depend on the length of its host beyond its own chunk, which
+    # the 2k-token hosts of quick/full already measure. Document ids carry
+    # the prefix `long-`, so their dev/holdout split is independent of the
+    # quick/full documents.
+    sources: [wikipedia2-en, uscode2-en, gostd2-en, k8s-examples-en, k8s-docs-tasks-en, k8s-docs-reference-en, k8s-docs-en, wikisource-en,
+              rfc-en, apache-logs-en, wikipedia2-vi, wikisource-vi-laws, wikisource-vi-prose, k8s-docs-vi,
+              react-docs-vi, vue-docs-vi]
+    synthetic: [logs, json, csv, email, chat, hardneg]
+    synthetic_seed: 20261111
+    id_prefix: long-
+    sizes:
+      default: [100000, 200000]
+      synthetic: [100000, 200000]
+    docs_per_size:
+      default: 0
+      wiki-en: 6
+      legal-en: 5
+      code-en: 4
+      docs-en: 5
+      prose-en: 5
+      rfc-en: 4
+      weblog-en: 2
+      logs-en: 1
+      wiki-vi: 11
+      legal-vi: 7
+      prose-vi: 6
+      docs-vi: 2
+      logs-vi: 2
+      json-vi: 1
+      csv-vi: 1
+      email-vi: 1
+      chat-vi: 1
+      hardneg-vi: 1
+    payloads_per_lang: 0
     host_tokens: 2000
     segment_host_bytes: 28000
 
@@ -187,6 +727,9 @@ split:
 outputs:
   quick: 78236eb56dbf71c335c8a1cf043487a71fe3e11360535c389abe47c1d07c3399
   full: bfd045cc60e704a4fbef0f3627527b39041572566ca4efe310043426d34865cf
+  # long: pinned on 2026-11-11 (R2b); 128 benign documents, 19.08M tokens,
+  # after exclude.json (the quick and full files are unchanged).
+  long: ccd7b905eb65a3efdff54e8f1040ee95db19d348e44fc7f1d808694e9169eb14
 
 dropped:
   - source: Project Gutenberg (gutenberg.org)
@@ -200,3 +743,9 @@ dropped:
       Their terms were not verified to allow automated download, so they are
       not used; the Vietnamese laws come from vi.wikisource instead (public
       domain by law, see above).
+  - source: Python library reference (python/cpython Doc/library, PSF-2.0)
+    reason: >-
+      Tried for the `long` profile (2026-11-11) and dropped: the v6 training
+      data holds the same documentation (rows doc_en cpython@v3.12.7), so 98 of
+      its 265 files shared a 50-token shingle with a training row. The
+      Kubernetes documentation is used instead.

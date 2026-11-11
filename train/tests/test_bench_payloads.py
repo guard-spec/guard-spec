@@ -55,9 +55,12 @@ class BenchPayloadsTest(unittest.TestCase):
         self.assertEqual(set(DEV_HEX) | set(HOLDOUT_HEX), set("0123456789abcdef"))
 
     def test_every_payload_is_an_eval_dev_attack_row(self):
-        for profile in self.cfg["profiles"]:
+        for profile, prof in self.cfg["profiles"].items():
             with self.subTest(profile=profile):
                 ps = self.payloads(profile)
+                if prof["payloads_per_lang"] == 0:  # benign-only profile (long): no payloads at all
+                    self.assertEqual(ps, [])
+                    continue
                 self.assertTrue(ps)
                 for p in ps:
                     self.assertIn(p["id"][-1], DEV_HEX, p["id"])
@@ -71,7 +74,8 @@ class BenchPayloadsTest(unittest.TestCase):
         for profile, prof in self.cfg["profiles"].items():
             with self.subTest(profile=profile):
                 n = collections.Counter(p["lang"] for p in self.payloads(profile))
-                self.assertEqual(n, {"en": prof["payloads_per_lang"], "vi": prof["payloads_per_lang"]})
+                self.assertEqual({"en": n["en"], "vi": n["vi"]}, {"en": prof["payloads_per_lang"], "vi": prof["payloads_per_lang"]})
+                self.assertEqual(sum(n.values()), 2 * prof["payloads_per_lang"])
 
     def test_dev_half_has_enough_rows(self):
         """The dev half must cover the largest profile for each language, without a shortfall."""
