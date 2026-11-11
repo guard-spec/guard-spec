@@ -64,6 +64,29 @@ type LongOptions struct {
 	// tokens together, before any model runs; 0: no cap; negative: no
 	// token left (any counted token refuses).
 	MaxTokens int
+	// KeepWindows returns every window's score in LongResult.Windows
+	// (cmd/benchlong); the gateway leaves it off.
+	KeepWindows bool
+	// LongDoc is the long document rule (nil: none): a text's score is its
+	// largest window after the rule, given the text's number of windows.
+	LongDoc LongDocRule
+}
+
+// ruled is s under the long document rule for a text of n units (s without one).
+func (o LongOptions) ruled(n int, s Score) Score {
+	if o.LongDoc == nil {
+		return s
+	}
+	return o.LongDoc.Apply(n, s)
+}
+
+// LongDocRule is a document-level decision of the long path: it maps a
+// window's score (after LongInput.Adjust) to the score that counts for a text
+// of n windows. Early exit and the text's score use the mapped scores, so a
+// text is still decided by its strongest window. ml.LongDocRule implements it
+// from the classifier's calibration.
+type LongDocRule interface {
+	Apply(n int, s Score) Score
 }
 
 // DefaultLongBatch is the default LongOptions.BatchSize.
@@ -100,6 +123,18 @@ type LongResult struct {
 	// EarlyExit: some windows were skipped because the score reached the
 	// threshold. The score is then a lower bound, not to be cached.
 	EarlyExit bool
+	// Windows are the text's windows (or chunks) in order, with LongOptions.KeepWindows
+	// only; a skipped window has Skipped set and no score.
+	Windows []LongWindow
+}
+
+// LongWindow is one window (or chunk) of a long text: its byte span and its
+// score as the text sees it (after LongInput.Adjust, before the long
+// document rule).
+type LongWindow struct {
+	Start, End int
+	Score      Score
+	Skipped    bool
 }
 
 // LongDetector is a Scorer with a long path of its own (ml.Live).
@@ -248,13 +283,16 @@ func ScoreLongChunks(ctx context.Context, score func(ctx context.Context, text s
 	var owners [][]int
 	index := map[string]int{}
 	units := make([][]int, len(in)) // per text, its chunks in order
+	spans := make([][][2]int, len(in))
 	thresholds := make([]float64, len(in))
 	for i, x := range in {
 		thresholds[i] = x.Threshold
 		if !st.Count(x, EstimateTokens(x.Text), o) {
 			return nil, st, ErrInputTooLong
 		}
-		for _, c := range chunkAll(x.Text, shortWindowChars, shortStrideChars) {
+		for _, sp := range chunkSpansAll(x.Text, shortWindowChars, shortStrideChars) {
+			c := x.Text[sp[0]:sp[1]]
+			spans[i] = append(spans[i], sp)
 			st.Windows++
 			u, ok := index[c]
 			if ok {
@@ -293,10 +331,10 @@ func ScoreLongChunks(ctx context.Context, score func(ctx context.Context, text s
 			}
 			return out, nil
 		}, func(u, t int, s float64) float64 {
-			if in[t].Adjust == nil {
+			if in[t].Adjust == nil && o.LongDoc == nil {
 				return s
 			}
-			return float64(in[t].adjusted(chunks[u], res[u]).Confidence)
+			return float64(o.ruled(len(units[t]), in[t].adjusted(chunks[u], res[u])).Confidence)
 		})
 	if err != nil {
 		return nil, st, err
@@ -310,7 +348,18 @@ func ScoreLongChunks(ctx context.Context, score func(ctx context.Context, text s
 	}
 	out := make([]LongResult, len(in))
 	for i, us := range units {
-		out[i] = aggregateLong(us, scored, func(u int) Score { return in[i].adjusted(chunks[u], res[u]) })
+		adj := func(u int) Score { return in[i].adjusted(chunks[u], res[u]) }
+		out[i] = aggregateLong(us, scored, func(u int) Score { return o.ruled(len(us), adj(u)) })
+		if o.KeepWindows {
+			out[i].Windows = make([]LongWindow, len(us))
+			for k, u := range us {
+				w := LongWindow{Start: spans[i][k][0], End: spans[i][k][1], Skipped: !scored[u]}
+				if scored[u] {
+					w.Score = adj(u)
+				}
+				out[i].Windows[k] = w
+			}
+		}
 	}
 	return out, st, nil
 }
@@ -334,15 +383,25 @@ func aggregateLong(units []int, scored []bool, score func(int) Score) LongResult
 
 // chunkAll is chunkText without the cap.
 func chunkAll(text string, winChars, strideChars int) []string {
-	if len(text) <= winChars {
-		return []string{text}
+	spans := chunkSpansAll(text, winChars, strideChars)
+	chunks := make([]string, len(spans))
+	for i, sp := range spans {
+		chunks[i] = text[sp[0]:sp[1]]
 	}
-	var chunks []string
+	return chunks
+}
+
+// chunkSpansAll are the byte spans [start,end) of chunkAll's chunks.
+func chunkSpansAll(text string, winChars, strideChars int) [][2]int {
+	if len(text) <= winChars {
+		return [][2]int{{0, len(text)}}
+	}
+	var spans [][2]int
 	for start := 0; ; start = runeStart(text, start+strideChars) {
 		end := runeStart(text, min(start+winChars, len(text)))
-		chunks = append(chunks, text[start:end])
+		spans = append(spans, [2]int{start, end})
 		if end == len(text) {
-			return chunks
+			return spans
 		}
 	}
 }

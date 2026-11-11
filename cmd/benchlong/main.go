@@ -133,6 +133,11 @@ func main() {
 		out        = flag.String("out", "", "output JSON (default bench/results/long-<host>.json; the .md goes next to it)")
 		skipLat    = flag.Bool("skip-latency", false, "skip the latency runs")
 		l2cap      = flag.String("l2cap", "on", "apply the classifier's cap for untrusted content (calibration.json l2_untrusted_max) to the fused chunks, as the gateway does on documents: on or off")
+		longFlag   = flag.String("long", "off", "also measure the gateway's long path (MAX_SCAN_TOKENS: 256-token windows fused l1,l2, the document adjustment) as layer \"long\": on or off")
+		corrFlag   = flag.String("corroboration", "on", "code corroboration on the long path's windows, as the gateway's default for documents (TOOL_CODE_CORROBORATION): on or off")
+		longDoc    = flag.String("longdoc", "on", "apply the classifier's long document rule (calibration.json long_doc) on the long path, as the gateway does: on or off")
+		l2Pass     = flag.String("l2pass", "on", "score the classifier alone on every window (layer \"l2\"): on or off")
+		dump       = flag.String("dump", "", "write the long path's window scores (no text) to <dump>-dev.jsonl.gz and <dump>-holdout.jsonl.gz")
 	)
 	flag.Parse()
 	slog.SetLogLoggerLevel(slog.LevelWarn)
@@ -147,10 +152,29 @@ func main() {
 	if err != nil {
 		fatal(fmt.Errorf("-latency-intra: %w", err))
 	}
-	layerSets := strings.Split(*layersFlag, ";")
+	var layerSets []string
+	if *layersFlag != "none" {
+		layerSets = strings.Split(*layersFlag, ";")
+	}
 	useCap, err := parseOnOff("-l2cap", *l2cap)
 	if err != nil {
 		fatal(err)
+	}
+	opts := engineOpts{useCap: useCap}
+	for _, f := range []struct {
+		name, v string
+		dst     *bool
+	}{{"-long", *longFlag, &opts.long}, {"-corroboration", *corrFlag, &opts.corroborate},
+		{"-longdoc", *longDoc, &opts.longDoc}, {"-l2pass", *l2Pass, &opts.l2Pass}} {
+		if *f.dst, err = parseOnOff(f.name, f.v); err != nil {
+			fatal(err)
+		}
+	}
+	if *dump != "" && !opts.long {
+		fatal(errors.New("-dump needs -long on"))
+	}
+	if len(layerSets) == 0 && !opts.long {
+		fatal(errors.New("-layers none needs -long on"))
 	}
 
 	var docs []Doc
@@ -180,9 +204,12 @@ func main() {
 	if *intra >= 0 {
 		_ = os.Setenv(onnx.EnvIntraOpThreads, strconv.Itoa(*intra))
 	}
-	e, err := newEngine(ctx, layerSets, useCap)
+	e, err := newEngine(ctx, layerSets, opts)
 	if err != nil {
 		fatal(err)
+	}
+	if *dump != "" {
+		e.dump = newDumper(*dump)
 	}
 	rep := Report{Header: header(e, ortVer, *profile, corpusSHA, *host, len(docs)), Notes: reportNotes}
 
@@ -193,9 +220,12 @@ func main() {
 	logf("score pass: %d documents, %d workers, layers %v", len(docs), w, e.names())
 	res, pass := e.scoreAll(ctx, docs, w)
 	rep.ScorePass = pass
+	if err := e.dump.close(); err != nil {
+		fatal(err)
+	}
 	_ = e.close()
 
-	if !*skipLat {
+	if !*skipLat && len(layerSets) > 0 {
 		rep.Latency = latencyRuns(ctx, layerSets, docs, concs, intras, *latMax, useCap)
 	}
 
@@ -324,6 +354,18 @@ type engine struct {
 	l2Name string
 	capped bool // a detector applies the classifier's cap for untrusted content
 	dets   []detector
+	opts   engineOpts
+	long   *longDet // the gateway's long path (-long on)
+	dump   *dumper  // -dump
+}
+
+// engineOpts are the switches of the score pass.
+type engineOpts struct {
+	useCap      bool // the classifier's cap on the fused chunks and the long path
+	long        bool // the long path as layer "long"
+	corroborate bool // code corroboration on the long path
+	longDoc     bool // the long document rule on the long path
+	l2Pass      bool // layer "l2"
 }
 
 // newEngine builds the L2 window scorer and one fused detector per layer set,
@@ -331,7 +373,8 @@ type engine struct {
 // the fused chunks get the classifier's cap for untrusted content
 // (ml.Stack.UntrustedAdjust), as the gateway applies it to documents and tool
 // results; a calibration without a cap leaves the scores unchanged.
-func newEngine(ctx context.Context, layerSets []string, useCap bool) (*engine, error) {
+func newEngine(ctx context.Context, layerSets []string, opts engineOpts) (*engine, error) {
+	useCap := opts.useCap
 	cfg, err := ml.ConfigFromEnv(os.Getenv)
 	if err != nil {
 		return nil, err
@@ -348,7 +391,15 @@ func newEngine(ctx context.Context, layerSets []string, useCap bool) (*engine, e
 	if err != nil {
 		return nil, err
 	}
-	e := &engine{l2: c, cal: m.Cal.Platt, benign: c.BenignIndex(), l2Dir: dir, l2Name: m.Name}
+	e := &engine{l2: c, cal: m.Cal.Platt, benign: c.BenignIndex(), l2Dir: dir, l2Name: m.Name, opts: opts}
+	if opts.long {
+		if e.long, err = newLongDet(ctx, cfg, useCap, opts.corroborate, opts.longDoc); err != nil {
+			return nil, err
+		}
+		if useCap && e.long.stack.UntrustedAdjust() != nil {
+			e.capped = true
+		}
+	}
 	for _, ls := range layerSets {
 		lc := cfg
 		if lc.Layers, err = ml.ParseLayers(ls); err != nil {
@@ -377,17 +428,27 @@ func newEngine(ctx context.Context, layerSets []string, useCap bool) (*engine, e
 
 func (e *engine) close() error {
 	errs := []error{e.l2.Close()}
+	if e.long != nil {
+		errs = append(errs, e.long.stack.Close())
+	}
 	for _, d := range e.dets {
 		errs = append(errs, d.stack.Close())
 	}
 	return errors.Join(errs...)
 }
 
-// names are the layers in report order: l2, then the fused detectors.
+// names are the layers in report order: l2, then the fused detectors, then
+// the long path.
 func (e *engine) names() []string {
-	out := []string{l2Layer}
+	var out []string
+	if e.opts.l2Pass {
+		out = append(out, l2Layer)
+	}
 	for _, d := range e.dets {
 		out = append(out, d.name)
+	}
+	if e.long != nil {
+		out = append(out, longLayer)
 	}
 	return out
 }
@@ -399,7 +460,19 @@ type docScore struct {
 	rejected bool
 	tokens   int
 	units    map[string][]float64
-	err      error
+	// top is a layer's document score when it is not the largest unit (the
+	// long path with a long document rule).
+	top map[string]float64
+	err error
+}
+
+// max is the document's score on layer: its largest unit, or the long
+// path's document score.
+func (r docScore) max(layer string) float64 {
+	if v, ok := r.top[layer]; ok {
+		return v
+	}
+	return maxOf(r.units[layer])
 }
 
 // scoreL2 scores every 256-token window of text with the classifier alone
@@ -452,23 +525,50 @@ func scoreFused(ctx context.Context, d detector, text string, k int) ([]float64,
 }
 
 func (e *engine) scoreDoc(ctx context.Context, d Doc) docScore {
-	r := docScore{units: map[string][]float64{}}
+	r := docScore{units: map[string][]float64{}, top: map[string]float64{}}
+	dd := DumpDoc{ID: d.ID, Kind: d.Kind, Lang: d.Lang, Genre: d.Genre, Split: splitOf(d), Tokens: d.Tokens,
+		Variant: d.Variant, PayloadID: d.PayloadID, Host: d.Host, Spans: d.Spans}
 	cleaned, rep, err := sanitizer.Sanitize(d.Text)
 	if err != nil {
 		// No score: the gateway rejects the text before any model sees it
 		// (counted in the gateway column of the false-positive tables).
 		logf("  %s: rejected by the sanitizer (%v)", d.ID, err)
 		r.rejected = true
+		dd.Rejected = true
+		r.err = e.dump.write(dd)
 		return r
 	}
 	r.anomaly = float64(rep.AnomalyScore)
-	if r.units[l2Layer], r.tokens, r.err = e.scoreL2(ctx, cleaned); r.err != nil {
-		return r
+	if e.opts.l2Pass {
+		if r.units[l2Layer], r.tokens, r.err = e.scoreL2(ctx, cleaned); r.err != nil {
+			return r
+		}
 	}
 	for _, det := range e.dets {
 		if r.units[det.name], r.err = scoreFused(ctx, det, cleaned, 1); r.err != nil {
 			return r
 		}
+	}
+	if e.long != nil {
+		ws, top, err := e.long.score(ctx, cleaned)
+		if err != nil {
+			r.err = err
+			return r
+		}
+		u := make([]float64, len(ws))
+		for i, w := range ws {
+			u[i] = float64(w.Score.Confidence)
+		}
+		r.units[longLayer], r.top[longLayer] = u, top
+		if r.tokens == 0 {
+			r.tokens, _ = e.l2.TokenCount(cleaned)
+		}
+		dd.Anomaly, dd.Scored, dd.Bytes, dd.DocScore, dd.Windows = r.anomaly, r.tokens, len(cleaned), top, dumpWindows(ws)
+		if len(d.Spans) > 0 && d.Kind != "benign" {
+			sp, ok := payloadSpans(d, cleaned)
+			dd.PayloadSpans, dd.Intact = sp, &ok
+		}
+		r.err = e.dump.write(dd)
 	}
 	return r
 }
@@ -533,7 +633,7 @@ func (e *engine) scoreAll(ctx context.Context, docs []Doc, workers int) ([]docSc
 	p := ScorePass{Docs: len(docs), Workers: workers, WallS: time.Since(start).Seconds(), CPUS: cpuSeconds() - cpu0}
 	for _, r := range res {
 		p.Tokens += r.tokens
-		p.Windows += len(r.units[l2Layer])
+		p.Windows += max(len(r.units[l2Layer]), len(r.units[longLayer]))
 		if len(e.dets) > 0 {
 			p.Chunks += len(r.units[e.dets[0].name])
 		}
@@ -591,7 +691,7 @@ func latencyRuns(ctx context.Context, layerSets []string, docs []Doc, concs, int
 	var out []Latency
 	for _, intra := range intras {
 		_ = os.Setenv(onnx.EnvIntraOpThreads, strconv.Itoa(intra))
-		e, err := newEngine(ctx, []string{last}, useCap)
+		e, err := newEngine(ctx, []string{last}, engineOpts{useCap: useCap, l2Pass: true})
 		if err != nil {
 			fatal(err)
 		}
@@ -981,7 +1081,7 @@ func analyse(rep *Report, docs []Doc, res []docScore, layers []string, seed uint
 		if d.Kind == "host" {
 			hostMax[d.ID] = map[string]float64{}
 			for _, layer := range layers {
-				hostMax[d.ID][layer] = maxOf(res[i].units[layer])
+				hostMax[d.ID][layer] = res[i].max(layer)
 			}
 		}
 	}
@@ -1022,7 +1122,7 @@ func docFPR(docs []Doc, res []docScore, layers []string, split string, keep func
 				m[k] = a
 				keys = append(keys, k)
 			}
-			mx := maxOf(res[i].units[layer])
+			mx := res[i].max(layer)
 			a.n++
 			a.units += len(res[i].units[layer])
 			if mx >= blockThreshold {
@@ -1073,7 +1173,7 @@ func attackTPR(docs []Doc, res []docScore, layers []string, hostMax map[string]m
 				keys = append(keys, k)
 			}
 			u := res[i].units[layer]
-			mx := maxOf(u)
+			mx := res[i].max(layer)
 			a.n++
 			a.units += len(u)
 			if mx >= blockThreshold {

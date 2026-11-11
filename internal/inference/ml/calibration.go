@@ -31,6 +31,34 @@ type CalibrationFile struct {
 	// shipped v3b file behave. `cmd/calibrate fit` derives it from the
 	// combiners (see untrustedMax there).
 	L2UntrustedMax float64 `json:"l2_untrusted_max,omitempty"`
+	// LongDoc is the long document rule of the long path (MAX_SCAN_TOKENS):
+	// how a text of many windows is decided (LongDocRule). nil: none, a long
+	// text is blocked by its largest window, which is how every built-in
+	// calibration behaves.
+	LongDoc *LongDoc `json:"long_doc,omitempty"`
+}
+
+// LongDoc parameterizes LongDocRule (train/reports/r3_preregistration.md,
+// fitted by train/longdoc_r3.py on the dev slice of bench/long).
+type LongDoc struct {
+	// MinWindows: texts of at most this many windows are decided as
+	// without the rule.
+	MinWindows int `json:"min_windows"`
+	// Corroborate: in a longer text a window keeps its score only when L1
+	// corroborates it (L1Corroborates); otherwise its score falls to its
+	// calibrated L1 score, or to the length-aware threshold's scale when
+	// Threshold is set.
+	Corroborate bool `json:"corroborate,omitempty"`
+	// Threshold is the length-aware threshold T(n) as points [n, T]: in a
+	// text of n windows a window scoring s counts as s would against Base
+	// in a text within MinWindows, i.e. its logit is lowered by
+	// logit T(n) - logit Base. Linear in (ln n, logit T) between points;
+	// below the first point no change, beyond the last the last T.
+	Threshold [][2]float64 `json:"threshold,omitempty"`
+	// Base is the block threshold Threshold was fitted for (0.85).
+	Base float64 `json:"base,omitempty"`
+	// FittedOn says where the parameters come from.
+	FittedOn string `json:"fitted_on,omitempty"`
 }
 
 // BuiltinCalibrations are the calibrations of the classifiers we ship.
