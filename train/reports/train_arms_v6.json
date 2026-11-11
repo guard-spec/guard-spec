@@ -1,0 +1,562 @@
+{
+  "rule": "MODEL_CARD.md, v6, Decision rule (pre-registered)",
+  "arms": {
+    "A": {
+      "n_train_rows_per_epoch": 50099,
+      "n_train_windows_per_epoch": 52373,
+      "n_val_windows": 13439,
+      "best_epoch": 5,
+      "train_minutes": 81.9,
+      "seed": 20261105,
+      "val_loss": [
+        0.0824,
+        0.0427,
+        0.0308,
+        0.0271,
+        0.0232
+      ],
+      "oversample": {
+        "guard-spec:realistic-fable/vi/orig": 2
+      },
+      "oversample_kind": null,
+      "train_files": [
+        "train.jsonl",
+        "v6_train.jsonl"
+      ],
+      "train_windows": {
+        "rows": 50099,
+        "rows_multiwindow": 1574,
+        "windows:row": 47961,
+        "windows:tail": 830,
+        "windows:payload": 3652,
+        "windows:host": 749,
+        "windows:partial": 297,
+        "windows:fragment": 11
+      },
+      "validation": {
+        "threshold": 0.7278091311454773,
+        "orig": {
+          "n_attack": 1836,
+          "n_benign": 6511,
+          "auc": 0.9975424947022786,
+          "tpr": 0.9754901960784313,
+          "fpr": 0.009983105513745968
+        },
+        "val_v6": {
+          "n_attack": 490,
+          "n_benign": 1737,
+          "auc": 0.9982564355621351,
+          "tpr": 0.9857142857142858,
+          "fpr": 0.010938399539435808,
+          "fpr_by_kind": {
+            "code_go": 0.0,
+            "code_js": 0.0,
+            "code_python": 0.0,
+            "code_rust": 0.0,
+            "code_vi": 0.0,
+            "config": 0.0,
+            "csv_en": 0.0,
+            "csv_vi": 0.0,
+            "diff": 0.038461538461538464,
+            "doc_en": 0.09433962264150944,
+            "human_log_en": 0.0,
+            "human_log_vi": 0.0,
+            "json_en": 0.0,
+            "json_vi": 0.0,
+            "log_en": 0.0,
+            "log_vi": 0.0,
+            "log_vi_repeat": 0.0,
+            "prose_en": 0.0,
+            "prose_vi": 0.0,
+            "secdoc_en": 0.18604651162790697,
+            "secprose_en": 0.0,
+            "secprose_vi": 0.0,
+            "shell": 0.0,
+            "sql_gen": 0.0,
+            "stacktrace_en": 0.0,
+            "stacktrace_vi": 0.0,
+            "terminal": 0.0,
+            "twin": 0.010141987829614604
+          }
+        },
+        "val_loss": 0.02316136658191681
+      },
+      "gates": {
+        "G1": {
+          "ok": true,
+          "value": 0.942,
+          "v3b": 0.9086,
+          "what": "eval/data dev TPR at FPR <= 1% (fused, direct path) >= v3b"
+        },
+        "G2": {
+          "ok": true,
+          "value": 0.027,
+          "limit": 0.03,
+          "what": "eval/codelog dev FPR at 0.85 (tool path, corroboration off) <= 0.03"
+        },
+        "G3": {
+          "ok": true,
+          "value": 0.9139,
+          "v3b": 0.8067,
+          "l1": 0.8506,
+          "what": "eval/embedded dev TPR at 0.85 (tool path, corroboration off) >= v3b and >= L1 alone"
+        },
+        "G4": {
+          "ok": true,
+          "value": 0.0405,
+          "v3b": 0.1053,
+          "what": "eval/embedded dev FPR at 0.85 (tool path, corroboration off) <= v3b"
+        },
+        "G5": {
+          "ok": true,
+          "value": 1,
+          "v3b": 0.9355,
+          "margin": 0.01,
+          "n_attack": 31,
+          "what": "val_v3 (the v4-A build's selection split, direct path) TPR at 0.85 >= v3b - 0.01"
+        },
+        "G6": {
+          "ok": true,
+          "value": 0.0,
+          "blocked": 0,
+          "docs": 15,
+          "cells": {
+            "en/100k": {
+              "blocked": 0,
+              "docs": 3
+            },
+            "en/200k": {
+              "blocked": 0,
+              "docs": 5
+            },
+            "vi/100k": {
+              "blocked": 0,
+              "docs": 4
+            },
+            "vi/200k": {
+              "blocked": 0,
+              "docs": 3
+            }
+          },
+          "limit": 0.01,
+          "cp95_upper": 0.21801936091053403,
+          "what": "bench/long dev, l1,l2 with the arm's calibration and cap: blocked benign documents of 100k and 200k tokens (EN + VI) <= 1%; with 3-5 documents per cell this means none blocked"
+        },
+        "G7": {
+          "ok": true,
+          "value": 0.9285714285714286,
+          "detected": 208,
+          "docs": 224,
+          "alone": 0.9375,
+          "alone_detected": 30,
+          "alone_docs": 32,
+          "margin": 0.05,
+          "what": "bench/long dev: gateway TPR of payloads in prose (start/end/random, window/chunk/segment boundary, split adjacent; EN + VI) >= the same payloads alone (control) - 0.05"
+        }
+      },
+      "recorded": {
+        "eval_latency_p50_us": {
+          "value": 3724.67,
+          "v3b": 3743.08,
+          "ratio": 0.9950815905617834
+        },
+        "bench_score_pass": {
+          "tokens_per_s": 6167.834693535385,
+          "cpu_s": 17504.544930000004,
+          "l2_windows": 49594
+        },
+        "bench_l2_cap": true
+      }
+    },
+    "B": {
+      "n_train_rows_per_epoch": 53575,
+      "n_train_windows_per_epoch": 57053,
+      "n_val_windows": 13439,
+      "best_epoch": 5,
+      "train_minutes": 88.9,
+      "seed": 20261105,
+      "val_loss": [
+        0.1051,
+        0.0555,
+        0.0331,
+        0.0301,
+        0.0269
+      ],
+      "oversample": {
+        "guard-spec:realistic-fable/vi/orig": 2
+      },
+      "oversample_kind": {
+        "twin": 2
+      },
+      "train_files": [
+        "train.jsonl",
+        "v6_train.jsonl"
+      ],
+      "train_windows": {
+        "rows": 53575,
+        "rows_multiwindow": 2152,
+        "windows:row": 52641,
+        "windows:tail": 830,
+        "windows:payload": 3652,
+        "windows:host": 749,
+        "windows:partial": 297,
+        "windows:fragment": 11
+      },
+      "validation": {
+        "threshold": 0.6750495582818985,
+        "orig": {
+          "n_attack": 1836,
+          "n_benign": 6511,
+          "auc": 0.9970249358467939,
+          "tpr": 0.974400871459695,
+          "fpr": 0.009983105513745968
+        },
+        "val_v6": {
+          "n_attack": 490,
+          "n_benign": 1737,
+          "auc": 0.993950395356761,
+          "tpr": 0.9795918367346939,
+          "fpr": 0.017271157167530225,
+          "fpr_by_kind": {
+            "code_go": 0.0,
+            "code_js": 0.019230769230769232,
+            "code_python": 0.014705882352941176,
+            "code_rust": 0.0,
+            "code_vi": 0.0,
+            "config": 0.013513513513513514,
+            "csv_en": 0.0,
+            "csv_vi": 0.0,
+            "diff": 0.038461538461538464,
+            "doc_en": 0.018867924528301886,
+            "human_log_en": 0.0,
+            "human_log_vi": 0.0,
+            "json_en": 0.0,
+            "json_vi": 0.0,
+            "log_en": 0.0,
+            "log_vi": 0.0,
+            "log_vi_repeat": 0.0,
+            "prose_en": 0.014925373134328358,
+            "prose_vi": 0.0,
+            "secdoc_en": 0.23255813953488372,
+            "secprose_en": 0.0,
+            "secprose_vi": 0.0,
+            "shell": 0.0,
+            "sql_gen": 0.0,
+            "stacktrace_en": 0.0,
+            "stacktrace_vi": 0.0,
+            "terminal": 0.0,
+            "twin": 0.028397565922920892
+          }
+        },
+        "val_loss": 0.02686627022922039
+      },
+      "gates": {
+        "G1": {
+          "ok": true,
+          "value": 0.9086,
+          "v3b": 0.9086,
+          "what": "eval/data dev TPR at FPR <= 1% (fused, direct path) >= v3b"
+        },
+        "G2": {
+          "ok": false,
+          "value": 0.0405,
+          "limit": 0.03,
+          "what": "eval/codelog dev FPR at 0.85 (tool path, corroboration off) <= 0.03"
+        },
+        "G3": {
+          "ok": true,
+          "value": 0.9139,
+          "v3b": 0.8067,
+          "l1": 0.8506,
+          "what": "eval/embedded dev TPR at 0.85 (tool path, corroboration off) >= v3b and >= L1 alone"
+        },
+        "G4": {
+          "ok": true,
+          "value": 0.0425,
+          "v3b": 0.1053,
+          "what": "eval/embedded dev FPR at 0.85 (tool path, corroboration off) <= v3b"
+        },
+        "G5": {
+          "ok": true,
+          "value": 1,
+          "v3b": 0.9355,
+          "margin": 0.01,
+          "n_attack": 31,
+          "what": "val_v3 (the v4-A build's selection split, direct path) TPR at 0.85 >= v3b - 0.01"
+        },
+        "G6": {
+          "ok": false,
+          "value": 0.26666666666666666,
+          "blocked": 4,
+          "docs": 15,
+          "cells": {
+            "en/100k": {
+              "blocked": 0,
+              "docs": 3
+            },
+            "en/200k": {
+              "blocked": 1,
+              "docs": 5
+            },
+            "vi/100k": {
+              "blocked": 2,
+              "docs": 4
+            },
+            "vi/200k": {
+              "blocked": 1,
+              "docs": 3
+            }
+          },
+          "limit": 0.01,
+          "cp95_upper": 0.5510032410369711,
+          "what": "bench/long dev, l1,l2 with the arm's calibration and cap: blocked benign documents of 100k and 200k tokens (EN + VI) <= 1%; with 3-5 documents per cell this means none blocked"
+        },
+        "G7": {
+          "ok": true,
+          "value": 0.9330357142857143,
+          "detected": 209,
+          "docs": 224,
+          "alone": 0.9375,
+          "alone_detected": 30,
+          "alone_docs": 32,
+          "margin": 0.05,
+          "what": "bench/long dev: gateway TPR of payloads in prose (start/end/random, window/chunk/segment boundary, split adjacent; EN + VI) >= the same payloads alone (control) - 0.05"
+        }
+      },
+      "recorded": {
+        "eval_latency_p50_us": {
+          "value": 4244.75,
+          "v3b": 3743.08,
+          "ratio": 1.1340259892922406
+        },
+        "bench_score_pass": {
+          "tokens_per_s": 6303.000251626858,
+          "cpu_s": 17521.291078,
+          "l2_windows": 49594
+        },
+        "bench_l2_cap": true
+      }
+    },
+    "C": {
+      "n_train_rows_per_epoch": 50713,
+      "n_train_windows_per_epoch": 52987,
+      "n_val_windows": 13439,
+      "best_epoch": 5,
+      "train_minutes": 82.9,
+      "seed": 20261105,
+      "val_loss": [
+        0.0805,
+        0.0381,
+        0.0305,
+        0.0252,
+        0.0247
+      ],
+      "oversample": {
+        "guard-spec:realistic-fable/vi/orig": 2
+      },
+      "oversample_kind": {
+        "secdoc_en": 2,
+        "secprose_en": 2,
+        "secprose_vi": 2
+      },
+      "train_files": [
+        "train.jsonl",
+        "v6_train.jsonl"
+      ],
+      "train_windows": {
+        "rows": 50713,
+        "rows_multiwindow": 1574,
+        "windows:row": 48575,
+        "windows:tail": 830,
+        "windows:payload": 3652,
+        "windows:host": 749,
+        "windows:partial": 297,
+        "windows:fragment": 11
+      },
+      "validation": {
+        "threshold": 0.7351839691400528,
+        "orig": {
+          "n_attack": 1836,
+          "n_benign": 6511,
+          "auc": 0.9970542560955166,
+          "tpr": 0.9793028322440087,
+          "fpr": 0.009983105513745968
+        },
+        "val_v6": {
+          "n_attack": 490,
+          "n_benign": 1737,
+          "auc": 0.9973071093722463,
+          "tpr": 0.9877551020408163,
+          "fpr": 0.009211283822682787,
+          "fpr_by_kind": {
+            "code_go": 0.0,
+            "code_js": 0.0,
+            "code_python": 0.014705882352941176,
+            "code_rust": 0.0,
+            "code_vi": 0.0,
+            "config": 0.013513513513513514,
+            "csv_en": 0.0,
+            "csv_vi": 0.0,
+            "diff": 0.038461538461538464,
+            "doc_en": 0.03773584905660377,
+            "human_log_en": 0.0,
+            "human_log_vi": 0.0,
+            "json_en": 0.0,
+            "json_vi": 0.0,
+            "log_en": 0.0,
+            "log_vi": 0.0,
+            "log_vi_repeat": 0.0,
+            "prose_en": 0.0,
+            "prose_vi": 0.0,
+            "secdoc_en": 0.09302325581395349,
+            "secprose_en": 0.0,
+            "secprose_vi": 0.02631578947368421,
+            "shell": 0.0,
+            "sql_gen": 0.0,
+            "stacktrace_en": 0.0,
+            "stacktrace_vi": 0.0,
+            "terminal": 0.0,
+            "twin": 0.012170385395537525
+          }
+        },
+        "val_loss": 0.02469600737094879
+      },
+      "gates": {
+        "G1": {
+          "ok": true,
+          "value": 0.9402,
+          "v3b": 0.9086,
+          "what": "eval/data dev TPR at FPR <= 1% (fused, direct path) >= v3b"
+        },
+        "G2": {
+          "ok": true,
+          "value": 0.0135,
+          "limit": 0.03,
+          "what": "eval/codelog dev FPR at 0.85 (tool path, corroboration off) <= 0.03"
+        },
+        "G3": {
+          "ok": true,
+          "value": 0.9156,
+          "v3b": 0.8067,
+          "l1": 0.8506,
+          "what": "eval/embedded dev TPR at 0.85 (tool path, corroboration off) >= v3b and >= L1 alone"
+        },
+        "G4": {
+          "ok": true,
+          "value": 0.0344,
+          "v3b": 0.1053,
+          "what": "eval/embedded dev FPR at 0.85 (tool path, corroboration off) <= v3b"
+        },
+        "G5": {
+          "ok": true,
+          "value": 1,
+          "v3b": 0.9355,
+          "margin": 0.01,
+          "n_attack": 31,
+          "what": "val_v3 (the v4-A build's selection split, direct path) TPR at 0.85 >= v3b - 0.01"
+        },
+        "G6": {
+          "ok": true,
+          "value": 0.0,
+          "blocked": 0,
+          "docs": 15,
+          "cells": {
+            "en/100k": {
+              "blocked": 0,
+              "docs": 3
+            },
+            "en/200k": {
+              "blocked": 0,
+              "docs": 5
+            },
+            "vi/100k": {
+              "blocked": 0,
+              "docs": 4
+            },
+            "vi/200k": {
+              "blocked": 0,
+              "docs": 3
+            }
+          },
+          "limit": 0.01,
+          "cp95_upper": 0.21801936091053403,
+          "what": "bench/long dev, l1,l2 with the arm's calibration and cap: blocked benign documents of 100k and 200k tokens (EN + VI) <= 1%; with 3-5 documents per cell this means none blocked"
+        },
+        "G7": {
+          "ok": true,
+          "value": 0.9598214285714286,
+          "detected": 215,
+          "docs": 224,
+          "alone": 0.96875,
+          "alone_detected": 31,
+          "alone_docs": 32,
+          "margin": 0.05,
+          "what": "bench/long dev: gateway TPR of payloads in prose (start/end/random, window/chunk/segment boundary, split adjacent; EN + VI) >= the same payloads alone (control) - 0.05"
+        }
+      },
+      "recorded": {
+        "eval_latency_p50_us": {
+          "value": 3962.17,
+          "v3b": 3743.08,
+          "ratio": 1.0585320110710965
+        },
+        "bench_score_pass": {
+          "tokens_per_s": 6704.318239053887,
+          "cpu_s": 17081.423921999998,
+          "l2_windows": 49594
+        },
+        "bench_l2_cap": true
+      }
+    }
+  },
+  "decision": {
+    "status": "chosen",
+    "chosen": "A",
+    "order": [
+      "A",
+      "C"
+    ],
+    "gates_met": {
+      "A": 7,
+      "B": 5,
+      "C": 7
+    },
+    "best_per_gate": {
+      "G1": {
+        "arm": "A",
+        "value": 0.942,
+        "ok": true
+      },
+      "G2": {
+        "arm": "C",
+        "value": 0.0135,
+        "ok": true
+      },
+      "G3": {
+        "arm": "C",
+        "value": 0.9156,
+        "ok": true
+      },
+      "G4": {
+        "arm": "C",
+        "value": 0.0344,
+        "ok": true
+      },
+      "G5": {
+        "arm": "A",
+        "value": 1,
+        "ok": true
+      },
+      "G6": {
+        "arm": "A",
+        "value": 0.0,
+        "ok": true
+      },
+      "G7": {
+        "arm": "C",
+        "value": 0.9598214285714286,
+        "ok": true
+      }
+    }
+  }
+}
