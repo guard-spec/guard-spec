@@ -151,6 +151,10 @@ type Settings struct {
 	// org's requests (MAX_SCAN_TOKENS); a request over it is refused. It can
 	// only make the gateway stricter (see ScanTokens).
 	MaxScanTokens *int `json:"max_scan_tokens,omitempty"`
+	// Input is the org's input settings (org_input_settings, input.go),
+	// read with the guard settings; nil: the instance's behaviour. Not part
+	// of guard_settings.
+	Input *InputSettings `json:"-"`
 }
 
 // MaxScanTokensLimit bounds max_scan_tokens and MAX_SCAN_TOKENS: about 40 MB
