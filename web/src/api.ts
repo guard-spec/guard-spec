@@ -44,6 +44,13 @@ import type {
   PermissionMatrix,
   Policy,
   PolicyInput,
+  PolicyDiff,
+  ApprovalPending,
+  ApprovalRequest,
+  ApprovalStatus,
+  PolicyVersions,
+  RollbackResult,
+  RotatedApiKey,
   PolicySchema,
   Project,
   Role,
@@ -554,8 +561,17 @@ export class ApiClient {
     return this.request('POST', `/organizations/${enc(orgId)}/api-keys`, { body: input });
   }
 
-  updateApiKey(orgId: UUID, prefix: string, limits: { rpm_limit?: number | null; tpm_limit?: number | null }): Promise<unknown> {
-    return this.request('PATCH', `/organizations/${enc(orgId)}/api-keys/${enc(prefix)}`, { body: limits });
+  updateApiKey(
+    orgId: UUID,
+    prefix: string,
+    changes: { rpm_limit?: number | null; tpm_limit?: number | null; allowed_cidrs?: string[]; expires_at?: string | null },
+  ): Promise<unknown> {
+    return this.request('PATCH', `/organizations/${enc(orgId)}/api-keys/${enc(prefix)}`, { body: changes });
+  }
+
+  /** A successor key (same alias, project, limits and addresses); the old one keeps working for overlap_hours (default 24). */
+  rotateApiKey(orgId: UUID, prefix: string, input: { overlap_hours?: number; expires_at?: string | null }): Promise<RotatedApiKey> {
+    return this.request('POST', `/organizations/${enc(orgId)}/api-keys/${enc(prefix)}/rotate`, { body: input });
   }
 
   revokeApiKey(orgId: UUID, prefix: string): Promise<void> {
@@ -573,12 +589,54 @@ export class ApiClient {
     return this.request('POST', `/organizations/${enc(orgId)}/policies`, { body: input });
   }
 
-  updatePolicy(orgId: UUID, id: UUID, input: Partial<PolicyInput>): Promise<{ id: UUID; updated: boolean }> {
+  /** 202 with approval_required when the org wants a second admin for disabling the policy (migration 027). */
+  updatePolicy(orgId: UUID, id: UUID, input: Partial<PolicyInput>): Promise<{ id: UUID; updated: boolean; version?: number } | ApprovalPending> {
     return this.request('PUT', `/organizations/${enc(orgId)}/policies/${enc(id)}`, { body: input });
   }
 
-  deletePolicy(orgId: UUID, id: UUID): Promise<void> {
-    return this.request('DELETE', `/organizations/${enc(orgId)}/policies/${enc(id)}`);
+  /** Only a disabled policy is deleted: 409 policy_enabled otherwise (migration 029). */
+  async deletePolicy(orgId: UUID, id: UUID): Promise<void> {
+    await this.request('DELETE', `/organizations/${enc(orgId)}/policies/${enc(id)}`);
+  }
+
+  // ── Two-person approval (migrations 027 and 029) ──────────────────────────
+
+  /** Instance administrators: the pending organization deletions of every organization. */
+  async listInstanceApprovals(): Promise<ApprovalRequest[]> {
+    const r = await this.request<{ items: ApprovalRequest[] }>('GET', '/admin/approvals');
+    return r.items;
+  }
+
+  async listApprovals(orgId: UUID, status: ApprovalStatus | 'all' = 'pending'): Promise<ApprovalRequest[]> {
+    const r = await this.request<{ items: ApprovalRequest[] }>('GET', `/organizations/${enc(orgId)}/approvals`, { query: { status } });
+    return r.items;
+  }
+
+  approveRequest(orgId: UUID, id: UUID, note?: string): Promise<ApprovalRequest | undefined> {
+    return this.request('POST', `/organizations/${enc(orgId)}/approvals/${enc(id)}/approve`, { body: { note } });
+  }
+
+  rejectRequest(orgId: UUID, id: UUID, note?: string): Promise<ApprovalRequest> {
+    return this.request('POST', `/organizations/${enc(orgId)}/approvals/${enc(id)}/reject`, { body: { note } });
+  }
+
+  // ── Policy history (migration 026) ────────────────────────────────────────
+
+  /** Every saved version of a policy, newest first, and the current version number. */
+  async listPolicyVersions(orgId: UUID, id: UUID): Promise<PolicyVersions> {
+    const r = await this.request<PolicyVersions>('GET', `/organizations/${enc(orgId)}/policies/${enc(id)}/versions`);
+    return { current: r.current, items: r.items.map((v) => ({ ...v, rules: Array.isArray(v.rules) ? v.rules : [] })) };
+  }
+
+  /** The changes between two versions (fields and rules by id). */
+  diffPolicyVersions(orgId: UUID, id: UUID, from: number, to: number): Promise<PolicyDiff> {
+    return this.request('GET', `/organizations/${enc(orgId)}/policies/${enc(id)}/versions/diff`, { query: { from, to } });
+  }
+
+  /** Restores a version (the one before the current when omitted) as a new version. */
+  /** 202 with approval_required when the version is disabled and the org wants a second admin for disabling (migration 029). */
+  rollbackPolicy(orgId: UUID, id: UUID, input: { version?: number; reason?: string }): Promise<RollbackResult | ApprovalPending> {
+    return this.request('POST', `/organizations/${enc(orgId)}/policies/${enc(id)}/rollback`, { body: input });
   }
 
   simulate(orgId: UUID, req: SimulateRequest): Promise<SimulateResponse> {
@@ -636,6 +694,11 @@ export class ApiClient {
   }
 
   /** Aggregates of the request log over a window (24h by default), of one project or all. */
+  /** The request log per period as CSV (counts only, never content): GET .../reports/requests.csv. */
+  getRequestsReportCsv(orgId: UUID, q: { window?: DashboardWindow; from?: string; to?: string; project_id?: UUID } = {}): Promise<string> {
+    return this.request('GET', `/organizations/${enc(orgId)}/reports/requests.csv`, { query: q, text: true });
+  }
+
   getDashboard(orgId: UUID, q: { window?: DashboardWindow; project_id?: UUID } = {}): Promise<DashboardStats> {
     return this.request('GET', `/organizations/${enc(orgId)}/dashboard`, { query: q });
   }

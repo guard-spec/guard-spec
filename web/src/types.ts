@@ -45,15 +45,29 @@ export interface ApiKey {
   created_at: string;
   expires_at: string | null;
   revoked: boolean;
+  /** Networks the key may be used from (migration 028); empty: any address. */
+  allowed_cidrs?: string[];
+  /** The successor's prefix after a rotation, and when. */
+  rotated_to?: string | null;
+  rotated_at?: string | null;
 }
 
 export interface CreatedApiKey {
   key: string;
   key_prefix: string;
-  alias: string;
+  alias: string | null;
   project_id: UUID | null;
   rpm_limit: number | null;
   tpm_limit: number | null;
+  expires_at?: string | null;
+  allowed_cidrs?: string[];
+}
+
+/** POST .../api-keys/:prefix/rotate: the successor, shown once. */
+export interface RotatedApiKey extends CreatedApiKey {
+  rotated_from: string;
+  /** When the old key stops working (the end of the overlap). */
+  old_expires_at: string;
 }
 
 export interface NewApiKey {
@@ -62,6 +76,7 @@ export interface NewApiKey {
   expires_at?: string | null;
   rpm_limit?: number | null;
   tpm_limit?: number | null;
+  allowed_cidrs?: string[];
 }
 
 // ── Conditions: the react-querybuilder JSON tree ────────────────────────────
@@ -102,6 +117,8 @@ export interface Policy {
   description: string | null;
   version: number;
   enabled: boolean;
+  /** Decisions are recorded in the request log (policy:would_<action> tags), not applied (migration 026). */
+  log_only?: boolean;
   rules: Rule[];
   created_at: string;
   updated_at: string;
@@ -113,6 +130,67 @@ export interface PolicyInput {
   rules: Rule[];
   project_id?: UUID | null;
   enabled?: boolean;
+  log_only?: boolean;
+  /** Kept with the version the save creates (at most 500 characters). */
+  reason?: string;
+}
+
+// ── Policy history (migration 026) ──────────────────────────────────────────
+
+export type PolicyVersionKind = 'create' | 'update' | 'rollback' | 'config';
+
+export interface PolicyVersion {
+  version: number;
+  kind: PolicyVersionKind;
+  name: string;
+  description: string | null;
+  project_id: UUID | null;
+  enabled: boolean;
+  log_only: boolean;
+  rules: Rule[];
+  author: { id: UUID | null; email: string | null } | null;
+  reason: string | null;
+  /** A rollback: the version it restored. */
+  rolled_back_to: number | null;
+  created_at: string;
+}
+
+/** GET /organizations/:orgId/policies/:id/versions: newest first. */
+export interface PolicyVersions {
+  items: PolicyVersion[];
+  current: number;
+}
+
+export interface PolicyFieldChange {
+  field: 'name' | 'description' | 'project_id' | 'enabled' | 'log_only';
+  from: unknown;
+  to: unknown;
+}
+
+export interface PolicyRuleChange {
+  op: 'added' | 'removed' | 'changed' | 'moved';
+  rule_id: UUID;
+  name: string;
+  from?: Rule;
+  to?: Rule;
+  /** 0-based positions; -1 when the rule is not in that version. */
+  from_index: number;
+  to_index: number;
+}
+
+/** GET .../versions/diff?from=&to= */
+export interface PolicyDiff {
+  from: number;
+  to: number;
+  fields: PolicyFieldChange[];
+  rules: PolicyRuleChange[];
+}
+
+/** POST .../policies/:id/rollback */
+export interface RollbackResult {
+  id: UUID;
+  version: number;
+  rolled_back_to: number;
 }
 
 // ── Guard settings ──────────────────────────────────────────────────────────
@@ -444,6 +522,15 @@ export interface TraceEntry {
   matched: boolean;
   action: Action;
   error?: string;
+  /** Matched in a log-only policy: recorded, not applied. */
+  log_only?: boolean;
+}
+
+/** A rule of a log-only policy that would have decided. */
+export interface LogOnlyMatch {
+  rule_id: UUID;
+  rule_name: string;
+  action: Action;
 }
 
 export type UpstreamSource = 'rule' | 'project' | 'org' | 'env' | 'stub';
@@ -457,6 +544,7 @@ export interface SimulateResponse {
     rule_name?: string;
     route_target?: string | null;
     logged?: UUID[];
+    log_only?: LogOnlyMatch[];
     error?: string;
   };
   /** error is set when the chosen upstream is missing or disabled (502). */
@@ -601,6 +689,49 @@ export interface OrgSecurity {
   content_view_reason?: boolean;
   /** A SCIM deactivation also revokes the API keys the user created in the org (default true). */
   scim_revoke_keys?: boolean;
+  /** Disabling a policy and turning content storage on wait for a second admin (migration 027, default false). Deleting the org always does. */
+  two_person_approval?: boolean;
+  /** How long such a request waits for a decision (default 24, at most 720). */
+  approval_expiry_hours?: number;
+  /** Every new API key expires within this many days (migration 028); null: no limit. */
+  api_key_max_lifetime_days?: number | null;
+}
+
+// ── Two-person approval (migrations 027 and 029) ────────────────────────────
+
+/** policy.delete is history only: deleting a policy needs it disabled instead (migration 029). */
+export type ApprovalKind = 'policy.disable' | 'policy.delete' | 'content_storage.enable' | 'org.delete';
+export const APPROVAL_KINDS: readonly ApprovalKind[] = ['policy.disable', 'policy.delete', 'content_storage.enable', 'org.delete'];
+/** cancelled: what the request was about is gone or already done (migration 029). */
+export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'expired' | 'cancelled';
+export const APPROVAL_STATUSES: readonly ApprovalStatus[] = ['pending', 'approved', 'rejected', 'expired', 'cancelled'];
+
+export interface ApprovalRequest {
+  id: UUID;
+  /** The organization (GET /admin/approvals spans every organization). */
+  org_id?: UUID;
+  kind: ApprovalKind;
+  /** A policy id or the organization id. */
+  target: string | null;
+  /** The policy's name while it exists. */
+  target_label?: string | null;
+  payload: Record<string, unknown>;
+  reason: string | null;
+  status: ApprovalStatus;
+  requested_by: { id: UUID | null; email: string | null } | null;
+  decided_by: { id: UUID | null; email: string | null } | null;
+  decided_at: string | null;
+  decision_note: string | null;
+  expires_at: string;
+  created_at: string;
+}
+
+/** A 202 answer of a guarded change: the request that must be approved first. */
+export interface ApprovalPending {
+  approval_required: true;
+  /** The same change was already waiting: this is that request. */
+  already_pending?: boolean;
+  request: ApprovalRequest;
 }
 
 // ── SCIM provisioning and IdP group roles (migration 025) ──────────────────

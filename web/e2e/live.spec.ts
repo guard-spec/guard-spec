@@ -127,6 +127,10 @@ test('routes a rule edited as text, simulates it and round-trips the config', as
   // control plane refuses to delete it).
   await nav.getByRole('link', { name: 'Policy flow' }).click();
   await page.getByLabel('Scope').selectOption({ label: `Project: Live ${id}` });
+  // Only a disabled policy is deleted: turn it off and save first.
+  await page.getByRole('checkbox', { name: `live-${id}`, exact: true }).uncheck();
+  await page.getByRole('button', { name: 'Save changes' }).click();
+  await expect(page.getByRole('button', { name: `Delete policy live-${id}` })).not.toHaveAttribute('aria-disabled', 'true');
   await page.getByRole('button', { name: `Delete policy live-${id}` }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Delete' }).click();
   await expect(page.getByTestId(`rule-node-jailbreaks-${id}`)).toBeHidden();

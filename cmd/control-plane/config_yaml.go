@@ -60,11 +60,14 @@ type configUpstream struct {
 }
 
 type configPolicy struct {
-	Name        string       `yaml:"name"`
-	Description string       `yaml:"description,omitempty"`
-	Project     *string      `yaml:"project"` // project slug; null: org-wide
-	Enabled     *bool        `yaml:"enabled"`
-	Rules       []configRule `yaml:"rules"`
+	Name        string  `yaml:"name"`
+	Description string  `yaml:"description,omitempty"`
+	Project     *string `yaml:"project"` // project slug; null: org-wide
+	Enabled     *bool   `yaml:"enabled"`
+	// LogOnly: decisions are recorded in the request log, not applied
+	// (migration 026). Absent: live.
+	LogOnly *bool        `yaml:"log_only,omitempty"`
+	Rules   []configRule `yaml:"rules"`
 }
 
 type configRule struct {
@@ -100,6 +103,7 @@ type configPolicyRow struct {
 	Description string
 	ProjectID   *uuid.UUID
 	Enabled     bool
+	LogOnly     bool
 	Rules       []policy.Rule
 	CreatedAt   time.Time
 }
@@ -141,7 +145,7 @@ func loadStoredConfig(ctx context.Context, tx pgx.Tx, org uuid.UUID, lock bool) 
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	rows, err = tx.Query(ctx, `SELECT id, name, COALESCE(description, ''), project_id, enabled, rules, created_at
+	rows, err = tx.Query(ctx, `SELECT id, name, COALESCE(description, ''), project_id, enabled, log_only, rules, created_at
 		FROM policies WHERE org_id = $1 ORDER BY created_at, id`, org)
 	if err != nil {
 		return nil, err
@@ -150,7 +154,7 @@ func loadStoredConfig(ctx context.Context, tx pgx.Tx, org uuid.UUID, lock bool) 
 	for rows.Next() {
 		var p configPolicyRow
 		var raw []byte
-		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.ProjectID, &p.Enabled, &raw, &p.CreatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.ProjectID, &p.Enabled, &p.LogOnly, &raw, &p.CreatedAt); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal(raw, &p.Rules); err != nil {
@@ -281,6 +285,10 @@ func (s *storedConfig) document() (*configDoc, error) {
 		enabled := p.Enabled
 		cp := configPolicy{Name: p.Name, Description: p.Description, Project: s.projectSlug(p.ProjectID),
 			Enabled: &enabled, Rules: []configRule{}}
+		if p.LogOnly {
+			logOnly := true
+			cp.LogOnly = &logOnly
+		}
 		for _, r := range p.Rules {
 			when, err := policy.FormatStoredCondition(r.Condition)
 			if err != nil {
@@ -330,11 +338,18 @@ func putConfig(db *pgxpool.Pool, eng *policy.Engine, settings *appSettings) fibe
 			if errs := plan.resolveProjects(stored); len(errs) > 0 {
 				return &configInvalid{errs: errs}
 			}
+			twoPerson, _, err := twoPersonSettings(c.Context(), tx, org)
+			if err != nil {
+				return err
+			}
+			if errs := plan.guardedChanges(stored, twoPerson); len(errs) > 0 {
+				return &configInvalid{errs: errs}
+			}
 			changes = plan.diff(stored)
 			if dryRun {
 				return errDryRun
 			}
-			return plan.apply(c.Context(), tx, org, stored)
+			return plan.apply(c.Context(), tx, org, auth.UserID(c), stored)
 		})
 		var invalid *configInvalid
 		switch {
@@ -497,6 +512,30 @@ func (p *configPlan) projectOf(i int) *uuid.UUID {
 	return nil
 }
 
+// guardedChanges refuses what a file cannot do to the policies, as the API
+// cannot either: delete an enabled policy (disable it first: set enabled:
+// false, apply, then remove it), and, with two-person approval on, disable
+// an enabled one (that waits for a second admin: disable it on the Policy
+// flow page or with PUT .../policies/{id}).
+func (p *configPlan) guardedChanges(s *storedConfig, twoPerson bool) []configError {
+	var errs []configError
+	matched, removed := p.policyMatch(s)
+	for i, cp := range p.doc.Policies {
+		if m := matched[i]; twoPerson && m != nil && m.Enabled && cp.Enabled != nil && !*cp.Enabled {
+			errs = append(errs, configError{Path: fmt.Sprintf("policies[%d].enabled", i),
+				Message: fmt.Sprintf("disabling policy %q needs a second admin's approval (two-person approval): "+
+					"disable it on the Policy flow page or with PUT /v1/organizations/{org}/policies/%s", cp.Name, m.ID)})
+		}
+	}
+	for _, r := range removed {
+		if r.Enabled {
+			errs = append(errs, configError{Path: "policies",
+				Message: fmt.Sprintf("policy %q is enabled: disable it (enabled: false) and apply before removing it from the file", r.Name)})
+		}
+	}
+	return errs
+}
+
 // policyMatch pairs each policy of the file with the stored policy of the
 // same name (the oldest, when names repeat). Stored policies left over are
 // deleted.
@@ -640,7 +679,8 @@ func (p *configPlan) diff(s *storedConfig) []configChange {
 			continue
 		}
 		enabled := cp.Enabled == nil || *cp.Enabled
-		if m.Description != cp.Description || m.Enabled != enabled || !sameUUID(m.ProjectID, p.projectOf(i)) ||
+		logOnly := cp.LogOnly != nil && *cp.LogOnly
+		if m.Description != cp.Description || m.Enabled != enabled || m.LogOnly != logOnly || !sameUUID(m.ProjectID, p.projectOf(i)) ||
 			!sameRules(m.Rules, p.rulesFor(i, m)) || !order[i].Equal(m.CreatedAt) {
 			changes = append(changes, configChange{"policy", cp.Name, "update"})
 		}
@@ -654,7 +694,7 @@ func (p *configPlan) diff(s *storedConfig) []configChange {
 // apply writes the file. The order keeps every reference valid at each step:
 // upstreams are created first and deleted last, after the defaults and rules
 // that named them have changed.
-func (p *configPlan) apply(ctx context.Context, tx pgx.Tx, org uuid.UUID, s *storedConfig) error {
+func (p *configPlan) apply(ctx context.Context, tx pgx.Tx, org, actor uuid.UUID, s *storedConfig) error {
 	stored := map[string]upstream{}
 	for _, u := range s.upstreams {
 		stored[u.Name] = u
@@ -726,25 +766,33 @@ func (p *configPlan) apply(ctx context.Context, tx pgx.Tx, org uuid.UUID, s *sto
 			return err
 		}
 		enabled := cp.Enabled == nil || *cp.Enabled
+		logOnly := cp.LogOnly != nil && *cp.LogOnly
 		project := p.projectOf(i)
 		if m == nil {
-			if _, err := tx.Exec(ctx,
-				`INSERT INTO policies (org_id, project_id, name, description, enabled, rules, created_at, updated_at)
-				 VALUES ($1, $2, $3, NULLIF($4, ''), $5, $6, $7, NOW())`,
-				org, project, cp.Name, cp.Description, enabled, raw, order[i]); err != nil {
+			var id uuid.UUID
+			if err := tx.QueryRow(ctx,
+				`INSERT INTO policies (org_id, project_id, name, description, enabled, log_only, rules, created_at, updated_at)
+				 VALUES ($1, $2, $3, NULLIF($4, ''), $5, $6, $7, $8, NOW()) RETURNING id`,
+				org, project, cp.Name, cp.Description, enabled, logOnly, raw, order[i]).Scan(&id); err != nil {
+				return fmt.Errorf("policy %s: %w", cp.Name, err)
+			}
+			if err := recordPolicyVersion(ctx, tx, org, id, actor, versionConfig, "", nil); err != nil {
 				return fmt.Errorf("policy %s: %w", cp.Name, err)
 			}
 			continue
 		}
-		if m.Description == cp.Description && m.Enabled == enabled && sameUUID(m.ProjectID, project) &&
+		if m.Description == cp.Description && m.Enabled == enabled && m.LogOnly == logOnly && sameUUID(m.ProjectID, project) &&
 			sameRules(m.Rules, rules) && order[i].Equal(m.CreatedAt) {
 			continue
 		}
 		if _, err := tx.Exec(ctx,
 			`UPDATE policies SET description = NULLIF($3, ''), enabled = $4, project_id = $5, rules = $6,
-			   created_at = $7, version = version + 1, updated_at = NOW()
+			   created_at = $7, log_only = $8, version = version + 1, updated_at = NOW()
 			 WHERE id = $1 AND org_id = $2`,
-			m.ID, org, cp.Description, enabled, project, raw, order[i]); err != nil {
+			m.ID, org, cp.Description, enabled, project, raw, order[i], logOnly); err != nil {
+			return fmt.Errorf("policy %s: %w", cp.Name, err)
+		}
+		if err := recordPolicyVersion(ctx, tx, org, m.ID, actor, versionConfig, "", nil); err != nil {
 			return fmt.Errorf("policy %s: %w", cp.Name, err)
 		}
 	}

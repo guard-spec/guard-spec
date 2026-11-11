@@ -22,6 +22,7 @@ export const ROUTE_CHANGED = CHANGED;
 export const PATHS = {
   dashboard: 'dashboard',
   flow: 'flow',
+  'policy-history': 'policies/history',
   guard: 'guard',
   exemplars: 'exemplars',
   simulator: 'simulator',
@@ -34,6 +35,7 @@ export const PATHS = {
   roles: 'roles',
   keys: 'keys',
   security: 'security',
+  approvals: 'approvals',
   provisioning: 'provisioning',
   config: 'config',
   organization: 'organization',

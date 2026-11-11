@@ -49,7 +49,7 @@ func TestShadowRowWritten(t *testing.T) {
 
 	gw, _ := modelTestGateway(t, true, 0, nil)
 	gw.audit = newAuditLog(func(e requestEntry) { logRequest(db, false, e) })
-	lookup := func(context.Context, string) (uuid.UUID, uuid.UUID, error) { return org, uuid.Nil, nil }
+	lookup := func(context.Context, string) (tenant.KeyInfo, error) { return tenant.KeyInfo{OrgID: org}, nil }
 	req := httptest.NewRequest("POST", "/guardrail/scan", strings.NewReader(`{"text":"Please summarize the attached report."}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-api-key", "test")

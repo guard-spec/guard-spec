@@ -4,7 +4,7 @@
 // The sidebar (identity contract §8): groups in sentence case, one lucide
 // icon per page. Instance admin pages show only to instance admins.
 
-import { Bell, BellRing, Boxes, Building2, Cpu, FileCode, Fingerprint, FlaskConical, FolderKanban, History, Key, KeyRound, LayoutDashboard, Library, ListChecks, Lock, Radio, ScrollText, Send, ShieldCheck, UserCheck, UserCog, Users, UsersRound, Workflow, type LucideIcon } from 'lucide-react';
+import { Bell, BellRing, Boxes, Building2, ClipboardCheck, Cpu, FileCode, Fingerprint, FlaskConical, FolderKanban, History, Key, KeyRound, LayoutDashboard, Library, ListChecks, Lock, Radio, ScrollText, Send, ShieldCheck, UserCheck, UserCog, Users, UsersRound, Workflow, type LucideIcon } from 'lucide-react';
 import type { MessageKey } from './i18n';
 import type { Route } from './router';
 
@@ -33,6 +33,7 @@ export const NAV: NavGroup[] = [
       { route: 'guard', label: 'nav.guard', icon: ShieldCheck },
       { route: 'exemplars', label: 'nav.exemplars', icon: Library },
       { route: 'simulator', label: 'nav.simulator', icon: FlaskConical },
+      { route: 'policy-history', label: 'nav.policyHistory', icon: History },
     ],
   },
   {
@@ -72,6 +73,7 @@ export const NAV: NavGroup[] = [
       { route: 'roles', label: 'nav.roles', icon: KeyRound },
       { route: 'keys', label: 'nav.keys', icon: Key, capability: 'api_keys.manage' },
       { route: 'security', label: 'nav.security', icon: Lock, capability: 'security.read' },
+      { route: 'approvals', label: 'nav.approvals', icon: ClipboardCheck, capability: 'approvals.read' },
       { route: 'provisioning', label: 'nav.provisioning', icon: UserCheck, capability: 'security.read' },
     ],
   },

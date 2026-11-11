@@ -2,9 +2,7 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -379,6 +377,7 @@ func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins 
 	instance.Put("/identity-providers/:id", id.updateProvider)
 	instance.Delete("/identity-providers/:id", id.deleteProvider)
 	instance.Get("/activity", listInstanceActivity(db))
+	instance.Get("/approvals", listInstanceApprovals(db))
 
 	// The gateway's running and available models (shadow.go); instance-wide.
 	authed.Get("/gateway/models", getGatewayModels(settings))
@@ -397,6 +396,15 @@ func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins 
 
 	authed.Get("/organizations/:orgId", viewer, getOrg(db))
 	authed.Patch("/organizations/:orgId", admin, updateOrgSettings(db))
+	// Deleting an organization and deciding approval requests also admit
+	// instance administrators, who approve organization deletions
+	// (approvals.go, migrations 027 and 029); the handlers check who may.
+	ownerOrInstance := orgRoleOrInstanceAdmin(db, auth.RoleOwner)
+	adminOrInstance := orgRoleOrInstanceAdmin(db, auth.RoleAdmin)
+	authed.Delete("/organizations/:orgId", ownerOrInstance, deleteOrg(db))
+	authed.Get("/organizations/:orgId/approvals", adminOrInstance, listApprovals(db))
+	authed.Post("/organizations/:orgId/approvals/:id/approve", adminOrInstance, approveRequest(db))
+	authed.Post("/organizations/:orgId/approvals/:id/reject", adminOrInstance, rejectRequest(db))
 	authed.Get("/organizations/:orgId/guard-settings", viewer, getGuardSettings(db))
 	authed.Put("/organizations/:orgId/guard-settings", admin, putGuardSettings(db))
 	authed.Get("/organizations/:orgId/security", admin, getOrgSecurity(db))
@@ -413,6 +421,8 @@ func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins 
 	authed.Post("/organizations/:orgId/api-keys", admin, createAPIKey(db))
 	authed.Patch("/organizations/:orgId/api-keys/:keyId", admin, updateAPIKey(db))
 	authed.Delete("/organizations/:orgId/api-keys/:keyId", admin, revokeAPIKey(db))
+	// A successor key with an overlap window (keys_policy.go, migration 028).
+	authed.Post("/organizations/:orgId/api-keys/:keyId/rotate", admin, rotateAPIKey(db))
 	authed.Get("/organizations/:orgId/scim/tokens", admin, listSCIMTokens(db, scimBase))
 	authed.Post("/organizations/:orgId/scim/tokens", owner, createSCIMToken(db))
 	authed.Delete("/organizations/:orgId/scim/tokens/:id", owner, revokeSCIMToken(db))
@@ -446,6 +456,10 @@ func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins 
 	authed.Post("/organizations/:orgId/policies", admin, createPolicy(db, eng))
 	authed.Put("/organizations/:orgId/policies/:id", admin, updatePolicy(db, eng))
 	authed.Delete("/organizations/:orgId/policies/:id", admin, deletePolicy(db))
+	// Policy history (policy_versions.go, migration 026).
+	authed.Get("/organizations/:orgId/policies/:id/versions", viewer, listPolicyVersions(db))
+	authed.Get("/organizations/:orgId/policies/:id/versions/diff", viewer, diffPolicyVersions(db))
+	authed.Post("/organizations/:orgId/policies/:id/rollback", admin, rollbackPolicy(db, eng))
 
 	authed.Get("/organizations/:orgId/requests", viewer, listRequests(db))
 	// Stored content: the org's content_read_role, a reason when required,
@@ -453,6 +467,8 @@ func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins 
 	authed.Post("/organizations/:orgId/requests/:requestId/content", viewer, readRequestContent(db, settings.contentKeys))
 	// Aggregates of the request log over a window (dashboard.go).
 	authed.Get("/organizations/:orgId/dashboard", viewer, getDashboard(db))
+	// The same per period as CSV (reports.go); counts only, never content.
+	authed.Get("/organizations/:orgId/reports/requests.csv", viewer, getRequestsReport(db))
 	// Shadow mode: the candidate model compared with the active one
 	// (shadow.go, migration 017). The aggregates are for viewers; the list
 	// of disagreeing requests for admins.
@@ -618,12 +634,29 @@ func updateOrgSettings(db *pgxpool.Pool) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		id := orgID(c)
 		var req struct {
-			AuditStoreContent *bool `json:"audit_store_content"`
+			AuditStoreContent *bool  `json:"audit_store_content"`
+			Reason            string `json:"reason"` // for a two-person approval request
 		}
 		if err := c.BodyParser(&req); err != nil || req.AuditStoreContent == nil {
 			return c.Status(400).JSON(fiber.Map{"error": "audit_store_content (boolean) is required"})
 		}
+		// Turning storage on waits for a second admin when the org asks for it.
+		var deferred bool
 		err := tenant.WithOrg(c.Context(), db, id, func(tx pgx.Tx) error {
+			if *req.AuditStoreContent {
+				on, _, err := twoPersonSettings(c.Context(), tx, id)
+				if err != nil {
+					return err
+				}
+				var current bool
+				if err := tx.QueryRow(c.Context(), `SELECT audit_store_content FROM organizations WHERE id = $1`, id).Scan(&current); err != nil {
+					return err
+				}
+				if on && !current {
+					deferred = true
+					return nil
+				}
+			}
 			_, err := tx.Exec(c.Context(),
 				`UPDATE organizations SET audit_store_content = $1, updated_at = NOW() WHERE id = $2`,
 				*req.AuditStoreContent, id)
@@ -631,6 +664,9 @@ func updateOrgSettings(db *pgxpool.Pool) fiber.Handler {
 		})
 		if err != nil {
 			return serverError(c, err)
+		}
+		if deferred {
+			return requestApproval(c, db, id, approvalContentStorage, id.String(), map[string]any{"audit_store_content": true}, req.Reason)
 		}
 		slog.Info("org audit content storage changed", "org", id, "enabled", *req.AuditStoreContent,
 			"by", auth.UserID(c))
@@ -672,7 +708,8 @@ func listAPIKeys(db *pgxpool.Pool) fiber.Handler {
 				return err
 			}
 			rows, err := tx.Query(c.Context(),
-				`SELECT key_prefix, alias, project_id, rpm_limit::bigint, tpm_limit, created_at, expires_at, revoked_at
+				`SELECT key_prefix, alias, project_id, rpm_limit::bigint, tpm_limit, created_at, expires_at, revoked_at,
+				        allowed_cidrs, rotated_to, rotated_at
 				 FROM api_keys WHERE org_id = $1`+filter+cond+ks.orderLimit(pg), args...)
 			if err != nil {
 				return err
@@ -680,23 +717,31 @@ func listAPIKeys(db *pgxpool.Pool) fiber.Handler {
 			defer rows.Close()
 			for rows.Next() {
 				var prefix string
-				var alias *string
+				var alias, rotatedTo *string
 				var projectID *uuid.UUID
 				var rpm, tpm *int64
 				var createdAt time.Time
-				var expiresAt, revokedAt *time.Time
-				if err := rows.Scan(&prefix, &alias, &projectID, &rpm, &tpm, &createdAt, &expiresAt, &revokedAt); err != nil {
+				var expiresAt, revokedAt, rotatedAt *time.Time
+				var cidrs []string
+				if err := rows.Scan(&prefix, &alias, &projectID, &rpm, &tpm, &createdAt, &expiresAt, &revokedAt,
+					&cidrs, &rotatedTo, &rotatedAt); err != nil {
 					return err
 				}
+				if cidrs == nil {
+					cidrs = []string{}
+				}
 				keys = append(keys, fiber.Map{
-					"key_prefix": prefix,
-					"alias":      alias,
-					"project_id": projectID,
-					"rpm_limit":  rpm, // null: the gateway's RATE_LIMIT_RPM; 0: unlimited
-					"tpm_limit":  tpm,
-					"created_at": createdAt,
-					"expires_at": expiresAt,
-					"revoked":    revokedAt != nil,
+					"key_prefix":    prefix,
+					"alias":         alias,
+					"project_id":    projectID,
+					"rpm_limit":     rpm, // null: the gateway's RATE_LIMIT_RPM; 0: unlimited
+					"tpm_limit":     tpm,
+					"created_at":    createdAt,
+					"expires_at":    expiresAt,
+					"revoked":       revokedAt != nil,
+					"allowed_cidrs": cidrs,
+					"rotated_to":    rotatedTo,
+					"rotated_at":    rotatedAt,
 				})
 			}
 			if err := rows.Err(); err != nil {
@@ -732,47 +777,66 @@ func createAPIKey(db *pgxpool.Pool) fiber.Handler {
 			ExpiresAt *time.Time `json:"expires_at"`
 			RPMLimit  optLimit   `json:"rpm_limit"`
 			TPMLimit  optLimit   `json:"tpm_limit"`
+			// AllowedCIDRs: the networks the key may be used from (migration
+			// 028); empty: any address.
+			AllowedCIDRs []string `json:"allowed_cidrs"`
 		}
 		if len(c.Body()) > 0 {
 			if err := json.Unmarshal(c.Body(), &req); err != nil {
 				return c.Status(400).JSON(fiber.Map{"error": "invalid body: " + err.Error()})
 			}
 		}
+		cidrs, err := normalizeCIDRs(req.AllowedCIDRs)
+		if err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+		}
 
 		// Generate random key: gs_<32 hex chars>.
-		buf := make([]byte, 16)
-		if _, err := rand.Read(buf); err != nil {
+		raw, hash, prefix, err := newRawKey()
+		if err != nil {
 			return c.Status(500).JSON(fiber.Map{"error": "key gen failed"})
 		}
-		raw := "gs_" + hex.EncodeToString(buf)
-		hash := tenant.HashKey(raw)
-		prefix := raw[:11] // "gs_" + 8 chars
 
-		err := tenant.WithOrg(c.Context(), db, id, func(tx pgx.Tx) error {
+		expires := req.ExpiresAt
+		err = tenant.WithOrg(c.Context(), db, id, func(tx pgx.Tx) error {
 			if err := checkProject(c.Context(), tx, id, req.ProjectID); err != nil {
 				return err
 			}
-			_, err := tx.Exec(c.Context(),
-				`INSERT INTO api_keys (key_hash, key_prefix, alias, org_id, project_id, expires_at, rpm_limit, tpm_limit, created_by)
-				 VALUES ($1, $2, $3, $4, $5, $6, $7::int, $8, $9)`,
-				hash, prefix, req.Alias, id, req.ProjectID, req.ExpiresAt, req.RPMLimit.Value, req.TPMLimit.Value, nullUUID(auth.UserID(c)))
+			// The org's maximum key lifetime caps, and fills in, the expiry.
+			maxDays, err := keyMaxLifetime(c.Context(), tx, id)
+			if err != nil {
+				return err
+			}
+			if expires, err = applyKeyLifetime(req.ExpiresAt, maxDays, time.Now()); err != nil {
+				return err
+			}
+			_, err = tx.Exec(c.Context(),
+				`INSERT INTO api_keys (key_hash, key_prefix, alias, org_id, project_id, expires_at, rpm_limit, tpm_limit, created_by, allowed_cidrs)
+				 VALUES ($1, $2, $3, $4, $5, $6, $7::int, $8, $9, $10)`,
+				hash, prefix, req.Alias, id, req.ProjectID, expires, req.RPMLimit.Value, req.TPMLimit.Value, nullUUID(auth.UserID(c)), cidrs)
 			return err
 		})
 		if errors.Is(err, errUnknownProject) {
 			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
 		}
+		if errors.Is(err, errKeyLifetime) {
+			return c.Status(400).JSON(fiber.Map{"error": strings.TrimPrefix(err.Error(), "key lifetime: ")})
+		}
 		if err != nil {
 			return serverError(c, err)
 		}
-		logActivity(c, db, &id, "api_key.created", prefix, map[string]any{"alias": req.Alias, "project_id": req.ProjectID})
+		logActivity(c, db, &id, "api_key.created", prefix, map[string]any{"alias": req.Alias, "project_id": req.ProjectID,
+			"expires_at": expires, "allowed_cidrs": cidrs})
 		// Return plaintext key once only — cannot be recovered after this
 		return c.Status(201).JSON(fiber.Map{
-			"key":        raw,
-			"key_prefix": prefix,
-			"alias":      req.Alias,
-			"project_id": req.ProjectID,
-			"rpm_limit":  req.RPMLimit.Value,
-			"tpm_limit":  req.TPMLimit.Value,
+			"key":           raw,
+			"key_prefix":    prefix,
+			"alias":         req.Alias,
+			"project_id":    req.ProjectID,
+			"rpm_limit":     req.RPMLimit.Value,
+			"tpm_limit":     req.TPMLimit.Value,
+			"expires_at":    expires,
+			"allowed_cidrs": cidrs,
 		})
 	}
 }
@@ -811,6 +875,7 @@ func listPolicies(db *pgxpool.Pool) fiber.Handler {
 			Description *string         `json:"description"`
 			Version     int             `json:"version"`
 			Enabled     bool            `json:"enabled"`
+			LogOnly     bool            `json:"log_only"`
 			Rules       json.RawMessage `json:"rules"`
 			CreatedAt   time.Time       `json:"created_at"`
 			UpdatedAt   time.Time       `json:"updated_at"`
@@ -823,7 +888,7 @@ func listPolicies(db *pgxpool.Pool) fiber.Handler {
 				return err
 			}
 			rows, err := tx.Query(c.Context(),
-				`SELECT id, project_id, name, description, version, enabled, rules, created_at, updated_at
+				`SELECT id, project_id, name, description, version, enabled, log_only, rules, created_at, updated_at
 				 FROM policies WHERE org_id = $1`+cond+ks.orderLimit(pg), args...)
 			if err != nil {
 				return err
@@ -831,7 +896,7 @@ func listPolicies(db *pgxpool.Pool) fiber.Handler {
 			defer rows.Close()
 			for rows.Next() {
 				var p pRow
-				if err := rows.Scan(&p.ID, &p.ProjectID, &p.Name, &p.Description, &p.Version, &p.Enabled,
+				if err := rows.Scan(&p.ID, &p.ProjectID, &p.Name, &p.Description, &p.Version, &p.Enabled, &p.LogOnly,
 					&p.Rules, &p.CreatedAt, &p.UpdatedAt); err != nil {
 					return err
 				}
@@ -870,9 +935,16 @@ func createPolicy(db *pgxpool.Pool, eng *policy.Engine) fiber.Handler {
 			// Absent: enabled. A policy created disabled is never live, not
 			// even between a create and a second PUT.
 			Enabled *bool `json:"enabled"`
+			// LogOnly: decisions are recorded, not applied (migration 026).
+			LogOnly bool `json:"log_only"`
+			// Reason is kept with the version (policy_versions.go).
+			Reason string `json:"reason"`
 		}
 		if err := c.BodyParser(&req); err != nil || req.Name == "" {
 			return c.Status(400).JSON(fiber.Map{"error": "name and rules are required"})
+		}
+		if len([]rune(req.Reason)) > maxReasonRunes {
+			return c.Status(400).JSON(fiber.Map{"error": fmt.Sprintf("reason must be at most %d characters", maxReasonRunes)})
 		}
 		rules, targets, err := validateRules(eng, req.Rules)
 		if err != nil {
@@ -889,11 +961,13 @@ func createPolicy(db *pgxpool.Pool, eng *policy.Engine) fiber.Handler {
 			if err := checkRouteTargets(c.Context(), tx, org, targets); err != nil {
 				return err
 			}
-			_, err := tx.Exec(c.Context(),
-				`INSERT INTO policies (id, org_id, project_id, name, description, rules, enabled)
-				 VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-				id, org, req.ProjectID, req.Name, req.Description, rules, req.Enabled == nil || *req.Enabled)
-			return err
+			if _, err := tx.Exec(c.Context(),
+				`INSERT INTO policies (id, org_id, project_id, name, description, rules, enabled, log_only)
+				 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+				id, org, req.ProjectID, req.Name, req.Description, rules, req.Enabled == nil || *req.Enabled, req.LogOnly); err != nil {
+				return err
+			}
+			return recordPolicyVersion(c.Context(), tx, org, id, auth.UserID(c), versionCreate, req.Reason, nil)
 		})
 		var unknownTarget *unknownTargetError
 		if errors.Is(err, errUnknownProject) || errors.As(err, &unknownTarget) {
@@ -905,8 +979,8 @@ func createPolicy(db *pgxpool.Pool, eng *policy.Engine) fiber.Handler {
 		if err != nil {
 			return serverError(c, err)
 		}
-		logActivity(c, db, &org, "policy.created", req.Name, map[string]any{"id": id})
-		return c.Status(201).JSON(fiber.Map{"id": id})
+		logActivity(c, db, &org, "policy.created", req.Name, map[string]any{"id": id, "log_only": req.LogOnly})
+		return c.Status(201).JSON(fiber.Map{"id": id, "version": 1})
 	}
 }
 
@@ -921,11 +995,16 @@ func updatePolicy(db *pgxpool.Pool, eng *policy.Engine) fiber.Handler {
 			Name        string          `json:"name"`
 			Description string          `json:"description"`
 			Enabled     *bool           `json:"enabled"`
+			LogOnly     *bool           `json:"log_only"` // absent: unchanged
 			Rules       json.RawMessage `json:"rules"`
 			ProjectID   optUUID         `json:"project_id"` // absent: unchanged; null: org-wide
+			Reason      string          `json:"reason"`     // kept with the version
 		}
 		if err := c.BodyParser(&req); err != nil {
 			return c.Status(400).JSON(fiber.Map{"error": "invalid body"})
+		}
+		if len([]rune(req.Reason)) > maxReasonRunes {
+			return c.Status(400).JSON(fiber.Map{"error": fmt.Sprintf("reason must be at most %d characters", maxReasonRunes)})
 		}
 		var targets []string
 		if req.Rules != nil {
@@ -933,7 +1012,15 @@ func updatePolicy(db *pgxpool.Pool, eng *policy.Engine) fiber.Handler {
 				return c.Status(400).JSON(fiber.Map{"error": err.Error()})
 			}
 		}
-		var updated int64
+		var (
+			updated int64
+			version int
+			// deferDisable: the org wants a second admin for disabling a
+			// policy, and this save turns an enabled one off. Everything
+			// else in the save applies now; the disable becomes a request.
+			deferDisable bool
+			cancelled    []cancelledApproval
+		)
 		err = tenant.WithOrg(c.Context(), db, org, func(tx pgx.Tx) error {
 			if err := checkProject(c.Context(), tx, org, req.ProjectID.Value); err != nil {
 				return err
@@ -944,19 +1031,49 @@ func updatePolicy(db *pgxpool.Pool, eng *policy.Engine) fiber.Handler {
 			if err := checkRouteTargets(c.Context(), tx, org, targets); err != nil {
 				return err
 			}
-			tag, err := tx.Exec(c.Context(),
+			if req.Enabled != nil && !*req.Enabled {
+				on, _, err := twoPersonSettings(c.Context(), tx, org)
+				if err != nil {
+					return err
+				}
+				var enabled bool
+				err = tx.QueryRow(c.Context(), `SELECT enabled FROM policies WHERE id = $1 AND org_id = $2`, pID, org).Scan(&enabled)
+				if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+					return err
+				}
+				if on && enabled {
+					deferDisable = true
+					req.Enabled = nil
+				}
+			}
+			err := tx.QueryRow(c.Context(),
 				`UPDATE policies SET
 				 name = COALESCE(NULLIF($1,''), name),
 				 description = COALESCE(NULLIF($2,''), description),
 				 rules = COALESCE($3, rules),
 				 enabled = COALESCE($4, enabled),
 				 project_id = CASE WHEN $7 THEN $8::uuid ELSE project_id END,
+				 log_only = COALESCE($9, log_only),
 				 version = version + 1,
 				 updated_at = NOW()
-				 WHERE id = $5 AND org_id = $6`,
+				 WHERE id = $5 AND org_id = $6 RETURNING version`,
 				req.Name, req.Description, req.Rules, req.Enabled, pID, org,
-				req.ProjectID.Set, req.ProjectID.Value)
-			updated = tag.RowsAffected()
+				req.ProjectID.Set, req.ProjectID.Value, req.LogOnly).Scan(&version)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			updated = 1
+			if err := recordPolicyVersion(c.Context(), tx, org, pID, auth.UserID(c), versionUpdate, req.Reason, nil); err != nil {
+				return err
+			}
+			if req.Enabled != nil && !*req.Enabled {
+				// Disabled directly (two-person approval off): a request to
+				// disable it has nothing left to do.
+				cancelled, err = cancelOrphanedApprovals(c.Context(), tx, org)
+			}
 			return err
 		})
 		var unknownTarget *unknownTargetError
@@ -972,11 +1089,23 @@ func updatePolicy(db *pgxpool.Pool, eng *policy.Engine) fiber.Handler {
 		if updated == 0 {
 			return c.Status(404).JSON(fiber.Map{"error": "not found"})
 		}
-		logActivity(c, db, &org, "policy.updated", pID.String(), map[string]any{"enabled": req.Enabled, "rules_changed": req.Rules != nil})
-		return c.JSON(fiber.Map{"id": pID, "updated": true})
+		logActivity(c, db, &org, "policy.updated", pID.String(), map[string]any{"enabled": req.Enabled, "log_only": req.LogOnly,
+			"rules_changed": req.Rules != nil, "version": version, "reason": strings.TrimSpace(req.Reason)})
+		logCancelled(c, db, org, cancelled)
+		if deferDisable {
+			return requestApproval(c, db, org, approvalPolicyDisable, pID.String(), map[string]any{"enabled": false, "version": version}, req.Reason)
+		}
+		return c.JSON(fiber.Map{"id": pID, "updated": true, "version": version})
 	}
 }
 
+// errPolicyEnabled refuses to delete a policy that is on: disabling it is
+// the step two-person approval guards, so deleting cannot skip it.
+var errPolicyEnabled = errors.New("disable the policy before deleting it")
+
+// deletePolicy answers DELETE /organizations/:orgId/policies/:id. Only a
+// disabled policy is deleted (409 policy_enabled otherwise); no approval is
+// asked for, since disabling it was the guarded step.
 func deletePolicy(db *pgxpool.Pool) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		org := orgID(c)
@@ -984,15 +1113,39 @@ func deletePolicy(db *pgxpool.Pool) fiber.Handler {
 		if err != nil {
 			return c.Status(400).JSON(fiber.Map{"error": "invalid policy id"})
 		}
+		var (
+			deleted   bool
+			cancelled []cancelledApproval
+		)
 		err = tenant.WithOrg(c.Context(), db, org, func(tx pgx.Tx) error {
-			_, err := tx.Exec(c.Context(),
-				`DELETE FROM policies WHERE id = $1 AND org_id = $2`, pID, org)
+			var enabled bool
+			err := tx.QueryRow(c.Context(), `SELECT enabled FROM policies WHERE id = $1 AND org_id = $2 FOR UPDATE`, pID, org).Scan(&enabled)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			if enabled {
+				return errPolicyEnabled
+			}
+			if _, err := tx.Exec(c.Context(), `DELETE FROM policies WHERE id = $1 AND org_id = $2`, pID, org); err != nil {
+				return err
+			}
+			deleted = true
+			cancelled, err = cancelOrphanedApprovals(c.Context(), tx, org)
 			return err
 		})
+		if errors.Is(err, errPolicyEnabled) {
+			return auth.Deny(c, fiber.StatusConflict, "policy_enabled", err.Error())
+		}
 		if err != nil {
 			return serverError(c, err)
 		}
-		logActivity(c, db, &org, "policy.deleted", pID.String(), nil)
+		if deleted {
+			logActivity(c, db, &org, "policy.deleted", pID.String(), nil)
+			logCancelled(c, db, org, cancelled)
+		}
 		return c.Status(204).Send(nil)
 	}
 }

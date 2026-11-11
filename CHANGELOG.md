@@ -9,6 +9,101 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ## [Unreleased]
 
+### Added
+
+- **Policy history** (RF-5f318378). Every save of a policy (API, admin UI,
+  config as code) is kept as a version with its author, time and an
+  optional `reason` (migration 026, `policy_versions`).
+  `GET /v1/organizations/{id}/policies/{pid}/versions` lists them,
+  `.../versions/diff?from=&to=` compares two (fields and rules by id), and
+  `POST .../rollback` `{"version", "reason"}` restores one as a new version
+  (one step back without `version`), checked like any save. Logged as
+  `policy.updated` (with the version) and `policy.rolled_back`. A
+  **log-only** policy (`log_only: true`; the Flow page's "Log only" switch;
+  `log_only` in the YAML config) is evaluated but only records what its
+  allow, block and route rules would have decided, as request-log tags
+  `policy:would_block=<rule id>` (`would_allow`, `would_route`); the request
+  goes on to the next policy. The simulator reports `log_only` too. New
+  **Policy history** page: versions, diff, rollback.
+- **Two-person approval** (RF-5f318378). Per-organization opt-in in the
+  security policy (`two_person_approval`, `approval_expiry_hours`, default
+  24, at most 720; migrations 027 and 029). On, disabling a policy (also by
+  a rollback to a disabled version) and turning on content storage
+  (`audit_store_content`) answer 202 with a pending request instead of
+  taking effect; another admin approves (`POST .../approvals/{rid}/approve`,
+  the change applies in the same transaction under row locks: approving a
+  disable only turns `enabled` off and keeps later edits) or rejects it, the
+  requester cannot approve their own, and a request past its time expires.
+  At most one request per organization, kind and target is pending: asking
+  again answers that one (`already_pending`). A request whose policy was
+  deleted or is already disabled is cancelled (409 `approval_cancelled` on
+  approval; status `cancelled`). Off, nothing changes. Logged as
+  `approval.requested`, `approval.approved`, `approval.rejected` and
+  `approval.cancelled`, and sent to the alert channels as
+  `activity.approval.*`. New: `DELETE /v1/organizations/{id}`
+  `{"confirm": "<slug>", "reason"}`, which always takes two people: an
+  owner's call is a request that another owner or an instance administrator
+  approves, whatever the setting; an instance administrator may delete at
+  once with a `reason`, kept in the instance activity log; never the
+  default organization. `GET .../approvals`, `GET /v1/admin/approvals`
+  (every organization's pending deletion, for instance administrators), the
+  **Approvals** page and the setting on the Security page.
+- **API key policy** (RF-5f318378, migration 028). `allowed_cidrs` on a key
+  (create and `PATCH`): the gateway refuses it from any other address with
+  403 `{"error": "API key is not allowed from this address"}`, using the
+  client address resolved through `TRUSTED_PROXIES`, which the gateway now
+  reads too; never a header a client sent itself. `api_key_max_lifetime_days`
+  in the security policy caps and fills in the `expires_at` of new keys.
+  `POST .../api-keys/{prefix}/rotate` `{"overlap_hours": 24}` creates a
+  successor with the same alias, project, limits and addresses (shown once)
+  while the old key keeps working for the overlap and then expires
+  (`rotated_to`, `rotated_at`; logged as `api_key.rotated`). The API keys
+  page gets the address list and rotation; the Security page the maximum
+  lifetime. `PATCH` also takes `expires_at`.
+- **CSV report** (RF-5f318378).
+  `GET /v1/organizations/{id}/reports/requests.csv?window=24h|7d|30d` (or
+  `from` and `to`, at most 92 days; `project_id`) answers the request log
+  per hour or day in long form: totals, actions, block reasons (the policy
+  rule or the detector's label), projects and API key prefixes, with
+  requests and blocked counts; never content. Viewer role, like the
+  dashboard, which gets a **Download CSV** button. Logged as
+  `report.downloaded`. No schedule: the control plane has no
+  per-organization scheduler to reuse; a cron job with `curl` is the way.
+
+### Changed
+
+- Only a disabled policy can be deleted: `DELETE .../policies/{pid}` on an
+  enabled policy answers 409 `policy_enabled` ("disable the policy before
+  deleting it"), and a config-as-code file that leaves out an enabled
+  policy is refused (422). Deleting a policy needs no approval, so it can
+  no longer be used to skip the approval of disabling it. The Policy flow
+  page offers to delete a policy only once it is disabled.
+- `lookup_api_key` (the gateway's key lookup) also returns a key's allowed
+  addresses; older gateways keep working against it.
+- The gateway reads `TRUSTED_PROXIES` (the control plane always did), for
+  keys limited to addresses; the shared logic is `internal/clientip`.
+- `GET /v1/organizations/{id}/policies` and the YAML config carry
+  `log_only`; `POST` and `PUT` take `log_only` and `reason` and answer the
+  new `version`.
+
+### Upgrade notes
+
+- Migration 026 writes one version row per existing policy (its state at
+  the upgrade). Migration 028 replaces `lookup_api_key`: apply the
+  migrations before a 0.7.0 gateway starts (the compose `migrate` job does).
+  See [docs/upgrade.md](docs/upgrade.md#migration-notes).
+- Behind a reverse proxy, set `TRUSTED_PROXIES` on the gateway before using
+  `allowed_cidrs`; without it the proxy's address is the client and such
+  keys are refused.
+- Two-person approval, the key lifetime and address limits are off until an
+  owner turns them on; existing keys are not changed.
+- Clients that disable a policy should expect 202 `approval_required` when
+  the organization requires a second admin, and clients or config files
+  that delete a policy must disable it first (409 `policy_enabled`, 422 for
+  a file). Migration 029 cancels pending policy deletion requests and
+  duplicate pending requests. Deleting an organization always waits for
+  another owner or an instance administrator.
+
 ## [0.6.0] - 2026-11-11
 
 ### Added

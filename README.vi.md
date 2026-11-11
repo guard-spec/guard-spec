@@ -405,7 +405,9 @@ không gọi model), `POST /guardrail/scan/tools` (chấm định nghĩa tool MC
 
 Control plane (cổng 8081, compose mở ra 18081): đăng nhập, tổ chức, API key,
 project, policy, guard settings, exemplar, lời mời, audit log. Bảng đầy đủ và
-ví dụ curl ở mục [APIs](README.md#apis).
+ví dụ curl ở mục [APIs](README.md#apis). Các endpoint quản trị (lịch sử
+chính sách, phê duyệt hai người, chính sách khóa API, báo cáo CSV) ở mục
+[Quản trị](#quản-trị).
 
 `GET /v1/organizations/:orgId/dashboard?window=24h|7d|30d&project_id=` (vai trò
 viewer trở lên, như `/requests`) trả về số liệu tổng hợp của nhật ký yêu cầu,
@@ -672,6 +674,100 @@ liệu của bạn và xem điểm trong
 nhật ký yêu cầu trước. Quét một tài liệu 200k token mất vài chục giây trên vài
 lõi CPU. `POST /guardrail/scan` và `/v1/embeddings` giữ giới hạn hiện tại.
 
+### Quản trị
+
+Bốn công cụ cho người vận hành một tổ chức (migration 026 đến 029); mặc định
+đều tắt hoặc không đổi gì, trừ hai điều: xóa tổ chức luôn cần hai người, và chỉ
+xóa được chính sách đã tắt. Chi tiết tiếng Anh ở
+[Governance](README.md#governance).
+
+**Lịch sử chính sách.** Mỗi lần lưu chính sách (API, giao diện quản trị, cấu
+hình dạng mã) được giữ thành một phiên bản: toàn bộ chính sách sau khi lưu,
+người lưu, thời điểm và lý do (`reason`, tùy chọn, tối đa 500 ký tự).
+`GET /v1/organizations/{id}/policies/{pid}/versions` liệt kê các phiên bản
+(mới nhất trước), `GET .../versions/diff?from=1&to=3` so sánh hai phiên bản
+(các trường và các luật thêm, bỏ, sửa, đổi vị trí theo id luật), và
+`POST .../rollback` `{"version": 1, "reason": "..."}` khôi phục về phiên bản
+đó thành một phiên bản mới (không có `version`: lùi một bước). Khôi phục được
+kiểm tra như mọi lần lưu: tên còn trống, luật còn chạy được trên gateway, đích
+định tuyến còn tồn tại. Nhật ký hoạt động ghi `policy.updated` (kèm phiên bản)
+và `policy.rolled_back`. Chính sách có `log_only: true` chỉ ghi nhận thay vì
+quyết định: luật `block`, `allow`, `route` khớp được ghi vào nhật ký yêu cầu
+dạng `policy:would_block=<id luật>` (`would_allow`, `would_route`) và yêu cầu đi
+tiếp sang chính sách kế; luật `log` vẫn như cũ. Bộ mô phỏng báo `log_only`, trang
+Luồng có công tắc **Chỉ ghi log** cạnh mỗi chính sách, cấu hình dạng mã có
+`log_only` cho từng chính sách. Trang **Lịch sử chính sách** hiển thị các phiên
+bản, so sánh và khôi phục.
+
+**Phê duyệt hai người.** `PUT /v1/organizations/{id}/security`
+`{"two_person_approval": true, "approval_expiry_hours": 24}` (owner) khiến hai
+thay đổi phải chờ quản trị viên thứ hai: tắt chính sách (`PUT` với
+`enabled: false`, hoặc khôi phục về một phiên bản đang tắt; phần còn lại của
+lần lưu áp dụng ngay) và bật lưu nội dung prompt và câu trả lời
+(`audit_store_content: true`). Lời gọi trả về 202
+`{"approval_required": true, "request": {...}}` và chưa đổi gì; gửi lại cùng
+thay đổi khi nó đang chờ sẽ nhận lại chính yêu cầu đó (`"already_pending":
+true`): mỗi tổ chức, loại và đối tượng chỉ có tối đa một yêu cầu đang chờ.
+`GET /v1/organizations/{id}/approvals` liệt kê yêu cầu đang chờ,
+`POST .../approvals/{rid}/approve` `{"note"}` áp dụng thay đổi trong cùng giao
+dịch, `.../reject` kết thúc nó. Người yêu cầu không tự duyệt được (403
+`self_approval`) nhưng có thể từ chối; yêu cầu quá `approval_expiry_hours` (1
+đến 720) sẽ hết hạn và không đổi gì (409 `approval_expired`). Duyệt việc tắt
+chính sách sẽ khóa yêu cầu và chính sách rồi chỉ tắt `enabled`: các chỉnh sửa
+chính sách sau khi gửi yêu cầu vẫn được giữ. Yêu cầu không còn gì để áp dụng
+(chính sách đã bị xóa hoặc đã tắt) sẽ bị hủy thay vì báo lỗi khó hiểu: lời
+duyệt trả về 409 `approval_cancelled` kèm yêu cầu, và danh sách tự hủy các yêu
+cầu như vậy khi gặp. Tắt thiết lập này thì mọi thứ như trước.
+
+**Xóa chính sách** không bao giờ phải chờ duyệt, nhưng chỉ xóa được chính sách
+đã tắt: `DELETE .../policies/{pid}` với chính sách đang bật trả về 409
+`{"error": "disable the policy before deleting it", "code": "policy_enabled"}`,
+bất kể chính sách bảo mật. Nhờ vậy khi bật phê duyệt hai người, không thể né
+bước tắt (bước cần duyệt) bằng cách xóa. Cấu hình dạng mã theo cùng quy tắc:
+tệp bỏ sót một chính sách đang bật sẽ bị từ chối (422; đặt `enabled: false`,
+áp dụng, rồi mới xóa khỏi tệp), và khi bật phê duyệt hai người thì tệp không
+tắt được chính sách đang bật (hãy tắt ở trang Luồng chính sách hoặc bằng
+`PUT`). Trang Luồng chính sách chỉ cho xóa chính sách khi nó đã tắt và đã lưu.
+
+**Xóa tổ chức** luôn cần hai người, bất kể `two_person_approval`:
+`DELETE /v1/organizations/{id}` `{"confirm": "<slug>", "reason": "..."}` do một
+owner gửi trả về 202 kèm yêu cầu mà một owner khác của tổ chức hoặc quản trị
+viên hệ thống duyệt (admin có thể từ chối, người yêu cầu có thể rút lại). Quản
+trị viên hệ thống có thể xóa ngay một tổ chức, dù là thành viên hay không,
+nhưng phải ghi `reason` (thiếu thì 400 `reason_required`); tổ chức mặc định
+không bao giờ xóa được (409 `default_org`). Quản trị viên hệ thống xem mọi yêu
+cầu xóa tổ chức đang chờ ở `GET /v1/admin/approvals` và trên trang **Phê
+duyệt**. Nhật ký của tổ chức bị xóa theo nó, nên `org.deleted` (kèm slug, lý do
+và yêu cầu nếu có) và `approval.approved` được ghi vào nhật ký hệ thống.
+
+Mỗi bước ghi vào nhật ký hoạt động (`approval.requested`, `approval.approved`,
+`approval.rejected`, `approval.cancelled`) và tới các kênh cảnh báo dạng sự kiện
+`activity.approval.*`. Giao diện quản trị có trang **Phê duyệt**.
+
+**Chính sách khóa API.** Khóa có thể giới hạn theo địa chỉ:
+`POST /v1/organizations/{id}/api-keys` `{"alias": "edge", "allowed_cidrs":
+["203.0.113.0/24", "198.51.100.7"]}` (tối đa 32 mục; `PATCH` cũng được). Gateway
+từ chối khóa từ địa chỉ khác với 403 `{"error": "API key is not allowed from
+this address"}`, dùng địa chỉ client xác định qua `TRUSTED_PROXIES` (gateway
+cũng đọc biến này), không bao giờ tin header do client tự gửi; khóa hết hạn
+hoặc bị thu hồi vẫn là 401. `api_key_max_lifetime_days` trong chính sách bảo
+mật (1 đến 3650, null là không giới hạn) chặn `expires_at` của mọi khóa mới và
+tự điền khi tạo khóa không có hạn; khóa đang có không đổi.
+`POST .../api-keys/{prefix}/rotate` `{"overlap_hours": 24}` (0 đến 720) tạo khóa
+kế thừa cùng bí danh, dự án, giới hạn và địa chỉ (trả về một lần), khóa cũ hết
+hạn khi hết thời gian chuyển tiếp (`rotated_to`, `rotated_at` trong danh sách).
+Ghi nhật ký `api_key.rotated`.
+
+**Báo cáo.** `GET /v1/organizations/{id}/reports/requests.csv?window=7d` (hoặc
+`?from=...&to=...` tối đa 92 ngày; `project_id` thu hẹp) trả về nhật ký yêu cầu
+theo giờ (đến 48 giờ) hoặc ngày (UTC) dạng dài:
+`period_start,period_end,section,key,requests,blocked` với các mục `total`,
+`action`, `reason` (lý do chặn: `policy:<tên luật>`, nhãn của bộ phát hiện, hoặc
+`other`), `project` và `api_key`. Chỉ có số đếm, không có nội dung; mỗi lần tải
+ghi `report.downloaded`. Nút **Tải CSV** trên Bảng điều khiển lấy đúng khoảng và
+dự án đang xem. Control plane không có bộ lập lịch theo tổ chức, nên báo cáo
+định kỳ là một cron job gọi `curl`.
+
 ### Giao diện quản trị
 
 Control plane phục vụ giao diện quản trị tại `/ui/` (với compose:
@@ -692,8 +788,12 @@ hành động, bước và cạnh đều có dấu **?** giải thích ý nghĩa
 khi nào dùng. Phạm vi chưa có luật nào sẽ gợi ý các luật mẫu thêm bằng một cú
 bấm. Ngoài ra
 có các trang Upstream, Cấu hình dạng mã (YAML: kiểm tra, xem khác biệt, áp
-dụng), Thiết lập bảo vệ, Khóa API, Dự án, Mẫu tham chiếu và Nhật ký kiểm tra.
-Chi tiết ở mục [Admin UI](README.md#admin-ui).
+dụng), Thiết lập bảo vệ, Khóa API (giới hạn địa chỉ, xoay khóa), Dự án, Mẫu
+tham chiếu, Nhật ký kiểm tra, Lịch sử chính sách (phiên bản, so sánh, khôi
+phục) và Phê duyệt (yêu cầu chờ quản trị viên thứ hai; với quản trị viên hệ
+thống, cả yêu cầu xóa tổ chức của mọi tổ chức); trang Luồng chỉ cho xóa chính
+sách đã tắt; Bảng điều khiển tải
+được CSV. Chi tiết ở mục [Admin UI](README.md#admin-ui).
 
 ![Luồng xử lý, giao diện tối](docs/images/admin-flow-dark-vi.png)
 

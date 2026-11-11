@@ -25,6 +25,7 @@ import {
   type Role,
   type SessionInfo,
   type ApiKey,
+  type ApprovalRequest,
   type AuditRow,
   type ConditionLeaf,
   type ConditionNode,
@@ -35,7 +36,9 @@ import {
   type GuardSettings,
   type Org,
   type Policy,
+  type PolicyDiff,
   type PolicySchema,
+  type PolicyVersion,
   type Project,
   type Rule,
   type GatewayModels,
@@ -349,6 +352,8 @@ export interface MockState {
   projects: Project[];
   upstreams: Upstream[];
   policies: Policy[];
+  /** Policy history (migration 026), by policy id, newest first. */
+  policyVersions: Record<string, PolicyVersion[]>;
   keys: ApiKey[];
   guard: GuardSettings;
   exemplars: Exemplar[];
@@ -506,10 +511,18 @@ export function seedState(rich = false): MockState {
         ]
       : [main, safe, sandbox],
     policies: [baseline, strict],
+    policyVersions: {
+      [baseline.id]: [
+        versionOf(baseline, 3, 'update', 'admin@example.com', 'route suspicious requests to the safe model', '2026-10-20T09:00:00Z'),
+        { ...versionOf(baseline, 2, 'update', 'ops@example.com', null, '2026-10-10T09:00:00Z'), rules: baseline.rules.slice(0, 2) },
+        { ...versionOf(baseline, 1, 'create', 'admin@example.com', 'first rules', '2026-10-01T09:00:00Z'), rules: baseline.rules.slice(0, 1) },
+      ],
+      [strict.id]: [versionOf(strict, 1, 'create', 'admin@example.com', null, strict.created_at)],
+    },
     keys: [
-      { key_prefix: 'gs_3fa9c1d2', alias: 'billing prod', project_id: billing.id, rpm_limit: 600, tpm_limit: null, created_at: T0, expires_at: null, revoked: false },
-      { key_prefix: 'gs_8b20e4aa', alias: 'support web', project_id: support.id, rpm_limit: null, tpm_limit: 200000, created_at: T0, expires_at: '2027-01-01T00:00:00Z', revoked: false },
-      { key_prefix: 'gs_11c0ffee', alias: 'old test key', project_id: null, rpm_limit: null, tpm_limit: null, created_at: T0, expires_at: null, revoked: true },
+      { key_prefix: 'gs_3fa9c1d2', alias: 'billing prod', project_id: billing.id, rpm_limit: 600, tpm_limit: null, created_at: T0, expires_at: null, revoked: false, allowed_cidrs: ['203.0.113.0/24'], rotated_to: null, rotated_at: null },
+      { key_prefix: 'gs_8b20e4aa', alias: 'support web', project_id: support.id, rpm_limit: null, tpm_limit: 200000, created_at: T0, expires_at: '2027-01-01T00:00:00Z', revoked: false, allowed_cidrs: [], rotated_to: null, rotated_at: null },
+      { key_prefix: 'gs_11c0ffee', alias: 'old test key', project_id: null, rpm_limit: null, tpm_limit: null, created_at: T0, expires_at: null, revoked: true, allowed_cidrs: [], rotated_to: null, rotated_at: null },
     ],
     guard: { scan_roles: { system: true }, spotlight: 'delimit' },
     exemplars: [
@@ -545,6 +558,53 @@ function validateRules(state: MockState, rules: Rule[]): string | null {
 
 function withIds(rules: Rule[]): Rule[] {
   return rules.map((r) => ({ ...r, id: r.id ?? uuid() }));
+}
+
+/** A policy's state as one version row (policy_versions, migration 026). */
+function versionOf(p: Policy, version: number, kind: PolicyVersion['kind'], email: string | null, reason: string | null, at: string, rolledBackTo: number | null = null): PolicyVersion {
+  return {
+    version,
+    kind,
+    name: p.name,
+    description: p.description,
+    project_id: p.project_id,
+    enabled: p.enabled,
+    log_only: p.log_only === true,
+    rules: p.rules.map((r) => ({ ...r })),
+    author: email ? { id: uuid(), email } : null,
+    reason,
+    rolled_back_to: rolledBackTo,
+    created_at: at,
+  };
+}
+
+function recordVersion(state: MockState, p: Policy, kind: PolicyVersion['kind'], reason: string | null, rolledBackTo: number | null = null): void {
+  const list = state.policyVersions[p.id] ?? [];
+  list.unshift(versionOf(p, p.version, kind, 'admin@example.com', reason, new Date().toISOString(), rolledBackTo));
+  state.policyVersions[p.id] = list;
+}
+
+/** The control plane's diff: fields, then rules by id. */
+function diffVersions(a: PolicyVersion, b: PolicyVersion): PolicyDiff {
+  const d: PolicyDiff = { from: a.version, to: b.version, fields: [], rules: [] };
+  if (a.name !== b.name) d.fields.push({ field: 'name', from: a.name, to: b.name });
+  if ((a.description ?? '') !== (b.description ?? '')) d.fields.push({ field: 'description', from: a.description ?? '', to: b.description ?? '' });
+  if (a.project_id !== b.project_id) d.fields.push({ field: 'project_id', from: a.project_id, to: b.project_id });
+  if (a.enabled !== b.enabled) d.fields.push({ field: 'enabled', from: a.enabled, to: b.enabled });
+  if (a.log_only !== b.log_only) d.fields.push({ field: 'log_only', from: a.log_only, to: b.log_only });
+  const same = (x: Rule, y: Rule) => x.name === y.name && x.action === y.action && (x.route_target ?? '') === (y.route_target ?? '') && JSON.stringify(x.condition) === JSON.stringify(y.condition);
+  a.rules.forEach((r, i) => {
+    const j = b.rules.findIndex((x) => x.id === r.id);
+    const to = b.rules[j];
+    const base = { rule_id: r.id ?? '', name: r.name, from_index: i, to_index: j };
+    if (!to) d.rules.push({ ...base, op: 'removed', from: r });
+    else if (!same(r, to)) d.rules.push({ ...base, op: 'changed', name: to.name, from: r, to });
+    else if (i !== j) d.rules.push({ ...base, op: 'moved' });
+  });
+  b.rules.forEach((r, j) => {
+    if (!a.rules.some((x) => x.id === r.id)) d.rules.push({ op: 'added', rule_id: r.id ?? '', name: r.name, to: r, from_index: -1, to_index: j });
+  });
+  return d;
 }
 
 function chainFor(state: MockState, projectId: string | null): Policy[] {
@@ -717,6 +777,8 @@ export interface MockOptions {
   mfa?: 'totp' | 'enroll';
   /** The user's role in the org (GET /organizations). */
   role?: Role;
+  /** The org requires a second admin for guarded changes (migration 027). */
+  twoPerson?: boolean;
   /** More rows (requests, members, activity) for screenshots and paging. */
   rich?: boolean;
   /** A control plane without the alerts endpoints (404). */
@@ -757,6 +819,10 @@ export interface IdentityState {
   scimUsers: number;
   scimGroups: number;
   groupRoles: GroupRole[];
+  /** Two-person approval requests (migration 027), newest first. */
+  approvals: ApprovalRequest[];
+  /** Pending deletions of other organizations, for the instance administrator (GET /admin/approvals, migration 029). */
+  instanceApprovals: ApprovalRequest[];
 }
 
 /** The SAML metadata of the mock IdP (an EntityDescriptor with an IDPSSODescriptor). */
@@ -861,7 +927,73 @@ export function seedIdentity(rich = false): IdentityState {
       content_read_role: 'admin',
       content_view_reason: true,
       scim_revoke_keys: true,
+      two_person_approval: false,
+      approval_expiry_hours: 24,
+      api_key_max_lifetime_days: null,
     },
+    approvals: [
+      {
+        id: 'apr-1',
+        kind: 'policy.disable',
+        target: 'policy-strict',
+        target_label: 'strict',
+        payload: { enabled: false },
+        reason: 'too many false positives on the billing bot',
+        status: 'pending',
+        requested_by: { id: '20000000-0000-4000-8000-000000000002', email: 'ops@example.com' },
+        decided_by: null,
+        decided_at: null,
+        decision_note: null,
+        expires_at: '2099-01-01T00:00:00Z',
+        created_at: '2026-11-10T08:00:00Z',
+      },
+      {
+        id: 'apr-2',
+        kind: 'content_storage.enable',
+        target: ORG_ID,
+        payload: { audit_store_content: true },
+        reason: null,
+        status: 'pending',
+        requested_by: { id: ME_ID, email: EMAIL },
+        decided_by: null,
+        decided_at: null,
+        decision_note: null,
+        expires_at: '2099-01-01T00:00:00Z',
+        created_at: '2026-11-10T09:00:00Z',
+      },
+      {
+        id: 'apr-3',
+        kind: 'policy.delete',
+        target: 'policy-gone',
+        target_label: null,
+        payload: {},
+        reason: null,
+        status: 'rejected',
+        requested_by: { id: '20000000-0000-4000-8000-000000000002', email: 'ops@example.com' },
+        decided_by: { id: ME_ID, email: EMAIL },
+        decided_at: '2026-11-09T10:00:00Z',
+        decision_note: 'still needed',
+        expires_at: '2026-11-10T09:00:00Z',
+        created_at: '2026-11-09T09:00:00Z',
+      },
+    ],
+    instanceApprovals: [
+      {
+        id: 'apr-org-1',
+        org_id: '30000000-0000-4000-8000-000000000009',
+        kind: 'org.delete',
+        target: '30000000-0000-4000-8000-000000000009',
+        payload: { slug: 'sandbox', name: 'Sandbox' },
+        reason: 'the pilot is over',
+        status: 'pending',
+        requested_by: { id: '20000000-0000-4000-8000-000000000003', email: 'pilot-owner@example.com' },
+        decided_by: null,
+        decided_at: null,
+        decision_note: null,
+        expires_at: '2099-01-01T00:00:00Z',
+        created_at: '2026-11-10T07:00:00Z',
+      },
+    ],
     scimTokens: [
       { id: 'scim-1', name: 'Okta production', prefix: 'gss_q8Zt3kLm', created_at: '2026-10-02T09:00:00Z', last_used_at: '2026-11-04T07:58:00Z', expires_at: null, revoked_at: null },
       { id: 'scim-2', name: 'Old connector', prefix: 'gss_A1b2C3d4', created_at: '2026-09-01T09:00:00Z', last_used_at: '2026-09-20T10:00:00Z', expires_at: null, revoked_at: '2026-10-01T09:00:00Z' },
@@ -1105,6 +1237,7 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
     state.org.audit_store_content = true;
     for (const r of state.requests) r.request_content = JSON.stringify({ model: r.model, messages: [{ role: 'system', content: 'You are the Acme support bot.' }, { role: 'user', content: STORED_PROMPT }] });
   }
+  if (opts.twoPerson) state.identity.security.two_person_approval = true;
   await page.route('**/v1/**', async (route: Route) => {
     const req = route.request();
     const url = new URL(req.url());
@@ -1304,6 +1437,18 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
       return json(201, { id: uuid(), name: b.name, slug: b.slug });
     }
 
+    // An instance administrator decides another organization's deletion (migration 029).
+    if (path === '/admin/approvals' && method === 'GET') return json(200, { items: id.instanceApprovals.filter((a) => a.status === 'pending') });
+    const im = /^\/organizations\/([^/]+)\/approvals\/([^/]+)\/(approve|reject)$/.exec(path);
+    const ia = im && method === 'POST' ? id.instanceApprovals.find((x) => x.id === im[2] && x.org_id === im[1]) : undefined;
+    if (im && ia) {
+      if (ia.status !== 'pending') return json(409, { error: 'this request is no longer pending', code: 'approval_not_pending' });
+      ia.status = im[3] === 'approve' ? 'approved' : 'rejected';
+      ia.decided_by = { id: ME_ID, email: EMAIL };
+      ia.decided_at = new Date().toISOString();
+      return im[3] === 'approve' ? json(204) : json(200, ia);
+    }
+
     const m = /^\/organizations\/([^/]+)(\/.*)?$/.exec(path);
     if (!m) return json(404, { error: 'not found' });
     if (m[1] !== state.org.id) return json(403, { error: 'not a member of this organization' });
@@ -1379,7 +1524,7 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
 
     if (sub === '/policies' && method === 'GET') return json(200, listBody(state.policies, url, legacy));
     if (sub === '/policies' && method === 'POST') {
-      const b = body as { name: string; rules: Rule[]; project_id?: string | null; enabled?: boolean };
+      const b = body as { name: string; rules: Rule[]; project_id?: string | null; enabled?: boolean; log_only?: boolean; reason?: string };
       if (state.policies.some((x) => x.name === b.name)) return json(409, { error: 'a policy with this name already exists in this organization' });
       const err = validateRules(state, b.rules);
       if (err) return json(400, { error: err });
@@ -1390,19 +1535,57 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
         description: null,
         version: 1,
         enabled: b.enabled ?? true,
+        log_only: b.log_only === true,
         rules: withIds(b.rules),
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
       state.policies.push(p);
-      return json(201, { id: p.id });
+      recordVersion(state, p, 'create', b.reason ?? null);
+      return json(201, { id: p.id, version: 1 });
     }
     if (sub === '/policies/simulate' && method === 'POST') return json(200, simulate(state, body as Parameters<typeof simulate>[1]));
+    // Policy history (migration 026).
+    if ((mm = /^\/policies\/([^/]+)\/versions$/.exec(sub)) && method === 'GET') {
+      const p = state.policies.find((x) => x.id === mm?.[1]);
+      if (!p) return json(404, { error: 'not found' });
+      return json(200, { items: state.policyVersions[p.id] ?? [], current: p.version });
+    }
+    if ((mm = /^\/policies\/([^/]+)\/versions\/diff$/.exec(sub)) && method === 'GET') {
+      const p = state.policies.find((x) => x.id === mm?.[1]);
+      if (!p) return json(404, { error: 'not found' });
+      const list = state.policyVersions[p.id] ?? [];
+      const to = Number(url.searchParams.get('to') ?? p.version);
+      const from = Number(url.searchParams.get('from') ?? to - 1);
+      const a = list.find((v) => v.version === from);
+      const b = list.find((v) => v.version === to);
+      if (!a || !b) return json(404, { error: `no version ${from} or ${to} of this policy` });
+      return json(200, diffVersions(a, b));
+    }
+    if ((mm = /^\/policies\/([^/]+)\/rollback$/.exec(sub)) && method === 'POST') {
+      if (opts.role === 'viewer' || opts.role === 'member') return json(403, { error: 'requires role admin' });
+      const p = state.policies.find((x) => x.id === mm?.[1]);
+      if (!p) return json(404, { error: 'not found' });
+      const b = (body ?? {}) as { version?: number; reason?: string };
+      const want = b.version !== undefined && b.version > 0 ? b.version : p.version - 1;
+      const target = (state.policyVersions[p.id] ?? []).find((v) => v.version === want);
+      if (!target) return json(404, { error: 'no such version of this policy' });
+      p.name = target.name;
+      p.description = target.description;
+      p.project_id = target.project_id;
+      p.enabled = target.enabled;
+      p.log_only = target.log_only;
+      p.rules = target.rules.map((r) => ({ ...r }));
+      p.version += 1;
+      p.updated_at = new Date().toISOString();
+      recordVersion(state, p, 'rollback', b.reason ?? null, target.version);
+      return json(200, { id: p.id, version: p.version, rolled_back_to: target.version });
+    }
     if ((mm = /^\/policies\/([^/]+)$/.exec(sub))) {
       const p = state.policies.find((x) => x.id === mm?.[1]);
       if (!p) return json(404, { error: 'not found' });
       if (method === 'PUT') {
-        const b = body as { name?: string; rules?: Rule[]; enabled?: boolean };
+        const b = body as { name?: string; rules?: Rule[]; enabled?: boolean; log_only?: boolean; reason?: string };
         if (b.name && b.name !== p.name && state.policies.some((x) => x.name === b.name)) {
           return json(409, { error: 'a policy with this name already exists in this organization' });
         }
@@ -1412,11 +1595,40 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
           p.rules = withIds(b.rules);
         }
         if (b.name) p.name = b.name;
-        if (b.enabled !== undefined) p.enabled = b.enabled;
+        // With two-person approval, disabling waits; the rest of the save applies.
+        let pending: ApprovalRequest | null = null;
+        const waiting = state.identity.approvals.find((a) => a.kind === 'policy.disable' && a.target === p.id && a.status === 'pending');
+        if (b.enabled === false && p.enabled && state.identity.security.two_person_approval && waiting) {
+          // One pending request per change: asking again answers the same one.
+          pending = waiting;
+        } else if (b.enabled === false && p.enabled && state.identity.security.two_person_approval) {
+          pending = {
+            id: uuid(),
+            kind: 'policy.disable',
+            target: p.id,
+            target_label: p.name,
+            payload: { enabled: false },
+            reason: b.reason ?? null,
+            status: 'pending',
+            requested_by: { id: ME_ID, email: EMAIL },
+            decided_by: null,
+            decided_at: null,
+            decision_note: null,
+            expires_at: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
+            created_at: new Date().toISOString(),
+          };
+          state.identity.approvals.unshift(pending);
+        } else if (b.enabled !== undefined) p.enabled = b.enabled;
+        if (b.log_only !== undefined) p.log_only = b.log_only;
         p.version += 1;
-        return json(200, { id: p.id, updated: true });
+        p.updated_at = new Date().toISOString();
+        recordVersion(state, p, 'update', b.reason ?? null);
+        if (pending) return json(202, { approval_required: true, request: pending });
+        return json(200, { id: p.id, updated: true, version: p.version });
       }
       if (method === 'DELETE') {
+        // Only a disabled policy is deleted (migration 029).
+        if (p.enabled) return json(409, { error: 'disable the policy before deleting it', code: 'policy_enabled' });
         state.policies = state.policies.filter((x) => x !== p);
         return json(204);
       }
@@ -1456,8 +1668,15 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
       return json(200, listBody(keys, url, legacy));
     }
     if (sub === '/api-keys' && method === 'POST') {
-      const b = body as { alias: string; project_id: string | null; rpm_limit: number | null; tpm_limit: number | null; expires_at?: string };
+      const b = body as { alias: string; project_id: string | null; rpm_limit: number | null; tpm_limit: number | null; expires_at?: string; allowed_cidrs?: string[] };
       const key = 'gs_' + 'f'.repeat(8) + '0123456789abcdef01234567';
+      const maxDays = state.identity.security.api_key_max_lifetime_days ?? null;
+      let expires = b.expires_at ?? null;
+      if (maxDays !== null) {
+        const latest = new Date(Date.now() + maxDays * 24 * 3600 * 1000);
+        if (expires && new Date(expires) > latest) return json(400, { error: `expires_at must be within ${maxDays} days (the organization's maximum key lifetime)` });
+        expires ??= latest.toISOString();
+      }
       state.keys.unshift({
         key_prefix: key.slice(0, 11),
         alias: b.alias,
@@ -1465,10 +1684,29 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
         rpm_limit: b.rpm_limit,
         tpm_limit: b.tpm_limit,
         created_at: new Date().toISOString(),
-        expires_at: b.expires_at ?? null,
+        expires_at: expires,
         revoked: false,
+        allowed_cidrs: b.allowed_cidrs ?? [],
+        rotated_to: null,
+        rotated_at: null,
       });
-      return json(201, { key, key_prefix: key.slice(0, 11), alias: b.alias, project_id: b.project_id, rpm_limit: b.rpm_limit, tpm_limit: b.tpm_limit });
+      return json(201, { key, key_prefix: key.slice(0, 11), alias: b.alias, project_id: b.project_id, rpm_limit: b.rpm_limit, tpm_limit: b.tpm_limit, expires_at: expires, allowed_cidrs: b.allowed_cidrs ?? [] });
+    }
+    if ((mm = /^\/api-keys\/([^/]+)\/rotate$/.exec(sub)) && method === 'POST') {
+      const k = state.keys.find((x) => x.key_prefix === mm?.[1]);
+      if (!k) return json(404, { error: 'not found' });
+      if (k.revoked) return json(409, { error: 'the key is revoked' });
+      if (k.rotated_to) return json(409, { error: 'the key was already rotated; rotate its successor instead' });
+      const b = (body ?? {}) as { overlap_hours?: number };
+      const overlap = b.overlap_hours ?? 24;
+      const key = 'gs_' + 'e'.repeat(8) + 'fedcba9876543210fedcba98';
+      const oldExpires = new Date(Date.now() + overlap * 3600 * 1000).toISOString();
+      const successor: ApiKey = { ...k, key_prefix: key.slice(0, 11), created_at: new Date().toISOString(), expires_at: null, rotated_to: null, rotated_at: null };
+      k.rotated_to = successor.key_prefix;
+      k.rotated_at = new Date().toISOString();
+      k.expires_at = oldExpires;
+      state.keys.unshift(successor);
+      return json(201, { key, key_prefix: successor.key_prefix, alias: k.alias, project_id: k.project_id, rpm_limit: k.rpm_limit, tpm_limit: k.tpm_limit, expires_at: null, allowed_cidrs: k.allowed_cidrs ?? [], rotated_from: k.key_prefix, old_expires_at: oldExpires });
     }
     if ((mm = /^\/api-keys\/([^/]+)$/.exec(sub)) && method === 'DELETE') {
       const k = state.keys.find((x) => x.key_prefix === mm?.[1]);
@@ -1569,9 +1807,55 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
       if (legacy) return json(404, { error: `Cannot ${method} /v1${path}` });
       return json(200, dashboardBody(state, url));
     }
+    // The request log per period as CSV (cmd/control-plane/reports.go): counts only.
+    if (sub === '/reports/requests.csv' && method === 'GET') {
+      const w = url.searchParams.get('window') ?? '24h';
+      if (!['24h', '7d', '30d'].includes(w)) return json(400, { error: 'window must be 24h, 7d or 30d' });
+      const d = dashboardBody(state, url);
+      const lines = ['period_start,period_end,section,key,requests,blocked'];
+      for (const b of d.series) {
+        if (b.count === 0) continue;
+        const end = new Date(Date.parse(b.start) + (d.bucket === 'day' ? 24 : 1) * 3600 * 1000).toISOString().replace(/\.\d+Z$/, 'Z');
+        const start = b.start.replace(/\.\d+Z$/, 'Z');
+        lines.push(`${start},${end},total,all,${b.count},${b.blocked}`);
+        lines.push(`${start},${end},action,block,${b.blocked},${b.blocked}`);
+        lines.push(`${start},${end},action,allow,${b.count - b.blocked},0`);
+      }
+      return route.fulfill({
+        status: 200,
+        headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="guard-spec-acme.csv"' },
+        body: lines.join('\n') + '\n',
+      });
+    }
 
     // Members, invites, security, activity (identity contract §3–§5): admin and up.
-    if (opts.role === 'viewer' && /^\/(members|security|activity|invites|scim|group-roles)(\/|$)/.test(sub)) return json(403, { error: 'requires role admin' });
+    if (opts.role === 'viewer' && /^\/(members|security|activity|invites|scim|group-roles|approvals)(\/|$)/.test(sub)) return json(403, { error: 'requires role admin' });
+    // Two-person approval (migration 027).
+    if (sub === '/approvals' && method === 'GET') {
+      const status = url.searchParams.get('status') ?? 'pending';
+      return json(200, { items: id.approvals.filter((a) => status === 'all' || a.status === status) });
+    }
+    if ((mm = /^\/approvals\/([^/]+)\/(approve|reject)$/.exec(sub)) && method === 'POST') {
+      const a = id.approvals.find((x) => x.id === mm?.[1]);
+      if (!a) return json(404, { error: 'not found' });
+      if (a.status !== 'pending') return json(409, { error: 'this request is no longer pending', code: 'approval_not_pending' });
+      const note = (body as { note?: string } | undefined)?.note ?? null;
+      if (mm[2] === 'approve') {
+        if (a.requested_by?.id === ME_ID) return json(403, { error: 'the admin who asked for a change cannot approve it', code: 'self_approval' });
+        a.status = 'approved';
+        if (a.kind === 'policy.disable') {
+          const p = state.policies.find((x) => x.id === a.target || x.name === a.target_label);
+          if (p) p.enabled = false;
+        }
+        if (a.kind === 'content_storage.enable') state.org.audit_store_content = true;
+      } else {
+        a.status = 'rejected';
+      }
+      a.decided_by = { id: ME_ID, email: EMAIL };
+      a.decided_at = new Date().toISOString();
+      a.decision_note = note;
+      return json(200, a);
+    }
     if (sub === '/members' && method === 'GET') {
       const q = (url.searchParams.get('q') ?? '').toLowerCase();
       const role = url.searchParams.get('role');

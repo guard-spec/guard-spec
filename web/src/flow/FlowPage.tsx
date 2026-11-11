@@ -24,7 +24,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ConfirmDialog, Dialog, ErrorBanner, Field, Loading, PageHeader } from '../components/ui';
 import { errorText, useApp, useOrg } from '../context';
 import type { MessageKey } from '../i18n';
-import { setNavigationGuard, takeParam } from '../router';
+import { href, onLink, setNavigationGuard, takeParam } from '../router';
 import type { GatewayModels, GuardSettings, PolicySchema, SimulateRequest, SimulateResponse, SimValue } from '../types';
 import { addRule, connectRule, danglingRoutes, deleteRule, findRule, moveRule, moveRuleByPosition, updateRule } from './edit';
 import { applyHighlight, buildGraph, simulationPath, type DefaultUpstream, type FlowEdge, type FlowNode } from './graph';
@@ -48,7 +48,7 @@ import { NodePanel } from './NodePanel';
 import { DirectionContext, nodeTypes } from './nodes';
 import { RulePanel, type TextState } from './RulePanel';
 import { FALLBACK_SCHEMA, fieldTypesOf } from './schema';
-import { mergeAfterSave } from './save';
+import { deletable, mergeAfterSave } from './save';
 import { Simulator } from './Simulator';
 import { ruleFromTemplate, ruleTemplates, type RuleTemplate } from './templates';
 import { hasErrors, INJECTION_BLOCK, validateCondition } from './validate';
@@ -325,6 +325,7 @@ function FlowPageInner() {
       description: null,
       project_id: projectId,
       enabled: true,
+      log_only: false,
       created_at: '',
       rules: [],
       dirty: true,
@@ -399,6 +400,7 @@ function FlowPageInner() {
       if (errors.length === 0) {
         notify(dirtyPolicies > 0 && result.guard ? t('flow.savedAll') : result.guard ? t('flow.guardSaved') : t('flow.savedOk'));
       }
+      if (result.pending.length > 0) notify(t('flow.disablePending', { names: result.pending.join(', ') }), 'error');
     } catch (e) {
       setSaveErrors([...errors, errorText(e)]);
     } finally {
@@ -592,8 +594,24 @@ function FlowPageInner() {
                     </label>
                     <span className="badge">{p.project_id ? (projects.find((x) => x.id === p.project_id)?.name ?? p.project_id) : t('common.orgWide')}</span>
                     <span className="muted small">{t('policy.rules', { count: p.rules.length })}</span>
+                    <label className="check small" title={t('policy.logOnlyHelp')}>
+                      <input
+                        type="checkbox"
+                        checked={p.log_only}
+                        disabled={!writable}
+                        aria-label={`${t('policy.logOnly')} ${p.name}`}
+                        onChange={(e) => edit((ps) => ps.map((x) => (x.key === p.key ? { ...x, log_only: e.target.checked, dirty: true } : x)))}
+                      />
+                      <span>{t('policy.logOnly')}</span>
+                    </label>
+                    {p.log_only ? <span className="badge badge-warn">{t('policy.logOnlyBadge')}</span> : null}
                     {p.dirty ? <span className="badge badge-warn">•</span> : null}
                     <span className="spacer" />
+                    {p.id ? (
+                      <a className="btn btn-small" href={`${href('policy-history')}?policy=${encodeURIComponent(p.id)}`} onClick={onLink('policy-history', { policy: p.id })}>
+                        {t('policy.history')}
+                      </a>
+                    ) : null}
                     <button type="button" className="btn btn-small" aria-pressed={p.key === activePolicy} disabled={!writable} onClick={() => setActivePolicy(p.key)}>
                       + {t('flow.addRule')}
                     </button>
@@ -605,9 +623,23 @@ function FlowPageInner() {
                     >
                       ✎
                     </button>
-                    <button type="button" className="btn-icon" aria-label={`${t('policy.delete')} ${p.name}`} onClick={() => setDeleting(p)}>
-                      🗑
-                    </button>
+                    {/* Only a disabled policy is deleted (as saved): disabling is the guarded step. */}
+                    {deletable(p, original) ? (
+                      <button type="button" className="btn-icon" aria-label={`${t('policy.delete')} ${p.name}`} onClick={() => setDeleting(p)}>
+                        🗑
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="btn-icon"
+                        aria-disabled="true"
+                        aria-label={`${t('policy.delete')} ${p.name}`}
+                        title={t('policy.deleteNeedsDisabled')}
+                        onClick={() => notify(t('policy.deleteNeedsDisabled'), 'error')}
+                      >
+                        🗑
+                      </button>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -716,6 +748,7 @@ function FlowPageInner() {
                     description: null,
                     project_id: newPolicy.project || null,
                     enabled: true,
+                    log_only: false,
                     created_at: '',
                     rules: [],
                     dirty: true,

@@ -74,7 +74,7 @@ func TestLargeInputWithPostgres(t *testing.T) {
 	if gw.upstream, err = proxy.New(proxy.Config{BaseURL: up.URL + "/v1"}); err != nil {
 		t.Fatal(err)
 	}
-	app := newApp(gw, func(context.Context, string) (uuid.UUID, uuid.UUID, error) { return org, uuid.Nil, nil })
+	app := newApp(gw, func(context.Context, string) (tenant.KeyInfo, error) { return tenant.KeyInfo{OrgID: org}, nil })
 	send := func(body string) int {
 		t.Helper()
 		req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))

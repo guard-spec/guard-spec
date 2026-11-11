@@ -190,7 +190,7 @@ func TestCostLimitStopsExpensiveExpression(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		var spent uint64
-		_, err := cp.evaluate(context.Background(), &Vars{}, e.costBudget, &spent)
+		_, err := cp.evaluate(context.Background(), &Vars{}, e.costBudget, &spent, false)
 		done <- err
 	}()
 	select {
@@ -268,7 +268,7 @@ func TestCostBudgetSpansRulesAndPolicies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := cp.evaluate(context.Background(), &Vars{}, e.costBudget, &spent); err != nil || spent == 0 {
+	if _, err := cp.evaluate(context.Background(), &Vars{}, e.costBudget, &spent, false); err != nil || spent == 0 {
 		t.Fatalf("spent = %d, err = %v", spent, err)
 	}
 	// Room for exactly four rules: five fail whether in one policy or split.

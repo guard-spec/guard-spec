@@ -21,6 +21,8 @@ export interface EditablePolicy {
   description: string | null;
   project_id: UUID | null;
   enabled: boolean;
+  /** Recorded, not applied (migration 026). */
+  log_only: boolean;
   created_at: string;
   rules: EditableRule[];
   dirty: boolean;
@@ -41,6 +43,7 @@ export function toEditable(p: Policy): EditablePolicy {
     description: p.description,
     project_id: p.project_id,
     enabled: p.enabled,
+    log_only: p.log_only === true,
     created_at: p.created_at,
     rules: p.rules.map((r) => ({ ...r, key: r.id ?? newKey() })),
     dirty: false,

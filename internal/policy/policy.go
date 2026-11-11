@@ -34,6 +34,10 @@ type Policy struct {
 	ProjectID uuid.UUID `json:"project_id"`
 	Version   int       `json:"version"`
 	Rules     []Rule    `json:"rules"` // ordered; first allow or block match wins
+	// LogOnly: the policy's allow, block and route matches are recorded in
+	// Decision.LogOnly and never applied; evaluation goes on as if the rule
+	// had not matched. Log rules behave as always.
+	LogOnly bool `json:"log_only,omitempty"`
 }
 
 // Rule is a single condition + action pair.
@@ -55,6 +59,28 @@ type Decision struct {
 	// Logged lists the log rules that matched, in order. A log rule records its
 	// match and lets evaluation continue, so it never decides on its own.
 	Logged []uuid.UUID
+	// LogOnly lists the matches of log-only policies that would have decided
+	// (allow, block or route) had the policy been live, in order. The gateway
+	// records them in the request log and does not act on them.
+	LogOnly []LogOnlyMatch
+}
+
+// LogOnlyMatch is a rule of a log-only policy that matched: what it would
+// have done.
+type LogOnlyMatch struct {
+	RuleID   uuid.UUID `json:"rule_id"`
+	RuleName string    `json:"rule_name"`
+	Action   Action    `json:"action"`
+}
+
+// WouldBlock reports whether a log-only policy would have blocked the request.
+func (d Decision) WouldBlock() bool {
+	for _, m := range d.LogOnly {
+		if m.Action == ActionBlock {
+			return true
+		}
+	}
+	return false
 }
 
 // DefaultAllow is returned when no rule matches.
@@ -279,7 +305,7 @@ func (e *Engine) Evaluate(ctx context.Context, p *Policy, v *Vars) (Decision, er
 		return Decision{}, err
 	}
 	var spent uint64
-	return compiled.evaluate(ctx, v, e.costBudget, &spent)
+	return compiled.evaluate(ctx, v, e.costBudget, &spent, p.LogOnly)
 }
 
 // EvaluateAll runs policies in order; the first allow or block match across them
@@ -296,19 +322,23 @@ func (e *Engine) EvaluateAll(ctx context.Context, policies []Policy, v *Vars) (D
 	}
 	var spent uint64
 	var logged []uuid.UUID
-	for _, cp := range compiled {
-		decision, err := cp.evaluate(ctx, v, e.costBudget, &spent)
+	var logOnly []LogOnlyMatch
+	for i, cp := range compiled {
+		decision, err := cp.evaluate(ctx, v, e.costBudget, &spent, policies[i].LogOnly)
 		if err != nil {
 			return Decision{}, err
 		}
 		logged = append(logged, decision.Logged...)
+		logOnly = append(logOnly, decision.LogOnly...)
 		if decision.Matched {
 			decision.Logged = logged
+			decision.LogOnly = logOnly
 			return decision, nil
 		}
 	}
 	decision := DefaultAllow
 	decision.Logged = logged
+	decision.LogOnly = logOnly
 	return decision, nil
 }
 
@@ -316,10 +346,12 @@ func (e *Engine) EvaluateAll(ctx context.Context, policies []Policy, v *Vars) (D
 // far for this request, across policies; budget bounds it. A cancelled or expired
 // ctx stops evaluation between rules, as the interrupt check does within one.
 //
-// A matching log rule is added to Logged, and evaluation goes on to the next rule.
-func (cp *compiledPolicy) evaluate(ctx context.Context, v *Vars, budget uint64, spent *uint64) (Decision, error) {
+// A matching log rule is added to Logged, and evaluation goes on to the next
+// rule. With logOnly, any other match is added to LogOnly instead of deciding.
+func (cp *compiledPolicy) evaluate(ctx context.Context, v *Vars, budget uint64, spent *uint64, logOnly bool) (Decision, error) {
 	activation := v.toActivation()
 	var logged []uuid.UUID
+	var shadowed []LogOnlyMatch
 	for _, rule := range cp.rules {
 		if err := ctx.Err(); err != nil {
 			return Decision{}, fmt.Errorf("rule %s: %w", rule.id, err)
@@ -346,6 +378,10 @@ func (cp *compiledPolicy) evaluate(ctx context.Context, v *Vars, budget uint64, 
 			logged = append(logged, rule.id)
 			continue
 		}
+		if logOnly {
+			shadowed = append(shadowed, LogOnlyMatch{RuleID: rule.id, RuleName: rule.name, Action: rule.action})
+			continue
+		}
 		return Decision{
 			Matched:     true,
 			Action:      rule.action,
@@ -353,10 +389,12 @@ func (cp *compiledPolicy) evaluate(ctx context.Context, v *Vars, budget uint64, 
 			RuleName:    rule.name,
 			RouteTarget: rule.target,
 			Logged:      logged,
+			LogOnly:     shadowed,
 		}, nil
 	}
 	decision := DefaultAllow
 	decision.Logged = logged
+	decision.LogOnly = shadowed
 	return decision, nil
 }
 
