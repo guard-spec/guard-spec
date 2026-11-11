@@ -954,3 +954,26 @@ export interface GettingStarted {
   complete: boolean;
   checked_at: string;
 }
+
+/** GET /organizations/{org}/requests/{id}/impact: what a false-positive fix concerns, counted from stored scores and hashes over 7 days. */
+export interface RequestImpact {
+  window: '7d';
+  from: string;
+  to: string;
+  request: {
+    id: UUID;
+    action: string;
+    /** What refused it: a policy rule, the detector's score, the input settings; none when not refused. */
+    decided_by: 'rule' | 'detector' | 'input' | 'none';
+    injection_score: number;
+    injection_label: string | null;
+    rule_id: UUID | null;
+    has_hash: boolean;
+  };
+  /** Requests with the identical body; null without a stored hash. */
+  same_input: { total: number; blocked: number } | null;
+  /** The requests the same rule decided; null unless a rule refused it. */
+  same_rule: { total: number; blocked: number } | null;
+  /** The detector's refusals at or below this score; null unless the detector refused it. */
+  threshold: { org: number | null; gateway_default: number; above_default: boolean; at_or_below: number } | null;
+}

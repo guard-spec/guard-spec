@@ -219,7 +219,7 @@ func TestRedactToolResult(t *testing.T) {
 	if row.Action != actionAllow || row.Redacted != 1 || row.Indirect.Score < 0.85 || row.SourceRole != "tool" {
 		t.Errorf("row action %s redacted %d score %v", row.Action, row.Redacted, row.Indirect.Score)
 	}
-	if tags := auditTags(row); len(tags) != 1 || tags[0] != "input:redacted=1" {
+	if tags := inputAuditTags(row); len(tags) != 1 || tags[0] != "input:redacted=1" {
 		t.Errorf("tags %v", tags)
 	}
 	evs := eventsFor(&row, 0.5)

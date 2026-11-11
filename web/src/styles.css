@@ -3232,3 +3232,44 @@ fieldset.plain {
     justify-self: start;
   }
 }
+
+/* ── False-positive panel (RF-a1dbafea U2) ──────────────────────────────── */
+.layer-scores {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  max-width: 420px;
+}
+.layer-scores li {
+  display: grid;
+  grid-template-columns: 9.5em minmax(60px, 1fr) 3.5em;
+  align-items: center;
+  gap: 8px;
+}
+.layer-scores .muted {
+  grid-column: 2 / span 2;
+}
+.layer-name {
+  font-size: 13px;
+}
+.fp-panel {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.fp-panel h3 {
+  margin: 0 0 4px;
+  font-size: 15px;
+}
+.impact {
+  margin: 8px 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+}
+.fp-form textarea,
+.fp-form input {
+  width: 100%;
+}

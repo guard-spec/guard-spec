@@ -45,6 +45,7 @@ import {
   type Rule,
   type GatewayModels,
   type GettingStarted,
+  type RequestImpact,
   type ShadowDisagreement,
   type ShadowSummary,
   type ShadowWindow,
@@ -377,6 +378,44 @@ function leaf(field: string, operator: string, value: unknown): ConditionLeaf {
   return { field, operator, value };
 }
 
+/** The detector tags (cmd/gateway/detector_tags.go) of a refused seed row. */
+function detectorSeedTags(score: number): string[] {
+  return [`detector:l1=${Math.min(1, score + 0.02).toFixed(3)}`, `detector:l2=${score.toFixed(3)}`, 'detector:l3=0.412', 'detector:rule=di.override.qualified', 'detector:rule=l2:jailbreak'];
+}
+
+/** GET /requests/{id}/impact (cmd/control-plane/request_impact.go): counts over the mock's rows. */
+export function impactBody(state: MockState, row: AuditRow): RequestImpact {
+  const label = (row.injection_label ?? '').toLowerCase();
+  const tags = row.pii_entities ?? [];
+  const decided: RequestImpact['request']['decided_by'] =
+    row.action !== 'block'
+      ? 'none'
+      : row.rule_id
+        ? 'rule'
+        : label === 'unscanned_content' || tags.some((t) => t.startsWith('input:refused=')) || (label === '' && tags.some((t) => t.startsWith('input:unscanned_')))
+          ? 'input'
+          : 'detector';
+  const count = (rows: AuditRow[]) => ({ total: rows.length, blocked: rows.filter((r) => r.action === 'block').length });
+  const threshold = state.guard.injection_threshold ?? null;
+  return {
+    window: '7d',
+    from: '2026-10-28T08:00:00Z',
+    to: '2026-11-04T08:00:00Z',
+    request: { id: row.id, action: row.action, decided_by: decided, injection_score: row.injection_score, injection_label: row.injection_label, rule_id: row.rule_id, has_hash: Boolean(row.request_sha256) },
+    same_input: row.request_sha256 ? count(state.requests.filter((r) => r.request_sha256 === row.request_sha256)) : null,
+    same_rule: decided === 'rule' ? count(state.requests.filter((r) => r.rule_id === row.rule_id)) : null,
+    threshold:
+      decided === 'detector'
+        ? {
+            org: threshold,
+            gateway_default: 0.85,
+            above_default: row.injection_score >= 0.85,
+            at_or_below: state.requests.filter((r) => r.action === 'block' && !r.rule_id && r.injection_label && r.injection_score <= row.injection_score).length,
+          }
+        : null,
+  };
+}
+
 export function seedState(rich = false): MockState {
   idSeq = 0;
   const main: Upstream = {
@@ -487,6 +526,9 @@ export function seedState(rich = false): MockState {
     had_tag_chars: false,
     had_bidi: false,
     latency_ms: latency as number,
+    // Requests 0 and 3 (and 2 and 5) have identical bodies; refused ones carry the detector's explanation.
+    request_sha256: (['a', 'b', 'c'][i % 3] ?? 'a').repeat(64),
+    pii_entities: action === 'block' ? detectorSeedTags(score as number) : action === 'allow' ? ['detector:l1=0.000', `detector:l2=${(score as number).toFixed(3)}`] : null,
     created_at: new Date(now - (rich ? Math.round(86_400_000 * ((i / 420) + 0.07 * Math.sin(4 * Math.PI * (i / 420)))) : i * 7 * 60_000)).toISOString(),
   }));
   const identity = seedIdentity(rich);
@@ -1842,6 +1884,12 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
         sinks.splice(i, 1);
         return json(204);
       }
+    }
+    const impactMatch = /^\/requests\/([^/]+)\/impact$/.exec(sub);
+    if (impactMatch && method === 'GET') {
+      if (legacy) return json(404, { error: `Cannot ${method} /v1${path}` });
+      const row = state.requests.find((r) => r.id === impactMatch[1]);
+      return row ? json(200, impactBody(state, row)) : json(404, { error: 'request not found' });
     }
     const contentMatch = /^\/requests\/([^/]+)\/content$/.exec(sub);
     if (contentMatch && method === 'POST') {

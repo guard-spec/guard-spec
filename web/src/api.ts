@@ -69,6 +69,7 @@ import type {
   UpstreamInput,
   UUID,
   GettingStarted,
+  RequestImpact,
 } from './types';
 
 /** An error response. message is the server's `error`, or a generic text. */
@@ -518,6 +519,11 @@ export class ApiClient {
   }
 
   /** One request's stored prompt and answer: needs the org's content_read_role and, when required, a reason; every read is in the activity log. */
+  /** What a false-positive fix of a request concerns (counts from stored scores and hashes, 7 days). */
+  getRequestImpact(orgId: UUID, requestId: UUID): Promise<RequestImpact> {
+    return this.request('GET', `/organizations/${enc(orgId)}/requests/${enc(requestId)}/impact`);
+  }
+
   readRequestContent(orgId: UUID, requestId: UUID, reason: string): Promise<StoredContent> {
     return this.request('POST', `/organizations/${enc(orgId)}/requests/${enc(requestId)}/content`, { body: { reason } });
   }

@@ -191,7 +191,7 @@ func TestUnscannedModesThroughGateway(t *testing.T) {
 				})
 				resp, got := h.post(t, api.path, api.body, nil)
 				row := h.oneRow(t)
-				tags := auditTags(row)
+				tags := inputAuditTags(row)
 				switch mode {
 				case indirect.UnscannedBlock:
 					if resp.StatusCode != 400 || up.hits.Load() != 0 || !strings.Contains(got, "image") {

@@ -393,7 +393,7 @@ func TestPDFInjectionBlockedOrRedacted(t *testing.T) {
 				if row.Action != actionBlock || row.SourceRole != string(indirect.SourceDocument) || row.Indirect.Score < 0.85 {
 					t.Errorf("row action %s source %s score %v", row.Action, row.SourceRole, row.Indirect.Score)
 				}
-				if tags := auditTags(row); !slices.Contains(tags, "input:pdf_scanned=1") || slices.Contains(tags, "input:unscanned_file=1") {
+				if tags := inputAuditTags(row); !slices.Contains(tags, "input:pdf_scanned=1") || slices.Contains(tags, "input:unscanned_file=1") {
 					t.Errorf("tags %v", tags)
 				}
 			})
@@ -416,7 +416,7 @@ func TestPDFInjectionBlockedOrRedacted(t *testing.T) {
 				if row.Action != actionAllow || row.Redacted != 1 || row.Indirect.Score < 0.85 {
 					t.Errorf("row action %s redacted %d score %v", row.Action, row.Redacted, row.Indirect.Score)
 				}
-				tags := auditTags(row)
+				tags := inputAuditTags(row)
 				if !slices.Contains(tags, "input:redacted=1") || !slices.Contains(tags, "input:pdf_scanned=1") {
 					t.Errorf("tags %v", tags)
 				}
@@ -450,11 +450,11 @@ func TestPDFBenignForwardedUnchanged(t *testing.T) {
 			if row.Action != actionAllow || row.Indirect.Score >= 0.85 {
 				t.Errorf("row action %s score %v", row.Action, row.Indirect.Score)
 			}
-			if tags := auditTags(row); !slices.Equal(tags, []string{"input:pdf_scanned=1"}) {
+			if tags := inputAuditTags(row); !slices.Equal(tags, []string{"input:pdf_scanned=1"}) {
 				t.Errorf("tags %v", tags)
 			}
-			if rowOff := hOff.oneRow(t); !slices.Equal(auditTags(rowOff), []string{"input:unscanned_file=1"}) || !rowOff.PDF.empty() {
-				t.Errorf("off: tags %v pdf %+v", auditTags(rowOff), rowOff.PDF)
+			if rowOff := hOff.oneRow(t); !slices.Equal(inputAuditTags(rowOff), []string{"input:unscanned_file=1"}) || !rowOff.PDF.empty() {
+				t.Errorf("off: tags %v pdf %+v", inputAuditTags(rowOff), rowOff.PDF)
 			}
 		})
 	}
@@ -478,7 +478,7 @@ func TestPDFUnreadableStaysUnscanned(t *testing.T) {
 					h, up := pdfGateway(t, api, &lim, indirect.ActionBlock, mode, nil)
 					resp, got := h.post(t, api.path, api.body(part), nil)
 					row := h.oneRow(t)
-					tags := auditTags(row)
+					tags := inputAuditTags(row)
 					want := []string{"input:unscanned_file=1", "input:pdf_unscanned_" + reason + "=1"}
 					if !slices.Equal(tags, want) {
 						t.Errorf("tags %v, want %v", tags, want)
@@ -515,7 +515,7 @@ func TestPDFExtractOffParity(t *testing.T) {
 				t.Fatalf("got %d %s, upstream hits %d", resp.StatusCode, got, up.hits.Load())
 			}
 			row := h.oneRow(t)
-			if tags := auditTags(row); !slices.Equal(tags, []string{"input:unscanned_file=1"}) {
+			if tags := inputAuditTags(row); !slices.Equal(tags, []string{"input:unscanned_file=1"}) {
 				t.Errorf("tags %v", tags)
 			}
 			if !maps.Equal(row.Unscanned, map[string]int{"file": 1}) || !row.PDF.empty() || row.Indirect.Score >= 0.85 {
@@ -548,7 +548,7 @@ func TestPDFPolicyFields(t *testing.T) {
 		if resp.StatusCode != 400 || up.hits.Load() != 0 || row.Detected != layerPolicy || row.RuleID != r.ID {
 			t.Errorf("got %d %s, detected %s", resp.StatusCode, got, row.Detected)
 		}
-		if tags := auditTags(row); !slices.Equal(tags, nil) { // allow is quiet
+		if tags := inputAuditTags(row); !slices.Equal(tags, nil) { // allow is quiet
 			t.Errorf("tags %v", tags)
 		}
 		if vars := policyVars(row, nil, 0); vars.PDFCount != 1 || vars.PDFScanned != 0 || !slices.Equal(vars.PDFReasons, []string{"encrypted"}) {
@@ -570,7 +570,7 @@ func TestPDFPolicyFields(t *testing.T) {
 			t.Errorf("vars %+v", vars)
 		}
 		want := []string{"input:unscanned_file=2", "input:pdf_scanned=1", "input:pdf_unscanned_no_text=1", "input:pdf_unscanned_remote=1"}
-		if tags := auditTags(row); !slices.Equal(tags, want) {
+		if tags := inputAuditTags(row); !slices.Equal(tags, want) {
 			t.Errorf("tags %v, want %v", tags, want)
 		}
 	})
@@ -639,7 +639,7 @@ func TestPDFOverScanBudget(t *testing.T) {
 		if resp.StatusCode != 200 || up.hits.Load() != 1 {
 			t.Fatalf("got %d %s", resp.StatusCode, got)
 		}
-		if tags := auditTags(h.oneRow(t)); !slices.Equal(tags, []string{"input:unscanned_file=1", "input:pdf_unscanned_over_limit=1"}) {
+		if tags := inputAuditTags(h.oneRow(t)); !slices.Equal(tags, []string{"input:unscanned_file=1", "input:pdf_unscanned_over_limit=1"}) {
 			t.Errorf("tags %v", tags)
 		}
 	})
@@ -652,7 +652,7 @@ func TestPDFOverScanBudget(t *testing.T) {
 		if resp.StatusCode != 200 || up.hits.Load() != 1 {
 			t.Fatalf("got %d %s", resp.StatusCode, got)
 		}
-		if tags := auditTags(h.oneRow(t)); !slices.Equal(tags, []string{"input:pdf_scanned=1"}) {
+		if tags := inputAuditTags(h.oneRow(t)); !slices.Equal(tags, []string{"input:pdf_scanned=1"}) {
 			t.Errorf("tags %v", tags)
 		}
 	})
@@ -663,7 +663,7 @@ func TestPDFOverScanBudget(t *testing.T) {
 		if resp, got := h.post(t, api.path, api.body(api.inline(pdf)), nil); resp.StatusCode != 200 || up.hits.Load() != 1 {
 			t.Fatalf("got %d %s", resp.StatusCode, got)
 		}
-		if tags := auditTags(h.oneRow(t)); !slices.Equal(tags, []string{"input:unscanned_file=1", "input:pdf_unscanned_over_limit=1"}) {
+		if tags := inputAuditTags(h.oneRow(t)); !slices.Equal(tags, []string{"input:unscanned_file=1", "input:pdf_unscanned_over_limit=1"}) {
 			t.Errorf("tags %v", tags)
 		}
 	})

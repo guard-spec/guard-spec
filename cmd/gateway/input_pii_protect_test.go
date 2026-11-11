@@ -135,7 +135,7 @@ func TestPIITokenizeThroughGateway(t *testing.T) {
 				if !strings.Contains(text, restoredAnswer) || strings.Contains(text, "⟦") {
 					t.Errorf("client got %q, want %q", text, restoredAnswer)
 				}
-				tags := auditTags(h.oneRow(t))
+				tags := inputAuditTags(h.oneRow(t))
 				if !slices.Contains(tags, "input:pii_tokenized_email=1") || !slices.Contains(tags, "input:pii_tokenized_phone=1") {
 					t.Errorf("tags %v", tags)
 				}
@@ -196,7 +196,7 @@ func TestPIIRedactThroughGateway(t *testing.T) {
 	if !strings.Contains(sent, "0912 345 678") {
 		t.Errorf("phone redacted though only email was selected: %s", sent)
 	}
-	if tags := auditTags(h.oneRow(t)); !slices.Contains(tags, "input:pii_redacted_email=1") {
+	if tags := inputAuditTags(h.oneRow(t)); !slices.Contains(tags, "input:pii_redacted_email=1") {
 		t.Errorf("tags %v", tags)
 	}
 }

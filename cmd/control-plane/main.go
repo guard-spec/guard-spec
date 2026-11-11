@@ -471,6 +471,8 @@ func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins 
 	// Stored content: the org's content_read_role, a reason when required,
 	// and an activity log row for every read (content_access.go).
 	authed.Post("/organizations/:orgId/requests/:requestId/content", viewer, readRequestContent(db, settings.contentKeys))
+	// What an allow exemplar or a threshold change would concern (request_impact.go): counts only.
+	authed.Get("/organizations/:orgId/requests/:requestId/impact", viewer, getRequestImpact(db))
 	// Aggregates of the request log over a window (dashboard.go).
 	authed.Get("/organizations/:orgId/dashboard", viewer, getDashboard(db))
 	// The same per period as CSV (reports.go); counts only, never content.
