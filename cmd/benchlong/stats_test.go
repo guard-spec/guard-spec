@@ -191,3 +191,30 @@ func TestFusedUnitsMatchGatewayCuts(t *testing.T) {
 		t.Fatalf("covered %d of %d", covered, len(long))
 	}
 }
+
+// TestFitGEVSaturatedStream: a benign stream whose block maxima are almost
+// all the saturated score 1.0 (a classifier without a cap on long code or
+// log documents) must still give finite GEV parameters and quantiles (the
+// JSON report cannot hold NaN or Inf).
+func TestFitGEVSaturatedStream(t *testing.T) {
+	stream := make([]float64, 200000)
+	for i := range stream {
+		stream[i] = 1.0
+	}
+	rng := rand.New(rand.NewPCG(1, 2))
+	for i := 0; i < 40; i++ { // a few blocks below the saturation value
+		j := rng.IntN(len(stream)/16) * 16
+		for k := j; k < j+16; k++ {
+			stream[k] = 0.3 + 0.5*rng.Float64()
+		}
+	}
+	g, ok := fitGEV(stream, 16)
+	if !ok {
+		t.Skip("fit declined")
+	}
+	for _, v := range []float64{g.Xi, g.Alpha, g.K, g.GXi, g.GAlpha, g.Quantile99(1, false), g.Quantile99(1024, false), g.Quantile99(16, true)} {
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			t.Fatalf("non-finite GEV parameter or quantile: %+v, q1 %v, q1024 %v", g, g.Quantile99(1, false), g.Quantile99(1024, false))
+		}
+	}
+}

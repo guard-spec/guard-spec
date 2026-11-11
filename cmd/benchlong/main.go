@@ -455,6 +455,9 @@ func (e *engine) scoreDoc(ctx context.Context, d Doc) docScore {
 	r := docScore{units: map[string][]float64{}}
 	cleaned, rep, err := sanitizer.Sanitize(d.Text)
 	if err != nil {
+		// No score: the gateway rejects the text before any model sees it
+		// (counted in the gateway column of the false-positive tables).
+		logf("  %s: rejected by the sanitizer (%v)", d.ID, err)
 		r.rejected = true
 		return r
 	}
@@ -790,6 +793,9 @@ type FPRRow struct {
 	Units   float64 `json:"mean_units"`
 	FPR     float64 `json:"fpr"`
 	Gateway float64 `json:"gateway_fpr"` // also counting sanitizer anomaly / rejection
+	// Rejected is the number of Docs the sanitizer rejected before scoring (no
+	// units, no score; counted in Gateway, never in FPR).
+	Rejected int `json:"rejected,omitempty"`
 }
 
 // TRow holds the thresholds T(n) for one layer and language.
@@ -884,6 +890,9 @@ func analyse(rep *Report, docs []Doc, res []docScore, layers []string, seed uint
 			return keys[a].g < keys[b].g
 		})
 		for _, k := range keys {
+			if len(groups[k]) == 0 {
+				continue // every document of the group was rejected by the sanitizer: no scores
+			}
 			rep.Quantiles = append(rep.Quantiles, QRow{Layer: layer, Genre: k.g, Lang: k.l, Quantiles: summarize(groups[k], blockThreshold)})
 		}
 	}
@@ -984,8 +993,8 @@ func docFPR(docs []Doc, res []docScore, layers []string, split string, keep func
 	for _, layer := range layers {
 		type key struct{ lang, size string }
 		type acc struct {
-			n, hit, gw int
-			units      int
+			n, hit, gw, rej int
+			units           int
 		}
 		m := map[key]*acc{}
 		var keys []key
@@ -1009,6 +1018,9 @@ func docFPR(docs []Doc, res []docScore, layers []string, split string, keep func
 			if mx >= blockThreshold || res[i].rejected || res[i].anomaly >= anomalyBlock {
 				a.gw++
 			}
+			if res[i].rejected {
+				a.rej++
+			}
 		}
 		sort.Slice(keys, func(a, b int) bool {
 			if keys[a].lang != keys[b].lang {
@@ -1019,7 +1031,7 @@ func docFPR(docs []Doc, res []docScore, layers []string, split string, keep func
 		for _, k := range keys {
 			a := m[k]
 			out = append(out, FPRRow{Layer: layer, Split: split, Lang: k.lang, Size: k.size, Docs: a.n,
-				Units: float64(a.units) / float64(a.n), FPR: float64(a.hit) / float64(a.n), Gateway: float64(a.gw) / float64(a.n)})
+				Units: float64(a.units) / float64(a.n), FPR: float64(a.hit) / float64(a.n), Gateway: float64(a.gw) / float64(a.n), Rejected: a.rej})
 		}
 	}
 	return out

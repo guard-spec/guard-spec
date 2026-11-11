@@ -96,7 +96,7 @@ func markdown(rep *Report) string {
 
 	w("\n### Benign documents flagged at the block threshold, by size\n\n| Layer | Lang | Size | docs | mean units | FPR | gateway FPR |\n|---|---|---|---:|---:|---:|---:|\n")
 	for _, r := range rep.DocFPR {
-		w("| %s | %s | %s | %d | %.0f | %s | %s |\n", r.Layer, r.Lang, r.Size, r.Docs, r.Units, pct(r.FPR), pct(r.Gateway))
+		w("| %s | %s | %s | %s | %.0f | %s | %s |\n", r.Layer, r.Lang, r.Size, docsLabel(r.Docs, r.Rejected), r.Units, pct(r.FPR), pct(r.Gateway))
 	}
 
 	w("\n### T(n): threshold for 1%% false positives over n units\n\n")
@@ -131,7 +131,7 @@ func markdown(rep *Report) string {
 		if len(rep.DocFPRSplit) > 0 {
 			w("| Split | Layer | Lang | Size | docs | mean units | FPR | gateway FPR |\n|---|---|---|---|---:|---:|---:|---:|\n")
 			for _, r := range rep.DocFPRSplit {
-				w("| %s | %s | %s | %s | %d | %.0f | %s | %s |\n", r.Split, r.Layer, r.Lang, r.Size, r.Docs, r.Units, pct(r.FPR), pct(r.Gateway))
+				w("| %s | %s | %s | %s | %s | %.0f | %s | %s |\n", r.Split, r.Layer, r.Lang, r.Size, docsLabel(r.Docs, r.Rejected), r.Units, pct(r.FPR), pct(r.Gateway))
 			}
 		}
 		if len(rep.TPRSplit) > 0 {
@@ -146,4 +146,13 @@ func markdown(rep *Report) string {
 		w("- %s\n", n)
 	}
 	return b.String()
+}
+
+// docsLabel is the document count of a false-positive row, with the number
+// the sanitizer rejected before scoring when there is one ("33 (2 rejected)").
+func docsLabel(docs, rejected int) string {
+	if rejected == 0 {
+		return fmt.Sprint(docs)
+	}
+	return fmt.Sprintf("%d (%d rejected)", docs, rejected)
 }
