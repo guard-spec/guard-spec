@@ -13,50 +13,14 @@
 // the browser's back and forward buttons then ask it first.
 
 import { useEffect, useState } from 'react';
+import { PATHS } from './paths';
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
 const CHANGED = 'gs:route';
 /** The window event sent after an in-app navigation. */
 export const ROUTE_CHANGED = CHANGED;
 
-export const PATHS = {
-  dashboard: 'dashboard',
-  'getting-started': 'start',
-  threats: 'threats',
-  flow: 'flow',
-  'policy-history': 'policies/history',
-  guard: 'guard',
-  input: 'input',
-  exemplars: 'exemplars',
-  simulator: 'simulator',
-  providers: 'providers',
-  projects: 'projects',
-  models: 'models',
-  requests: 'requests',
-  activity: 'activity',
-  members: 'members',
-  roles: 'roles',
-  keys: 'keys',
-  security: 'security',
-  approvals: 'approvals',
-  provisioning: 'provisioning',
-  config: 'config',
-  organization: 'organization',
-  'alert-rules': 'alerts/rules',
-  'alert-channels': 'alerts/channels',
-  'alert-groups': 'alerts/groups',
-  'alert-history': 'alerts/history',
-  'alert-deliveries': 'alerts/deliveries',
-  'siem-export': 'alerts/siem',
-  'admin-users': 'admin/users',
-  'admin-idps': 'admin/identity-providers',
-  'admin-activity': 'admin/activity',
-  account: 'account',
-  invite: 'invite',
-  orgs: 'orgs',
-  login: 'login',
-  'auth-callback': 'auth/callback',
-} as const;
+export { PATHS };
 
 export type Route = keyof typeof PATHS;
 export const ROUTES = Object.keys(PATHS) as Route[];

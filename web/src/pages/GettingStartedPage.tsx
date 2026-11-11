@@ -17,9 +17,9 @@ import type { GettingStarted } from '../types';
 import { isStartDismissed, layerNames, progress, setStartDismissed, startSteps, type Step } from './start';
 
 function StateIcon({ state }: { state: Step['state'] }) {
-  if (state === 'done') return <CircleCheck size={20} aria-hidden="true" className="step-icon step-done" />;
-  if (state === 'warn') return <TriangleAlert size={20} aria-hidden="true" className="step-icon step-warn" />;
-  return <CircleDashed size={20} aria-hidden="true" className="step-icon step-todo" />;
+  if (state === 'done') return <CircleCheck size={20} aria-hidden="true" className="step-icon step-icon-done" />;
+  if (state === 'warn') return <TriangleAlert size={20} aria-hidden="true" className="step-icon step-icon-warn" />;
+  return <CircleDashed size={20} aria-hidden="true" className="step-icon step-icon-todo" />;
 }
 
 /** The line under a step's title: what the checklist found. */

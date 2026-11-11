@@ -73,7 +73,7 @@ export const SCHEMA: PolicySchema = {
     { name: 'request.tenant_id', type: 'string', description: 'Organization id of the API key.' },
     { name: 'request.tokens', type: 'int', description: 'Estimated prompt tokens' },
     { name: 'injection.score', type: 'double', description: 'Fused injection score, 0 to 1' },
-    { name: 'injection.label', type: 'string', description: 'Fused label', values: ['BENIGN', 'jailbreak', 'instruction_override', 'exfiltration', 'role_play'] },
+    { name: 'injection.label', type: 'string', description: 'Fused label', values: ['BENIGN', 'jailbreak', 'instruction_override', 'exfiltration', 'role_play', 'data_exfiltration', 'prompt_extraction'] },
     { name: 'injection.source_role', type: 'string', values: ['user', 'system', 'assistant', 'tool', 'tool_description'] },
     {
       name: 'injection.category',

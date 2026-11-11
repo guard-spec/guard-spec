@@ -98,6 +98,46 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   `input.files.types`. `/readyz` reports the input limits (`input`), which
   the control plane reads through `GATEWAY_URL`. New **Input settings**
   page.
+- **Getting started** (RF-a1dbafea). `GET /v1/organizations/{id}/getting-started`
+  (viewer, counts only) reports the setup steps: enabled model providers or
+  `UPSTREAM_LLM_URL` with reachability from the last 7 days of the request
+  log, active API keys, enabled policies, the gateway's layers and version
+  (`/readyz` through `GATEWAY_URL`), enabled alert channels and the org's own
+  input settings, and `complete`. The new admin UI page links each step to
+  the page that sets it up; an organization missing a provider, a key or a
+  policy lands there after sign-in until done or hidden, and the dashboard
+  shows a setup card.
+- **One-click false-positive handling** (RF-a1dbafea). The gateway records
+  the detector's explanation in the request log tags: the calibrated score
+  of each layer that ran (`detector:l1=0.912`) and the rules and categories
+  that fired (`detector:rule=<id>`), never text. The request details show
+  them, and a refused request gets a panel to add an allow exemplar or file
+  a false-positive report without leaving the page, with an impact preview
+  from `GET /v1/organizations/{id}/requests/{rid}/impact` (viewer, 7 days,
+  counts only): identical requests by body hash, the requests the refusing
+  rule decided, or the detector's refusals at or below the score (what a
+  higher block threshold would let through). The exemplar's text starts
+  from stored content only when the user already read it through the
+  logged reason flow.
+- **Policy editor** (RF-a1dbafea). `POST /v1/policy/sample` `{"text"}`
+  scores a sample sentence with the sanitizer, the L1 rules and the
+  personal data patterns (`scores.l2` and `scores.l3` are -1; nothing
+  stored; 60 per user per minute); the simulator's **Try a sample
+  sentence** fills its fields from it and runs the existing simulate API.
+  **Policy from template** creates a log-only policy in one click:
+  personal data, OTP and KYC, banking.
+- **Security overview, command palette, saved filters** (RF-a1dbafea). A
+  security overview page (attack trend, most attacked API keys and
+  projects, top detections, model health, running versions, CSV). The
+  dashboard API adds `top_blocked_projects` and `top_blocked_keys`;
+  `GET /v1/gateway/models` adds `control_plane_version`. Ctrl+K (Cmd+K)
+  opens a command palette over pages, policies, projects, model providers
+  and API keys. The request log saves named filters (in the browser) and
+  downloads the CSV report for a chosen period and project.
+- **Accessibility checks** (RF-a1dbafea). `web/e2e/a11y.spec.ts` runs
+  axe-core (`@axe-core/playwright` 4.13.0, a dev dependency) on every page
+  of the admin UI in English and Vietnamese and on the new dialogs, and
+  fails on a serious or critical WCAG 2.1 A or AA violation.
 
 ### Changed
 
@@ -114,6 +154,13 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 - `GET /v1/organizations/{id}/policies` and the YAML config carry
   `log_only`; `POST` and `PUT` take `log_only` and `reason` and answer the
   new `version`.
+- Admin UI contrast meets WCAG AA: the light theme's green (`--ok`) and
+  teal (`--route`) are darker, and dimmed rows, disabled diagram steps and
+  unreached simulator rules are greyed instead of made translucent. The
+  code editor's content declares its tab stop.
+- Request log rows of a 0.7.0 gateway carry `detector:*` tags after the
+  other tags; clients that compare the whole `pii_entities` list should
+  ignore them.
 
 ### Upgrade notes
 

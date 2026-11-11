@@ -27,13 +27,13 @@
   --skeleton: #e9edf2;
   --danger: #c62828;
   --danger-soft: #fdecec;
-  --ok: #1f8a4c;
+  --ok: #17753f;
   --ok-soft: #e4f5ea;
   --warn: #9a6200;
   --warn-soft: #fff4dc;
   --log: #476582;
   --log-soft: #e7edf3;
-  --route: #00838f;
+  --route: #006d77;
   --route-soft: #e0f4f5;
   --input-bg: #ffffff;
   --active-line: rgba(47, 111, 237, 0.06);
@@ -1035,7 +1035,8 @@ tbody tr:last-child td {
   border-bottom: none;
 }
 .row-muted td {
-  opacity: 0.6;
+  color: var(--muted);
+  filter: grayscale(1);
 }
 .row-actions {
   text-align: right;
@@ -1308,7 +1309,8 @@ tbody tr:last-child td {
   font-weight: 600;
 }
 .trace-after {
-  opacity: 0.6;
+  color: var(--muted);
+  filter: grayscale(1);
 }
 
 /* Diagram nodes */
@@ -1366,7 +1368,7 @@ tbody tr:last-child td {
   border-color: var(--accent);
 }
 .fnode-off {
-  opacity: 0.6;
+  filter: grayscale(1);
   border-style: dashed;
 }
 .fnode-rule {
@@ -1683,7 +1685,8 @@ tbody tr:last-child td {
   padding-left: 24px;
 }
 .method-list-off {
-  opacity: 0.6;
+  color: var(--muted);
+  filter: grayscale(1);
 }
 .test-note {
   color: var(--warn);
@@ -3201,13 +3204,13 @@ fieldset.plain {
 .step-icon {
   margin-top: 1px;
 }
-.step-done {
+.step-icon-done {
   color: var(--ok);
 }
-.step-warn {
+.step-icon-warn {
   color: var(--warn);
 }
-.step-todo {
+.step-icon-todo {
   color: var(--muted);
 }
 .start-meter {
