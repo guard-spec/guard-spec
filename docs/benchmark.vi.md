@@ -585,6 +585,27 @@ từ 11.9% đến 33.7%) với tỷ lệ phát hiện không đổi 88.1%, nên 
 model nào được phát hành có nó. Chi tiết trong
 [`train/MODEL_CARD.md`](../train/MODEL_CARD.md) (v6, R3).
 
+**Tài liệu dài mới, rule chặt hơn và một quyết định chặt hơn (task RF-895d3533 R5).**
+Vì cả hai nửa của `long` đã được chấm, R5 dựng một profile mới, `long5` (150
+tài liệu lành tính 100k và 200k token từ những nguồn và đơn vị văn bản không
+profile nào khác dùng, 74 dev / 76 holdout; 80 payload mới từ nửa dev của
+eval/, đứng riêng và ở bảy vị trí của G7), và đăng ký trước mười tổ hợp của
+hai bộ rule L1 (v6 như phát hành, và bộ của R5: từ đồng hình tiếng Việt như
+"giàu"/"giấu", trạng từ giữ bí mật đứng một mình nằm dưới ngưỡng xác nhận, các
+rule hidden-note, refusal-suppression, password-trick và decode chặt hơn) với
+năm quyết định của tuyến dài (như hiện nay, xác nhận bởi L1 như R3, floor của
+L1 chỉ được tính khi L2 đồng ý, và hai ngưỡng xác nhận cao hơn)
+([`train/reports/r5_preregistration.md`](../train/reports/r5_preregistration.md)).
+Bộ rule R5 không làm thay đổi eval/data và val_v3. Trên dev không tổ hợp nào
+không chặn tài liệu lành tính nào; tổ hợp chặn ít nhất (rule R5, ngưỡng ở trọng
+số rule thô 0.75) chặn 4 / 74 so với 13 / 74 của v6 hiện tại. Chấm một lần trên
+holdout, nó chặn **5 / 76 tài liệu (6.6%, khoảng tin cậy 95% từ 2.2% đến
+14.7%)** so với 11 / 76 (14.5%) của v6, và bắt 86.3% của 227 payload nhúng so
+với 81.8% khi các payload đó đứng riêng (v6 hiện tại: 89.9%). Mục tiêu 1% không
+đạt ở cả hai kích thước, nên quyết định này không được phát hành; bộ rule R5
+được giữ lại. Chi tiết trong [`train/MODEL_CARD.md`](../train/MODEL_CARD.md)
+(v6, R5).
+
 Profile quick được chạy cùng ngày với cả hai model (và cả bộ `l1,l2,l3`); các
 con số khớp với profile full trong phạm vi cỡ mẫu. Báo cáo của các lần chạy
 được giữ cùng dữ liệu huấn luyện ngoài repository; các bảng đã commit trong

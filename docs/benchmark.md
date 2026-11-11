@@ -588,6 +588,28 @@ detection, so it is not used; `calibration.json` can carry such a rule
 (`long_doc`) but no shipped model has one. Details in
 [`train/MODEL_CARD.md`](../train/MODEL_CARD.md) (v6, R3).
 
+**New long documents, tightened rules and a stricter decision (task RF-895d3533 R5).**
+Because both halves of `long` had been scored, R5 built a new profile,
+`long5` (150 benign documents of 100k and 200k tokens from sources and units
+no other profile uses, 74 dev / 76 holdout; 80 new eval/ dev-half payloads,
+alone and in the seven G7 placements), and pre-registered ten
+combinations of two L1 rule sets (v6 as shipped, and R5's: Vietnamese
+homographs such as "giàu"/"giấu", single adverbs of secrecy under the
+corroboration bar, tighter hidden-note, refusal-suppression, password-trick
+and decode rules) with five long-path decisions (today's, R3's L1
+corroboration, an L1 floor counting only when L2 agrees, and two higher
+corroboration bars)
+([`train/reports/r5_preregistration.md`](../train/reports/r5_preregistration.md)).
+The R5 rules leave eval/data and val_v3 unchanged. On dev no combination
+blocked no benign document; the one blocking fewest (R5 rules, bar at a raw
+rule weight 0.75) blocked 4 / 74 against 13 / 74 for v6 as it is. Scored once
+on the holdout it blocks **5 / 76 documents (6.6%, 95% interval 2.2% to
+14.7%)** against 11 / 76 (14.5%) for v6, and catches 86.3% of 227 embedded
+payloads against 81.8% for the same payloads alone (v6 as it is: 89.9%). The
+1% target is not met at either size, so the decision is not shipped; the R5
+rules are kept. Details in [`train/MODEL_CARD.md`](../train/MODEL_CARD.md)
+(v6, R5).
+
 The quick profile was run the same day with both models (and the `l1,l2,l3`
 set as well); its numbers agree with the full ones within the sample sizes.
 The run reports are kept with the training data outside the repository; the

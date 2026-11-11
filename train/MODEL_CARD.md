@@ -295,6 +295,52 @@ decision not to package the chosen rule were committed before the holdout was sc
   1k tokens) on the benign documents and 17,000 to 17,900 on the attack documents, 4 documents at a time
   on the M3 Max (`docs/sizing.md`, "Long inputs").
 
+**R5: new long documents, tightened rules and a stricter long-path decision (2026-11-12, not met).** Todo R5
+retried the R3 target on a new corpus, because both halves of `long` had been scored. Everything was
+committed in [`reports/r5_preregistration.md`](reports/r5_preregistration.md) before any `long5` document was
+scored; `longdoc_r5.py` applies it; the dev result (`reports/r5_dev.{json,md}`) and the packaging decisions
+were committed before the holdout was scored, once (`reports/r5_holdout.{json,md}`).
+
+- **Data.** The bench/long `long5` profile: 150 benign documents of 100k and 200k tokens (74 dev, 76 holdout;
+  English Wikipedia, U.S. Code titles 16/20/33/38/49, kubelet Go source, the Rust book and the Kubernetes
+  blog, English Wikisource, 53 further RFCs, nginx logs; Vietnamese Wikipedia and the Wikisource laws and prose
+  `long` left unused; synthetic genres with a new seed). No 50-token run of a v6 training or validation row;
+  units near-duplicating an earlier bench document left out. Attacks: 80 eval/ dev-half payloads none of
+  which R3 used (47 dev, 33 holdout), alone and in the seven G7 placements in `long5` hosts.
+- **Candidates.** Two rule sets, `v6` and `r5` (`internal/inference/rules`: Vietnamese homographs such as
+  "giàu"/"giấu", "nhưng"/"nhúng", unmarked "hay"/"ai" among marked words; single adverbs of secrecy under the
+  corroboration bar; tighter `ii.hidden_note`, `jb.refusal_suppression`, `pe.password_tricks`,
+  `obf.decode_follow`), each with five long-path decisions for texts over n0 windows: `base` (today),
+  `corr` (R3), `agree` (an L1 floor counts only when calibrated L2 ≥ 0.5), `strong65` / `strong75` (as
+  `agree`, with the L1 corroboration bar at the calibrated value of a raw rule weight 0.65 / 0.75). The `r5`
+  rules had to keep eval/data dev TPR at FPR ≤ 1% and val_v3 TPR at 0.85 within the 95% interval of `v6`:
+  both are unchanged (0.942 and 1.0).
+- **Dev** (blocked benign / 74; embedded detection / 327, payloads alone 41 / 47 = 87.2%): `v6:base` 13
+  (17.6%), 89.6%; `r5:base` 9, 89.0%; `v6:strong75` 7, 88.7%; `r5:strong65` 6, 88.4%; `r5:strong75` 4
+  (5.4%), 87.8%. No candidate blocked none (the FPR criterion with 74 documents); all met the detection
+  criterion; the rule's second step chose `r5:strong75`. Not packaged: the `long_doc` decision is not
+  written into the v6 calibration; the `r5` rules stay in the code (they block fewer dev documents at
+  equal eval numbers).
+- **Holdout, once** (two-sided Clopper–Pearson 95%): blocked benign documents, `r5:strong75` against
+  `v6:base`: EN 100k 1 / 18 and 1 / 18, EN 200k 1 / 20 and 1 / 20, VI 100k 1 / 19 and 4 / 19, VI 200k
+  2 / 19 and 5 / 19; at 100k 2 / 37 (5.4%, 0.7% to 18.2%) and 5 / 37; at 200k 3 / 39 (7.7%, 1.6% to 20.9%)
+  and 6 / 39; all **5 / 76 (6.6%, 2.2% to 14.7%)** against **11 / 76 (14.5%, 7.5% to 24.4%)**; `r5:base`
+  9 / 76. Benign windows at or above 0.85: 14 against 27 of 59,449. Detection: payloads alone 27 / 33
+  (81.8%); embedded **196 / 227 (86.3%, 81.2% to 90.5%)** against 204 / 227 (89.9%) for `v6:base`
+  (EN 86.7%, VI 86.0%; per variant 75.8% `split_adjacent` to 93.8% `straddle_window`). The detection
+  criterion holds (+4.5 points over alone); the 1% target does not, at either size.
+- **Reading.** The rule fixes and the stricter decision halve the document false positives on new text (the
+  Vietnamese ones most: 9 to 3 of 38), at a cost of 3.6 points of embedded detection against today's
+  decision. What remains are strong rules on benign text the classifier also scores high (role-play and
+  "no restrictions" wording in fiction, secrets and download commands in technical documentation, a send
+  verb with an address in RFC-like text): per-window rate about 2.4 × 10⁻⁴, still about 20 times the
+  10⁻⁵ that 1% at 500 to 1,000 windows needs. Further rule patches would chase a long tail; the next step is
+  in the classifier (v7 trained with benign long text that trips these rules) or in policy (flag or redact
+  long documents instead of blocking).
+- **Cost.** The long path ran 10,400 to 17,100 tokens/s (4 documents at a time, M3 Max); dev runs 10.5 to 11
+  minutes per benign pass and 62 to 67 minutes per attack pass, holdout 13 to 18 and 41 to 42 minutes. The
+  homograph pass adds one scan of the text's words before L1.
+
 **Known weaknesses.** G6 rests on 15 dev documents: with none blocked, the Clopper-Pearson 95% upper bound
 of the false-positive rate is 0.218, so the gate shows the rate is not large, not that it is under 1%;
 the hold-out slice (2 of 18 blocked at 100k / 200k, both at 200k, one per language) is the honest
