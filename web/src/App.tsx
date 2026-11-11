@@ -43,6 +43,7 @@ const PolicyHistoryPage = lazy(() => import('./pages/PolicyHistoryPage'));
 const ApprovalsPage = lazy(() => import('./pages/ApprovalsPage'));
 const InputPage = lazy(() => import('./pages/InputPage'));
 const GettingStartedPage = lazy(() => import('./pages/GettingStartedPage'));
+const SecurityOverviewPage = lazy(() => import('./pages/SecurityOverviewPage'));
 const AlertRulesPage = lazy(() => import('./alerts/RulesPage'));
 const ChannelsPage = lazy(() => import('./alerts/ChannelsPage'));
 const GroupsPage = lazy(() => import('./alerts/GroupsPage'));
@@ -57,6 +58,7 @@ const LANDING = { landing: '1' };
 const ORG_PAGES: Partial<Record<Route, ComponentType>> = {
   dashboard: DashboardPage,
   'getting-started': GettingStartedPage,
+  threats: SecurityOverviewPage,
   flow: FlowPage,
   guard: GuardPage,
   input: InputPage,

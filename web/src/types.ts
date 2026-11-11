@@ -363,6 +363,9 @@ export interface DashboardStats {
   top_rules: { rule_id: UUID; rule: string | null; policy: string | null; count: number }[];
   /** project_id and name are null for requests without a project. */
   top_projects: { project_id: UUID | null; name: string | null; count: number; blocked: number }[];
+  /** The projects and API keys with the most refused requests (refused ones only); absent from older control planes. */
+  top_blocked_projects?: { project_id: UUID | null; name: string | null; count: number; blocked: number }[];
+  top_blocked_keys?: { key_prefix: string; alias: string | null; count: number; blocked: number }[];
 }
 
 // ── Classifier models and shadow comparison ─────────────────────────────────
@@ -391,6 +394,8 @@ export interface GatewayModels {
   layers?: string[] | null;
   /** The gateway's version (its /readyz); absent from older control planes or gateways. */
   gateway_version?: string;
+  /** This control plane's version; absent from older control planes. */
+  control_plane_version?: string;
   /** The fusion combiner: logreg or max. */
   fusion?: string;
   /** FUSION_L1_FLOOR as applied (0: off); null or absent when the gateway does not report it. */

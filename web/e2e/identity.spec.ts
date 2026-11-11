@@ -122,7 +122,7 @@ test('hides write actions from a viewer', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Edit provider main' })).toHaveCount(0);
   const nav = page.getByRole('navigation', { name: 'Main' });
   await expect(nav.getByRole('link', { name: 'Members' })).toHaveCount(0);
-  await expect(nav.getByRole('link', { name: 'Security' })).toHaveCount(0);
+  await expect(nav.getByRole('link', { name: 'Security', exact: true })).toHaveCount(0);
   await go(page, 'Roles and permissions');
   await expect(page.getByText('Your role')).toBeVisible();
   await expect(nav.getByRole('link', { name: 'API keys' })).toHaveCount(0);

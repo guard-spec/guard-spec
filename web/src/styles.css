@@ -3299,3 +3299,59 @@ fieldset.plain {
   color: var(--warn);
   margin-top: 4px;
 }
+
+/* ── Security overview, command palette (RF-a1dbafea U4) ────────────────── */
+.tile-value-text {
+  font-size: 20px;
+  overflow-wrap: anywhere;
+}
+.kv-tight {
+  margin: 6px 0 0;
+  row-gap: 2px;
+}
+.bar-attack {
+  fill: var(--danger);
+}
+.palette-button {
+  gap: 6px;
+  color: var(--muted);
+}
+.palette-button kbd {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--muted);
+}
+.palette input {
+  width: 100%;
+  font-size: 15px;
+}
+.palette-list {
+  margin: 8px 0 0;
+  max-height: min(52vh, 420px);
+  overflow-y: auto;
+}
+.palette-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 7px 10px;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.palette-item.is-active {
+  background: var(--accent-soft);
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+.palette-help {
+  margin: 8px 0 0;
+}
+@media (max-width: 640px) {
+  .palette-button-text,
+  .palette-button kbd {
+    display: none;
+  }
+}

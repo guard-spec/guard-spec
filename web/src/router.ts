@@ -22,6 +22,7 @@ export const ROUTE_CHANGED = CHANGED;
 export const PATHS = {
   dashboard: 'dashboard',
   'getting-started': 'start',
+  threats: 'threats',
   flow: 'flow',
   'policy-history': 'policies/history',
   guard: 'guard',

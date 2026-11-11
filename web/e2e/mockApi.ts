@@ -1193,6 +1193,20 @@ function dashboardBody(state: MockState, url: URL): DashboardStats {
     top_projects: count(({ project }) => project?.id ?? '')
       .slice(0, 5)
       .map(([id, c]) => ({ project_id: id || null, name: state.projects.find((p) => p.id === id)?.name ?? null, ...c })),
+    top_blocked_projects: count(({ project }) => project?.id ?? '')
+      .filter(([, c]) => c.blocked > 0)
+      .sort((a, b) => b[1].blocked - a[1].blocked)
+      .slice(0, 5)
+      .map(([id, c]) => ({ project_id: id || null, name: state.projects.find((p) => p.id === id)?.name ?? null, ...c })),
+    // The seed rows take the org's keys in turn (the request log has no key).
+    top_blocked_keys: count(({ r }) => {
+      const live = state.keys.filter((k) => !k.revoked);
+      return live.length ? (live[state.requests.indexOf(r) % live.length]?.key_prefix ?? null) : null;
+    })
+      .filter(([, c]) => c.blocked > 0)
+      .sort((a, b) => b[1].blocked - a[1].blocked)
+      .slice(0, 5)
+      .map(([prefix, c]) => ({ key_prefix: prefix, alias: state.keys.find((k) => k.key_prefix === prefix)?.alias ?? null, ...c })),
   };
 }
 
@@ -1214,6 +1228,7 @@ export const GATEWAY_MODELS: GatewayModels = {
   fusion: 'logreg',
   l1_floor: 0.985,
   gateway_version: '0.2.1',
+  control_plane_version: '0.2.1',
 };
 
 function gatewayModelsBody(opts: MockOptions): GatewayModels {

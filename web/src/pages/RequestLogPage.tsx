@@ -14,6 +14,7 @@ import { ReportDialog } from './ReportDialog';
 import { auditTagLabel, badgeTags, blockReason, unscannedOf } from './auditTags';
 import { FalsePositivePanel, WhyRefused } from './FalsePositivePanel';
 import { offersFix } from './falsePositive';
+import { CsvExport, SavedFilters } from './RequestLogTools';
 
 export function RequestLogPage() {
   const { api, t } = useApp();
@@ -127,10 +128,13 @@ export function RequestLogPage() {
         title={t('audit.title')}
         help={t('audit.help')}
         actions={
-          <button type="button" className="btn btn-icon-text" onClick={() => void paged.reload()}>
-            <RefreshCw size={14} aria-hidden="true" />
-            <span>{t('common.refresh')}</span>
-          </button>
+          <>
+            <CsvExport />
+            <button type="button" className="btn btn-icon-text" onClick={() => void paged.reload()}>
+              <RefreshCw size={14} aria-hidden="true" />
+              <span>{t('common.refresh')}</span>
+            </button>
+          </>
         }
       />
       <DataTable
@@ -152,6 +156,14 @@ export function RequestLogPage() {
                 ))}
               </select>
             </div>
+            <SavedFilters
+              action={action}
+              q={q}
+              onApply={(f) => {
+                setAction(f.action);
+                setQ(f.q);
+              }}
+            />
           </>
         }
         empty={<EmptyState icon={ScrollText} title={action || needle ? t('table.noMatch') : t('audit.emptyTitle')} body={action || needle ? undefined : t('audit.emptyBody')} />}
