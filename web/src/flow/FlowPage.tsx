@@ -48,7 +48,7 @@ import { NodePanel } from './NodePanel';
 import { DirectionContext, nodeTypes } from './nodes';
 import { RulePanel, type TextState } from './RulePanel';
 import { FALLBACK_SCHEMA, fieldTypesOf } from './schema';
-import { mergeAfterSave } from './save';
+import { deletable, mergeAfterSave } from './save';
 import { Simulator } from './Simulator';
 import { ruleFromTemplate, ruleTemplates, type RuleTemplate } from './templates';
 import { hasErrors, INJECTION_BLOCK, validateCondition } from './validate';
@@ -623,9 +623,23 @@ function FlowPageInner() {
                     >
                       ✎
                     </button>
-                    <button type="button" className="btn-icon" aria-label={`${t('policy.delete')} ${p.name}`} onClick={() => setDeleting(p)}>
-                      🗑
-                    </button>
+                    {/* Only a disabled policy is deleted (as saved): disabling is the guarded step. */}
+                    {deletable(p, original) ? (
+                      <button type="button" className="btn-icon" aria-label={`${t('policy.delete')} ${p.name}`} onClick={() => setDeleting(p)}>
+                        🗑
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="btn-icon"
+                        aria-disabled="true"
+                        aria-label={`${t('policy.delete')} ${p.name}`}
+                        title={t('policy.deleteNeedsDisabled')}
+                        onClick={() => notify(t('policy.deleteNeedsDisabled'), 'error')}
+                      >
+                        🗑
+                      </button>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -795,15 +809,7 @@ function FlowPageInner() {
           const p = deleting;
           if (!p) return;
           try {
-            if (p.id) {
-              const r = await api.deletePolicy(org.id, p.id);
-              if (r && 'approval_required' in r) {
-                // The org wants a second admin: the policy stays until then.
-                notify(t('flow.deletePending', { name: p.name }), 'error');
-                setDeleting(null);
-                return;
-              }
-            }
+            if (p.id) await api.deletePolicy(org.id, p.id);
             setPolicies((ps) => (ps ? ps.filter((x) => x.key !== p.key) : ps));
             setOriginal((ps) => (ps ? ps.filter((x) => x.key !== p.key) : ps));
             if (sel?.policy.key === p.key) setSelected(null);

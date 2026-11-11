@@ -689,7 +689,7 @@ export interface OrgSecurity {
   content_view_reason?: boolean;
   /** A SCIM deactivation also revokes the API keys the user created in the org (default true). */
   scim_revoke_keys?: boolean;
-  /** Disabling or deleting a policy, turning content storage on and deleting the org wait for a second admin (migration 027, default false). */
+  /** Disabling a policy and turning content storage on wait for a second admin (migration 027, default false). Deleting the org always does. */
   two_person_approval?: boolean;
   /** How long such a request waits for a decision (default 24, at most 720). */
   approval_expiry_hours?: number;
@@ -697,14 +697,19 @@ export interface OrgSecurity {
   api_key_max_lifetime_days?: number | null;
 }
 
-// ── Two-person approval (migration 027) ─────────────────────────────────────
+// ── Two-person approval (migrations 027 and 029) ────────────────────────────
 
+/** policy.delete is history only: deleting a policy needs it disabled instead (migration 029). */
 export type ApprovalKind = 'policy.disable' | 'policy.delete' | 'content_storage.enable' | 'org.delete';
 export const APPROVAL_KINDS: readonly ApprovalKind[] = ['policy.disable', 'policy.delete', 'content_storage.enable', 'org.delete'];
-export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'expired';
+/** cancelled: what the request was about is gone or already done (migration 029). */
+export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'expired' | 'cancelled';
+export const APPROVAL_STATUSES: readonly ApprovalStatus[] = ['pending', 'approved', 'rejected', 'expired', 'cancelled'];
 
 export interface ApprovalRequest {
   id: UUID;
+  /** The organization (GET /admin/approvals spans every organization). */
+  org_id?: UUID;
   kind: ApprovalKind;
   /** A policy id or the organization id. */
   target: string | null;
@@ -724,6 +729,8 @@ export interface ApprovalRequest {
 /** A 202 answer of a guarded change: the request that must be approved first. */
 export interface ApprovalPending {
   approval_required: true;
+  /** The same change was already waiting: this is that request. */
+  already_pending?: boolean;
   request: ApprovalRequest;
 }
 

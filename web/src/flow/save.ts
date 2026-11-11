@@ -57,3 +57,14 @@ export function mergeAfterSave(fresh: EditablePolicy[], keep: EditablePolicy[]):
   const byId = new Map(keep.filter((k) => k.id).map((k) => [k.id, k]));
   return [...fresh.map((f) => byId.get(f.id) ?? f), ...keep.filter((k) => !k.id)];
 }
+
+/**
+ * Whether the Flow page offers to delete a policy: a draft always; a saved
+ * policy only while it is disabled as saved, since the server deletes only a
+ * disabled policy (disabling is the step two-person approval guards).
+ */
+export function deletable(p: Pick<EditablePolicy, 'id'>, saved: readonly EditablePolicy[] | null): boolean {
+  if (!p.id) return true;
+  const s = saved?.find((x) => x.id === p.id);
+  return s !== undefined && !s.enabled;
+}

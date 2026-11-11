@@ -594,12 +594,18 @@ export class ApiClient {
     return this.request('PUT', `/organizations/${enc(orgId)}/policies/${enc(id)}`, { body: input });
   }
 
-  /** undefined, or the pending request when the org wants a second admin. */
-  deletePolicy(orgId: UUID, id: UUID): Promise<ApprovalPending | undefined> {
-    return this.request('DELETE', `/organizations/${enc(orgId)}/policies/${enc(id)}`);
+  /** Only a disabled policy is deleted: 409 policy_enabled otherwise (migration 029). */
+  async deletePolicy(orgId: UUID, id: UUID): Promise<void> {
+    await this.request('DELETE', `/organizations/${enc(orgId)}/policies/${enc(id)}`);
   }
 
-  // ── Two-person approval (migration 027) ───────────────────────────────────
+  // ── Two-person approval (migrations 027 and 029) ──────────────────────────
+
+  /** Instance administrators: the pending organization deletions of every organization. */
+  async listInstanceApprovals(): Promise<ApprovalRequest[]> {
+    const r = await this.request<{ items: ApprovalRequest[] }>('GET', '/admin/approvals');
+    return r.items;
+  }
 
   async listApprovals(orgId: UUID, status: ApprovalStatus | 'all' = 'pending'): Promise<ApprovalRequest[]> {
     const r = await this.request<{ items: ApprovalRequest[] }>('GET', `/organizations/${enc(orgId)}/approvals`, { query: { status } });
@@ -628,7 +634,8 @@ export class ApiClient {
   }
 
   /** Restores a version (the one before the current when omitted) as a new version. */
-  rollbackPolicy(orgId: UUID, id: UUID, input: { version?: number; reason?: string }): Promise<RollbackResult> {
+  /** 202 with approval_required when the version is disabled and the org wants a second admin for disabling (migration 029). */
+  rollbackPolicy(orgId: UUID, id: UUID, input: { version?: number; reason?: string }): Promise<RollbackResult | ApprovalPending> {
     return this.request('POST', `/organizations/${enc(orgId)}/policies/${enc(id)}/rollback`, { body: input });
   }
 

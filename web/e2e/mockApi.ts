@@ -821,6 +821,8 @@ export interface IdentityState {
   groupRoles: GroupRole[];
   /** Two-person approval requests (migration 027), newest first. */
   approvals: ApprovalRequest[];
+  /** Pending deletions of other organizations, for the instance administrator (GET /admin/approvals, migration 029). */
+  instanceApprovals: ApprovalRequest[];
 }
 
 /** The SAML metadata of the mock IdP (an EntityDescriptor with an IDPSSODescriptor). */
@@ -973,6 +975,23 @@ export function seedIdentity(rich = false): IdentityState {
         decision_note: 'still needed',
         expires_at: '2026-11-10T09:00:00Z',
         created_at: '2026-11-09T09:00:00Z',
+      },
+    ],
+    instanceApprovals: [
+      {
+        id: 'apr-org-1',
+        org_id: '30000000-0000-4000-8000-000000000009',
+        kind: 'org.delete',
+        target: '30000000-0000-4000-8000-000000000009',
+        payload: { slug: 'sandbox', name: 'Sandbox' },
+        reason: 'the pilot is over',
+        status: 'pending',
+        requested_by: { id: '20000000-0000-4000-8000-000000000003', email: 'pilot-owner@example.com' },
+        decided_by: null,
+        decided_at: null,
+        decision_note: null,
+        expires_at: '2099-01-01T00:00:00Z',
+        created_at: '2026-11-10T07:00:00Z',
       },
     ],
     scimTokens: [
@@ -1418,6 +1437,18 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
       return json(201, { id: uuid(), name: b.name, slug: b.slug });
     }
 
+    // An instance administrator decides another organization's deletion (migration 029).
+    if (path === '/admin/approvals' && method === 'GET') return json(200, { items: id.instanceApprovals.filter((a) => a.status === 'pending') });
+    const im = /^\/organizations\/([^/]+)\/approvals\/([^/]+)\/(approve|reject)$/.exec(path);
+    const ia = im && method === 'POST' ? id.instanceApprovals.find((x) => x.id === im[2] && x.org_id === im[1]) : undefined;
+    if (im && ia) {
+      if (ia.status !== 'pending') return json(409, { error: 'this request is no longer pending', code: 'approval_not_pending' });
+      ia.status = im[3] === 'approve' ? 'approved' : 'rejected';
+      ia.decided_by = { id: ME_ID, email: EMAIL };
+      ia.decided_at = new Date().toISOString();
+      return im[3] === 'approve' ? json(204) : json(200, ia);
+    }
+
     const m = /^\/organizations\/([^/]+)(\/.*)?$/.exec(path);
     if (!m) return json(404, { error: 'not found' });
     if (m[1] !== state.org.id) return json(403, { error: 'not a member of this organization' });
@@ -1566,7 +1597,11 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
         if (b.name) p.name = b.name;
         // With two-person approval, disabling waits; the rest of the save applies.
         let pending: ApprovalRequest | null = null;
-        if (b.enabled === false && p.enabled && state.identity.security.two_person_approval) {
+        const waiting = state.identity.approvals.find((a) => a.kind === 'policy.disable' && a.target === p.id && a.status === 'pending');
+        if (b.enabled === false && p.enabled && state.identity.security.two_person_approval && waiting) {
+          // One pending request per change: asking again answers the same one.
+          pending = waiting;
+        } else if (b.enabled === false && p.enabled && state.identity.security.two_person_approval) {
           pending = {
             id: uuid(),
             kind: 'policy.disable',
@@ -1592,6 +1627,8 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
         return json(200, { id: p.id, updated: true, version: p.version });
       }
       if (method === 'DELETE') {
+        // Only a disabled policy is deleted (migration 029).
+        if (p.enabled) return json(409, { error: 'disable the policy before deleting it', code: 'policy_enabled' });
         state.policies = state.policies.filter((x) => x !== p);
         return json(204);
       }

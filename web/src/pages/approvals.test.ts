@@ -6,7 +6,8 @@ import { translator } from '../i18n';
 import { en } from '../i18n/en';
 import { vi } from '../i18n/vi';
 import type { OrgSecurity } from '../types';
-import { approvalText, decidable } from './ApprovalsPage';
+import { ApiError } from '../api';
+import { approvalText, cancelledOnApprove, decidable, orgLabel } from './ApprovalsPage';
 import { securityBody, validateSecurity } from './SecurityPage';
 
 const base: OrgSecurity = { require_mfa: false, sso_satisfies_mfa: false, allowed_login_methods: null, domain_join: [], session_lifetime_hours: 12 };
@@ -28,6 +29,16 @@ describe('two-person approval', () => {
     expect(decidable({ status: 'approved', expires_at: '2026-11-12T00:00:00Z' }, now)).toBe(false);
   });
 
+  it('reads a cancelled approval and names the organization of an instance-wide deletion', () => {
+    expect(cancelledOnApprove(new ApiError(409, 'the policy no longer exists; the request is cancelled', { code: 'approval_cancelled' }))).toBe(true);
+    expect(cancelledOnApprove(new ApiError(409, 'this request is no longer pending', { code: 'approval_not_pending' }))).toBe(false);
+    expect(cancelledOnApprove(new Error('x'))).toBe(false);
+    expect(orgLabel({ payload: { name: 'Acme', slug: 'acme-prod' }, org_id: 'o' })).toBe('Acme (acme-prod)');
+    expect(orgLabel({ payload: { slug: 'acme' }, org_id: 'o' })).toBe('acme');
+    expect(orgLabel({ payload: {}, org_id: 'o' })).toBe('o');
+    expect(t('approvals.status.cancelled')).toBe('Cancelled');
+  });
+
   it('validates and sends the security settings', () => {
     expect(validateSecurity({ ...base, two_person_approval: true, approval_expiry_hours: 48 })).toEqual([]);
     expect(validateSecurity({ ...base, approval_expiry_hours: 0 })).toEqual(['approvalExpiry']);
@@ -37,7 +48,7 @@ describe('two-person approval', () => {
   });
 
   it('has every approval message in both languages', () => {
-    for (const key of Object.keys(en).filter((k) => k.startsWith('approvals.') || k.startsWith('sec.twoPerson') || k.startsWith('sec.approval'))) {
+    for (const key of Object.keys(en).filter((k) => k.startsWith('approvals.') || k.startsWith('sec.twoPerson') || k.startsWith('sec.approval') || k === 'policy.deleteNeedsDisabled' || k === 'history.rolledBackDisablePending')) {
       expect(vi, key).toHaveProperty(key);
     }
   });

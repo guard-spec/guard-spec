@@ -107,7 +107,8 @@ export function PolicyHistoryPage() {
       const r = await api.rollbackPolicy(org.id, policyId, { version: rollback.version, reason: reason.trim() || undefined });
       setRollback(null);
       setReason('');
-      notify(t('history.rolledBack', { from: r.rolled_back_to, to: r.version }));
+      if ('approval_required' in r) notify(t('history.rolledBackDisablePending', { from: rollback.version }), 'error');
+      else notify(t('history.rolledBack', { from: r.rolled_back_to, to: r.version }));
       await load();
     } catch (e) {
       setRollbackError(errorText(e));
