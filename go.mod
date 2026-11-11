@@ -2,7 +2,7 @@ module github.com/guard-spec/guard-spec
 
 go 1.26.0
 
-toolchain go1.26.10
+toolchain go1.26.11
 
 require (
 	github.com/antlr4-go/antlr/v4 v4.13.1
