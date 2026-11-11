@@ -85,3 +85,23 @@ func TestDiffVersions(t *testing.T) {
 		t.Errorf("bad = %+v", bad.Rules)
 	}
 }
+
+// A rule saved without its id gets a new one: the diff pairs it by content,
+// then by name, instead of reporting it removed and added.
+func TestDiffVersionsRulesWithNewIDs(t *testing.T) {
+	r := func(name, action string, value float64) string {
+		v, _ := json.Marshal(value)
+		return `{"id":"` + uuid.NewString() + `","name":"` + name + `","action":"` + action +
+			`","condition":{"field":"scores.l2","operator":">","value":` + string(v) + `}}`
+	}
+	from := policyVersion{Version: 1, Rules: json.RawMessage("[" + r("a", "block", 0.9) + "," + r("c", "log", 0.4) + "]")}
+	to := policyVersion{Version: 2, Rules: json.RawMessage("[" + r("a", "block", 0.9) + "," + r("c", "log", 0.6) + "," + r("b", "log", 0.5) + "]")}
+	d := diffVersions(from, to)
+	ops := map[string]string{}
+	for _, rc := range d.Rules {
+		ops[rc.Name] = rc.Op
+	}
+	if len(d.Rules) != 2 || ops["c"] != "changed" || ops["b"] != "added" {
+		t.Errorf("rules = %+v", d.Rules)
+	}
+}

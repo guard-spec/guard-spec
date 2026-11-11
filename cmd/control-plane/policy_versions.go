@@ -206,7 +206,7 @@ func canonicalJSON(raw json.RawMessage) string {
 }
 
 // diffVersions compares two versions of a policy: its fields, then its
-// rules by id. The rules of from and to are given; an invalid rule list
+// rules (by id, else by content, else by name). An invalid rule list
 // counts as empty.
 func diffVersions(from, to policyVersion) policyDiff {
 	d := policyDiff{From: from.Version, To: to.Version, Fields: []fieldChange{}, Rules: []ruleChange{}}
@@ -234,26 +234,50 @@ func diffVersions(from, to policyVersion) policyDiff {
 	var a, b []policy.Rule
 	_ = json.Unmarshal(from.Rules, &a)
 	_ = json.Unmarshal(to.Rules, &b)
+	// Pair each rule of from with one of to: by id first; a rule saved
+	// without its id gets a new one, so the rules left over are then paired
+	// by content, and the rest by name.
+	match := make([]int, len(a)) // index in b, or -1
+	usedB := make([]bool, len(b))
 	posB := make(map[uuid.UUID]int, len(b))
-	for i, r := range b {
-		posB[r.ID] = i
+	for j, r := range b {
+		posB[r.ID] = j
 	}
-	seen := make(map[uuid.UUID]bool, len(a))
+	for i := range a {
+		match[i] = -1
+		if j, ok := posB[a[i].ID]; ok && !usedB[j] {
+			match[i], usedB[j] = j, true
+		}
+	}
+	pair := func(same func(x, y policy.Rule) bool) {
+		for i := range a {
+			if match[i] >= 0 {
+				continue
+			}
+			for j := range b {
+				if !usedB[j] && same(a[i], b[j]) {
+					match[i], usedB[j] = j, true
+					break
+				}
+			}
+		}
+	}
+	pair(sameRule)
+	pair(func(x, y policy.Rule) bool { return x.Name != "" && x.Name == y.Name })
 	for i := range a {
 		r := a[i]
-		seen[r.ID] = true
-		j, ok := posB[r.ID]
+		j := match[i]
 		switch {
-		case !ok:
+		case j < 0:
 			d.Rules = append(d.Rules, ruleChange{Op: "removed", RuleID: r.ID, Name: r.Name, From: &a[i], FromIndex: i, ToIndex: -1})
 		case !sameRule(r, b[j]):
-			d.Rules = append(d.Rules, ruleChange{Op: "changed", RuleID: r.ID, Name: b[j].Name, From: &a[i], To: &b[j], FromIndex: i, ToIndex: j})
+			d.Rules = append(d.Rules, ruleChange{Op: "changed", RuleID: b[j].ID, Name: b[j].Name, From: &a[i], To: &b[j], FromIndex: i, ToIndex: j})
 		case i != j:
-			d.Rules = append(d.Rules, ruleChange{Op: "moved", RuleID: r.ID, Name: r.Name, FromIndex: i, ToIndex: j})
+			d.Rules = append(d.Rules, ruleChange{Op: "moved", RuleID: b[j].ID, Name: r.Name, FromIndex: i, ToIndex: j})
 		}
 	}
 	for j := range b {
-		if !seen[b[j].ID] {
+		if !usedB[j] {
 			d.Rules = append(d.Rules, ruleChange{Op: "added", RuleID: b[j].ID, Name: b[j].Name, To: &b[j], FromIndex: -1, ToIndex: j})
 		}
 	}
