@@ -9,6 +9,8 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-11
+
 ### Added
 
 - PDF text extraction in the gateway (RF-8e6d0a82). A PDF sent inline (a
@@ -57,6 +59,22 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   is MIT, wazero and the PDFium module Apache-2.0 (`NOTICE`,
   `THIRD_PARTY_LICENSES.md`). See [PDFs](README.md#pdfs) and
   [sizing, PDF documents](docs/sizing.md#pdf-documents).
+
+### Changed
+
+- The decision on the default classifier is no longer planned for this
+  release. v3b stays the default; the [0.5.0] entry said the owner would
+  decide on v5 for 0.6.0 after a shadow run. That decision now follows the
+  shadow run of the long-input work (RF-895d3533), in a later release
+  (`docs/models.md`, `models/manifest.yaml`, `train/MODEL_CARD.md`).
+
+### Security
+
+- Go 1.26.10 → 1.26.11 (`go.mod` toolchain and the golang builder images of
+  the gateway, control-plane and rebuild Dockerfiles, pinned by digest):
+  fixes GO-2026-6859 in the standard library's `net/http`, which
+  `govulncheck` reported against every binary. The 0.5.0 images were built
+  with 1.26.10; upgrade.
 
 ### Upgrade notes
 
@@ -1254,7 +1272,8 @@ First release.
 - List endpoints still answer the older `{"data": [...]}` shape when called
   without `limit` and `cursor`; use the paginated form.
 
-[Unreleased]: https://github.com/guard-spec/guard-spec/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/guard-spec/guard-spec/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/guard-spec/guard-spec/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/guard-spec/guard-spec/compare/v0.4.2...v0.5.0
 [0.4.2]: https://github.com/guard-spec/guard-spec/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/guard-spec/guard-spec/compare/v0.4.0...v0.4.1
