@@ -136,8 +136,8 @@ Các migration của một bản làm gì ngoài việc thêm bảng, và cần 
 - **027 (phê duyệt hai người).** Thêm bảng `approval_requests` và hai cột
   `org_security`; tắt với mọi tổ chức. Down: yêu cầu đang chờ bị xóa.
 - **028 (chính sách khóa API).** Thay hàm `lookup_api_key` để trả thêm địa chỉ
-  được phép của khóa. Gateway trước 0.6.0 vẫn chạy với hàm mới (chỉ đọc hai cột
-  đầu); gateway 0.6.0 cần migration này, nên hãy áp dụng trước khi gateway khởi
+  được phép của khóa. Gateway trước 0.7.0 vẫn chạy với hàm mới (chỉ đọc hai cột
+  đầu); gateway 0.7.0 cần migration này, nên hãy áp dụng trước khi gateway khởi
   động, như job `migrate` của compose vẫn làm. Đặt `TRUSTED_PROXIES` cho
   **gateway** khi nó đứng sau reverse proxy và bạn dùng `allowed_cidrs`: nếu
   không, địa chỉ của proxy sẽ được coi là client. Down: khóa giới hạn địa chỉ

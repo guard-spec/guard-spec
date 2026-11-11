@@ -136,8 +136,8 @@ every version.
   `org_security` columns; off for every organization. Down: pending
   requests are dropped.
 - **028 (API key policy).** Replaces `lookup_api_key` so it also returns a
-  key's allowed addresses. Gateways from before 0.6.0 keep working against
-  the new function (they read the first two columns); a 0.6.0 gateway
+  key's allowed addresses. Gateways from before 0.7.0 keep working against
+  the new function (they read the first two columns); a 0.7.0 gateway
   needs the migration, so apply it before the gateway starts, as the
   compose `migrate` job does. Set `TRUSTED_PROXIES` on the **gateway** when
   it runs behind a reverse proxy and you use `allowed_cidrs`: without it
