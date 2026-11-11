@@ -148,6 +148,7 @@ func TestInputPIIWithPostgres(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
+				tags = withoutDetector(tags)
 				if action != step.row || !slices.Equal(tags, step.tags) || content != nil {
 					t.Errorf("%s: row %s %v content %v", step.name, action, tags, content)
 				}

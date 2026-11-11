@@ -568,7 +568,8 @@ func outputTags(counts outputguard.Counts) []string {
 // "input:signal=conversation" when a request refused by the detector or a
 // policy had its strongest finding in the conversation window, and
 // "input:pii_<kind>=<n>" for the personal data found in the request text
-// (input_pii.go): kinds and counts, never the values.
+// (input_pii.go): kinds and counts, never the values, and last
+// "detector:l<n>=<score>" and "detector:rule=<id>" (detector_tags.go).
 func auditTags(e requestEntry) []string {
 	tags := outputTags(e.Output)
 	tags = append(tags, piiTags(e.InputPII)...)
@@ -591,6 +592,8 @@ func auditTags(e requestEntry) []string {
 	for _, m := range e.LogOnly {
 		tags = append(tags, logOnlyTag(m))
 	}
+	// The detector's per-layer scores and fired rules (detector_tags.go).
+	tags = append(tags, detectorTags(e.Scores.Injection.Detail)...)
 	return tags
 }
 

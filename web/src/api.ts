@@ -68,6 +68,9 @@ import type {
   Upstream,
   UpstreamInput,
   UUID,
+  GettingStarted,
+  RequestImpact,
+  SampleScore,
 } from './types';
 
 /** An error response. message is the server's `error`, or a generic text. */
@@ -517,6 +520,11 @@ export class ApiClient {
   }
 
   /** One request's stored prompt and answer: needs the org's content_read_role and, when required, a reason; every read is in the activity log. */
+  /** What a false-positive fix of a request concerns (counts from stored scores and hashes, 7 days). */
+  getRequestImpact(orgId: UUID, requestId: UUID): Promise<RequestImpact> {
+    return this.request('GET', `/organizations/${enc(orgId)}/requests/${enc(requestId)}/impact`);
+  }
+
   readRequestContent(orgId: UUID, requestId: UUID, reason: string): Promise<StoredContent> {
     return this.request('POST', `/organizations/${enc(orgId)}/requests/${enc(requestId)}/content`, { body: { reason } });
   }
@@ -646,6 +654,11 @@ export class ApiClient {
     return this.request('POST', `/organizations/${enc(orgId)}/policies/simulate`, { body: req });
   }
 
+  /** Rule fields of a sample sentence for the simulator (L1, the sanitizer and PII patterns; nothing stored). */
+  samplePolicy(text: string): Promise<SampleScore> {
+    return this.request('POST', '/policy/sample', { body: { text } });
+  }
+
   getPolicySchema(): Promise<PolicySchema> {
     return this.request('GET', '/policy/schema');
   }
@@ -720,6 +733,11 @@ export class ApiClient {
 
   getDashboard(orgId: UUID, q: { window?: DashboardWindow; project_id?: UUID } = {}): Promise<DashboardStats> {
     return this.request('GET', `/organizations/${enc(orgId)}/dashboard`, { query: q });
+  }
+
+  /** The setup checklist of the getting started page (counts only). */
+  getGettingStarted(orgId: UUID): Promise<GettingStarted> {
+    return this.request('GET', `/organizations/${enc(orgId)}/getting-started`);
   }
 
   // ── Classifier models and shadow comparison ──────────────────────────────

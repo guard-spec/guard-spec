@@ -306,6 +306,9 @@ func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins 
 	}
 	perUser := limiter.New(limiter.Config{Max: 10, Expiration: time.Minute,
 		KeyGenerator: func(c *fiber.Ctx) string { return "user:" + auth.UserID(c).String() }})
+	// Sample sentences of the policy editor: a person trying texts, not a script.
+	perUserSample := limiter.New(limiter.Config{Max: 60, Expiration: time.Minute,
+		KeyGenerator: func(c *fiber.Ctx) string { return "sample:" + auth.UserID(c).String() }})
 
 	v1.Post("/auth/login", perIP(10), id.login)
 	// The token is the credential here, so it gets the login's limit.
@@ -389,6 +392,8 @@ func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins 
 	authed.Get("/policy/schema", policySchema())
 	authed.Post("/policy/parse", parseCondition(eng))
 	authed.Post("/policy/format", formatCondition())
+	// A sample sentence scored for the simulator (policy_sample.go): L1, the sanitizer, PII patterns.
+	authed.Post("/policy/sample", perUserSample, samplePolicyVars())
 
 	viewer := auth.RequireRole(db, auth.RoleViewer)
 	admin := auth.RequireRole(db, auth.RoleAdmin)
@@ -411,6 +416,8 @@ func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins 
 	authed.Get("/organizations/:orgId/input-settings", viewer, getInputSettings(db, settings))
 	authed.Put("/organizations/:orgId/input-settings", admin, putInputSettings(db, settings))
 	authed.Delete("/organizations/:orgId/input-settings", admin, deleteInputSettings(db, settings))
+	// The admin UI's getting started checklist (getting_started.go): counts only.
+	authed.Get("/organizations/:orgId/getting-started", viewer, getGettingStarted(db, settings))
 	authed.Get("/organizations/:orgId/security", admin, getOrgSecurity(db))
 	authed.Put("/organizations/:orgId/security", owner, putOrgSecurity(db))
 	authed.Get("/organizations/:orgId/activity", admin, listOrgActivity(db))
@@ -469,6 +476,8 @@ func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins 
 	// Stored content: the org's content_read_role, a reason when required,
 	// and an activity log row for every read (content_access.go).
 	authed.Post("/organizations/:orgId/requests/:requestId/content", viewer, readRequestContent(db, settings.contentKeys))
+	// What an allow exemplar or a threshold change would concern (request_impact.go): counts only.
+	authed.Get("/organizations/:orgId/requests/:requestId/impact", viewer, getRequestImpact(db))
 	// Aggregates of the request log over a window (dashboard.go).
 	authed.Get("/organizations/:orgId/dashboard", viewer, getDashboard(db))
 	// The same per period as CSV (reports.go); counts only, never content.

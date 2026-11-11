@@ -17,6 +17,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"github.com/guard-spec/guard-spec/internal/tenant"
+	"github.com/guard-spec/guard-spec/internal/version"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -301,6 +302,9 @@ type gatewayModels struct {
 	// GatewayVersion is the gateway's version from /readyz; empty when it
 	// does not say. The admin UI puts it in bypass and false-positive reports.
 	GatewayVersion string `json:"gateway_version,omitempty"`
+	// ControlPlaneVersion is this control plane's version, for the
+	// security overview's running versions.
+	ControlPlaneVersion string `json:"control_plane_version"`
 }
 
 type gwShadow struct {
@@ -371,7 +375,7 @@ func gatewayStatusClient(settings *appSettings) *http.Client {
 func getGatewayModels(settings *appSettings) fiber.Handler {
 	client := gatewayStatusClient(settings)
 	return func(c *fiber.Ctx) error {
-		out := gatewayModels{CheckedAt: time.Now().UTC(), Installed: []string{}}
+		out := gatewayModels{CheckedAt: time.Now().UTC(), Installed: []string{}, ControlPlaneVersion: version.String()}
 		if settings.gatewayURL == "" {
 			return c.JSON(out)
 		}

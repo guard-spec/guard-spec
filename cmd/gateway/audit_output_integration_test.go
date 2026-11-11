@@ -61,6 +61,7 @@ func TestAuditRowWithOutputCounts(t *testing.T) {
 			if err := r.Scan(&x.action, &x.tags, &x.reqHash, &x.respHash, &x.reqContent, &x.respContent); err != nil {
 				return err
 			}
+			x.tags = withoutDetector(x.tags)
 			rows = append(rows, x)
 		}
 		return r.Err()

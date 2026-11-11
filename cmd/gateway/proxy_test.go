@@ -695,7 +695,7 @@ func TestLogOnlyPolicyRecordsWithoutBlocking(t *testing.T) {
 	if row.Action != "allow" || row.RuleID != wouldBlock.ID {
 		t.Errorf("row = %+v", row)
 	}
-	if tags := auditTags(row); !slices.Contains(tags, "policy:would_block="+wouldBlock.ID.String()) {
+	if tags := inputAuditTags(row); !slices.Contains(tags, "policy:would_block="+wouldBlock.ID.String()) {
 		t.Errorf("tags = %v", tags)
 	}
 

@@ -15,6 +15,7 @@ import { NAV, navEntry, type NavGroup } from '../nav';
 import { href, navigate, type Route } from '../router';
 import { prefs } from '../session';
 import type { Org } from '../types';
+import { CommandPalette } from './CommandPalette';
 import { Preferences } from './Preferences';
 
 const PAGE_TITLES: Partial<Record<Route, MessageKey>> = {
@@ -217,6 +218,7 @@ export function Shell({
             </ol>
           </nav>
           <div className="topbar-actions">
+            <CommandPalette org={org} visible={visible} />
             <NotificationBell />
           </div>
         </header>

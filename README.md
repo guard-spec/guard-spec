@@ -93,9 +93,11 @@ before you rely on it.
   as a backstop.
 - **Audit:** one row per request (content off by default), an activity log of
   every configuration and security change, retention in days.
-- **Admin UI** in English and Vietnamese, light and dark: dashboard, request
-  flow, simulator, policies, providers, request log, alerts, members and
-  security ([Admin UI](#admin-ui)).
+- **Admin UI** in English and Vietnamese, light and dark, checked with
+  axe-core: getting started, dashboard and security overview, request flow
+  with policy templates and sample sentences, simulator, providers, request
+  log with one-click false-positive handling, alerts, members and security,
+  and a Ctrl+K command palette ([Admin UI](#admin-ui)).
 
 **Operations**
 - Docker Compose for a single host, a Helm chart for Kubernetes, an image with
@@ -814,6 +816,7 @@ needs `Authorization: Bearer <token from /v1/auth/login>`. Roles are `owner`,
 | `GET /policy/schema` (fields, operators per type, actions) | any user |
 | `POST /policy/parse` (`{"text"}` to `{"condition"}`; 422 `{"error","position"}`) | any user |
 | `POST /policy/format` (`{"condition"}` to `{"text"}`; 422 on an invalid tree) | any user |
+| `POST /policy/sample` (`{"text"}`, at most 8000 bytes, to `{vars, layers, rules}`: a sample sentence scored with the sanitizer, the L1 rules and the personal data patterns for the simulator; `scores.l2` and `scores.l3` are -1; nothing stored; 60 per user per minute) | any user |
 | `GET /organizations/:orgId` (includes `default_upstream_id`) | viewer |
 | `PATCH /organizations/:orgId` (`audit_store_content`; 202 with a pending request under [two-person approval](#governance)) | admin |
 | `DELETE /organizations/:orgId` (`{"confirm": "<slug>", "reason"}`; never the default organization; an owner gets 202 with a request another owner or an instance administrator approves; an instance administrator deletes at once with a `reason`) | owner, instance admin |
@@ -847,6 +850,8 @@ needs `Authorization: Bearer <token from /v1/auth/login>`. Roles are `owner`,
 | `GET /organizations/:orgId/policies/:id/versions`, `GET .../versions/diff?from=&to=` ([policy history](#governance)) | viewer |
 | `POST /organizations/:orgId/policies/:id/rollback` (`{"version", "reason"}`; without `version`, one step back) | admin |
 | `GET /organizations/:orgId/requests?limit=&cursor=&action=` (includes `route_target`, `repeat_count` and `has_content`; never the content) | viewer |
+| `GET /organizations/:orgId/requests/:requestId/impact` (what a false-positive fix concerns over 7 days, from stored scores and hashes: `same_input`, `same_rule`, `threshold`; counts only; see [Admin UI](#admin-ui)) | viewer |
+| `GET /organizations/:orgId/getting-started` (the setup checklist: enabled providers and reachability from the request log, active API keys, enabled policies, the gateway's layers and version, alert channels, own input settings, `complete`; counts only) | viewer |
 | `POST /organizations/:orgId/requests/:requestId/content` `{"reason"}`: the stored prompt and answer of one request, logged as `request.content_viewed` with the reason | the org's `content_read_role` (default admin) |
 | `GET /organizations/:orgId/dashboard?window=24h\|7d\|30d&project_id=` (request log aggregates; see below) | viewer |
 | `GET /organizations/:orgId/reports/requests.csv?window=24h\|7d\|30d` or `?from=&to=` (the same per period as CSV, counts only; see [Governance](#governance)) | viewer |
@@ -867,8 +872,10 @@ log in Postgres over a window that ends now (`window` is `24h`, the default,
 `block_rate`, `by_action`, `latency_ms` (`p50`, `p95`, `p99`; null without
 latencies), a `series` of `{start, count, blocked}` per hour (24h) or per day
 (UTC, empty buckets included), and the top five `top_labels` (benign left
-out), `top_rules` (with rule and policy names) and `top_projects`. The admin
-UI dashboard reads it.
+out), `top_rules` (with rule and policy names) and `top_projects`, and the
+most attacked: `top_blocked_projects` and `top_blocked_keys` (key prefix and
+alias), refused requests only. The admin UI dashboard and security overview
+read it.
 
 **Errors** are `{"error": "message"}`; the identity endpoints add a
 machine-readable `"code"` (such as `mfa_required`, `login_method_not_allowed`,
@@ -1144,6 +1151,14 @@ upstreams, the output guard and the client.
 - A scope without rules offers one-click templates: block high-risk
   injection, log possible injection in tool responses, route suspicious
   requests to another upstream (when there is one) and block hidden Unicode.
+- **Policy from template** adds a whole policy in one click: **Personal
+  data** (block card and CCCD numbers, log other personal data), **OTP and
+  KYC** (block attempts to extract OTPs, secrets or the prompt, a CCCD sent
+  with a phone number; log ID photos the gateway cannot read) and
+  **Banking** (injection from 0.6, injection in tool results and documents,
+  hidden characters, card numbers). It starts **log only** in the current
+  scope, so the request log shows what it would block before you turn it on;
+  the dialog says when its rules need personal data detection.
 - Drag a rule up or down to reorder it within its policy (or use the arrow
   buttons). Drag from a rule's round **match** handle to Block, Allow, Log or
   an upstream to set its action; an upstream makes it a `route` rule.
@@ -1151,7 +1166,11 @@ upstreams, the output guard and the client.
   The server validates every rule; its errors are shown on the rule.
 - The **Simulator** evaluates a request (scores, category, model and other
   schema fields) against the rules shown, unsaved changes included, highlights
-  the path and lists every rule's outcome.
+  the path and lists every rule's outcome. **Try a sample sentence** scores a
+  text on the control plane (`POST /v1/policy/sample`: the sanitizer, the L1
+  rules, the personal data patterns), fills the fields, runs the simulator
+  and lists the L1 rules that fired. L2 and L3 need the gateway's models, so
+  they show as not run (-1); nothing is stored.
 
 | Rule editor, visual | Rule editor, text |
 |---|---|
@@ -1195,6 +1214,46 @@ for instance administrators, every organization's pending deletion), and
 the **Dashboard**
 downloads its period as CSV (see [Governance](#governance)).
 
+**Getting started** lists the setup steps with their real state
+(`GET /v1/organizations/{id}/getting-started`): a model provider (and
+whether the last forwarded request in 7 days got an answer), an API key, an
+enabled policy and the detection layers the gateway reports (required), an
+alert channel and the organization's own input settings (recommended). Each
+step links to the page that sets it up. An organization still missing a
+provider, a key or a policy lands there after sign-in until the steps are
+done or the page is hidden (per organization, in this browser); the
+dashboard shows a setup card while a required step is left.
+
+**Security overview** shows the refused requests and their trend over 24
+hours, 7 or 30 days, the most attacked API keys and projects, the top
+detections, the health of the detection models (layers, a verified
+classifier, a recommended update, a failed reload) and the running gateway
+and control plane versions, with the CSV report of the period.
+
+**False positives in one click.** A request's details show why it was
+refused: the score of each detection layer that ran and the rules and
+categories that fired (gateways from 0.7 record them as `detector:*` tags,
+never text), the policy rule, and the log-only rules that would have
+decided. A refused request gets a panel to add an **allow exemplar** of the
+text or **report the false positive**, without leaving the page. The text is
+never fetched for it: it starts from the stored prompt only when you already
+read it (content storage on, your role, a logged reason), else you type it.
+The panel previews the impact from what the control plane stores
+(`GET .../requests/{id}/impact`, 7 days): identical requests (same body hash)
+and how many were refused; for a rule's refusal, how many requests that rule
+decided (an exemplar does not change a rule; the panel links to the flow);
+for the detector's, how many refusals at or below the score a higher block
+threshold would let through, or that the score is above the gateway's
+threshold. It cannot tell exactly which other requests an exemplar would
+flip: that would need the texts and the detector's models, and it says so.
+
+**Command palette.** Ctrl+K (⌘K on a Mac), or **Search** in the top bar,
+goes to any page the role may see and to the organization's policies,
+projects, model providers and API keys. Arrows move, Enter opens, Escape
+closes. The **request log** saves named filters (action and search, per
+organization, in this browser) and downloads the CSV report for a chosen
+period and project.
+
 **Report** on a request log row (or in its details) turns a missed attack or a
 wrongly blocked text into a prefilled GitHub issue for the project's "Bypass"
 or "False positive" form: decision, scores, label, rule, model, gateway
@@ -1211,7 +1270,9 @@ sends nothing. Viewers can report. What happens to a report is described in
 The UI loads nothing from other origins and runs under the control plane's
 `Content-Security-Policy` (`default-src 'self'`, no inline scripts or styles);
 the e2e tests run the production build under that policy and fail on any
-violation. Screenshots are taken against the mocked API of the e2e tests
+violation. Every page is checked with axe-core in English and Vietnamese
+(`e2e/a11y.spec.ts`): a serious or critical WCAG 2.1 A or AA violation fails
+the build. Screenshots are taken against the mocked API of the e2e tests
 (`npm run screenshots` in `web/`).
 
 ## Alerts and notifications

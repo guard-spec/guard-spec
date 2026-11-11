@@ -11,7 +11,10 @@ import { ApiError } from '../api';
 import { ACTIONS, type AuditRow, type StoredContent } from '../types';
 import { normLabel, ruleNames } from './dashboard';
 import { ReportDialog } from './ReportDialog';
-import { auditTagLabel, blockReason, parseAuditTags, unscannedOf } from './auditTags';
+import { auditTagLabel, badgeTags, blockReason, unscannedOf } from './auditTags';
+import { FalsePositivePanel, WhyRefused } from './FalsePositivePanel';
+import { offersFix } from './falsePositive';
+import { CsvExport, SavedFilters } from './RequestLogTools';
 
 export function RequestLogPage() {
   const { api, t } = useApp();
@@ -125,10 +128,13 @@ export function RequestLogPage() {
         title={t('audit.title')}
         help={t('audit.help')}
         actions={
-          <button type="button" className="btn btn-icon-text" onClick={() => void paged.reload()}>
-            <RefreshCw size={14} aria-hidden="true" />
-            <span>{t('common.refresh')}</span>
-          </button>
+          <>
+            <CsvExport />
+            <button type="button" className="btn btn-icon-text" onClick={() => void paged.reload()}>
+              <RefreshCw size={14} aria-hidden="true" />
+              <span>{t('common.refresh')}</span>
+            </button>
+          </>
         }
       />
       <DataTable
@@ -150,6 +156,14 @@ export function RequestLogPage() {
                 ))}
               </select>
             </div>
+            <SavedFilters
+              action={action}
+              q={q}
+              onApply={(f) => {
+                setAction(f.action);
+                setQ(f.q);
+              }}
+            />
           </>
         }
         empty={<EmptyState icon={ScrollText} title={action || needle ? t('table.noMatch') : t('audit.emptyTitle')} body={action || needle ? undefined : t('audit.emptyBody')} />}
@@ -214,18 +228,22 @@ export function RequestLogPage() {
               injection {open.injection_score.toFixed(3)} · anomaly {open.anomaly_score.toFixed(3)}
               {open.toxicity_score !== undefined ? ` · toxicity ${open.toxicity_score.toFixed(3)}` : ''}
             </dd>
+            <dt>{t('fp.why')}</dt>
+            <dd>
+              <WhyRefused row={open} ruleLabel={ruleLabel} />
+            </dd>
             <dt>{t('audit.flags')}</dt>
             <dd>
               {open.had_tag_chars ? 'tag chars ' : ''}
               {open.had_bidi ? 'bidi' : ''}
               {!open.had_tag_chars && !open.had_bidi ? '—' : ''}
             </dd>
-            {open.pii_entities?.length ? (
+            {badgeTags(open.pii_entities).length > 0 ? (
               <>
                 <dt>{t('audit.tags')}</dt>
                 <dd>
                   <span className="name-line wrap" data-testid="audit-tags">
-                    {parseAuditTags(open.pii_entities).map((tag) => (
+                    {badgeTags(open.pii_entities).map((tag) => (
                       <span key={tag.raw} className={tag.type === 'other' ? 'mono small' : 'badge'} title={tag.raw}>
                         {auditTagLabel(t, tag)}
                       </span>
@@ -256,6 +274,18 @@ export function RequestLogPage() {
               </>
             ) : null}
           </dl>
+        ) : null}
+        {open && offersFix(open) ? (
+          <FalsePositivePanel
+            key={open.id}
+            row={open}
+            storedRequest={contents[open.id]?.request_content ?? null}
+            onReport={() => {
+              const c = contents[open.id];
+              setReporting(c ? { ...open, request_content: c.request_content ?? undefined } : open);
+              setOpen(null);
+            }}
+          />
         ) : null}
       </Dialog>
       {reporting ? (

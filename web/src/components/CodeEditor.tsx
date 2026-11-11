@@ -171,7 +171,9 @@ export function CodeEditor(props: CodeEditorProps) {
       (props.minHeight ?? (props.mode === 'yaml' ? 'large' : 'small')) === 'large' ? largeTheme : smallTheme,
       lintGutter(),
       keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
-      EditorView.contentAttributes.of({ 'aria-label': props.ariaLabel, ...(props.testId ? { 'data-testid': props.testId } : {}) }),
+      // tabindex: the content is in the tab order anyway (contenteditable);
+      // saying so lets checkers see that the scroller is reachable by keyboard.
+      EditorView.contentAttributes.of({ 'aria-label': props.ariaLabel, tabindex: '0', ...(props.testId ? { 'data-testid': props.testId } : {}) }),
       EditorView.updateListener.of((u) => {
         // Only user edits: a value set from outside is not reported back.
         if (u.docChanged && !external.current) onChange.current?.(u.state.doc.toString());

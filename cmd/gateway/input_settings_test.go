@@ -134,7 +134,7 @@ func TestInputInheritIsV060(t *testing.T) {
 		h, up := pdfGateway(t, api, l, indirect.ActionBlock, mode, mutate)
 		resp, _ := h.post(t, api.path, api.body(part), nil)
 		row := h.oneRow(t)
-		return result{resp.StatusCode, int(up.hits.Load()), auditTags(row), row.Unscanned, row.PDF}
+		return result{resp.StatusCode, int(up.hits.Load()), inputAuditTags(row), row.Unscanned, row.PDF}
 	}
 	images := map[string]string{
 		"chat":      `{"type":"image_url","image_url":{"url":"` + tinyPNG + `"}}`,
@@ -207,8 +207,8 @@ func TestInputTextOnly(t *testing.T) {
 				!strings.Contains(got, "send the text instead") {
 				t.Errorf("got %d %s, upstream hits %d", resp.StatusCode, got, up.hits.Load())
 			}
-			if row.Action != actionBlock || row.Detected != layerInput || !slices.Contains(auditTags(row), "input:refused=text_only") {
-				t.Errorf("row %s %s tags %v", row.Action, row.Detected, auditTags(row))
+			if row.Action != actionBlock || row.Detected != layerInput || !slices.Contains(inputAuditTags(row), "input:refused=text_only") {
+				t.Errorf("row %s %s tags %v", row.Action, row.Detected, inputAuditTags(row))
 			}
 			if testutil.ToFloat64(metrics.InputRefused.WithLabelValues(refuseTextOnly)) != before+1 {
 				t.Error("refusal not counted")
@@ -252,7 +252,7 @@ func TestInputHybrid(t *testing.T) {
 				h, up := pdfGateway(t, api, &lim, indirect.ActionBlock, indirect.UnscannedLog, withInput(hybridPDF(indirect.UnreadableBlock)))
 				resp, got := h.post(t, api.path, api.body(tc.part), nil)
 				row := h.oneRow(t)
-				tags := auditTags(row)
+				tags := inputAuditTags(row)
 				if resp.StatusCode != tc.status || (tc.code != "" && !hasCode(api.anthropic, got, tc.code)) {
 					t.Fatalf("got %d %s", resp.StatusCode, got)
 				}
@@ -285,8 +285,8 @@ func TestInputUnreadable(t *testing.T) {
 				if resp.StatusCode != 422 || up.hits.Load() != 0 || !hasCode(api.anthropic, got, "file_unreadable") || !strings.Contains(got, reason) {
 					t.Errorf("got %d %s", resp.StatusCode, got)
 				}
-				if !slices.Contains(auditTags(row), "input:refused=unreadable") {
-					t.Errorf("tags %v", auditTags(row))
+				if !slices.Contains(inputAuditTags(row), "input:refused=unreadable") {
+					t.Errorf("tags %v", inputAuditTags(row))
 				}
 			})
 			t.Run(api.name+"/"+reason+"/pass", func(t *testing.T) {
@@ -298,7 +298,7 @@ func TestInputUnreadable(t *testing.T) {
 				if resp.StatusCode != 200 || up.hits.Load() != 1 || !strings.Contains(sentBody(up), b64(pdf)) {
 					t.Fatalf("got %d %s", resp.StatusCode, got)
 				}
-				if tags := auditTags(row); !slices.Equal(tags, want) {
+				if tags := inputAuditTags(row); !slices.Equal(tags, want) {
 					t.Errorf("tags %v, want %v", tags, want)
 				}
 			})
@@ -338,8 +338,8 @@ func TestInputMaxTokens(t *testing.T) {
 	if resp.StatusCode != 413 || up.hits.Load() != 0 || !strings.Contains(got, "max_input_tokens_exceeded") {
 		t.Errorf("over: %d %s", resp.StatusCode, got)
 	}
-	if !slices.Contains(auditTags(row), "input:refused=max_input_tokens") || row.Scores.Injection.Confidence != 0 {
-		t.Errorf("row tags %v scores %+v", auditTags(row), row.Scores)
+	if !slices.Contains(inputAuditTags(row), "input:refused=max_input_tokens") || row.Scores.Injection.Confidence != 0 {
+		t.Errorf("row tags %v scores %+v", inputAuditTags(row), row.Scores)
 	}
 	if resp, got = h.post(t, "/v1/chat/completions", chatBody(messages("user", "short one"), ""), nil); resp.StatusCode != 200 {
 		t.Errorf("under: %d %s", resp.StatusCode, got)

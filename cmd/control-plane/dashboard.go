@@ -66,6 +66,15 @@ type dashProject struct {
 	Blocked   int64      `json:"blocked"`
 }
 
+// dashKey counts the requests of an API key, by its prefix and alias;
+// "none" for requests without a key the org still has.
+type dashKey struct {
+	Prefix  string  `json:"key_prefix"`
+	Alias   *string `json:"alias"`
+	Count   int64   `json:"count"`
+	Blocked int64   `json:"blocked"`
+}
+
 type dashLatency struct {
 	P50 *float64 `json:"p50"`
 	P95 *float64 `json:"p95"`
@@ -91,6 +100,10 @@ type dashboardStats struct {
 	TopLabels   []dashLabel   `json:"top_labels"`
 	TopRules    []dashRule    `json:"top_rules"`
 	TopProjects []dashProject `json:"top_projects"`
+	// The most attacked: the projects and API keys with the most refused
+	// requests (blocked > 0 only), for the security overview.
+	TopBlockedProjects []dashProject `json:"top_blocked_projects"`
+	TopBlockedKeys     []dashKey     `json:"top_blocked_keys"`
 }
 
 // parseDashboardWindow returns the window (24h when raw is empty) and its
@@ -228,6 +241,29 @@ func queryDashboard(ctx context.Context, tx pgx.Tx, filter string, args []any, s
 		   GROUP BY project_id ORDER BY n DESC, project_id NULLS LAST LIMIT %d) t
 		 LEFT JOIN projects p ON p.id = t.project_id AND p.org_id = $1
 		 ORDER BY t.n DESC, t.project_id NULLS LAST`, dashboardTopN), args...)
+	if err != nil {
+		return err
+	}
+
+	if s.TopBlockedProjects, err = queryList[dashProject](ctx, tx,
+		fmt.Sprintf(`SELECT t.project_id, p.name, t.n, t.blocked FROM (
+		   SELECT project_id, count(*) AS n, count(*) FILTER (WHERE action = 'block') AS blocked`+filter+`
+		   GROUP BY project_id HAVING count(*) FILTER (WHERE action = 'block') > 0
+		   ORDER BY blocked DESC, n DESC, project_id NULLS LAST LIMIT %d) t
+		 LEFT JOIN projects p ON p.id = t.project_id AND p.org_id = $1
+		 ORDER BY t.blocked DESC, t.n DESC, t.project_id NULLS LAST`, dashboardTopN), args...); err != nil {
+		return err
+	}
+
+	// Keys by their hash (the request log has no key id); a key the org no
+	// longer has, or none, reads as "none".
+	s.TopBlockedKeys, err = queryList[dashKey](ctx, tx,
+		fmt.Sprintf(`SELECT COALESCE(k.key_prefix, 'none'), k.alias, t.n, t.blocked FROM (
+		   SELECT api_key_hash, count(*) AS n, count(*) FILTER (WHERE action = 'block') AS blocked`+filter+`
+		   GROUP BY api_key_hash HAVING count(*) FILTER (WHERE action = 'block') > 0
+		   ORDER BY blocked DESC, n DESC, api_key_hash NULLS LAST LIMIT %d) t
+		 LEFT JOIN api_keys k ON k.key_hash = t.api_key_hash AND k.org_id = $1
+		 ORDER BY t.blocked DESC, t.n DESC, 1`, dashboardTopN), args...)
 	return err
 }
 

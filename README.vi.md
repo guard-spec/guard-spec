@@ -70,9 +70,11 @@ trước khi dùng.
   lớp chặn cuối.
 - **Audit:** mỗi request một dòng (mặc định không lưu nội dung), nhật ký mọi
   thay đổi cấu hình và bảo mật, tự xóa sau số ngày cấu hình.
-- **Giao diện quản trị** tiếng Anh và tiếng Việt, sáng và tối: dashboard, luồng
-  request, giả lập, policy, nhà cung cấp, log request, cảnh báo, thành viên và
-  bảo mật ([Giao diện quản trị](#giao-diện-quản-trị)).
+- **Giao diện quản trị** tiếng Anh và tiếng Việt, sáng và tối, kiểm tra bằng
+  axe-core: bắt đầu, dashboard và tổng quan bảo mật, luồng request với policy
+  mẫu và câu mẫu, giả lập, nhà cung cấp, log request với xử lý chặn nhầm một
+  chạm, cảnh báo, thành viên và bảo mật, hộp tìm kiếm Ctrl+K
+  ([Giao diện quản trị](#giao-diện-quản-trị)).
 
 **Vận hành**
 - Docker Compose cho một máy, Helm chart cho Kubernetes, image có sẵn model
@@ -413,8 +415,20 @@ chính sách, phê duyệt hai người, chính sách khóa API, báo cáo CSV) 
 viewer trở lên, như `/requests`) trả về số liệu tổng hợp của nhật ký yêu cầu,
 tính trong Postgres trên toàn bộ khoảng thời gian: tổng số yêu cầu, số bị chặn,
 tỷ lệ chặn, số theo quyết định, độ trễ p50/p95/p99, chuỗi thời gian theo giờ
-(24h) hoặc theo ngày (UTC), các nhãn phát hiện, luật và dự án nhiều nhất.
-Trang Bảng điều khiển dùng endpoint này.
+(24h) hoặc theo ngày (UTC), các nhãn phát hiện, luật và dự án nhiều nhất, cùng
+các dự án và API key bị tấn công nhiều nhất (`top_blocked_projects`,
+`top_blocked_keys`, chỉ tính request bị từ chối). Trang Bảng điều khiển và
+Tổng quan bảo mật dùng endpoint này.
+
+Cho giao diện quản trị (chỉ trả về số đếm, không bao giờ trả nội dung):
+`GET /v1/organizations/:orgId/getting-started` (viewer) trả về trạng thái các
+bước thiết lập; `GET /v1/organizations/:orgId/requests/:requestId/impact`
+(viewer) cho biết một thay đổi để xử lý chặn nhầm liên quan tới bao nhiêu
+request trong 7 ngày, tính từ điểm và mã băm đã lưu (`same_input`,
+`same_rule`, `threshold`); `POST /v1/policy/sample` `{"text"}` (mọi người dùng
+đã đăng nhập, 60 lần mỗi phút) chấm một câu mẫu bằng bộ làm sạch, luật L1 và
+mẫu dữ liệu cá nhân cho bộ mô phỏng (`scores.l2`, `scores.l3` là -1), không
+lưu gì.
 
 ### Trường của luật (policy)
 
@@ -846,6 +860,38 @@ phục) và Phê duyệt (yêu cầu chờ quản trị viên thứ hai; với q
 thống, cả yêu cầu xóa tổ chức của mọi tổ chức); trang Luồng chỉ cho xóa chính
 sách đã tắt; Bảng điều khiển tải
 được CSV. Chi tiết ở mục [Admin UI](README.md#admin-ui).
+
+- **Bắt đầu** liệt kê các bước thiết lập kèm trạng thái thực tế: nhà cung cấp
+  mô hình (và request được chuyển tiếp gần nhất trong 7 ngày có được trả lời
+  không), API key, policy đang bật, các lớp phát hiện gateway báo về (bắt
+  buộc), kênh cảnh báo và cài đặt đầu vào riêng của tổ chức (khuyến nghị).
+  Mỗi bước dẫn tới trang thiết lập bước đó. Tổ chức còn thiếu nhà cung cấp,
+  key hoặc policy sẽ mở trang này sau khi đăng nhập cho tới khi xong hoặc khi
+  ẩn trang (theo tổ chức, trên trình duyệt này).
+- **Tổng quan bảo mật**: request bị từ chối và xu hướng tấn công trong 24 giờ,
+  7 hoặc 30 ngày, API key và dự án bị tấn công nhiều nhất, các phát hiện
+  nhiều nhất, tình trạng mô hình phát hiện và phiên bản gateway, control plane
+  đang chạy, kèm báo cáo CSV.
+- **Xử lý chặn nhầm một chạm**: phần chi tiết của request cho thấy điểm của
+  từng lớp phát hiện đã chạy và các luật đã kích hoạt (gateway từ 0.7 ghi chúng
+  thành tag `detector:*`, không ghi văn bản), rồi cho thêm **exemplar cho
+  phép** hoặc **báo cáo chặn nhầm** ngay trên trang. Văn bản chỉ được điền sẵn
+  từ nội dung bạn đã đọc (tổ chức lưu nội dung, đúng vai trò, có lý do được
+  ghi log); nếu không, bạn tự nhập. Bảng xem trước tác động đếm các request
+  giống hệt (cùng mã băm), số request luật đó đã quyết định, hoặc số request
+  bị bộ phát hiện từ chối có điểm không cao hơn; nó nói rõ không thể biết
+  chính xác exemplar sẽ đổi kết quả của request nào khi không có văn bản và
+  mô hình.
+- **Policy từ mẫu** tạo cả một policy bằng một cú bấm: **Dữ liệu cá nhân**,
+  **OTP và KYC**, **Ngân hàng**; policy bắt đầu ở chế độ chỉ ghi log. Bộ mô
+  phỏng có ô **Thử một câu mẫu**: chấm điểm câu, điền các trường và cho biết
+  luật nào khớp.
+- **Ctrl+K** (⌘K trên Mac) mở hộp tìm kiếm để đi tới trang, policy, dự án,
+  nhà cung cấp hoặc API key bằng bàn phím. Nhật ký yêu cầu lưu được bộ lọc
+  và tải CSV theo khoảng thời gian.
+- Mọi trang được kiểm tra bằng axe-core ở cả tiếng Anh và tiếng Việt
+  (`e2e/a11y.spec.ts`): lỗi WCAG 2.1 A hoặc AA mức nghiêm trọng làm build
+  thất bại.
 
 ![Luồng xử lý, giao diện tối](docs/images/admin-flow-dark-vi.png)
 

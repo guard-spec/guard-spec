@@ -363,6 +363,9 @@ export interface DashboardStats {
   top_rules: { rule_id: UUID; rule: string | null; policy: string | null; count: number }[];
   /** project_id and name are null for requests without a project. */
   top_projects: { project_id: UUID | null; name: string | null; count: number; blocked: number }[];
+  /** The projects and API keys with the most refused requests (refused ones only); absent from older control planes. */
+  top_blocked_projects?: { project_id: UUID | null; name: string | null; count: number; blocked: number }[];
+  top_blocked_keys?: { key_prefix: string; alias: string | null; count: number; blocked: number }[];
 }
 
 // ── Classifier models and shadow comparison ─────────────────────────────────
@@ -391,6 +394,8 @@ export interface GatewayModels {
   layers?: string[] | null;
   /** The gateway's version (its /readyz); absent from older control planes or gateways. */
   gateway_version?: string;
+  /** This control plane's version; absent from older control planes. */
+  control_plane_version?: string;
   /** The fusion combiner: logreg or max. */
   fusion?: string;
   /** FUSION_L1_FLOOR as applied (0: off); null or absent when the gateway does not report it. */
@@ -929,4 +934,59 @@ export interface LinkResult {
   provider_id: string;
   display_name?: string;
   email?: string | null;
+}
+
+// ── Getting started, false-positive impact, sample sentences (RF-a1dbafea) ──
+
+/** GET /organizations/{org}/getting-started: the setup checklist, counts only. */
+export interface GettingStarted {
+  upstream: {
+    /** An enabled model provider, or the gateway's UPSTREAM_LLM_URL. */
+    configured: boolean;
+    upstreams: number;
+    env: boolean;
+    /** From the request log of the last 7 days; null without traffic. */
+    reachable: boolean | null;
+    last_answer_at: string | null;
+    last_error_at: string | null;
+  };
+  api_keys: number;
+  policies: number;
+  models: { configured: boolean; reachable: boolean; layers: string[]; version?: string; error?: string };
+  alert_channels: number;
+  input_settings: boolean;
+  /** The required steps (provider, API key, policy, detection layers) are done. */
+  complete: boolean;
+  checked_at: string;
+}
+
+/** POST /policy/sample: rule fields of a sample sentence, scored with L1, the sanitizer and the PII patterns (L2 and L3 are -1). */
+export interface SampleScore {
+  vars: Record<string, SimValue>;
+  layers: string[];
+  /** The L1 rules and categories that fired. */
+  rules: string[];
+}
+
+/** GET /organizations/{org}/requests/{id}/impact: what a false-positive fix concerns, counted from stored scores and hashes over 7 days. */
+export interface RequestImpact {
+  window: '7d';
+  from: string;
+  to: string;
+  request: {
+    id: UUID;
+    action: string;
+    /** What refused it: a policy rule, the detector's score, the input settings; none when not refused. */
+    decided_by: 'rule' | 'detector' | 'input' | 'none';
+    injection_score: number;
+    injection_label: string | null;
+    rule_id: UUID | null;
+    has_hash: boolean;
+  };
+  /** Requests with the identical body; null without a stored hash. */
+  same_input: { total: number; blocked: number } | null;
+  /** The requests the same rule decided; null unless a rule refused it. */
+  same_rule: { total: number; blocked: number } | null;
+  /** The detector's refusals at or below this score; null unless the detector refused it. */
+  threshold: { org: number | null; gateway_default: number; above_default: boolean; at_or_below: number } | null;
 }

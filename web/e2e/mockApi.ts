@@ -44,6 +44,8 @@ import {
   type Project,
   type Rule,
   type GatewayModels,
+  type GettingStarted,
+  type RequestImpact,
   type ShadowDisagreement,
   type ShadowSummary,
   type ShadowWindow,
@@ -71,13 +73,13 @@ export const SCHEMA: PolicySchema = {
     { name: 'request.tenant_id', type: 'string', description: 'Organization id of the API key.' },
     { name: 'request.tokens', type: 'int', description: 'Estimated prompt tokens' },
     { name: 'injection.score', type: 'double', description: 'Fused injection score, 0 to 1' },
-    { name: 'injection.label', type: 'string', description: 'Fused label', values: ['BENIGN', 'jailbreak', 'instruction_override', 'exfiltration', 'role_play'] },
+    { name: 'injection.label', type: 'string', description: 'Fused label', values: ['BENIGN', 'jailbreak', 'instruction_override', 'exfiltration', 'role_play', 'data_exfiltration', 'prompt_extraction'] },
     { name: 'injection.source_role', type: 'string', values: ['user', 'system', 'assistant', 'tool', 'tool_description'] },
     {
       name: 'injection.category',
       type: 'string',
       description: 'Top injection category',
-      values: ['benign', 'jailbreak', 'instruction_override', 'exfiltration', 'role_play'],
+      values: ['benign', 'jailbreak', 'instruction_override', 'exfiltration', 'role_play', 'data_exfiltration', 'prompt_extraction'],
     },
     { name: 'scores.l1', type: 'double', description: 'L1 rules score; -1 when not run' },
     { name: 'scores.l2', type: 'double', description: 'L2 classifier score; -1 when not run' },
@@ -376,6 +378,44 @@ function leaf(field: string, operator: string, value: unknown): ConditionLeaf {
   return { field, operator, value };
 }
 
+/** The detector tags (cmd/gateway/detector_tags.go) of a refused seed row. */
+function detectorSeedTags(score: number): string[] {
+  return [`detector:l1=${Math.min(1, score + 0.02).toFixed(3)}`, `detector:l2=${score.toFixed(3)}`, 'detector:l3=0.412', 'detector:rule=di.override.qualified', 'detector:rule=l2:jailbreak'];
+}
+
+/** GET /requests/{id}/impact (cmd/control-plane/request_impact.go): counts over the mock's rows. */
+export function impactBody(state: MockState, row: AuditRow): RequestImpact {
+  const label = (row.injection_label ?? '').toLowerCase();
+  const tags = row.pii_entities ?? [];
+  const decided: RequestImpact['request']['decided_by'] =
+    row.action !== 'block'
+      ? 'none'
+      : row.rule_id
+        ? 'rule'
+        : label === 'unscanned_content' || tags.some((t) => t.startsWith('input:refused=')) || (label === '' && tags.some((t) => t.startsWith('input:unscanned_')))
+          ? 'input'
+          : 'detector';
+  const count = (rows: AuditRow[]) => ({ total: rows.length, blocked: rows.filter((r) => r.action === 'block').length });
+  const threshold = state.guard.injection_threshold ?? null;
+  return {
+    window: '7d',
+    from: '2026-10-28T08:00:00Z',
+    to: '2026-11-04T08:00:00Z',
+    request: { id: row.id, action: row.action, decided_by: decided, injection_score: row.injection_score, injection_label: row.injection_label, rule_id: row.rule_id, has_hash: Boolean(row.request_sha256) },
+    same_input: row.request_sha256 ? count(state.requests.filter((r) => r.request_sha256 === row.request_sha256)) : null,
+    same_rule: decided === 'rule' ? count(state.requests.filter((r) => r.rule_id === row.rule_id)) : null,
+    threshold:
+      decided === 'detector'
+        ? {
+            org: threshold,
+            gateway_default: 0.85,
+            above_default: row.injection_score >= 0.85,
+            at_or_below: state.requests.filter((r) => r.action === 'block' && !r.rule_id && r.injection_label && r.injection_score <= row.injection_score).length,
+          }
+        : null,
+  };
+}
+
 export function seedState(rich = false): MockState {
   idSeq = 0;
   const main: Upstream = {
@@ -486,6 +526,9 @@ export function seedState(rich = false): MockState {
     had_tag_chars: false,
     had_bidi: false,
     latency_ms: latency as number,
+    // Requests 0 and 3 (and 2 and 5) have identical bodies; refused ones carry the detector's explanation.
+    request_sha256: (['a', 'b', 'c'][i % 3] ?? 'a').repeat(64),
+    pii_entities: action === 'block' ? detectorSeedTags(score as number) : action === 'allow' ? ['detector:l1=0.000', `detector:l2=${(score as number).toFixed(3)}`] : null,
     created_at: new Date(now - (rich ? Math.round(86_400_000 * ((i / 420) + 0.07 * Math.sin(4 * Math.PI * (i / 420)))) : i * 7 * 60_000)).toISOString(),
   }));
   const identity = seedIdentity(rich);
@@ -795,6 +838,8 @@ export interface MockOptions {
   storeContent?: boolean;
   /** Stored content is encrypted and this control plane has no key: rows carry content_error instead. */
   encryptedContent?: boolean;
+  /** GET /getting-started answers for an org with nothing set up (it lands on getting started). */
+  newOrg?: boolean;
 }
 
 /** The user message of every stored request body (storeContent). */
@@ -1148,6 +1193,20 @@ function dashboardBody(state: MockState, url: URL): DashboardStats {
     top_projects: count(({ project }) => project?.id ?? '')
       .slice(0, 5)
       .map(([id, c]) => ({ project_id: id || null, name: state.projects.find((p) => p.id === id)?.name ?? null, ...c })),
+    top_blocked_projects: count(({ project }) => project?.id ?? '')
+      .filter(([, c]) => c.blocked > 0)
+      .sort((a, b) => b[1].blocked - a[1].blocked)
+      .slice(0, 5)
+      .map(([id, c]) => ({ project_id: id || null, name: state.projects.find((p) => p.id === id)?.name ?? null, ...c })),
+    // The seed rows take the org's keys in turn (the request log has no key).
+    top_blocked_keys: count(({ r }) => {
+      const live = state.keys.filter((k) => !k.revoked);
+      return live.length ? (live[state.requests.indexOf(r) % live.length]?.key_prefix ?? null) : null;
+    })
+      .filter(([, c]) => c.blocked > 0)
+      .sort((a, b) => b[1].blocked - a[1].blocked)
+      .slice(0, 5)
+      .map(([prefix, c]) => ({ key_prefix: prefix, alias: state.keys.find((k) => k.key_prefix === prefix)?.alias ?? null, ...c })),
   };
 }
 
@@ -1169,6 +1228,7 @@ export const GATEWAY_MODELS: GatewayModels = {
   fusion: 'logreg',
   l1_floor: 0.985,
   gateway_version: '0.2.1',
+  control_plane_version: '0.2.1',
 };
 
 function gatewayModelsBody(opts: MockOptions): GatewayModels {
@@ -1179,6 +1239,59 @@ function gatewayModelsBody(opts: MockOptions): GatewayModels {
     return { ...gatewayModelsBody({ gateway: 'unconfigured' }), configured: true, error: 'dial tcp 10.0.0.5:8080: connect: connection refused' };
   }
   return GATEWAY_MODELS;
+}
+
+/** POST /policy/sample: an attack phrase scores high on L1, e-mails and Vietnamese phones count as personal data. */
+export function sampleBody(text: string): { vars: Record<string, SimValue>; layers: string[]; rules: string[] } {
+  const attack = /ignore (all |the )?previous|bỏ qua (các |mọi )?hướng dẫn|system prompt|\botp\b/i.test(text);
+  const extraction = /otp|password|mật khẩu|system prompt/i.test(text);
+  const kinds: string[] = [];
+  let count = 0;
+  const emails = text.match(/[\w.+-]+@[\w-]+\.[\w.]+/g) ?? [];
+  if (emails.length) kinds.push('email');
+  count += emails.length;
+  const phones = text.match(/\b0\d{9}\b/g) ?? [];
+  if (phones.length) kinds.push('phone');
+  count += phones.length;
+  const category = attack ? (extraction ? 'prompt_extraction' : 'jailbreak') : '';
+  return {
+    vars: {
+      'injection.score': attack ? 0.93 : 0.04,
+      'injection.label': attack ? category : 'BENIGN',
+      'injection.category': category,
+      'injection.source_role': 'user',
+      'scores.l1': attack ? 0.95 : 0.02,
+      'scores.l2': -1,
+      'scores.l3': -1,
+      'anomaly.score': 0,
+      'anomaly.has_tag_chars': false,
+      'anomaly.has_bidi': false,
+      'input.pii.kinds': kinds,
+      'input.pii.count': count,
+    },
+    layers: ['l1'],
+    rules: attack ? ['di.override.qualified', 'pe.reveal'] : [],
+  };
+}
+
+/** GET /getting-started of the mock's org; newOrg answers for an org with nothing set up. */
+export function gettingStartedBody(state: MockState, opts: MockOptions): GettingStarted {
+  const gw = gatewayModelsBody(opts);
+  const fresh = opts.newOrg === true;
+  const upstreams = fresh ? 0 : state.upstreams.filter((u) => u.enabled).length;
+  const last = fresh ? undefined : state.requests.find((r) => r.action !== 'block')?.created_at;
+  const body: GettingStarted = {
+    upstream: { configured: upstreams > 0, upstreams, env: false, reachable: last ? true : null, last_answer_at: last ?? null, last_error_at: null },
+    api_keys: fresh ? 0 : state.keys.filter((k) => !k.revoked).length,
+    policies: fresh ? 0 : state.policies.filter((p) => p.enabled).length,
+    models: { configured: gw.configured, reachable: gw.reachable, layers: gw.layers ?? [], version: gw.gateway_version, error: gw.error },
+    alert_channels: fresh ? 0 : state.alerts.channels.filter((c) => c.enabled).length,
+    input_settings: !fresh && Boolean(state.input?.settings),
+    complete: false,
+    checked_at: '2026-11-04T08:00:00Z',
+  };
+  body.complete = body.upstream.configured && body.api_keys > 0 && body.policies > 0 && body.models.reachable && body.models.layers.length > 0;
+  return body;
 }
 
 /** Disagreements of the shadow model, newest first. */
@@ -1429,6 +1542,11 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
         await json(422, { error: (e as Error).message, position });
         return;
       }
+    }
+    // A sample sentence (cmd/control-plane/policy_sample.go): a crude L1 and the PII patterns.
+    if (method === 'POST' && path === '/policy/sample') {
+      const text = (body as { text?: string } | undefined)?.text ?? '';
+      return json(200, sampleBody(text));
     }
     if (method === 'POST' && path === '/policy/format') {
       return json(200, { text: formatCondition((body as { condition: ConditionNode }).condition) });
@@ -1820,6 +1938,12 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
         return json(204);
       }
     }
+    const impactMatch = /^\/requests\/([^/]+)\/impact$/.exec(sub);
+    if (impactMatch && method === 'GET') {
+      if (legacy) return json(404, { error: `Cannot ${method} /v1${path}` });
+      const row = state.requests.find((r) => r.id === impactMatch[1]);
+      return row ? json(200, impactBody(state, row)) : json(404, { error: 'request not found' });
+    }
     const contentMatch = /^\/requests\/([^/]+)\/content$/.exec(sub);
     if (contentMatch && method === 'POST') {
       // As readRequestContent: the org's content_read_role, a reason when required, every read logged.
@@ -1859,6 +1983,11 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
     if (sub === '/dashboard' && method === 'GET') {
       if (legacy) return json(404, { error: `Cannot ${method} /v1${path}` });
       return json(200, dashboardBody(state, url));
+    }
+    // The getting started checklist (cmd/control-plane/getting_started.go): counts only.
+    if (sub === '/getting-started' && method === 'GET') {
+      if (legacy) return json(404, { error: `Cannot ${method} /v1${path}` });
+      return json(200, gettingStartedBody(state, opts));
     }
     // The request log per period as CSV (cmd/control-plane/reports.go): counts only.
     if (sub === '/reports/requests.csv' && method === 'GET') {
