@@ -462,6 +462,8 @@ func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins 
 	authed.Post("/organizations/:orgId/requests/:requestId/content", viewer, readRequestContent(db, settings.contentKeys))
 	// Aggregates of the request log over a window (dashboard.go).
 	authed.Get("/organizations/:orgId/dashboard", viewer, getDashboard(db))
+	// The same per period as CSV (reports.go); counts only, never content.
+	authed.Get("/organizations/:orgId/reports/requests.csv", viewer, getRequestsReport(db))
 	// Shadow mode: the candidate model compared with the active one
 	// (shadow.go, migration 017). The aggregates are for viewers; the list
 	// of disagreeing requests for admins.

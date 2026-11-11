@@ -9,6 +9,12 @@ import type { DashboardStats, DashboardWindow, Policy } from '../types';
 /** The windows the dashboard offers; the first is the default. */
 export const DASH_WINDOWS: readonly DashboardWindow[] = ['24h', '7d', '30d'];
 
+/** The file name of a CSV report download: guard-spec-<slug>-<window>-<day>.csv. */
+export function reportFilename(slug: string, window: DashboardWindow, now: Date): string {
+  const clean = slug.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+  return `guard-spec-${clean}-${window}-${now.toISOString().slice(0, 10)}.csv`;
+}
+
 /** A detector label in one case: the gateway stores BENIGN, the classifier jailbreak. */
 export function normLabel(label: string | null | undefined): string | null {
   const l = label?.trim().toLowerCase();

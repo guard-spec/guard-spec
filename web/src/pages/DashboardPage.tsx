@@ -1,15 +1,15 @@
 // Copyright 2026 The Guard Spec Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { Activity, Gauge, ShieldAlert, Timer } from 'lucide-react';
+import { Activity, Download, Gauge, ShieldAlert, Timer } from 'lucide-react';
 import { useCallback, useId, useState, type ReactNode } from 'react';
 import { EmptyState, Forbidden, NotAvailable } from '../components/DataTable';
-import { ErrorBanner, Loading, PageHeader, useLoad } from '../components/ui';
-import { useApp, useOrg } from '../context';
+import { downloadText, ErrorBanner, Loading, PageHeader, useLoad } from '../components/ui';
+import { errorText, useApp, useOrg } from '../context';
 import type { MessageKey } from '../i18n';
 import { href, onLink } from '../router';
 import type { DashboardWindow } from '../types';
-import { DASH_WINDOWS, share, volumeBars } from './dashboard';
+import { DASH_WINDOWS, reportFilename, share, volumeBars } from './dashboard';
 import { formatShort } from '../dates';
 
 function Tile({ icon, label, value, sub }: { icon: ReactNode; label: string; value: string; sub?: string }) {
@@ -26,7 +26,7 @@ function Tile({ icon, label, value, sub }: { icon: ReactNode; label: string; val
 }
 
 export function DashboardPage() {
-  const { api, t, lang } = useApp();
+  const { api, t, lang, notify } = useApp();
   const { org, projects } = useOrg();
   const [hover, setHover] = useState<number | null>(null);
   const [range, setRange] = useState<DashboardWindow>(DASH_WINDOWS[0] ?? '24h');
@@ -42,6 +42,19 @@ export function DashboardPage() {
   const { bars, max } = volumeBars(s ?? { series: [] });
   const time = (at: number) => formatShort(at);
   const windowName = t(`dash.window.${range}` as MessageKey);
+  const [downloading, setDownloading] = useState(false);
+  // The same window and project as the dashboard, per period, as a file.
+  const downloadCsv = async () => {
+    setDownloading(true);
+    try {
+      const csv = await api.getRequestsReportCsv(org.id, { window: range, project_id: project || undefined });
+      downloadText(reportFilename(org.slug, range, new Date()), csv);
+    } catch (e) {
+      notify(errorText(e), 'error');
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   const actions = (
     <>
@@ -65,6 +78,10 @@ export function DashboardPage() {
           </button>
         ))}
       </div>
+      <button type="button" className="btn btn-icon-text" disabled={downloading} title={t('dash.csvHelp')} onClick={() => void downloadCsv()}>
+        <Download size={14} aria-hidden="true" />
+        <span>{downloading ? t('dash.csvBusy') : t('dash.csv')}</span>
+      </button>
     </>
   );
 

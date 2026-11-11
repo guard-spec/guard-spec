@@ -687,6 +687,11 @@ export class ApiClient {
   }
 
   /** Aggregates of the request log over a window (24h by default), of one project or all. */
+  /** The request log per period as CSV (counts only, never content): GET .../reports/requests.csv. */
+  getRequestsReportCsv(orgId: UUID, q: { window?: DashboardWindow; from?: string; to?: string; project_id?: UUID } = {}): Promise<string> {
+    return this.request('GET', `/organizations/${enc(orgId)}/reports/requests.csv`, { query: q, text: true });
+  }
+
   getDashboard(orgId: UUID, q: { window?: DashboardWindow; project_id?: UUID } = {}): Promise<DashboardStats> {
     return this.request('GET', `/organizations/${enc(orgId)}/dashboard`, { query: q });
   }

@@ -1770,6 +1770,26 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
       if (legacy) return json(404, { error: `Cannot ${method} /v1${path}` });
       return json(200, dashboardBody(state, url));
     }
+    // The request log per period as CSV (cmd/control-plane/reports.go): counts only.
+    if (sub === '/reports/requests.csv' && method === 'GET') {
+      const w = url.searchParams.get('window') ?? '24h';
+      if (!['24h', '7d', '30d'].includes(w)) return json(400, { error: 'window must be 24h, 7d or 30d' });
+      const d = dashboardBody(state, url);
+      const lines = ['period_start,period_end,section,key,requests,blocked'];
+      for (const b of d.series) {
+        if (b.count === 0) continue;
+        const end = new Date(Date.parse(b.start) + (d.bucket === 'day' ? 24 : 1) * 3600 * 1000).toISOString().replace(/\.\d+Z$/, 'Z');
+        const start = b.start.replace(/\.\d+Z$/, 'Z');
+        lines.push(`${start},${end},total,all,${b.count},${b.blocked}`);
+        lines.push(`${start},${end},action,block,${b.blocked},${b.blocked}`);
+        lines.push(`${start},${end},action,allow,${b.count - b.blocked},0`);
+      }
+      return route.fulfill({
+        status: 200,
+        headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="guard-spec-acme.csv"' },
+        body: lines.join('\n') + '\n',
+      });
+    }
 
     // Members, invites, security, activity (identity contract §3–§5): admin and up.
     if (opts.role === 'viewer' && /^\/(members|security|activity|invites|scim|group-roles|approvals)(\/|$)/.test(sub)) return json(403, { error: 'requires role admin' });
