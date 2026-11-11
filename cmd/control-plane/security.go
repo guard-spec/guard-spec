@@ -40,9 +40,9 @@ type orgSecurity struct {
 	// SCIMRevokeKeys revokes the API keys a user created in the org when the
 	// org's SCIM client deactivates them (migration 025, default true).
 	SCIMRevokeKeys *bool `json:"scim_revoke_keys"`
-	// TwoPersonApproval makes disabling or deleting a policy, turning on
-	// content storage and deleting the org wait for a second admin
-	// (migration 027, approvals.go; default false). ApprovalExpiryHours is
+	// TwoPersonApproval makes disabling a policy and turning on content
+	// storage wait for a second admin (migration 027, approvals.go; default
+	// false). Deleting the org always waits, whatever this says. ApprovalExpiryHours is
 	// how long a request waits for a decision (default 24, at most 720).
 	TwoPersonApproval   *bool `json:"two_person_approval"`
 	ApprovalExpiryHours int   `json:"approval_expiry_hours"`

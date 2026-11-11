@@ -338,6 +338,13 @@ func putConfig(db *pgxpool.Pool, eng *policy.Engine, settings *appSettings) fibe
 			if errs := plan.resolveProjects(stored); len(errs) > 0 {
 				return &configInvalid{errs: errs}
 			}
+			twoPerson, _, err := twoPersonSettings(c.Context(), tx, org)
+			if err != nil {
+				return err
+			}
+			if errs := plan.guardedChanges(stored, twoPerson); len(errs) > 0 {
+				return &configInvalid{errs: errs}
+			}
 			changes = plan.diff(stored)
 			if dryRun {
 				return errDryRun
@@ -503,6 +510,30 @@ func (p *configPlan) projectOf(i int) *uuid.UUID {
 		return p.projects[*slug]
 	}
 	return nil
+}
+
+// guardedChanges refuses what a file cannot do to the policies, as the API
+// cannot either: delete an enabled policy (disable it first: set enabled:
+// false, apply, then remove it), and, with two-person approval on, disable
+// an enabled one (that waits for a second admin: disable it on the Policy
+// flow page or with PUT .../policies/{id}).
+func (p *configPlan) guardedChanges(s *storedConfig, twoPerson bool) []configError {
+	var errs []configError
+	matched, removed := p.policyMatch(s)
+	for i, cp := range p.doc.Policies {
+		if m := matched[i]; twoPerson && m != nil && m.Enabled && cp.Enabled != nil && !*cp.Enabled {
+			errs = append(errs, configError{Path: fmt.Sprintf("policies[%d].enabled", i),
+				Message: fmt.Sprintf("disabling policy %q needs a second admin's approval (two-person approval): "+
+					"disable it on the Policy flow page or with PUT /v1/organizations/{org}/policies/%s", cp.Name, m.ID)})
+		}
+	}
+	for _, r := range removed {
+		if r.Enabled {
+			errs = append(errs, configError{Path: "policies",
+				Message: fmt.Sprintf("policy %q is enabled: disable it (enabled: false) and apply before removing it from the file", r.Name)})
+		}
+	}
+	return errs
 }
 
 // policyMatch pairs each policy of the file with the stored policy of the

@@ -176,7 +176,8 @@ func TestUpstreamsAndDefaults(t *testing.T) {
 		t.Errorf("disable: %d %v", status, body)
 	}
 
-	// Once nothing uses it, it goes.
+	// Once nothing uses it, it goes (a policy is disabled before it is deleted).
+	h.do("PUT", base+"/policies/"+policyID, admin, `{"enabled":false}`)
 	h.do("DELETE", base+"/policies/"+policyID, admin, "")
 	h.do("PUT", base+"/default-upstream", admin, `{"upstream_id":null}`)
 	h.do("PUT", base+"/projects/"+web.String()+"/default-upstream", admin, `{"upstream_id":null}`)
@@ -293,7 +294,17 @@ policies:
 		t.Errorf("upstreams: %v", list)
 	}
 
-	// Deleting everything: an empty file.
+	// Deleting everything: enabled policies cannot leave the file, so they
+	// are disabled first, then an empty file.
+	status, body = h.raw("PUT", path, admin, "text/yaml", "version: 1\nupstreams: []\npolicies: []\n")
+	if status != 422 || !strings.Contains(body, "disable it (enabled: false)") {
+		t.Errorf("empty with enabled policies: %d %s", status, body)
+	}
+	disabled := strings.Replace(edited, "  - name: block-injection\n", "  - name: block-injection\n    enabled: false\n", 1)
+	disabled = strings.Replace(disabled, "  - name: second\n", "  - name: second\n    enabled: false\n", 1)
+	if status, body = h.raw("PUT", path, admin, "text/yaml", disabled); status != 200 {
+		t.Fatalf("disable all: %d %s", status, body)
+	}
 	status, body = h.raw("PUT", path, admin, "text/yaml", "version: 1\nupstreams: []\npolicies: []\n")
 	if status != 200 || json.Unmarshal([]byte(body), &res) != nil {
 		t.Fatalf("empty: %d %s", status, body)
@@ -528,8 +539,12 @@ func TestPolicyNamesAndExportConflicts(t *testing.T) {
 		!strings.Contains(string(text), "/policies/"+legacy.String()) {
 		t.Errorf("problems = %s", text)
 	}
-	h.do("DELETE", base+"/policies/"+dup.String(), admin, "")
-	h.do("DELETE", base+"/policies/"+legacy.String(), admin, "")
+	for _, id := range []uuid.UUID{dup, legacy} {
+		h.do("PUT", base+"/policies/"+id.String(), admin, `{"enabled":false}`)
+		if status, body := h.do("DELETE", base+"/policies/"+id.String(), admin, ""); status != 204 {
+			t.Errorf("delete %s: %d %v", id, status, body)
+		}
+	}
 	if status, _ := h.raw("GET", base+"/config", admin, "", ""); status != 200 {
 		t.Errorf("export after fixing: %d", status)
 	}

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/guard-spec/guard-spec/internal/auth"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -24,6 +25,8 @@ func TestApprovalErrors(t *testing.T) {
 		{errApprovalExpired, 409, "approval_expired"},
 		{errApprovalTargetGone, 409, "approval_target_gone"},
 		{errSelfApproval, 403, "self_approval"},
+		{errOrgDeleteApprover, 403, "owner_or_instance_admin_required"},
+		{errNotOrgAdmin, 403, "forbidden"},
 		{errors.New("other"), 0, ""},
 		{nil, 0, ""},
 	} {
@@ -35,6 +38,36 @@ func TestApprovalErrors(t *testing.T) {
 	for _, kind := range approvalKinds {
 		if effectAction(kind) == "approval.applied" {
 			t.Errorf("%s has no effect action", kind)
+		}
+	}
+}
+
+// Who may decide what: an organization's deletion takes another owner or an
+// instance administrator; everything else an admin of the org. Anyone who may
+// approve may reject, and a requester may always withdraw.
+func TestMayDecide(t *testing.T) {
+	for _, tc := range []struct {
+		kind               string
+		role               auth.Role
+		instance, approve  bool
+		requester, allowed bool
+	}{
+		{kind: approvalOrgDelete, role: auth.RoleOwner, approve: true, allowed: true},
+		{kind: approvalOrgDelete, instance: true, approve: true, allowed: true},
+		{kind: approvalOrgDelete, role: auth.RoleAdmin, approve: true},
+		{kind: approvalOrgDelete, role: auth.RoleAdmin, allowed: true},
+		{kind: approvalOrgDelete, role: auth.RoleMember, requester: true, allowed: true},
+		{kind: approvalOrgDelete, role: auth.RoleMember},
+		{kind: approvalPolicyDisable, role: auth.RoleAdmin, approve: true, allowed: true},
+		{kind: approvalPolicyDisable, role: auth.RoleOwner, approve: true, allowed: true},
+		{kind: approvalPolicyDisable, role: auth.RoleMember, approve: true},
+		{kind: approvalPolicyDisable, instance: true, approve: true},
+		{kind: approvalPolicyDisable, instance: true},
+		{kind: approvalContentStorage, role: auth.RoleViewer, requester: true, allowed: true},
+	} {
+		err := mayDecide(tc.kind, tc.role, tc.instance, tc.approve, tc.requester)
+		if (err == nil) != tc.allowed {
+			t.Errorf("%+v: %v", tc, err)
 		}
 	}
 }

@@ -320,7 +320,9 @@ var errVersionNotFound = errors.New("no such version of this policy")
 // rollbackPolicy answers POST .../policies/:id/rollback with {version,
 // reason}: the policy becomes what it was at version (the one before the
 // current without version), as a new version. The name must still be free
-// and every route target must still exist, as for any save.
+// and every route target must still exist, as for any save. With two-person
+// approval on, rolling an enabled policy back to a disabled version applies
+// the rest and turns the disable into a request (202), as a save does.
 func rollbackPolicy(db *pgxpool.Pool, eng *policy.Engine) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		org := orgID(c)
@@ -341,16 +343,20 @@ func rollbackPolicy(db *pgxpool.Pool, eng *policy.Engine) fiber.Handler {
 			return c.Status(400).JSON(fiber.Map{"error": "version must be a version number"})
 		}
 		var (
-			found      bool
-			target     policyVersion
-			newVersion int
+			found        bool
+			target       policyVersion
+			newVersion   int
+			deferDisable bool
 		)
 		err = tenant.WithOrg(c.Context(), db, org, func(tx pgx.Tx) error {
 			// The org row lock serializes saves (checkPolicyName); the policy
 			// row lock serializes rollbacks of the same policy.
-			var current int
-			err := tx.QueryRow(c.Context(), `SELECT version FROM policies WHERE id = $1 AND org_id = $2 FOR UPDATE`, pID, org).
-				Scan(&current)
+			var (
+				current int
+				enabled bool
+			)
+			err := tx.QueryRow(c.Context(), `SELECT version, enabled FROM policies WHERE id = $1 AND org_id = $2 FOR UPDATE`, pID, org).
+				Scan(&current, &enabled)
 			if errors.Is(err, pgx.ErrNoRows) {
 				return nil
 			}
@@ -393,6 +399,16 @@ func rollbackPolicy(db *pgxpool.Pool, eng *policy.Engine) fiber.Handler {
 			if err := checkRouteTargets(c.Context(), tx, org, routeTargets(rules)); err != nil {
 				return err
 			}
+			if enabled && !target.Enabled {
+				on, _, err := twoPersonSettings(c.Context(), tx, org)
+				if err != nil {
+					return err
+				}
+				if on {
+					deferDisable = true
+					target.Enabled = true
+				}
+			}
 			if err := tx.QueryRow(c.Context(),
 				`UPDATE policies SET name = $3, description = $4, project_id = $5, enabled = $6, log_only = $7, rules = $8,
 				   version = version + 1, updated_at = NOW()
@@ -418,6 +434,10 @@ func rollbackPolicy(db *pgxpool.Pool, eng *policy.Engine) fiber.Handler {
 		}
 		logActivity(c, db, &org, "policy.rolled_back", pID.String(), map[string]any{
 			"id": pID, "to_version": target.Version, "version": newVersion, "reason": strings.TrimSpace(req.Reason)})
+		if deferDisable {
+			return requestApproval(c, db, org, approvalPolicyDisable, pID.String(),
+				map[string]any{"enabled": false, "rolled_back_to": target.Version}, req.Reason)
+		}
 		return c.JSON(fiber.Map{"id": pID, "version": newVersion, "rolled_back_to": target.Version})
 	}
 }

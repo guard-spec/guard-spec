@@ -270,3 +270,45 @@ func TestExportProblems(t *testing.T) {
 		t.Errorf("clean config: %+v", p)
 	}
 }
+
+// A file cannot delete an enabled policy, nor, with two-person approval on,
+// disable one: the API refuses the same.
+func TestConfigGuardedChanges(t *testing.T) {
+	disabledYAML := strings.Replace(contractYAML, "    enabled: true\n", "    enabled: false\n", 1)
+	if disabledYAML == contractYAML {
+		t.Fatal("contract example changed: no enabled: true to flip")
+	}
+	stored := func(enabled ...bool) *storedConfig {
+		s := &storedConfig{policies: []configPolicyRow{{ID: uuid.New(), Name: "block-injection", Enabled: enabled[0]}}}
+		if len(enabled) > 1 {
+			s.policies = append(s.policies, configPolicyRow{ID: uuid.New(), Name: "gone", Enabled: enabled[1]})
+		}
+		return s
+	}
+	for _, tc := range []struct {
+		name      string
+		yaml      string
+		stored    *storedConfig
+		twoPerson bool
+		paths     []string
+	}{
+		{"remove enabled", contractYAML, stored(true, true), false, []string{"policies"}},
+		{"remove disabled", contractYAML, stored(true, false), false, nil},
+		{"disable without two-person", disabledYAML, stored(true), false, nil},
+		{"disable with two-person", disabledYAML, stored(true), true, []string{"policies[0].enabled"}},
+		{"already disabled", disabledYAML, stored(false), true, nil},
+		{"enable with two-person", contractYAML, stored(false), true, nil},
+	} {
+		plan, errs := planFor(t, tc.yaml)
+		if len(errs) > 0 {
+			t.Fatal(errs)
+		}
+		var paths []string
+		for _, e := range plan.guardedChanges(tc.stored, tc.twoPerson) {
+			paths = append(paths, e.Path)
+		}
+		if strings.Join(paths, ",") != strings.Join(tc.paths, ",") {
+			t.Errorf("%s: %v, want %v", tc.name, paths, tc.paths)
+		}
+	}
+}

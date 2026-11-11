@@ -377,6 +377,7 @@ func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins 
 	instance.Put("/identity-providers/:id", id.updateProvider)
 	instance.Delete("/identity-providers/:id", id.deleteProvider)
 	instance.Get("/activity", listInstanceActivity(db))
+	instance.Get("/approvals", listInstanceApprovals(db))
 
 	// The gateway's running and available models (shadow.go); instance-wide.
 	authed.Get("/gateway/models", getGatewayModels(settings))
@@ -395,11 +396,15 @@ func newApp(db *pgxpool.Pool, secret []byte, eng *policy.Engine, allowedOrigins 
 
 	authed.Get("/organizations/:orgId", viewer, getOrg(db))
 	authed.Patch("/organizations/:orgId", admin, updateOrgSettings(db))
-	authed.Delete("/organizations/:orgId", owner, deleteOrg(db))
-	// Two-person approval (approvals.go, migration 027).
-	authed.Get("/organizations/:orgId/approvals", admin, listApprovals(db))
-	authed.Post("/organizations/:orgId/approvals/:id/approve", admin, approveRequest(db))
-	authed.Post("/organizations/:orgId/approvals/:id/reject", admin, rejectRequest(db))
+	// Deleting an organization and deciding approval requests also admit
+	// instance administrators, who approve organization deletions
+	// (approvals.go, migrations 027 and 029); the handlers check who may.
+	ownerOrInstance := orgRoleOrInstanceAdmin(db, auth.RoleOwner)
+	adminOrInstance := orgRoleOrInstanceAdmin(db, auth.RoleAdmin)
+	authed.Delete("/organizations/:orgId", ownerOrInstance, deleteOrg(db))
+	authed.Get("/organizations/:orgId/approvals", adminOrInstance, listApprovals(db))
+	authed.Post("/organizations/:orgId/approvals/:id/approve", adminOrInstance, approveRequest(db))
+	authed.Post("/organizations/:orgId/approvals/:id/reject", adminOrInstance, rejectRequest(db))
 	authed.Get("/organizations/:orgId/guard-settings", viewer, getGuardSettings(db))
 	authed.Put("/organizations/:orgId/guard-settings", admin, putGuardSettings(db))
 	authed.Get("/organizations/:orgId/security", admin, getOrgSecurity(db))
@@ -1014,6 +1019,7 @@ func updatePolicy(db *pgxpool.Pool, eng *policy.Engine) fiber.Handler {
 			// policy, and this save turns an enabled one off. Everything
 			// else in the save applies now; the disable becomes a request.
 			deferDisable bool
+			cancelled    []cancelledApproval
 		)
 		err = tenant.WithOrg(c.Context(), db, org, func(tx pgx.Tx) error {
 			if err := checkProject(c.Context(), tx, org, req.ProjectID.Value); err != nil {
@@ -1060,7 +1066,15 @@ func updatePolicy(db *pgxpool.Pool, eng *policy.Engine) fiber.Handler {
 				return err
 			}
 			updated = 1
-			return recordPolicyVersion(c.Context(), tx, org, pID, auth.UserID(c), versionUpdate, req.Reason, nil)
+			if err := recordPolicyVersion(c.Context(), tx, org, pID, auth.UserID(c), versionUpdate, req.Reason, nil); err != nil {
+				return err
+			}
+			if req.Enabled != nil && !*req.Enabled {
+				// Disabled directly (two-person approval off): a request to
+				// disable it has nothing left to do.
+				cancelled, err = cancelOrphanedApprovals(c.Context(), tx, org)
+			}
+			return err
 		})
 		var unknownTarget *unknownTargetError
 		if errors.Is(err, errUnknownProject) || errors.As(err, &unknownTarget) {
@@ -1077,6 +1091,7 @@ func updatePolicy(db *pgxpool.Pool, eng *policy.Engine) fiber.Handler {
 		}
 		logActivity(c, db, &org, "policy.updated", pID.String(), map[string]any{"enabled": req.Enabled, "log_only": req.LogOnly,
 			"rules_changed": req.Rules != nil, "version": version, "reason": strings.TrimSpace(req.Reason)})
+		logCancelled(c, db, org, cancelled)
 		if deferDisable {
 			return requestApproval(c, db, org, approvalPolicyDisable, pID.String(), map[string]any{"enabled": false, "version": version}, req.Reason)
 		}
@@ -1084,6 +1099,13 @@ func updatePolicy(db *pgxpool.Pool, eng *policy.Engine) fiber.Handler {
 	}
 }
 
+// errPolicyEnabled refuses to delete a policy that is on: disabling it is
+// the step two-person approval guards, so deleting cannot skip it.
+var errPolicyEnabled = errors.New("disable the policy before deleting it")
+
+// deletePolicy answers DELETE /organizations/:orgId/policies/:id. Only a
+// disabled policy is deleted (409 policy_enabled otherwise); no approval is
+// asked for, since disabling it was the guarded step.
 func deletePolicy(db *pgxpool.Pool) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		org := orgID(c)
@@ -1091,32 +1113,39 @@ func deletePolicy(db *pgxpool.Pool) fiber.Handler {
 		if err != nil {
 			return c.Status(400).JSON(fiber.Map{"error": "invalid policy id"})
 		}
-		var deferred bool
+		var (
+			deleted   bool
+			cancelled []cancelledApproval
+		)
 		err = tenant.WithOrg(c.Context(), db, org, func(tx pgx.Tx) error {
-			on, _, err := twoPersonSettings(c.Context(), tx, org)
+			var enabled bool
+			err := tx.QueryRow(c.Context(), `SELECT enabled FROM policies WHERE id = $1 AND org_id = $2 FOR UPDATE`, pID, org).Scan(&enabled)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil
+			}
 			if err != nil {
 				return err
 			}
-			if on {
-				var exists bool
-				if err := tx.QueryRow(c.Context(), `SELECT EXISTS (SELECT 1 FROM policies WHERE id = $1 AND org_id = $2)`, pID, org).
-					Scan(&exists); err != nil {
-					return err
-				}
-				deferred = exists
-				return nil
+			if enabled {
+				return errPolicyEnabled
 			}
-			_, err = tx.Exec(c.Context(),
-				`DELETE FROM policies WHERE id = $1 AND org_id = $2`, pID, org)
+			if _, err := tx.Exec(c.Context(), `DELETE FROM policies WHERE id = $1 AND org_id = $2`, pID, org); err != nil {
+				return err
+			}
+			deleted = true
+			cancelled, err = cancelOrphanedApprovals(c.Context(), tx, org)
 			return err
 		})
+		if errors.Is(err, errPolicyEnabled) {
+			return auth.Deny(c, fiber.StatusConflict, "policy_enabled", err.Error())
+		}
 		if err != nil {
 			return serverError(c, err)
 		}
-		if deferred {
-			return requestApproval(c, db, org, approvalPolicyDelete, pID.String(), nil, c.Query("reason"))
+		if deleted {
+			logActivity(c, db, &org, "policy.deleted", pID.String(), nil)
+			logCancelled(c, db, org, cancelled)
 		}
-		logActivity(c, db, &org, "policy.deleted", pID.String(), nil)
 		return c.Status(204).Send(nil)
 	}
 }
