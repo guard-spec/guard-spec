@@ -186,3 +186,31 @@ func TestLongDocCalibrationRoundTrip(t *testing.T) {
 		t.Fatal("rule from the loaded calibration")
 	}
 }
+
+// Live takes the long document rule from the running classifier's
+// calibration, and a reload brings the new one.
+func TestLiveLongDocFollowsReload(t *testing.T) {
+	e := newModelEnv(t, "v3b", map[string]float32{"v2": 0.9, "v3b": 0.9})
+	cal := filepath.Join(e.dir, ModelCacheSubdir, "guardspec-classifier", "v3b", calibrationFile)
+	if err := os.WriteFile(cal, []byte(`{"model":"v3b","platt":{"A":1,"B":0},"long_doc":{"min_windows":5,"corroborate":true}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	l := e.live(t, "v2", ShadowConfig{})
+	text := strings.Repeat("The committee reviewed the annual budget and the staffing plan. ", 1500) // about 50 chunks
+	score := func() float32 {
+		res, _, err := l.ScoreLong(context.Background(), []inference.LongInput{{Text: text}}, inference.LongOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res[0].Score.Confidence
+	}
+	if got := score(); !near(float64(got), 0.9) {
+		t.Fatalf("v2 has no long_doc: %v", got)
+	}
+	if _, err := l.Reload(context.Background(), ReloadRequest{L2Model: "guardspec-classifier@v3b"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := score(); got >= 0.85 {
+		t.Fatalf("v3b's long_doc did not apply: %v", got)
+	}
+}
