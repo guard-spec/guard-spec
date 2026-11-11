@@ -173,3 +173,23 @@ parameter, candidate or criterion changes after that.
 - The `r5` rule set stays in the code if it passes its gate and, on dev, `r5:base` blocks no more benign
   documents than `v6:base` and meets the TPR criterion; otherwise it is reverted before the PR merges.
 - The short path is unchanged except through the rule set.
+
+## Recorded after the dev fit, before the holdout (2026-11-12)
+
+`r5_dev.{json,md}` (committed before any holdout document is scored): the rule-set gate passes (eval/data
+dev TPR at FPR ≤ 1% 0.942 with both rule sets, val_v3 TPR at 0.85 1.0 with both). n0 = 30 (p̂ 3.35e-4,
+19 of 56,796 dev windows at or above 0.85 with the v6 rules). No candidate meets the FPR criterion (none
+blocks 0 of 74 dev benign documents); every candidate meets the TPR criterion. Step 2 of the rule picks
+**`r5:strong75`**: 4 / 74 dev benign documents blocked (5.4%, CP95 1.5–13.3%) against 13 / 74 (17.6%)
+for `v6:base`; embedded detection 287 / 327 (87.8%) against 41 / 47 (87.2%) alone and 89.6% for
+`v6:base`. It does not meet the target.
+
+Decisions on the implementation commitment, taken now so that the holdout cannot influence them:
+
+- The `strong75` decision is **not** written into the v6 package's `calibration.json` (target not met on
+  dev); it stays a measured option.
+- The `r5` rule set **stays** in the code: it passes its gate, and on dev `r5:base` blocks 9 / 74 benign
+  documents against 13 / 74 for `v6:base` while meeting the TPR criterion (89.0% embedded, 87.2% alone).
+
+The holdout is scored next, once with the `r5` rules and once with the `v6` rules (the reference), and
+`longdoc_r5.py holdout` reports `r5:strong75`, `r5:base` and `v6:base`.
