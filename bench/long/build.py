@@ -7,17 +7,27 @@ Reads bench/long/corpus.yaml: public sources at pinned revisions (Wikipedia
 EN/VI, the U.S. Code, Go source code, Vietnamese public-domain literature and
 laws from vi.wikisource), seeded synthetic genres (logs, JSON, CSV, e-mail
 threads, chat transcripts, and "hardneg": benign text about prompt injection
-and security), and attack payloads from the eval/ hold-out half only.
+and security), and attack payloads from the eval/ dev half only (ids ending
+in hex 0-7, eval/README.md): a model selected on the bench dev slice (the v6
+gates) must never have seen eval-holdout payload wording, so the eval holdout
+stays a clean final measurement. Which bench slice an attack document falls
+in is a second, independent hash of the payload id (split_of below).
 
 Writes $BENCH_CACHE/long/<profile>/docs.jsonl (one JSON object per line:
-id, lang, genre, kind, text, source, license, tokens, and for attacks the
-variant, payload id, category and payload byte spans) and manifest.json.
+id, lang, genre, kind, split, text, source, license, tokens, and for attacks
+the variant, payload id, category and payload byte spans) and manifest.json.
 
   kind=benign   same-genre texts concatenated to 20k ... 500k tokens
   kind=host     a benign host text (about 2k tokens) used by the attack variants
   kind=attack   a host with a payload placed at a position or boundary, split,
                 hidden, or shaped like the genre (variants below)
   kind=control  the payload alone
+
+`split` is the document's dev/holdout slice (split_of): the eval/ convention,
+the last hex digit of a SHA-256 (0-7 dev, 8-f holdout) of the document id, or
+of the payload id for attack and control documents so that every variant of a
+payload is in one slice (as eval/embedded takes the payload's split).
+cmd/benchlong reports both slices next to the totals; the gates read dev only.
 
 Tokens are counted with the v3b classifier's tokenizer (content tokens, no
 special tokens), the way internal/onnx counts them. Nothing here is random
@@ -26,6 +36,17 @@ is compared with outputs.<profile> in corpus.yaml.
 
 Downloads go to $BENCH_CACHE/long/src (default bench/.cache, gitignored).
 No third-party text is ever written inside the repository.
+
+The `long` profile (benign 100k and 200k documents only, about 30 per language
+and size) draws on further sources (other Wikipedia row groups, more U.S. Code
+titles, Go files, Kubernetes manifests and documentation, the English and
+Vietnamese Wikisource dumps, Vietnamese translations of documentation sites,
+RFCs, Apache access logs). exclude.json lists, per source, the units that share
+a 50-token shingle with a v6 training or validation row
+(train/data/bench_guard.py, the rule the training data builder applies the other
+way round); they are skipped after the extraction is verified against the
+source's sha256, so the published false-positive rates are measured on text the
+classifier never saw.
 """
 
 from __future__ import annotations
@@ -83,6 +104,14 @@ def seeded(*parts) -> random.Random:
     return random.Random(int.from_bytes(h[:8], "big"))
 
 
+def split_of(doc: dict) -> str:
+    """dev or holdout: the last hex digit of SHA-256(key) is 0-7 or 8-f (eval/README.md), with key the
+    payload id of an attack or control document and the document id otherwise. cmd/benchlong splitOf
+    computes the same for documents without the field (-docs .txt files)."""
+    key = doc["payload_id"] if doc["kind"] in ("attack", "control") else doc["id"]
+    return "dev" if int(hashlib.sha256(key.encode("utf-8")).hexdigest()[-1], 16) < 8 else "holdout"
+
+
 # ---------------------------------------------------------------------------
 # Downloads (cached)
 
@@ -92,7 +121,12 @@ def fetch(url: str, cache: Path) -> bytes:
     if p.exists():
         return p.read_bytes()
     log(f"  GET {url}")
-    req = urllib.request.Request(url, headers={"User-Agent": UA})
+    headers = {"User-Agent": UA}
+    if url.startswith("https://api.github.com/") and os.environ.get("GITHUB_TOKEN"):
+        # The tree listings (github-tree sources) are public; a token only lifts the
+        # unauthenticated rate limit of 60 requests per hour.
+        headers["Authorization"] = "Bearer " + os.environ["GITHUB_TOKEN"]
+    req = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(req, timeout=120) as r:
         data = r.read()
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -175,8 +209,78 @@ def paragraphs(text: str, min_chars: int = 200) -> list[str]:
     return out
 
 
-def load_source(name: str, src: dict, cache: Path) -> list[str]:
-    """Units of text (articles, paragraphs, files) of one source, in a fixed order."""
+VI_LETTERS = set("ăâđêôơưàảãáạằẳẵắặầẩẫấậèẻẽéẹềểễếệìỉĩíịòỏõóọồổỗốộờởỡớợùủũúụừửữứựỳỷỹýỵ")
+VI_LETTERS |= {c.upper() for c in VI_LETTERS}
+
+
+def vietnamese_share(s: str) -> float:
+    """Share of the letters of s that are Vietnamese-specific (đ, ă, â, ê, ô, ơ, ư or a tone mark): a
+    translated page of a documentation site scores well above 0.05, an untranslated (English) one 0."""
+    letters = vi = 0
+    for c in s:
+        if c.isalpha():
+            letters += 1
+            if c in VI_LETTERS:
+                vi += 1
+    return vi / letters if letters else 0.0
+
+
+def strip_front_matter(s: str) -> str:
+    """Drop a leading YAML front matter block (---\\n...\\n---\\n) of a Markdown page."""
+    if s.startswith("---\n"):
+        end = s.find("\n---\n", 4)
+        if end >= 0:
+            return s[end + 5:]
+    return s
+
+
+_RFC_PAGE = re.compile(r"^(?:RFC \d+ .* \d{4}|\S.*\[Page \d+\])$", re.M)
+
+
+def strip_rfc_pages(s: str) -> str:
+    """Remove the page headers and footers of an RFC text rendering (the lines around each form feed)
+    and a leading byte order mark."""
+    s = s.lstrip("\ufeff").replace("\f", "\n")
+    return _RFC_PAGE.sub("", s)
+
+
+def split_long_units(units: list[str], max_chars: int) -> list[str]:
+    """Cut units longer than max_chars at line boundaries, so a long file is not consumed by one
+    document and the rest wasted (Pool.take truncates the last unit of a document)."""
+    out = []
+    for u in units:
+        while len(u) > max_chars:
+            cut = u.rfind("\n", 0, max_chars)
+            if cut <= 0:
+                cut = max_chars
+            out.append(u[:cut].strip())
+            u = u[cut:].strip()
+        if u:
+            out.append(u)
+    return out
+
+
+def github_tree(repo: str, tree_sha: str, cache: Path) -> list[dict]:
+    """The blobs of a git tree (recursive), through the GitHub API; cached like any download."""
+    d = json.loads(fetch(f"https://api.github.com/repos/{repo}/git/trees/{tree_sha}?recursive=1", cache))
+    if d.get("truncated"):
+        raise SystemExit(f"{repo}: tree {tree_sha} is truncated by the API; pin a smaller subtree")
+    return [e for e in d["tree"] if e["type"] == "blob"]
+
+
+def load_source(name: str, src: dict, cache: Path, sources: dict | None = None) -> list[str]:
+    """Units of text (articles, paragraphs, files) of one source, in a fixed order.
+
+    A source with `units_of` is the part of another source's units from index `unit_start` on (the
+    units an earlier profile left unused), after that source's own sha256 is checked."""
+    if src.get("units_of"):
+        base_name = src["units_of"]
+        base = (sources or {})[base_name]
+        units = load_source(base_name, base, cache, sources)
+        got = sha256_text("\n\x1e\n".join(units))
+        if base.get("sha256") and base["sha256"] != got:
+            raise SystemExit(f"{name}: {base_name} has SHA-256 {got}, corpus.yaml pins {base['sha256']}")
+        return units[int(src["unit_start"]):]
     p = cache / "units" / f"{name}.json"
     if p.exists():
         return json.loads(p.read_text("utf-8"))
@@ -191,9 +295,21 @@ def load_source(name: str, src: dict, cache: Path) -> list[str]:
         if lfs != src["file_sha256"]:
             raise SystemExit(f"{name}: {src['file']} has SHA-256 {lfs}, corpus.yaml pins {src['file_sha256']}")
         path = f"datasets/{src['repo']}@{src['revision']}/{src['file']}"
+        if src.get("row_group_range"):
+            groups = list(range(*src["row_group_range"]))  # [first, last + 1)
+        else:
+            groups = src.get("row_groups") or [src["row_group"]]
+        match = re.compile(src["title_match"]) if src.get("title_match") else None
+        exclude = re.compile(src["title_exclude"]) if src.get("title_exclude") else None
+        units = []
         with HfFileSystem().open(path, "rb", block_size=4 << 20) as fh:
-            t = pq.ParquetFile(fh).read_row_group(int(src["row_group"]), columns=["title", "text"])
-        units = [tidy(f"{ti}\n\n{tx}") for ti, tx in zip(t.column("title").to_pylist(), t.column("text").to_pylist())]
+            pf = pq.ParquetFile(fh)
+            for g in groups:
+                t = pf.read_row_group(int(g), columns=["title", "text"])
+                for ti, tx in zip(t.column("title").to_pylist(), t.column("text").to_pylist()):
+                    if (match and not match.search(ti)) or (exclude and exclude.search(ti)):
+                        continue
+                    units.append(tidy(f"{ti}\n\n{tx}"))
         units = [u for u in units if len(u) >= 1500]
     elif kind == "http-html":
         units = []
@@ -202,9 +318,56 @@ def load_source(name: str, src: dict, cache: Path) -> list[str]:
             units += paragraphs(html_to_text(raw), 1500)
     elif kind == "http-text":
         units = []
+        header = src.get("file_header", "// File: {path}\n")
         for path in src["paths"]:
             raw = fetch(src["base"] + path, cache).decode("utf-8")
-            units.append(f"// File: {path}\n" + raw.replace("\r\n", "\n").strip())
+            text = raw.replace("\r\n", "\n")
+            if src.get("strip") == "rfc":
+                text = tidy(strip_rfc_pages(text))
+            text = header.format(path=path) + text.strip()
+            if src.get("unit_lines"):
+                lines = text.split("\n")
+                n = int(src["unit_lines"])
+                units += ["\n".join(lines[i:i + n]) for i in range(0, len(lines), n)]
+            else:
+                units.append(text)
+    elif kind == "github-tree":
+        # Files of one subtree of a repository at a pinned commit: the tree listing (GitHub API, the
+        # subtree's own SHA, so the listing is small and never truncated) selects the paths; the raw
+        # file URLs carry the commit. Sorted by path; suffixes, a minimum size, a maximum number of
+        # files and, for a translated documentation site, a Vietnamese-letter share filter (pages left
+        # in English are skipped).
+        entries = sorted(github_tree(src["repo"], src["tree_sha"], cache), key=lambda e: e["path"])
+        suffixes = tuple(src.get("suffixes") or [])
+        header = src.get("file_header", "")
+        units = []
+        for e in entries:
+            if suffixes and not e["path"].endswith(suffixes):
+                continue
+            if e["size"] < int(src.get("min_bytes", 0)):
+                continue
+            path = f"{src['prefix']}/{e['path']}" if src.get("prefix") else e["path"]
+            raw = fetch(f"https://raw.githubusercontent.com/{src['repo']}/{src['commit']}/{path}", cache)
+            text = raw.decode("utf-8", errors="replace").replace("\r\n", "\n")
+            if src.get("strip") == "front-matter":
+                text = strip_front_matter(text)
+            elif src.get("strip") == "license-header":
+                # The licence comment every file of the repository starts with: the same text in every file,
+                # and in other code of the training data, so it says nothing about the file (R5).
+                text = re.sub(r"\A\s*/\*.*?Licensed under the Apache License.*?\*/\s*", "", text, count=1, flags=re.S)
+            elif src.get("strip") == "license-header-lines":
+                # The same licence as `//` comment lines at the top of a file (Prometheus, R6).
+                m = re.match(r"\A(?:[ \t]*//[^\n]*\n)+", text)
+                if m and "Licensed under the Apache License" in m.group(0):
+                    text = text[m.end():]
+            text = tidy(text)
+            if src.get("lang_filter") == "vi" and vietnamese_share(text) < 0.05:
+                continue
+            if len(text) < int(src.get("min_chars", 1500)):
+                continue
+            units.append(header.format(path=path) + text)
+            if src.get("max_files") and len(units) >= int(src["max_files"]):
+                break
     elif kind == "mediawiki":
         units = []
         for revid in src["revisions"]:
@@ -219,9 +382,22 @@ def load_source(name: str, src: dict, cache: Path) -> list[str]:
             units += paragraphs(page["title"] + "\n\n" + wikitext_to_text(wt), 1500)
     else:
         raise SystemExit(f"{name}: unknown kind {kind}")
+    if src.get("max_unit_chars"):
+        units = split_long_units(units, int(src["max_unit_chars"]))
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(units, ensure_ascii=False), "utf-8")
     return units
+
+
+def interleave(lists: list[list[str]]) -> list[str]:
+    """Round-robin over the lists: the sources of one genre alternate unit by unit, so a document
+    made of several sources (Go files and Kubernetes manifests, three documentation sites) mixes them."""
+    out = []
+    for i in range(max(len(x) for x in lists)):
+        for x in lists:
+            if i < len(x):
+                out.append(x[i])
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -392,9 +568,11 @@ def synthetic_unit(genre: str, lang: str, i: int, rng: random.Random) -> str:
 class Pool:
     """A genre x language stream of text units, consumed in order."""
 
-    def __init__(self, name, units=None, gen=None, license="", source=""):
+    def __init__(self, name, units=None, gen=None, license="", source="", srcs=None):
         self.name, self.units, self.gen = name, units, gen
         self.license, self.source = license, source
+        self.srcs = srcs  # source name per unit of a merged pool (None: one source)
+        self.used: set[str] = set()  # sources of the last take()
         self.pos = 0
         self.ntok: dict[int, int] = {}
 
@@ -406,6 +584,7 @@ class Pool:
     def take(self, tok, target, *, from_end=False):
         """Concatenate the next units to exactly `target` tokens (None when the pool runs out)."""
         parts, total = [], 0
+        self.used = set()
         while total < target + 64:
             if from_end:
                 if self.units is None:
@@ -425,6 +604,8 @@ class Pool:
                 return None
             if i not in self.ntok:
                 self.ntok[i] = len(tok.encode(u).ids)
+            if self.srcs is not None:
+                self.used.add(self.srcs[i])
             parts.append(u)
             total += self.ntok[i] + 1
         text = "\n\n".join(parts)
@@ -550,13 +731,15 @@ def make_variant(v, payload, lang, hosts, tok, rng):
 
 
 def load_payloads(spec: dict, n_per_lang: int, seed: int) -> list[dict]:
+    """n_per_lang attack rows per eval/ file: the eval dev half (spec["dev_last_hex"]) between
+    min_chars and max_chars, in a seeded order of their ids. The eval holdout half is never used."""
     out = []
     for f in spec["files"]:
         rows = []
         with open(REPO / f, encoding="utf-8") as fh:
             for line in fh:
                 r = json.loads(line)
-                if r["label"] != "attack" or r["id"][-1] not in spec["holdout_last_hex"]:
+                if r["label"] != "attack" or r["id"][-1] not in spec["dev_last_hex"]:
                     continue
                 if not spec["min_chars"] <= len(r["text"]) <= spec["max_chars"]:
                     continue
@@ -606,28 +789,52 @@ def main() -> int:
     tok.no_truncation()
     tok.no_padding()
 
+    # The profile's sources (all of corpus.yaml when it names none); several sources of one genre and
+    # language make one pool, their units interleaved (a document then mixes them).
     pools: dict[tuple[str, str], Pool] = {}
+    groups: dict[tuple[str, str], list[tuple[str, list[str], str]]] = {}
     unpinned = []
+    excluded = json.loads((HERE / "exclude.json").read_text("utf-8")).get("sources", {}) if (HERE / "exclude.json").exists() else {}
     for name, src in cfg["sources"].items():
-        units = load_source(name, src, src_cache)
+        if prof.get("sources") and name not in prof["sources"]:
+            continue
+        units = load_source(name, src, src_cache, cfg["sources"])
         got = sha256_text("\n\x1e\n".join(units))
         if src.get("sha256") and src["sha256"] != got:
             raise SystemExit(f"{name}: extracted text has SHA-256 {got}, corpus.yaml pins {src['sha256']}")
         if not src.get("sha256"):
             unpinned.append((name, got))
         log(f"  {name}: {len(units)} units, {sum(len(u) for u in units):,} chars, sha256 {got[:16]}…")
-        pools[(src["genre"], src["lang"])] = Pool(name, units=units, license=src["license"], source=name)
+        if excluded.get(name):
+            # exclude.json: units that share a 50-token shingle with a training row (see the file);
+            # the sha256 above pins the extraction, outputs.<profile> pins the result.
+            skip = set(excluded[name])
+            units = [u for i, u in enumerate(units) if i not in skip]
+            log(f"  {name}: {len(skip)} units excluded (exclude.json), {len(units)} left")
+        groups.setdefault((src["genre"], src["lang"]), []).append((name, units, src["license"]))
+    for key, members in groups.items():
+        if len(members) == 1:
+            name, units, license = members[0]
+            pools[key] = Pool(name, units=units, license=license, source=name)
+        else:
+            units = interleave([u for _, u, _ in members])
+            srcs = interleave([[n] * len(u) for n, u, _ in members])
+            pools[key] = Pool("+".join(n for n, _, _ in members), units=units, srcs=srcs,
+                              license="; ".join(f"{n}: {l}" for n, _, l in members), source="+".join(n for n, _, _ in members))
     syn = cfg["synthetic"]
+    syn_seed = prof.get("synthetic_seed", syn["seed"])
     for g in syn["genres"]:
+        if prof.get("synthetic") is not None and g not in prof["synthetic"]:
+            continue
         for lang in syn["langs"]:
-            rng = seeded(syn["seed"], g, lang)
+            rng = seeded(syn_seed, g, lang)
             cache: dict[int, str] = {}
 
             def gen(i, g=g, lang=lang, rng=rng, cache=cache):
                 while len(cache) <= i and i < 10_000_000:  # units are generated in order
                     cache[len(cache)] = synthetic_unit(g, lang, len(cache), rng)
                 if i >= 10_000_000:  # hosts: an independent stream
-                    return synthetic_unit(g, lang, i, seeded(syn["seed"], g, lang, "host", i))
+                    return synthetic_unit(g, lang, i, seeded(syn_seed, g, lang, "host", i))
                 return cache[i]
 
             pools[(g, lang)] = Pool(f"synthetic-{g}-{lang}", gen=gen, license="Apache-2.0 (project-written, synthetic)",
@@ -635,31 +842,45 @@ def main() -> int:
 
     # Hosts for the attack variants come first, from the end of each pool, so
     # that the benign documents (from the start) never repeat their text. One
-    # code host (Go source) serves both languages.
+    # code host (Go source) serves both languages. A profile without payloads
+    # (benign documents only) has no hosts.
     hosts: dict[str, dict[str, str]] = {}
-    code_host = pools[("code", "en")].take(tok, prof["host_tokens"], from_end=True)
-    for lang in ("en", "vi"):
-        h = {"wiki": pools[("wiki", lang)].take(tok, prof["host_tokens"], from_end=True),
-             "code": code_host,
-             "json": pools[("json", lang)].take(tok, prof["host_tokens"], from_end=True)}
-        seg = pools[("wiki", lang)].take(tok, prof["segment_host_bytes"] // 2, from_end=True)
-        if seg is None or len(seg.encode("utf-8")) < prof["segment_host_bytes"] or None in h.values():
-            raise SystemExit(f"hosts for {lang}: not enough text")
-        h["segment"] = seg[: byte_to_char(seg, prof["segment_host_bytes"])]
-        hosts[lang] = h
+    if prof["payloads_per_lang"] > 0:
+        code_host = pools[("code", "en")].take(tok, prof["host_tokens"], from_end=True)
+        for lang in ("en", "vi"):
+            h = {"wiki": pools[("wiki", lang)].take(tok, prof["host_tokens"], from_end=True),
+                 "code": code_host,
+                 "json": pools[("json", lang)].take(tok, prof["host_tokens"], from_end=True)}
+            seg = pools[("wiki", lang)].take(tok, prof["segment_host_bytes"] // 2, from_end=True)
+            if seg is None or len(seg.encode("utf-8")) < prof["segment_host_bytes"] or None in h.values():
+                raise SystemExit(f"hosts for {lang}: not enough text")
+            h["segment"] = seg[: byte_to_char(seg, prof["segment_host_bytes"])]
+            hosts[lang] = h
+
+    def docs_per_size(genre: str, lang: str) -> int:
+        """docs_per_size of the profile: one number, or a map by "<genre>-<lang>", "<genre>" or "default"."""
+        d = prof["docs_per_size"]
+        if isinstance(d, int):
+            return d
+        for k in (f"{genre}-{lang}", genre, "default"):
+            if k in d:
+                return int(d[k])
+        return 0
 
     docs: list[dict] = []
     synthetic = set(syn["genres"])
+    prefix = prof.get("id_prefix", "")
     for (genre, lang), pool in pools.items():
         sizes = prof["sizes"].get(genre) or (prof["sizes"]["synthetic"] if genre in synthetic else prof["sizes"]["default"])
         for size in sizes:
-            for k in range(prof["docs_per_size"]):
+            for k in range(docs_per_size(genre, lang)):
                 text = pool.take(tok, size)
                 if text is None:
                     log(f"  {pool.name}: not enough text for a {size}-token document; skipped")
                     continue
-                docs.append({"id": f"{genre}-{lang}-{size}-{k}", "kind": "benign", "lang": lang, "genre": genre,
-                             "text": text, "source": pool.source, "license": pool.license})
+                source = "+".join(sorted(pool.used)) if pool.srcs is not None else pool.source
+                docs.append({"id": f"{prefix}{genre}-{lang}-{size}-{k}", "kind": "benign", "lang": lang, "genre": genre,
+                             "text": text, "source": source, "license": pool.license})
 
     for lang, h in hosts.items():
         for hn, ht in h.items():
@@ -667,7 +888,7 @@ def main() -> int:
             docs.append({"id": f"host-{lang}-{hn}", "kind": "host", "lang": lang, "genre": hn if hn != "segment" else "wiki",
                          "text": ht, "source": src, "license": "see corpus.yaml"})
 
-    payloads = load_payloads(cfg["payloads"], prof["payloads_per_lang"], syn["seed"])
+    payloads = load_payloads(cfg["payloads"], prof["payloads_per_lang"], syn["seed"]) if hosts else []
     for p in payloads:
         lang = p["lang"]
         meta = {"payload_id": p["id"], "category": p["category"], "source": f"eval:{p['source']}", "license": p["license"]}
@@ -684,18 +905,21 @@ def main() -> int:
     for d in docs:
         d["tokens"] = len(tok.encode(d["text"]).ids)
         d["bytes"] = len(d["text"].encode("utf-8"))
+        d["split"] = split_of(d)
 
     out_dir.mkdir(parents=True, exist_ok=True)
     body = "".join(json.dumps(d, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n" for d in docs)
     (out_dir / "docs.jsonl").write_text(body, "utf-8")
     digest = sha256_text(body)
     kinds: dict[str, list[int]] = {}
+    splits: dict[str, dict[str, int]] = {}
     for d in docs:
         kinds.setdefault(d["kind"], []).append(d["tokens"])
+        splits.setdefault(d["kind"], {})[d["split"]] = splits.setdefault(d["kind"], {}).get(d["split"], 0) + 1
     manifest = {
         "profile": args.profile, "sha256": digest, "docs": len(docs),
         "tokens": {k: sum(v) for k, v in kinds.items()}, "count": {k: len(v) for k, v in kinds.items()},
-        "tokenizer_sha256": tsha, "payloads": len(payloads),
+        "split": splits, "tokenizer_sha256": tsha, "payloads": len(payloads),
     }
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", "utf-8")
     log(f"wrote {out_dir / 'docs.jsonl'}: {len(docs)} docs, " +

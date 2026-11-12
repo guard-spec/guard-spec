@@ -43,6 +43,12 @@ func (l *Live) ScoreLong(ctx context.Context, in []inference.LongInput, o infere
 	if g.l2 != nil {
 		layer = g.l2.Layer
 	}
+	if o.LongDoc == nil && g.l2 != nil {
+		// The classifier's long document rule follows reloads with it.
+		if r := NewLongDocRule(g.l2.Cal.LongDoc); r != nil {
+			o.LongDoc = r
+		}
+	}
 	return ScoreLong(ctx, l.stack.longFuser(g.fuser, g.l2), layer, in, o)
 }
 
@@ -93,6 +99,8 @@ func (l *Live) CountTokens(text string) (int, error) {
 //     o.Limiter.Cap() batches at a time, each batch under o.Limiter;
 //   - each window is fused from its L1 and L2 verdicts with L3 left out
 //     (fusion.Fuser.Finish), and a text's score is its largest window score;
+//   - with a long document rule (o.LongDoc) each window's score is the
+//     rule's, given the text's number of windows, after the text's Adjust;
 //   - a text whose window reaches its threshold is decided: its windows not
 //     yet scored are skipped.
 //
@@ -128,6 +136,7 @@ func ScoreLong(ctx context.Context, f *fusion.Fuser, l2 *ClassifierLayer, in []i
 		owners     [][]int
 		index      = map[[sha256.Size]byte]int{}
 		perText    = make([][]int, len(in))
+		spans      = make([][][2]int, len(in)) // per text, its windows' byte spans
 		thresholds = make([]float64, len(in))
 	)
 	for i, x := range in {
@@ -156,6 +165,7 @@ func ScoreLong(ctx context.Context, f *fusion.Fuser, l2 *ClassifierLayer, in []i
 				owners[u] = append(owners[u], i)
 			}
 			perText[i] = append(perText[i], u)
+			spans[i] = append(spans[i], [2]int{w.Start, w.End})
 		}
 	}
 
@@ -188,9 +198,18 @@ func ScoreLong(ctx context.Context, f *fusion.Fuser, l2 *ClassifierLayer, in []i
 
 	// A window's score as a text sees it: adjusted for a text with an
 	// Adjust (on the long path L3 is absent, so only L1 or a floor can
-	// corroborate a code-like window, see indirect.CorroborateCode).
-	scoreFor := func(u, t int) inference.Score {
+	// corroborate a code-like window, see indirect.CorroborateCode), before
+	// the long document rule (adjusted) and after it (scoreFor).
+	adjusted := func(u, t int) inference.Score {
 		return in[t].Adjust.Apply(units[u].text, inference.FusedScore(units[u].res))
+	}
+	plain := func(t int) bool { return in[t].Adjust == nil && o.LongDoc == nil }
+	scoreFor := func(u, t int) inference.Score {
+		s := adjusted(u, t)
+		if o.LongDoc != nil {
+			s = o.LongDoc.Apply(len(perText[t]), s)
+		}
+		return s
 	}
 	scored, err := inference.RunLongBatchesOwned(ctx, workers, owners, thresholds, batches,
 		func(ctx context.Context, us []int) ([]float64, error) {
@@ -227,7 +246,7 @@ func ScoreLong(ctx context.Context, f *fusion.Fuser, l2 *ClassifierLayer, in []i
 			}
 			return out, nil
 		}, func(u, t int, s float64) float64 {
-			if in[t].Adjust == nil {
+			if plain(t) {
 				return s
 			}
 			return float64(scoreFor(u, t).Confidence)
@@ -254,7 +273,7 @@ func ScoreLong(ctx context.Context, f *fusion.Fuser, l2 *ClassifierLayer, in []i
 				continue
 			}
 			r := &units[u].res
-			if in[i].Adjust == nil {
+			if plain(i) {
 				if best == nil || r.Score > best.Score {
 					best = r
 				}
@@ -266,10 +285,20 @@ func ScoreLong(ctx context.Context, f *fusion.Fuser, l2 *ClassifierLayer, in []i
 		}
 		switch {
 		case best == nil:
-		case in[i].Adjust == nil:
+		case plain(i):
 			out[i].Score = inference.FusedScore(*best)
 		default:
 			out[i].Score = bestAdj
+		}
+		if o.KeepWindows {
+			out[i].Windows = make([]inference.LongWindow, len(us))
+			for k, u := range us {
+				w := inference.LongWindow{Start: spans[i][k][0], End: spans[i][k][1], Skipped: !scored[u]}
+				if scored[u] {
+					w.Score = adjusted(u, i)
+				}
+				out[i].Windows[k] = w
+			}
 		}
 	}
 	return out, st, nil

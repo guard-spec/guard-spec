@@ -179,6 +179,7 @@ func (e *Engine) Score(text string) Result {
 
 func (e *Engine) score(text string, depth int) Result {
 	text = strings.NewReplacer("[DATA]", "", "[/DATA]", "").Replace(text)
+	text = setApartHomographs(text) // homograph.go
 	an := skeleton.Analyze(text)
 	d := e.tokenize(an.Text)
 	d.flags = map[string]bool{}

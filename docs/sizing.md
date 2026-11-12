@@ -159,6 +159,37 @@ for each run.
   wall time of one document, not its cost. A server scanning documents for
   several users at once gets the same total throughput from intra 1 and
   many concurrent runs as from fewer, wider runs.
+- **100k and 200k-token documents, measured** (Apple M3 Max, 2026-11-11,
+  `guardspec-classifier-v3b`, commit `2b805cc`; one Wikipedia document of
+  each size per language from the `long` profile, scored alone with
+  `cmd/benchlong -docs`, `l1,l2`). The cost is linear in the length: a
+  100k-token document takes 44.7 s (EN) / 39.8 s (VI) at intra 1 with one
+  chunk at a time (2,200 to 2,500 tokens/s, 0.45 / 0.39 CPU-s per 1k
+  tokens), 11.2 / 10.0 s with K = 4 (8,800 to 10,100 tokens/s), and 6.6 /
+  5.7 s with ONNX Runtime's default threads and K = 4 (15,300 to 17,900
+  tokens/s, 0.64 / 0.55 CPU-s per 1k tokens); a 200k-token document takes
+  twice that (90.0 / 77.9 s, 22.7 / 19.6 s and 13.1 / 11.1 s). The
+  classifier alone (`l2`, batched windows) scans 100k tokens in 32.8 s at
+  intra 1 and 5.8 s with the default threads. Four long documents scored at
+  once (the `long` profile's score pass, 128 documents, 18.0M tokens after
+  the sanitizer) run at 7,100 to 7,900 tokens/s in total, 38 to 42 minutes
+  for the whole profile. On a 4 vCPU cloud runner, 3 to 4 times slower per
+  core, expect roughly 40 to 50 s per 100k tokens at best.
+- **The gateway's long path costs less than the chunked numbers above.**
+  With `MAX_SCAN_TOKENS` set, a document past 128 KiB of untrusted text is
+  tokenized once and scored in the classifier's 256-token windows, in
+  batches, each window fused with L1 (`ml.ScoreLong`), not in 2,048-byte
+  chunks. Measured as it runs with `cmd/benchlong -long on` (Apple M3 Max,
+  2026-11-11, `guardspec-classifier-v6` with its cap and code corroboration,
+  4 documents at a time, ONNX Runtime's default threads): the `long`
+  profile's 128 documents (18.0M tokens after the sanitizer) in 19 minutes,
+  15,600 tokens/s and 0.51 CPU-s per 1k tokens, against 7,100 tokens/s and
+  1.49 CPU-s per 1k tokens for the chunked measurement of the same documents
+  (which runs the classifier twice, per window for `l2` and per chunk for
+  `l1,l2`); 256 documents of 100k to 200k tokens with an attack inside
+  (31.9M tokens) at 17,900 tokens/s. So a 100k-token document costs about
+  50 CPU-seconds on this machine, about 26 s of wall time each when four
+  are scored at once on its 14 cores (not measured alone).
 - The full per-run tables (L2 alone, every K, wall time per document) are in
   [`bench/results/long-m3max-local.md`](../bench/results/long-m3max-local.md),
   [`long-gh-ubuntu-24.04-4vcpu.md`](../bench/results/long-gh-ubuntu-24.04-4vcpu.md)
@@ -217,6 +248,7 @@ Wikipedia texts of 20k, 100k and 200k tokens.
 ```bash
 make bench-long                    # PROFILE=quick: about 1.6M tokens, about 7 minutes on an M3 Max
 make bench-long PROFILE=full       # about 9.5M tokens
+make bench-long PROFILE=long       # benign 100k and 200k documents only, 19M tokens, about 40 minutes per model on an M3 Max
 # your own documents, no Python needed: one .txt file per document
 go run -tags onnx ./cmd/benchlong -docs ./my-docs -lang en -host my-server
 ```

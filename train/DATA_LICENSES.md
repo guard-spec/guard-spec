@@ -130,3 +130,40 @@ licences above (all permissive or public domain) and are not redistributed by th
 **Attribution**: each row keeps `source` (`<source>@<tag>`), `license` and `origin` (repository path,
 commit, title or revision); the authors are listed in `sources_v5.yaml`. Commit logs are reduced to the
 commit id and subject (no author names or e-mail addresses).
+
+## v6: benign twins, security documentation, more Vietnamese prose (RF-895d3533)
+
+`data/build_v6.py` reads `data/sources_v6.yaml`: every v5 source above at the same tag and commit (the
+archive pins are the same files; the content pins were computed again where a `doc_en` selection was
+added), plus the sources below. Same rules: licence file checked at the pinned tag, vi.wikisource pages
+checked for `{{PVCC-CPVN}}` / `{{PD-old}}` per revision, no third-party text committed, outputs outside
+the repository (`$GUARD_BUILD_OUT`), downloads in `$GUARD_V6_CACHE`. Policy: permissive or public domain
+only; no CC-BY-SA, no non-commercial, no unlicensed source (`train/tests/test_sources_v6.py` checks the
+licence strings and the bench/long exclusions).
+
+| Source | Licence | Pinned | Used for | Set |
+|---|---|---|---|---|
+| README, `docs/`, `Doc/`, `doc/api/` prose of the v5 code repositories (Kubernetes, CPython `Doc/{tutorial,howto,faq,using,library}`, Rust `library/*.md`, Node.js `doc/api/`, cosign, Hydra, oauth2-proxy, Ollama, openai-python, detect-secrets; Prometheus `docs/`, Django `docs/{intro,topics,howto,faq}`, Tokio, Express; etcd, Flask `docs/`, serde, axios) | as each repository above (Apache-2.0, PSF-2.0, MIT, MIT OR Apache-2.0, BSD-3-Clause) | the v5 tags | `doc_en` hard negatives; docstrings, comment blocks and documentation paragraphs as benign fillers of the twins | A / B / C |
+| [NVIDIA/garak](https://github.com/NVIDIA/garak) `docs/source/*.rst`, README, CONTRIBUTING, SECURITY, PROJECTS | Apache-2.0 | `v0.17.1` (`7aa740f`) | `secdoc_en` (probes, data and code excluded) | A |
+| [protectai/llm-guard](https://github.com/protectai/llm-guard) `docs/*.md`, README, SECURITY | MIT | `v0.3.16` (`32b14a4`) | `secdoc_en` (code, tests, changelog excluded) | A |
+| [mitre-atlas/atlas-data](https://github.com/mitre-atlas/atlas-data) `dist/ATLAS.yaml`, README | Apache-2.0 | `v2026.10` (`f56c146`) | `secdoc_en` (technique, mitigation and case-study descriptions; legacy copies excluded) | A |
+| [NVIDIA/NeMo-Guardrails](https://github.com/NVIDIA/NeMo-Guardrails) `docs/**/*.mdx`, README, SECURITY | Apache-2.0 | `v0.24.1` (`5d81d67`) | `secdoc_en` (Colang reference, API reference, examples, code excluded) | B |
+| [deadbits/vigil-llm](https://github.com/deadbits/vigil-llm) README, `docs/*.md` | Apache-2.0 | `v0.10.3-alpha` (`a1c9bc1`) | `secdoc_en` (data sets and code excluded) | B |
+| [guardrails-ai/guardrails](https://github.com/guardrails-ai/guardrails) `docs/*.md`, README, SECURITY_ADVISORY | Apache-2.0 | `v0.11.0` (`27a5d7c`) | `secdoc_en` | C |
+| [greshake/llm-security](https://github.com/greshake/llm-security) README | MIT | `c312325` (main, 2025-07-17) | `secdoc_en` | C |
+| [llm-attacks/llm-attacks](https://github.com/llm-attacks/llm-attacks) README | MIT | `098262e` (main, 2024-08-02) | `secdoc_en` | C |
+| vi.wikisource: 11 more laws (PVCC-CPVN: An ninh mạng 2018, Viễn thông 2009, Điện lực 2004, Phá sản 2004, Phòng chống rửa tiền 2012; Du lịch 2005, Khoáng sản 2010, Tố cáo 2011; Giao thông đường thuỷ nội địa 2004, Đa dạng sinh học 2008, Bưu chính 2010) and 11 more pre-1900 works (PD-old: Trê Cóc, Tụng Tây Hồ phú, Mai đình mộng ký, Văn tế tướng sĩ trận vong, Hương Sơn phong cảnh ca; Bần nữ thán, Kim Gia Định phong cảnh vịnh, Chiến tụng Tây Hồ phú; Gia Định thất thủ vịnh, Hịch đánh Trịnh, Ngã ba Hạc phú) | Public domain (Viet Nam IP Law art. 15; PD-old) | revision ids | Vietnamese long prose; sentences as benign fillers of the Vietnamese twins | A / B / C |
+| `data/gen_filler_v6.py` (project-written: human-sounding log lines EN/VI; explanatory security prose EN/VI, template sets A/B/C) | Apache-2.0 | this repository | `human_log_*`, `secprose_*` hard negatives; log lines as fillers | A/B/C |
+
+**Not used** (in addition to the v5 list): OWASP Top 10 for LLM Applications and the OWASP cheat sheets
+and Wikipedia's "Prompt injection" article (CC-BY-SA); NIST AI 100-2 and the CISA/NSA AI security
+guidance (public domain, but PDF only and the builder has no PDF extractor; a candidate for a later
+round); Azure/PyRIT and promptfoo (MIT, but notebooks / a very large repository); the probe modules,
+prompt collections and data sets of the repositories above (attack prompts, not explanatory text);
+unlicensed blog posts and write-ups. None of the new vi.wikisource pages is a work bench/long uses, or
+another version of one (`test_sources_v6.py`), and every row is checked against the 50-token shingle
+index of the bench/long corpus (`data/bench_guard.py`).
+
+**Attribution**: as for v5; the authors of the new sources are in `sources_v6.yaml` (`attribution`).
+Each twin row keeps the host's `origin` and the filler's `filler_origin` / `filler_source`, and its
+`license` names the project licence, the filler's and the host's.

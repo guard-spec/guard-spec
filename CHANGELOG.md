@@ -11,6 +11,25 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ### Added
 
+- `cmd/benchlong -long on` measures the gateway's long path itself
+  (`MAX_SCAN_TOKENS`: 256-token windows fused with L1, the classifier's cap
+  and code corroboration, as documents get them) as the layer `long`, next to
+  the 2,048-byte chunks of the short path; `-dump` writes every window's
+  scores (no text) for analysis (RF-895d3533).
+- `calibration.json` may carry an optional `long_doc` object, a document-level
+  rule for texts on the long path (a window over the threshold counts only
+  when L1 corroborates it, or against a threshold that grows with the number
+  of windows). No shipped calibration has one, so nothing changes; the first
+  candidate rules did not meet their target on bench/long (see
+  `train/MODEL_CARD.md`, v6, "R3") (RF-895d3533).
+- L1 rules: fewer false matches in long prose (RF-895d3533, R5). Vietnamese
+  homographs are set apart before matching ("giàu"/"giấu", "nhưng"/"nhúng",
+  and unmarked "hay"/"ai" in marked text); single secrecy adverbs
+  ("silently", "âm thầm", …) count as a weak signal unless an action of the
+  hidden-note kind is near; "without" in refusal suppression needs a plural, a
+  disclaimer or a gerund. On the bench/long holdout this blocks 9 of 76 clean
+  100k–200k documents instead of 11, with the same embedded-attack detection
+  (`train/reports/r5_holdout.md`); eval/data and val_v3 gates are unchanged.
 - **GPU option** (RF-b74de2b9). The CPU stays the default and unchanged.
   `INFERENCE_PROVIDER=cuda` runs the models with ONNX Runtime's CUDA
   execution provider (`INFERENCE_CUDA_DEVICE_ID`); when CUDA cannot start

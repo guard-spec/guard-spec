@@ -1,0 +1,323 @@
+# Sources of the v7 training addition (RF-895d3533 R6, train/reports/v7_preregistration.md).
+#
+# Copyright The Guard Spec Authors. Licensed under the Apache License 2.0.
+#
+# Benign long text, English and Vietnamese, in the genres that still reach a blocking window on 100k to
+# 200k-token documents (R5: role-play and "no restrictions" wording in fiction, secrets and download
+# commands in technical documentation, a send verb with an address in RFC-like text) plus general long
+# prose, Wikipedia, code and legal text. The schema is bench/long/corpus.yaml's `sources` (the same
+# loader, bench/long/build.py load_source, with the same sha256 pins); `units_of` refers to a source of
+# bench/long/corpus.yaml. Every source is public domain or under a licence that allows this use; no
+# owner data. The text is never committed: data/build_v7.py downloads it into $GUARD_V7_CACHE.
+#
+# Disjointness: these are other files, row groups, titles, RFCs, repositories and sections than every
+# bench/long profile (quick, full, long, long5, long6). build_v7.py drops every unit that shares a run of
+# 50 classifier tokens with a document of those profiles, with the R5 and long6 embedded-attack
+# documents, or with a hold-out row (eval/, val_*_holdout, the owner hold-outs), and reports the counts.
+#
+# `role`: `pool` units are scored by v6 for hard-negative mining and sampled for training.
+
+version: 1
+
+sources:
+  wikipedia7-en:
+    lang: en
+    genre: wiki
+    kind: hf-parquet
+    repo: wikimedia/wikipedia
+    revision: b04c8d1ceb2f5cd4588862100d08de323dccfbaa
+    file: 20231101.en/train-00003-of-00041.parquet
+    file_sha256: 0b8a6f452f5ef59d0986a067f70110feb16d7c1d281ba2db0b3df32933618fcc
+    row_groups: [0, 1]
+    license: CC-BY-SA-3.0 / GFDL
+    terms: Dataset card license field; training rows are not redistributed.
+    sha256: a1cf9d34f3b4392f211774687dd1cc0a0ae42a9a3d007555e18fb14ade20db93
+  wikisource7-en:
+    lang: en
+    genre: prose
+    kind: hf-parquet
+    # Books, stories, plays and essays of the English Wikisource (fiction with role-play and
+    # "no restrictions" wording is one of the R5 false-positive genres).
+    repo: wikimedia/wikisource
+    revision: f31a033f5f3d2107b3e864e578710df104a00baa
+    file: 20231201.en/train-00003-of-00005.parquet
+    file_sha256: 28cd94274d1347a6bfe1e8c2bdda770c222c990db9a8104f502673945ecff8c6
+    row_groups: [0, 1, 2]
+    license: CC-BY-SA-3.0 / GFDL
+    terms: Dataset card license field; training rows are not redistributed.
+    sha256: 83154548b55ee7f913d1a10b6fff5c708db461d7a656fa748ecdc81897ee2688
+  uscode7-en:
+    lang: en
+    genre: legal
+    kind: http-html
+    # United States Code, 2023 main edition (GovInfo), titles no bench profile uses:
+    # 8 (Aliens and Nationality), 19 (Customs Duties), 28 (Judiciary), 46 (Shipping), 50 (War and
+    # National Defense).
+    urls:
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title8/html/USCODE-2023-title8.htm
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title19/html/USCODE-2023-title19.htm
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title28/html/USCODE-2023-title28.htm
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title46/html/USCODE-2023-title46.htm
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title50/html/USCODE-2023-title50.htm
+    license: Public domain (17 U.S.C. 105)
+    terms: GovInfo content is public domain U.S. Government work; bulk use is allowed.
+    sha256: bb7167a4c9810bc5c5fca669c5f86396c2e7b48562cde05e752296112fd59628
+  rfc7-en:
+    lang: en
+    genre: rfc
+    kind: http-text
+    # 60 RFCs no bench profile uses (mail: SMTP, message format, submission, MTA-STS, S/MIME; FTP, TFTP,
+    # SNMP, RADIUS, NNTP, NFS, EPP, OAuth bearer tokens and threat model, SCIM, security.txt, ...): RFC
+    # text with send verbs and addresses (IETF Trust Legal Provisions, BCP 78).
+    base: https://www.rfc-editor.org/rfc/
+    file_header: ""
+    strip: rfc
+    max_unit_chars: 60000
+    paths:
+      - rfc821.txt
+      - rfc822.txt
+      - rfc959.txt
+      - rfc1123.txt
+      - rfc1157.txt
+      - rfc1321.txt
+      - rfc1350.txt
+      - rfc1661.txt
+      - rfc1918.txt
+      - rfc1945.txt
+      - rfc2068.txt
+      - rfc2119.txt
+      - rfc2136.txt
+      - rfc2177.txt
+      - rfc2246.txt
+      - rfc2326.txt
+      - rfc2617.txt
+      - rfc2822.txt
+      - rfc2865.txt
+      - rfc3315.txt
+      - rfc3376.txt
+      - rfc3416.txt
+      - rfc3530.txt
+      - rfc3696.txt
+      - rfc3920.txt
+      - rfc3977.txt
+      - rfc4180.txt
+      - rfc4251.txt
+      - rfc4287.txt
+      - rfc4346.txt
+      - rfc4510.txt
+      - rfc4880.txt
+      - rfc5155.txt
+      - rfc5531.txt
+      - rfc5626.txt
+      - rfc5730.txt
+      - rfc5731.txt
+      - rfc6152.txt
+      - rfc6409.txt
+      - rfc6532.txt
+      - rfc6750.txt
+      - rfc6819.txt
+      - rfc7033.txt
+      - rfc7468.txt
+      - rfc7525.txt
+      - rfc7591.txt
+      - rfc7644.txt
+      - rfc7692.txt
+      - rfc8058.txt
+      - rfc8252.txt
+      - rfc8314.txt
+      - rfc8460.txt
+      - rfc8461.txt
+      - rfc8551.txt
+      - rfc8615.txt
+      - rfc8693.txt
+      - rfc8705.txt
+      - rfc8725.txt
+      - rfc9068.txt
+      - rfc9116.txt
+    license: IETF Trust Legal Provisions (BCP 78)
+    terms: RFC Editor text files; training rows are not redistributed.
+    sha256: 31055bda56a06201a657cc15ce3310656567662f1c132838730ff0201067ebd2
+  k8s-proxy7-en:
+    lang: en
+    genre: code
+    kind: github-tree
+    # Go source of kubernetes/kubernetes v1.31.0 (Apache-2.0), pkg/proxy and pkg/volume, licence comment
+    # stripped (no bench profile reads these directories).
+    repo: kubernetes/kubernetes
+    commit: 9edcffcde5595e8a5b1a35f88c421764e575afce
+    prefix: pkg/proxy
+    tree_sha: ec4d92a8eb30868392624bece179a70a991a6941
+    suffixes: [.go]
+    min_bytes: 2000
+    strip: license-header
+    file_header: "// File: {path}\n"
+    max_unit_chars: 60000
+    license: Apache-2.0 (kubernetes/kubernetes LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; training rows are not redistributed.
+    sha256: af9daea7f80dccbf8d3c073f3decffbac0cf7083dadc38adbee09b43d827cc2b
+  k8s-volume7-en:
+    lang: en
+    genre: code
+    kind: github-tree
+    repo: kubernetes/kubernetes
+    commit: 9edcffcde5595e8a5b1a35f88c421764e575afce
+    prefix: pkg/volume
+    tree_sha: 40cc2bf3e345cf4abdfd2e001d4bde6f3155fe6e
+    suffixes: [.go]
+    min_bytes: 2000
+    strip: license-header
+    file_header: "// File: {path}\n"
+    max_unit_chars: 60000
+    license: Apache-2.0 (kubernetes/kubernetes LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; training rows are not redistributed.
+    sha256: 5fcaca4e9b226897859a4f2df0e8be30e3fae831271b6a50866678a9516d5285
+  docker-engine7-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    # Docker documentation (docker/docs, Apache-2.0) at a pinned commit: the Engine, Build, Docker Hub
+    # and Security manuals (secrets, tokens, credentials, install and download commands). long6 holds
+    # the Compose manual, which these do not include.
+    repo: docker/docs
+    commit: 61cbfdc1e72d0ac62dbac59ceaf7b94dcbe69c80
+    prefix: content/manuals/engine
+    tree_sha: 6678399e52c5c2b2d865d530719d27ae46a43fd7
+    suffixes: [.md]
+    min_bytes: 2000
+    strip: front-matter
+    max_unit_chars: 60000
+    license: Apache-2.0 (docker/docs LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; training rows are not redistributed.
+    sha256: 9426811043fe5977491d56befa8349a43d2a05a91e77d6918b28672b6bfc113c
+  docker-build7-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    repo: docker/docs
+    commit: 61cbfdc1e72d0ac62dbac59ceaf7b94dcbe69c80
+    prefix: content/manuals/build
+    tree_sha: 25c440e8889bff1195c141c5a9f316a7ed674e4d
+    suffixes: [.md]
+    min_bytes: 2000
+    strip: front-matter
+    max_unit_chars: 60000
+    license: Apache-2.0 (docker/docs LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; training rows are not redistributed.
+    sha256: 8aaae496e9dd012eaa6957400d81fac9b03c3da4b7135e9a9832ea92440ad8f8
+  docker-hub7-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    repo: docker/docs
+    commit: 61cbfdc1e72d0ac62dbac59ceaf7b94dcbe69c80
+    prefix: content/manuals/docker-hub
+    tree_sha: 360172f9a5063e7d5394720eead2a067a1b038a7
+    suffixes: [.md]
+    min_bytes: 2000
+    strip: front-matter
+    max_unit_chars: 60000
+    license: Apache-2.0 (docker/docs LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; training rows are not redistributed.
+    sha256: af7e773124598fcb7a712f7936bfc1c55be5ae3424b01f1b9676e59ccf3d5944
+  docker-security7-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    repo: docker/docs
+    commit: 61cbfdc1e72d0ac62dbac59ceaf7b94dcbe69c80
+    prefix: content/manuals/security
+    tree_sha: e4b5ab0be6715590f8d5d34885ed16d6c102db5b
+    suffixes: [.md]
+    min_bytes: 2000
+    strip: front-matter
+    max_unit_chars: 60000
+    license: Apache-2.0 (docker/docs LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; training rows are not redistributed.
+    sha256: d439491ff4edbc8b9bd766f6bbddbf154eff2e3eb8321f27e43f9433942c6b27
+  prom-docs7-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    # The Prometheus documentation (prometheus/prometheus docs/ at v2.54.1, Apache-2.0): configuration
+    # with credentials, basic auth and TLS files. long6 holds Prometheus Go code, not these pages.
+    repo: prometheus/prometheus
+    commit: e6cfa720fbe6280153fab13090a483dbd40bece3
+    prefix: docs
+    tree_sha: 5c747c6bf235868ed9faed42ab0f21da2fdeae7f
+    suffixes: [.md]
+    min_bytes: 2000
+    strip: front-matter
+    max_unit_chars: 60000
+    license: Apache-2.0 (prometheus/prometheus LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; training rows are not redistributed.
+    sha256: 8068fee12d7d534c62b633f7c876313f1f1657aa3270667abf2640ce3a721731
+  wikipedia7-vi:
+    lang: vi
+    genre: wiki
+    kind: hf-parquet
+    repo: wikimedia/wikipedia
+    revision: b04c8d1ceb2f5cd4588862100d08de323dccfbaa
+    file: 20231101.vi/train-00002-of-00004.parquet
+    file_sha256: f364415cd7ccffc02651843ef2a12a80c5e217a08274b930bc1a1746b544622f
+    row_group_range: [0, 323]
+    license: CC-BY-SA-3.0 / GFDL
+    terms: Dataset card license field; training rows are not redistributed.
+    sha256: 3164646ea4d24c394095bc7e85147a03602109230aaa4d689a8f3a698cbe3598
+  wikisource7-vi-prose:
+    lang: vi
+    genre: prose
+    # The units of bench/long's wikisource-vi-prose after the last one a `long5` document holds (no
+    # bench profile reads them).
+    units_of: wikisource-vi-prose
+    unit_start: 857
+    license: CC-BY-SA-3.0 / GFDL
+    terms: Dataset card license field; training rows are not redistributed.
+    sha256: 14244237b582a73acca3d680117f7c712abc7e2c8b463cb333b30c71b52a1299
+  k8s-docs7-vi:
+    lang: vi
+    genre: docs
+    # The units of bench/long's Vietnamese documentation sources after the last one a `long` document
+    # holds (CC-BY-4.0).
+    units_of: k8s-docs-vi
+    unit_start: 19
+    license: CC-BY-4.0 (kubernetes/website LICENSE)
+    terms: GitHub raw file URLs at a pinned commit; training rows are not redistributed.
+    sha256: 70797edb7fe60fd5d02d8272ac150e32fd3da764e5c8a3e79d2a9156c807a91b
+  react-docs7-vi:
+    lang: vi
+    genre: docs
+    units_of: react-docs-vi
+    unit_start: 19
+    license: CC-BY-4.0 (LICENSE-DOCS.md)
+    terms: GitHub raw file URLs at a pinned commit; training rows are not redistributed.
+    sha256: 93e9a520c2ee90cc38c82bb8eefaa1c3ad261e607679837ef2139fbecff535ca
+
+# Generated text (build_v7.py gen_unit, project-written, Apache-2.0, seed below): benign passages in
+# the three R5 genres, English and Vietnamese, from templates that share no sentence with
+# bench/long's synthetic genres.
+generated:
+  seed: 20261114
+  genres: [fiction_roleplay, tech_secrets, rfc_send]
+  langs: [en, vi]
+  units_per_genre_lang: 160
+
+# Window budget of the random sample per genre and language (windows of the gateway's long path,
+# 256 tokens with a 64-token overlap, cut from the v6 mining run's dump), the mining rule and the cap.
+sample:
+  seed: 20261114
+  windows:
+    wiki-en: 900
+    prose-en: 1500
+    docs-en: 1500
+    rfc-en: 1000
+    legal-en: 500
+    code-en: 600
+    wiki-vi: 2600
+    prose-vi: 900
+    docs-vi: 400
+mine:
+  # A pool window is a hard negative when v6 (INT8, CPU, cmd/benchlong -long on) gives it a fused
+  # long-path score of at least 0.5 or a calibrated L2 of at least 0.3.
+  fused_at_least: 0.5
+  l2_at_least: 0.3
+  cap_per_lang: 1500

@@ -13,7 +13,7 @@
 // the way cmd/eval builds -detector fusion-ml (ml.ConfigFromEnv, ml.Build,
 // inference.FusedBackend), so it runs the gateway's fused and calibrated code.
 //
-// Two paths are measured, in process:
+// These paths are measured, in process:
 //
 //   - "l2": the classifier alone on every 256-token window of the whole
 //     text (onnx.Classifier.ScoreWindows, no window cap), Platt-calibrated as
@@ -22,6 +22,13 @@
 //     2048-byte chunk of the text, cut the way the gateway cuts untrusted
 //     text (24 KiB segments, then chunks; see chunk.go) but with no 16-chunk
 //     cap: the score the gateway compares with its 0.85 block threshold.
+//     With -l2cap on (the default) each chunk gets the classifier's cap for
+//     untrusted content (calibration.json l2_untrusted_max), as the gateway
+//     applies it to documents and tool results.
+//   - with -long on, "long": the gateway's long path (MAX_SCAN_TOKENS) as it
+//     runs, ml.ScoreLong on 256-token windows with the document adjustment
+//     and the calibration's long document rule (longpath.go); -dump writes
+//     its window scores.
 //
 // Every text first goes through the gateway's sanitizer, as in cmd/eval.
 // Output: bench/results/long-<host>.{json,md}. The JSON holds quantiles and
@@ -80,7 +87,32 @@ type Doc struct {
 	Category  string   `json:"category,omitempty"`
 	Host      string   `json:"host,omitempty"`
 	Spans     [][2]int `json:"spans,omitempty"`
-	Split     string   `json:"split,omitempty"` // dev or holdout
+	Split     string   `json:"split,omitempty"` // dev or holdout (bench/long/build.py split_of)
+}
+
+// Dev/holdout slices (eval/README.md): the last hex digit of a SHA-256 is
+// 0-7 for dev and 8-f for holdout. The corpus carries the split in every
+// document (build.py hashes the payload id of attack and control documents,
+// the document id otherwise); documents without it (-docs .txt files) hash
+// their id here.
+const (
+	splitDev     = "dev"
+	splitHoldout = "holdout"
+)
+
+func splitOf(d Doc) string {
+	if d.Split != "" {
+		return d.Split
+	}
+	return splitOfKey(d.ID)
+}
+
+func splitOfKey(key string) string {
+	sum := sha256.Sum256([]byte(key))
+	if sum[len(sum)-1]&0x0f < 8 {
+		return splitDev
+	}
+	return splitHoldout
 }
 
 const (
@@ -109,6 +141,12 @@ func main() {
 		host       = flag.String("host", "", "host label for the output name (default: hostname)")
 		out        = flag.String("out", "", "output JSON (default bench/results/long-<host>.json; the .md goes next to it)")
 		skipLat    = flag.Bool("skip-latency", false, "skip the latency runs")
+		l2cap      = flag.String("l2cap", "on", "apply the classifier's cap for untrusted content (calibration.json l2_untrusted_max) to the fused chunks, as the gateway does on documents: on or off")
+		longFlag   = flag.String("long", "off", "also measure the gateway's long path (MAX_SCAN_TOKENS: 256-token windows fused l1,l2, the document adjustment) as layer \"long\": on or off")
+		corrFlag   = flag.String("corroboration", "on", "code corroboration on the long path's windows, as the gateway's default for documents (TOOL_CODE_CORROBORATION): on or off")
+		longDoc    = flag.String("longdoc", "on", "apply the classifier's long document rule (calibration.json long_doc) on the long path, as the gateway does: on or off")
+		l2Pass     = flag.String("l2pass", "on", "score the classifier alone on every window (layer \"l2\"): on or off")
+		dump       = flag.String("dump", "", "write the long path's window scores (no text) to <dump>-dev.jsonl.gz and <dump>-holdout.jsonl.gz")
 		split      = flag.String("split", "", "keep only the corpus documents of this split (dev or holdout)")
 		unitsOut   = flag.String("units", "", "also write every document's unit scores (no text) as JSON lines to this file")
 	)
@@ -125,7 +163,30 @@ func main() {
 	if err != nil {
 		fatal(fmt.Errorf("-latency-intra: %w", err))
 	}
-	layerSets := strings.Split(*layersFlag, ";")
+	var layerSets []string
+	if *layersFlag != "none" {
+		layerSets = strings.Split(*layersFlag, ";")
+	}
+	useCap, err := parseOnOff("-l2cap", *l2cap)
+	if err != nil {
+		fatal(err)
+	}
+	opts := engineOpts{useCap: useCap}
+	for _, f := range []struct {
+		name, v string
+		dst     *bool
+	}{{"-long", *longFlag, &opts.long}, {"-corroboration", *corrFlag, &opts.corroborate},
+		{"-longdoc", *longDoc, &opts.longDoc}, {"-l2pass", *l2Pass, &opts.l2Pass}} {
+		if *f.dst, err = parseOnOff(f.name, f.v); err != nil {
+			fatal(err)
+		}
+	}
+	if *dump != "" && !opts.long {
+		fatal(errors.New("-dump needs -long on"))
+	}
+	if len(layerSets) == 0 && !opts.long {
+		fatal(errors.New("-layers none needs -long on"))
+	}
 
 	var docs []Doc
 	var corpusSHA string
@@ -160,9 +221,12 @@ func main() {
 	if *intra >= 0 {
 		_ = os.Setenv(onnx.EnvIntraOpThreads, strconv.Itoa(*intra))
 	}
-	e, err := newEngine(ctx, layerSets)
+	e, err := newEngine(ctx, layerSets, opts)
 	if err != nil {
 		fatal(err)
+	}
+	if *dump != "" {
+		e.dump = newDumper(*dump)
 	}
 	rep := Report{Header: header(e, ortVer, *profile, corpusSHA, *host, len(docs)), Notes: reportNotes}
 
@@ -173,6 +237,9 @@ func main() {
 	logf("score pass: %d documents, %d workers, layers %v", len(docs), w, e.names())
 	res, pass := e.scoreAll(ctx, docs, w)
 	rep.ScorePass = pass
+	if err := e.dump.close(); err != nil {
+		fatal(err)
+	}
 	_ = e.close()
 	if *unitsOut != "" {
 		if err := writeUnits(*unitsOut, docs, res); err != nil {
@@ -181,8 +248,8 @@ func main() {
 		logf("wrote %s", *unitsOut)
 	}
 
-	if !*skipLat {
-		rep.Latency = latencyRuns(ctx, layerSets, docs, concs, intras, *latMax)
+	if !*skipLat && len(layerSets) > 0 {
+		rep.Latency = latencyRuns(ctx, layerSets, docs, concs, intras, *latMax, useCap)
 	}
 
 	analyse(&rep, docs, res, e.names(), *seed, *draws)
@@ -196,7 +263,7 @@ var reportNotes = []string{
 	"Scores are calibrated probabilities: l2 is the classifier's Platt-calibrated risk per 256-token window (64-token overlap); the fused rows are the gateway's injection score per 2048-byte chunk (24 KiB segments, no 16-chunk cap).",
 	"The block threshold is the gateway's 0.85. T(n) is the threshold that keeps a benign text of n units (windows or chunks) under 1% false positives: the larger of a block-bootstrap q99 of the maximum over n contiguous units and a GEV extrapolation fitted to 16-unit block maxima on the logit scale.",
 	"Vietnamese thresholds are provisional: the Vietnamese benign corpus is smaller and less varied than the English one.",
-	"Attack payloads are attack rows of the eval/ hold-out half; TPR counts a document as detected when its maximum reaches the threshold. Hidden-character payloads are stripped by the sanitizer, which raises the anomaly score instead (the 'gateway' column also counts anomaly >= 0.6).",
+	"Attack payloads are attack rows of the eval/ dev half (the eval/ holdout half is never used); TPR counts a document as detected when its maximum reaches the threshold. Hidden-character payloads are stripped by the sanitizer, which raises the anomaly score instead (the 'gateway' column also counts anomaly >= 0.6).",
 	"split_far places the two halves of a payload about 1,500 tokens apart, so no window sees both: a known limitation of window scoring.",
 }
 
@@ -217,6 +284,17 @@ func parseInts(s string) ([]int, error) {
 		out = append(out, n)
 	}
 	return out, nil
+}
+
+// parseOnOff reads an on|off flag (on when empty), as cmd/eval does.
+func parseOnOff(name, v string) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "", "on":
+		return true, nil
+	case "off":
+		return false, nil
+	}
+	return false, fmt.Errorf("%s must be on or off, not %q", name, v)
 }
 
 func slices0Max(x []int) int {
@@ -265,7 +343,7 @@ func loadCorpus(dir string) ([]Doc, string, error) {
 func filterSplit(docs []Doc, split string) []Doc {
 	var out []Doc
 	for _, d := range docs {
-		if d.Split == split {
+		if splitOf(d) == split {
 			out = append(out, d)
 		}
 	}
@@ -334,6 +412,7 @@ func loadTxt(dir, lang string) ([]Doc, error) {
 type detector struct {
 	name    string
 	backend inference.FusedBackend
+	adjust  inference.ChunkAdjust // the classifier's cap for untrusted content (nil: none)
 	stack   *ml.Stack
 }
 
@@ -343,12 +422,29 @@ type engine struct {
 	benign int
 	l2Dir  string
 	l2Name string
+	capped bool // a detector applies the classifier's cap for untrusted content
 	dets   []detector
+	opts   engineOpts
+	long   *longDet // the gateway's long path (-long on)
+	dump   *dumper  // -dump
+}
+
+// engineOpts are the switches of the score pass.
+type engineOpts struct {
+	useCap      bool // the classifier's cap on the fused chunks and the long path
+	long        bool // the long path as layer "long"
+	corroborate bool // code corroboration on the long path
+	longDoc     bool // the long document rule on the long path
+	l2Pass      bool // layer "l2"
 }
 
 // newEngine builds the L2 window scorer and one fused detector per layer set,
-// as cmd/eval newMLDetector does (ml.ConfigFromEnv, ml.Build).
-func newEngine(ctx context.Context, layerSets []string) (*engine, error) {
+// as cmd/eval newMLDetector does (ml.ConfigFromEnv, ml.Build). With useCap
+// the fused chunks get the classifier's cap for untrusted content
+// (ml.Stack.UntrustedAdjust), as the gateway applies it to documents and tool
+// results; a calibration without a cap leaves the scores unchanged.
+func newEngine(ctx context.Context, layerSets []string, opts engineOpts) (*engine, error) {
+	useCap := opts.useCap
 	cfg, err := ml.ConfigFromEnv(os.Getenv)
 	if err != nil {
 		return nil, err
@@ -365,7 +461,15 @@ func newEngine(ctx context.Context, layerSets []string) (*engine, error) {
 	if err != nil {
 		return nil, err
 	}
-	e := &engine{l2: c, cal: m.Cal.Platt, benign: c.BenignIndex(), l2Dir: dir, l2Name: m.Name}
+	e := &engine{l2: c, cal: m.Cal.Platt, benign: c.BenignIndex(), l2Dir: dir, l2Name: m.Name, opts: opts}
+	if opts.long {
+		if e.long, err = newLongDet(ctx, cfg, useCap, opts.corroborate, opts.longDoc); err != nil {
+			return nil, err
+		}
+		if useCap && e.long.stack.UntrustedAdjust() != nil {
+			e.capped = true
+		}
+	}
 	for _, ls := range layerSets {
 		lc := cfg
 		if lc.Layers, err = ml.ParseLayers(ls); err != nil {
@@ -380,24 +484,41 @@ func newEngine(ctx context.Context, layerSets []string) (*engine, error) {
 			return nil, errors.New("model layers unavailable:\n  " + strings.Join(stack.Problems, "\n  "))
 		}
 		name := ml.LayerKey(stack.Active) + "/" + stack.Fusion
-		e.dets = append(e.dets, detector{name: name, backend: inference.FusedBackend{F: stack.Fuser}, stack: stack})
+		d := detector{name: name, backend: inference.FusedBackend{F: stack.Fuser}, stack: stack}
+		if useCap {
+			d.adjust = stack.UntrustedAdjust()
+			if d.adjust != nil {
+				e.capped = true
+			}
+		}
+		e.dets = append(e.dets, d)
 	}
 	return e, nil
 }
 
 func (e *engine) close() error {
 	errs := []error{e.l2.Close()}
+	if e.long != nil {
+		errs = append(errs, e.long.stack.Close())
+	}
 	for _, d := range e.dets {
 		errs = append(errs, d.stack.Close())
 	}
 	return errors.Join(errs...)
 }
 
-// names are the layers in report order: l2, then the fused detectors.
+// names are the layers in report order: l2, then the fused detectors, then
+// the long path.
 func (e *engine) names() []string {
-	out := []string{l2Layer}
+	var out []string
+	if e.opts.l2Pass {
+		out = append(out, l2Layer)
+	}
 	for _, d := range e.dets {
 		out = append(out, d.name)
+	}
+	if e.long != nil {
+		out = append(out, longLayer)
 	}
 	return out
 }
@@ -409,7 +530,19 @@ type docScore struct {
 	rejected bool
 	tokens   int
 	units    map[string][]float64
-	err      error
+	// top is a layer's document score when it is not the largest unit (the
+	// long path with a long document rule).
+	top map[string]float64
+	err error
+}
+
+// max is the document's score on layer: its largest unit, or the long
+// path's document score.
+func (r docScore) max(layer string) float64 {
+	if v, ok := r.top[layer]; ok {
+		return v
+	}
+	return maxOf(r.units[layer])
 }
 
 // scoreL2 scores every 256-token window of text with the classifier alone
@@ -441,14 +574,15 @@ func scoreFused(ctx context.Context, d detector, text string, k int) ([]float64,
 		go func() {
 			defer wg.Done()
 			for i := range next {
-				s, err := d.backend.Run(ctx, text[units[i].start:units[i].end])
+				chunk := text[units[i].start:units[i].end]
+				s, err := d.backend.Run(ctx, chunk)
 				if err != nil {
 					mu.Lock()
 					first = errors.Join(first, err)
 					mu.Unlock()
 					continue
 				}
-				out[i] = float64(s[0].Confidence)
+				out[i] = float64(d.adjust.Apply(chunk, s[0]).Confidence)
 			}
 		}()
 	}
@@ -461,20 +595,50 @@ func scoreFused(ctx context.Context, d detector, text string, k int) ([]float64,
 }
 
 func (e *engine) scoreDoc(ctx context.Context, d Doc) docScore {
-	r := docScore{units: map[string][]float64{}}
+	r := docScore{units: map[string][]float64{}, top: map[string]float64{}}
+	dd := DumpDoc{ID: d.ID, Kind: d.Kind, Lang: d.Lang, Genre: d.Genre, Split: splitOf(d), Tokens: d.Tokens,
+		Variant: d.Variant, PayloadID: d.PayloadID, Host: d.Host, Spans: d.Spans}
 	cleaned, rep, err := sanitizer.Sanitize(d.Text)
 	if err != nil {
+		// No score: the gateway rejects the text before any model sees it
+		// (counted in the gateway column of the false-positive tables).
+		logf("  %s: rejected by the sanitizer (%v)", d.ID, err)
 		r.rejected = true
+		dd.Rejected = true
+		r.err = e.dump.write(dd)
 		return r
 	}
 	r.anomaly = float64(rep.AnomalyScore)
-	if r.units[l2Layer], r.tokens, r.err = e.scoreL2(ctx, cleaned); r.err != nil {
-		return r
+	if e.opts.l2Pass {
+		if r.units[l2Layer], r.tokens, r.err = e.scoreL2(ctx, cleaned); r.err != nil {
+			return r
+		}
 	}
 	for _, det := range e.dets {
 		if r.units[det.name], r.err = scoreFused(ctx, det, cleaned, 1); r.err != nil {
 			return r
 		}
+	}
+	if e.long != nil {
+		ws, top, err := e.long.score(ctx, cleaned)
+		if err != nil {
+			r.err = err
+			return r
+		}
+		u := make([]float64, len(ws))
+		for i, w := range ws {
+			u[i] = float64(w.Score.Confidence)
+		}
+		r.units[longLayer], r.top[longLayer] = u, top
+		if r.tokens == 0 {
+			r.tokens, _ = e.l2.TokenCount(cleaned)
+		}
+		dd.Anomaly, dd.Scored, dd.Bytes, dd.DocScore, dd.Windows = r.anomaly, r.tokens, len(cleaned), top, dumpWindows(ws)
+		if len(d.Spans) > 0 && d.Kind != "benign" {
+			sp, ok := payloadSpans(d, cleaned)
+			dd.PayloadSpans, dd.Intact = sp, &ok
+		}
+		r.err = e.dump.write(dd)
 	}
 	return r
 }
@@ -539,7 +703,7 @@ func (e *engine) scoreAll(ctx context.Context, docs []Doc, workers int) ([]docSc
 	p := ScorePass{Docs: len(docs), Workers: workers, WallS: time.Since(start).Seconds(), CPUS: cpuSeconds() - cpu0}
 	for _, r := range res {
 		p.Tokens += r.tokens
-		p.Windows += len(r.units[l2Layer])
+		p.Windows += max(len(r.units[l2Layer]), len(r.units[longLayer]))
 		if len(e.dets) > 0 {
 			p.Chunks += len(r.units[e.dets[0].name])
 		}
@@ -586,7 +750,7 @@ func latencyDocs(docs []Doc, maxTokens int) []Doc {
 	return out
 }
 
-func latencyRuns(ctx context.Context, layerSets []string, docs []Doc, concs, intras []int, maxTokens int) []Latency {
+func latencyRuns(ctx context.Context, layerSets []string, docs []Doc, concs, intras []int, maxTokens int, useCap bool) []Latency {
 	sel := latencyDocs(docs, maxTokens)
 	if len(sel) == 0 {
 		logf("latency: no document of at most %d tokens; skipped", maxTokens)
@@ -597,7 +761,7 @@ func latencyRuns(ctx context.Context, layerSets []string, docs []Doc, concs, int
 	var out []Latency
 	for _, intra := range intras {
 		_ = os.Setenv(onnx.EnvIntraOpThreads, strconv.Itoa(intra))
-		e, err := newEngine(ctx, []string{last})
+		e, err := newEngine(ctx, []string{last}, engineOpts{useCap: useCap, l2Pass: true})
 		if err != nil {
 			fatal(err)
 		}
@@ -709,6 +873,7 @@ type Header struct {
 	IntraOp        string   `json:"inference_intra_op_threads"`
 	Layers         []string `json:"layers"`
 	Block          float64  `json:"block_threshold"`
+	L2Cap          bool     `json:"l2_cap"` // the classifier's cap for untrusted content applied to the fused chunks
 	// Provider is the execution provider (INFERENCE_PROVIDER), with the GPU
 	// when it is cuda; ModelFile the classifier file it ran.
 	Provider  onnx.ProviderState `json:"provider"`
@@ -723,7 +888,7 @@ func header(e *engine, ort, profile, corpusSHA, host string, docs int) Header {
 		Docs: docs, Model: e.l2Name, ModelSHA256: fileSHA(model), ORT: ort,
 		CPU: cpuModel(), VCPU: runtime.NumCPU(), GOOS: runtime.GOOS, GOARCH: runtime.GOARCH, Commit: commit(),
 		MaxConcurrency: onnx.MaxConcurrencyFromEnv(), IntraOp: os.Getenv(onnx.EnvIntraOpThreads),
-		Layers: e.names(), Block: blockThreshold,
+		Layers: e.names(), Block: blockThreshold, L2Cap: e.capped,
 		Provider: onnx.CurrentProvider(), ModelFile: filepath.Base(model), BatchSize: onnx.BatchSize(),
 	}
 }
@@ -779,7 +944,11 @@ type Report struct {
 	DocFPR     []FPRRow  `json:"doc_fpr"`
 	Thresholds []TRow    `json:"thresholds"`
 	TPR        []TPRRow  `json:"tpr,omitempty"`
-	Notes      []string  `json:"notes"`
+	// The same tables on the dev and holdout slices (Split set on every
+	// row); the totals above are unchanged by the slicing.
+	DocFPRSplit []FPRRow `json:"doc_fpr_by_split,omitempty"`
+	TPRSplit    []TPRRow `json:"tpr_by_split,omitempty"`
+	Notes       []string `json:"notes"`
 }
 
 // QRow is the distribution of per-unit scores of benign documents.
@@ -794,12 +963,16 @@ type QRow struct {
 // the block threshold.
 type FPRRow struct {
 	Layer   string  `json:"layer"`
+	Split   string  `json:"split,omitempty"` // dev or holdout in DocFPRSplit; empty in DocFPR (all documents)
 	Lang    string  `json:"lang"`
 	Size    string  `json:"size"`
 	Docs    int     `json:"docs"`
 	Units   float64 `json:"mean_units"`
 	FPR     float64 `json:"fpr"`
 	Gateway float64 `json:"gateway_fpr"` // also counting sanitizer anomaly / rejection
+	// Rejected is the number of Docs the sanitizer rejected before scoring (no
+	// units, no score; counted in Gateway, never in FPR).
+	Rejected int `json:"rejected,omitempty"`
 }
 
 // TRow holds the thresholds T(n) for one layer and language.
@@ -826,6 +999,7 @@ type TPoint struct {
 // TPRRow is detection of one attack variant.
 type TPRRow struct {
 	Layer     string  `json:"layer"`
+	Split     string  `json:"split,omitempty"` // dev or holdout in TPRSplit; empty in TPR (all documents)
 	Lang      string  `json:"lang"`
 	Variant   string  `json:"variant"`
 	Docs      int     `json:"docs"`
@@ -842,6 +1016,19 @@ func maxOf(x []float64) float64 {
 		m = max(m, v)
 	}
 	return m
+}
+
+// nominalTokens is the size a document is labelled with: the corpus's own
+// count (build.py, the text as built) when it has one, else the tokens the
+// classifier saw. The sanitizer can shorten a document a lot before scoring
+// (its HTML stripping on code, documentation or RFC text; see docs/benchmark.md
+// "Long documents"), and a 200k document that reached the model as 140k
+// tokens still belongs in the 200k cell.
+func nominalTokens(d Doc, r docScore) int {
+	if d.Tokens > 0 {
+		return d.Tokens
+	}
+	return r.tokens
 }
 
 func sizeLabel(tokens int) string {
@@ -893,51 +1080,20 @@ func analyse(rep *Report, docs []Doc, res []docScore, layers []string, seed uint
 			return keys[a].g < keys[b].g
 		})
 		for _, k := range keys {
+			if len(groups[k]) == 0 {
+				continue // every document of the group was rejected by the sanitizer: no scores
+			}
 			rep.Quantiles = append(rep.Quantiles, QRow{Layer: layer, Genre: k.g, Lang: k.l, Quantiles: summarize(groups[k], blockThreshold)})
 		}
 	}
 
-	// Document-level FPR by size.
-	for _, layer := range layers {
-		type key struct{ lang, size string }
-		type acc struct {
-			n, hit, gw int
-			units      int
-		}
-		m := map[key]*acc{}
-		var keys []key
-		for i, d := range docs {
-			if d.Kind != "benign" {
-				continue
-			}
-			k := key{d.Lang, sizeLabel(res[i].tokens)}
-			a := m[k]
-			if a == nil {
-				a = &acc{}
-				m[k] = a
-				keys = append(keys, k)
-			}
-			mx := maxOf(res[i].units[layer])
-			a.n++
-			a.units += len(res[i].units[layer])
-			if mx >= blockThreshold {
-				a.hit++
-			}
-			if mx >= blockThreshold || res[i].rejected || res[i].anomaly >= anomalyBlock {
-				a.gw++
-			}
-		}
-		sort.Slice(keys, func(a, b int) bool {
-			if keys[a].lang != keys[b].lang {
-				return keys[a].lang < keys[b].lang
-			}
-			return sizeOrder(keys[a].size) < sizeOrder(keys[b].size)
-		})
-		for _, k := range keys {
-			a := m[k]
-			rep.DocFPR = append(rep.DocFPR, FPRRow{Layer: layer, Lang: k.lang, Size: k.size, Docs: a.n,
-				Units: float64(a.units) / float64(a.n), FPR: float64(a.hit) / float64(a.n), Gateway: float64(a.gw) / float64(a.n)})
-		}
+	// Document-level FPR by size: all benign documents, then the dev and
+	// holdout slices (the totals do not depend on the slicing).
+	all := func(Doc) bool { return true }
+	inSplit := func(s string) func(Doc) bool { return func(d Doc) bool { return splitOf(d) == s } }
+	rep.DocFPR = docFPR(docs, res, layers, "", all)
+	for _, s := range []string{splitDev, splitHoldout} {
+		rep.DocFPRSplit = append(rep.DocFPRSplit, docFPR(docs, res, layers, s, inSplit(s))...)
 	}
 
 	// T(n) per layer and language, from the benign stream in document order.
@@ -994,23 +1150,96 @@ func analyse(rep *Report, docs []Doc, res []docScore, layers []string, seed uint
 		}
 	}
 
-	// TPR per attack variant (and the payload-alone control).
+	// TPR per attack variant (and the payload-alone control): all attack
+	// documents, then the dev and holdout slices. T(n) comes from the whole
+	// benign stream in every case.
 	hostMax := map[string]map[string]float64{} // host id -> layer -> max
 	for i, d := range docs {
 		if d.Kind == "host" {
 			hostMax[d.ID] = map[string]float64{}
 			for _, layer := range layers {
-				hostMax[d.ID][layer] = maxOf(res[i].units[layer])
+				hostMax[d.ID][layer] = res[i].max(layer)
 			}
 		}
 	}
+	tnOf := func(layer, lang string, units int) (float64, bool) {
+		f := tn[tkey{layer, lang}]
+		if f == nil {
+			return 0, false
+		}
+		return f(max(1, units)), true
+	}
+	rep.TPR = attackTPR(docs, res, layers, hostMax, tnOf, "", all)
+	for _, s := range []string{splitDev, splitHoldout} {
+		rep.TPRSplit = append(rep.TPRSplit, attackTPR(docs, res, layers, hostMax, tnOf, s, inSplit(s))...)
+	}
+}
+
+// docFPR is the share of benign documents (those that `keep` accepts) of
+// each language and size whose maximum reaches the block threshold, per
+// layer. split labels the rows (empty for all documents).
+func docFPR(docs []Doc, res []docScore, layers []string, split string, keep func(Doc) bool) []FPRRow {
+	var out []FPRRow
+	for _, layer := range layers {
+		type key struct{ lang, size string }
+		type acc struct {
+			n, hit, gw, rej int
+			units           int
+		}
+		m := map[key]*acc{}
+		var keys []key
+		for i, d := range docs {
+			if d.Kind != "benign" || !keep(d) {
+				continue
+			}
+			k := key{d.Lang, sizeLabel(nominalTokens(d, res[i]))}
+			a := m[k]
+			if a == nil {
+				a = &acc{}
+				m[k] = a
+				keys = append(keys, k)
+			}
+			mx := res[i].max(layer)
+			a.n++
+			a.units += len(res[i].units[layer])
+			if mx >= blockThreshold {
+				a.hit++
+			}
+			if mx >= blockThreshold || res[i].rejected || res[i].anomaly >= anomalyBlock {
+				a.gw++
+			}
+			if res[i].rejected {
+				a.rej++
+			}
+		}
+		sort.Slice(keys, func(a, b int) bool {
+			if keys[a].lang != keys[b].lang {
+				return keys[a].lang < keys[b].lang
+			}
+			return sizeOrder(keys[a].size) < sizeOrder(keys[b].size)
+		})
+		for _, k := range keys {
+			a := m[k]
+			out = append(out, FPRRow{Layer: layer, Split: split, Lang: k.lang, Size: k.size, Docs: a.n,
+				Units: float64(a.units) / float64(a.n), FPR: float64(a.hit) / float64(a.n), Gateway: float64(a.gw) / float64(a.n), Rejected: a.rej})
+		}
+	}
+	return out
+}
+
+// attackTPR is the detection rate of the attack and control documents that
+// `keep` accepts, per layer, language and variant. tnOf gives T(n) of a
+// layer and language for n units (ok false when no benign stream exists).
+func attackTPR(docs []Doc, res []docScore, layers []string, hostMax map[string]map[string]float64,
+	tnOf func(layer, lang string, units int) (float64, bool), split string, keep func(Doc) bool) []TPRRow {
+	var out []TPRRow
 	for _, layer := range layers {
 		type key struct{ lang, variant string }
 		type acc struct{ n, units, b, t, gw, hf int }
 		m := map[key]*acc{}
 		var keys []key
 		for i, d := range docs {
-			if d.Kind != "attack" && d.Kind != "control" {
+			if (d.Kind != "attack" && d.Kind != "control") || !keep(d) {
 				continue
 			}
 			k := key{d.Lang, d.Variant}
@@ -1021,13 +1250,13 @@ func analyse(rep *Report, docs []Doc, res []docScore, layers []string, seed uint
 				keys = append(keys, k)
 			}
 			u := res[i].units[layer]
-			mx := maxOf(u)
+			mx := res[i].max(layer)
 			a.n++
 			a.units += len(u)
 			if mx >= blockThreshold {
 				a.b++
 			}
-			if f := tn[tkey{layer, d.Lang}]; f != nil && mx >= f(max(1, len(u))) {
+			if t, ok := tnOf(layer, d.Lang, len(u)); ok && mx >= t {
 				a.t++
 			}
 			if mx >= blockThreshold || res[i].rejected || res[i].anomaly >= anomalyBlock {
@@ -1046,10 +1275,11 @@ func analyse(rep *Report, docs []Doc, res []docScore, layers []string, seed uint
 		for _, k := range keys {
 			a := m[k]
 			n := float64(a.n)
-			rep.TPR = append(rep.TPR, TPRRow{Layer: layer, Lang: k.lang, Variant: k.variant, Docs: a.n,
+			out = append(out, TPRRow{Layer: layer, Split: split, Lang: k.lang, Variant: k.variant, Docs: a.n,
 				Units: float64(a.units) / n, AtBlock: float64(a.b) / n, AtTn: float64(a.t) / n, Gateway: float64(a.gw) / n, HostFlags: a.hf})
 		}
 	}
+	return out
 }
 
 func sizeOrder(s string) int {

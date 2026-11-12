@@ -1,0 +1,1230 @@
+{
+  "profile": "full",
+  "md5": {
+    "v6_train": "2e943cfa220e1624ca56ccd890e42f43",
+    "v6_val": "d207bc480f5f56ca06fae671437bb829",
+    "val_v6": "931b0ead127f8bd22c4b995bc63ee968",
+    "val_v6_holdout": "94b5ea739395dfe4daaed7921e596db6"
+  },
+  "generators_md5": "0173b633668389369daacd64d1d708f1",
+  "splits": {
+    "v6_train": {
+      "attack": 3478,
+      "attack:en": 1727,
+      "attack:vi": 1751,
+      "benign": 12307,
+      "benign:en": 6994,
+      "benign:vi": 5313,
+      "est_windows": 18220,
+      "kind:code_go:en": 432,
+      "kind:code_js:en": 383,
+      "kind:code_python:en": 472,
+      "kind:code_rust:en": 384,
+      "kind:code_vi:vi": 239,
+      "kind:config:en": 520,
+      "kind:csv_en:en": 86,
+      "kind:csv_vi:vi": 200,
+      "kind:diff:en": 374,
+      "kind:doc_en:en": 347,
+      "kind:embedded:en": 1727,
+      "kind:embedded:vi": 1751,
+      "kind:human_log_en:en": 177,
+      "kind:human_log_vi:vi": 288,
+      "kind:json_en:en": 117,
+      "kind:json_vi:vi": 255,
+      "kind:log_en:en": 318,
+      "kind:log_vi:vi": 946,
+      "kind:log_vi_repeat:vi": 287,
+      "kind:prose_en:en": 472,
+      "kind:prose_vi:vi": 958,
+      "kind:secdoc_en:en": 201,
+      "kind:secprose_en:en": 151,
+      "kind:secprose_vi:vi": 262,
+      "kind:shell:en": 207,
+      "kind:sql:en": 150,
+      "kind:sql_gen:en": 69,
+      "kind:stacktrace_en:en": 258,
+      "kind:stacktrace_vi:vi": 127,
+      "kind:terminal:en": 151,
+      "kind:twin:en": 1725,
+      "kind:twin:vi": 1751,
+      "label:benign": 12307,
+      "label:data_exfiltration": 739,
+      "label:direct_injection": 1124,
+      "label:indirect_injection": 3478,
+      "label:jailbreak": 445,
+      "label:obfuscation": 304,
+      "label:prompt_extraction": 823,
+      "label:tool_poisoning": 335,
+      "lang:en": 8721,
+      "lang:vi": 7064,
+      "position:comment:en": 294,
+      "position:comment:vi": 275,
+      "position:diff_plus:en": 290,
+      "position:diff_plus:vi": 288,
+      "position:docstring:en": 294,
+      "position:docstring:vi": 298,
+      "position:end:en": 292,
+      "position:end:vi": 290,
+      "position:json_field:en": 318,
+      "position:json_field:vi": 312,
+      "position:log_message:en": 302,
+      "position:log_message:vi": 294,
+      "position:random:en": 282,
+      "position:random:vi": 302,
+      "position:split_adjacent:en": 300,
+      "position:split_adjacent:vi": 292,
+      "position:start:en": 282,
+      "position:start:vi": 298,
+      "position:straddle_chunk:en": 235,
+      "position:straddle_chunk:vi": 288,
+      "position:straddle_window:en": 265,
+      "position:straddle_window:vi": 267,
+      "position:yaml_value:en": 298,
+      "position:yaml_value:vi": 298,
+      "rows": 15785,
+      "tokens": 3385165,
+      "benign_share": 0.7797,
+      "vi_share": 0.4475,
+      "positives_paired": 3475,
+      "twin_filler:comment:en": 337,
+      "twin_filler:doc:en": 447,
+      "twin_filler:docstring:en": 413,
+      "twin_filler:human_log:en": 528,
+      "twin_filler:human_log:vi": 687,
+      "twin_filler:prose_vi:vi": 1064,
+      "twins_paired": 3475,
+      "twin_pairing_rate": 0.9991
+    },
+    "v6_val": {
+      "attack": 481,
+      "attack:en": 250,
+      "attack:vi": 231,
+      "benign": 1730,
+      "benign:en": 961,
+      "benign:vi": 769,
+      "est_windows": 2548,
+      "kind:code_go:en": 57,
+      "kind:code_js:en": 47,
+      "kind:code_python:en": 59,
+      "kind:code_rust:en": 49,
+      "kind:code_vi:vi": 28,
+      "kind:config:en": 69,
+      "kind:csv_en:en": 14,
+      "kind:csv_vi:vi": 27,
+      "kind:diff:en": 58,
+      "kind:doc_en:en": 53,
+      "kind:embedded:en": 250,
+      "kind:embedded:vi": 231,
+      "kind:human_log_en:en": 23,
+      "kind:human_log_vi:vi": 45,
+      "kind:json_en:en": 16,
+      "kind:json_vi:vi": 45,
+      "kind:log_en:en": 49,
+      "kind:log_vi:vi": 120,
+      "kind:log_vi_repeat:vi": 46,
+      "kind:prose_en:en": 56,
+      "kind:prose_vi:vi": 169,
+      "kind:secdoc_en:en": 20,
+      "kind:secprose_en:en": 16,
+      "kind:secprose_vi:vi": 38,
+      "kind:shell:en": 26,
+      "kind:sql:en": 30,
+      "kind:sql_gen:en": 11,
+      "kind:stacktrace_en:en": 42,
+      "kind:stacktrace_vi:vi": 20,
+      "kind:terminal:en": 16,
+      "kind:twin:en": 250,
+      "kind:twin:vi": 231,
+      "label:benign": 1730,
+      "label:data_exfiltration": 91,
+      "label:direct_injection": 147,
+      "label:indirect_injection": 481,
+      "label:jailbreak": 66,
+      "label:obfuscation": 44,
+      "label:prompt_extraction": 135,
+      "label:tool_poisoning": 51,
+      "lang:en": 1211,
+      "lang:vi": 1000,
+      "position:comment:en": 40,
+      "position:comment:vi": 30,
+      "position:diff_plus:en": 50,
+      "position:diff_plus:vi": 48,
+      "position:docstring:en": 48,
+      "position:docstring:vi": 38,
+      "position:end:en": 44,
+      "position:end:vi": 46,
+      "position:json_field:en": 24,
+      "position:json_field:vi": 22,
+      "position:log_message:en": 40,
+      "position:log_message:vi": 42,
+      "position:random:en": 42,
+      "position:random:vi": 32,
+      "position:split_adjacent:en": 40,
+      "position:split_adjacent:vi": 40,
+      "position:start:en": 56,
+      "position:start:vi": 38,
+      "position:straddle_chunk:en": 28,
+      "position:straddle_chunk:vi": 42,
+      "position:straddle_window:en": 44,
+      "position:straddle_window:vi": 46,
+      "position:yaml_value:en": 44,
+      "position:yaml_value:vi": 38,
+      "rows": 2211,
+      "tokens": 474415,
+      "benign_share": 0.7825,
+      "vi_share": 0.4523,
+      "positives_paired": 481,
+      "twin_filler:comment:en": 46,
+      "twin_filler:doc:en": 59,
+      "twin_filler:docstring:en": 64,
+      "twin_filler:human_log:en": 81,
+      "twin_filler:human_log:vi": 93,
+      "twin_filler:prose_vi:vi": 138,
+      "twins_paired": 481,
+      "twin_pairing_rate": 1.0
+    },
+    "val_v6": {
+      "attack": 490,
+      "attack:en": 245,
+      "attack:vi": 245,
+      "benign": 1737,
+      "benign:en": 976,
+      "benign:vi": 761,
+      "est_windows": 2601,
+      "kind:code_go:en": 62,
+      "kind:code_js:en": 52,
+      "kind:code_python:en": 68,
+      "kind:code_rust:en": 53,
+      "kind:code_vi:vi": 33,
+      "kind:config:en": 74,
+      "kind:csv_en:en": 15,
+      "kind:csv_vi:vi": 30,
+      "kind:diff:en": 26,
+      "kind:doc_en:en": 53,
+      "kind:embedded:en": 245,
+      "kind:embedded:vi": 245,
+      "kind:human_log_en:en": 26,
+      "kind:human_log_vi:vi": 42,
+      "kind:json_en:en": 19,
+      "kind:json_vi:vi": 38,
+      "kind:log_en:en": 45,
+      "kind:log_vi:vi": 128,
+      "kind:log_vi_repeat:vi": 42,
+      "kind:prose_en:en": 67,
+      "kind:prose_vi:vi": 143,
+      "kind:secdoc_en:en": 43,
+      "kind:secprose_en:en": 22,
+      "kind:secprose_vi:vi": 38,
+      "kind:shell:en": 8,
+      "kind:sql_gen:en": 38,
+      "kind:stacktrace_en:en": 38,
+      "kind:stacktrace_vi:vi": 19,
+      "kind:terminal:en": 22,
+      "kind:twin:en": 245,
+      "kind:twin:vi": 248,
+      "label:benign": 1737,
+      "label:data_exfiltration": 100,
+      "label:direct_injection": 159,
+      "label:indirect_injection": 490,
+      "label:jailbreak": 67,
+      "label:obfuscation": 26,
+      "label:prompt_extraction": 113,
+      "label:tool_poisoning": 53,
+      "lang:en": 1221,
+      "lang:vi": 1006,
+      "position:comment:en": 36,
+      "position:comment:vi": 42,
+      "position:diff_plus:en": 44,
+      "position:diff_plus:vi": 42,
+      "position:docstring:en": 43,
+      "position:docstring:vi": 40,
+      "position:end:en": 44,
+      "position:end:vi": 41,
+      "position:json_field:en": 44,
+      "position:json_field:vi": 42,
+      "position:log_message:en": 42,
+      "position:log_message:vi": 42,
+      "position:random:en": 40,
+      "position:random:vi": 42,
+      "position:split_adjacent:en": 44,
+      "position:split_adjacent:vi": 42,
+      "position:start:en": 45,
+      "position:start:vi": 39,
+      "position:straddle_chunk:en": 28,
+      "position:straddle_chunk:vi": 42,
+      "position:straddle_window:en": 38,
+      "position:straddle_window:vi": 37,
+      "position:yaml_value:en": 42,
+      "position:yaml_value:vi": 42,
+      "rows": 2227,
+      "tokens": 484876,
+      "benign_share": 0.78,
+      "vi_share": 0.4517,
+      "positives_paired": 488,
+      "twin_filler:comment:en": 46,
+      "twin_filler:doc:en": 63,
+      "twin_filler:docstring:en": 64,
+      "twin_filler:human_log:en": 72,
+      "twin_filler:human_log:vi": 92,
+      "twin_filler:prose_vi:vi": 156,
+      "twins_paired": 488,
+      "twin_pairing_rate": 0.9959
+    },
+    "val_v6_holdout": {
+      "attack": 492,
+      "attack:en": 245,
+      "attack:vi": 247,
+      "benign": 1746,
+      "benign:en": 967,
+      "benign:vi": 779,
+      "est_windows": 2578,
+      "kind:code_go:en": 59,
+      "kind:code_js:en": 54,
+      "kind:code_python:en": 39,
+      "kind:code_rust:en": 42,
+      "kind:code_vi:vi": 33,
+      "kind:config:en": 47,
+      "kind:csv_en:en": 16,
+      "kind:csv_vi:vi": 31,
+      "kind:diff:en": 54,
+      "kind:doc_en:en": 54,
+      "kind:embedded:en": 245,
+      "kind:embedded:vi": 247,
+      "kind:human_log_en:en": 27,
+      "kind:human_log_vi:vi": 43,
+      "kind:json_en:en": 20,
+      "kind:json_vi:vi": 39,
+      "kind:log_en:en": 47,
+      "kind:log_vi:vi": 133,
+      "kind:log_vi_repeat:vi": 43,
+      "kind:prose_en:en": 69,
+      "kind:prose_vi:vi": 148,
+      "kind:secdoc_en:en": 46,
+      "kind:secprose_en:en": 23,
+      "kind:secprose_vi:vi": 39,
+      "kind:shell:en": 23,
+      "kind:sql_gen:en": 39,
+      "kind:stacktrace_en:en": 39,
+      "kind:stacktrace_vi:vi": 20,
+      "kind:terminal:en": 23,
+      "kind:twin:en": 246,
+      "kind:twin:vi": 250,
+      "label:benign": 1746,
+      "label:data_exfiltration": 108,
+      "label:direct_injection": 146,
+      "label:indirect_injection": 492,
+      "label:jailbreak": 69,
+      "label:obfuscation": 36,
+      "label:prompt_extraction": 102,
+      "label:tool_poisoning": 56,
+      "lang:en": 1212,
+      "lang:vi": 1026,
+      "position:comment:en": 33,
+      "position:comment:vi": 41,
+      "position:diff_plus:en": 42,
+      "position:diff_plus:vi": 42,
+      "position:docstring:en": 43,
+      "position:docstring:vi": 42,
+      "position:end:en": 43,
+      "position:end:vi": 42,
+      "position:json_field:en": 44,
+      "position:json_field:vi": 40,
+      "position:log_message:en": 44,
+      "position:log_message:vi": 42,
+      "position:random:en": 43,
+      "position:random:vi": 41,
+      "position:split_adjacent:en": 42,
+      "position:split_adjacent:vi": 40,
+      "position:start:en": 42,
+      "position:start:vi": 42,
+      "position:straddle_chunk:en": 32,
+      "position:straddle_chunk:vi": 42,
+      "position:straddle_window:en": 40,
+      "position:straddle_window:vi": 42,
+      "position:yaml_value:en": 43,
+      "position:yaml_value:vi": 41,
+      "rows": 2238,
+      "tokens": 480557,
+      "benign_share": 0.7802,
+      "vi_share": 0.4584,
+      "positives_paired": 490,
+      "twin_filler:comment:en": 43,
+      "twin_filler:doc:en": 74,
+      "twin_filler:docstring:en": 57,
+      "twin_filler:human_log:en": 72,
+      "twin_filler:human_log:vi": 103,
+      "twin_filler:prose_vi:vi": 147,
+      "twins_paired": 490,
+      "twin_pairing_rate": 0.9959
+    }
+  },
+  "leakage": {
+    "max_jaccard_kept": {
+      "payloads|eval": 0.7245,
+      "payloads|eval_codelog_rows": 0.0632,
+      "payloads|probe_v4": 0.2385,
+      "payloads|val_realistic_holdout": 0.35,
+      "payloads|val_v3_holdout": 0.271,
+      "payloads|val_v4_holdout": 0.2727,
+      "set_A|bench_long_full": 0.4035,
+      "set_A|eval": 0.2714,
+      "set_A|eval_codelog_rows": 0.2133,
+      "set_A|eval_codelog_windows": 0.1776,
+      "set_A|probe_v4": 0.1361,
+      "set_A|repo_all_tags": 0.6307,
+      "set_A|val_realistic_holdout": 0.1493,
+      "set_A|val_v3_holdout": 0.1183,
+      "set_A|val_v4_holdout": 0.1034,
+      "set_B|bench_long_full": 0.3174,
+      "set_B|eval": 0.2268,
+      "set_B|eval_codelog_rows": 0.1862,
+      "set_B|eval_codelog_windows": 0.0,
+      "set_B|probe_v4": 0.0537,
+      "set_B|repo_all_tags": 0.5281,
+      "set_B|val_realistic_holdout": 0.1335,
+      "set_B|val_v3_holdout": 0.1099,
+      "set_B|val_v4_holdout": 0.0699,
+      "set_B|vs_set_A": 0.5621,
+      "set_C|bench_long_full": 0.284,
+      "set_C|eval": 0.3423,
+      "set_C|eval_codelog_rows": 0.2245,
+      "set_C|eval_codelog_windows": 0.0249,
+      "set_C|probe_v4": 0.0663,
+      "set_C|repo_all_tags": 0.5117,
+      "set_C|val_realistic_holdout": 0.1235,
+      "set_C|val_v3_holdout": 0.1528,
+      "set_C|val_v4_holdout": 0.0562,
+      "set_C|vs_set_AB": 0.5755
+    },
+    "max_line_copy_kept": {
+      "set_A|bench_long_full": 0.4286,
+      "set_A|eval_codelog_windows": 0.4286,
+      "set_A|repo_all_tags": 0.4615,
+      "set_B|bench_long_full": 0.3333,
+      "set_B|eval_codelog_windows": 0.25,
+      "set_B|repo_all_tags": 0.3333,
+      "set_B|vs_set_A": 0.4615,
+      "set_C|bench_long_full": 0.3333,
+      "set_C|eval_codelog_windows": 0.3333,
+      "set_C|repo_all_tags": 0.25,
+      "set_C|vs_set_AB": 0.4545
+    },
+    "rule": "drop on fingerprint, 5-gram Jaccard > 0.8, or >= 50% of long lines copied (>= 3 lines)",
+    "dropped_examples": {
+      "set_A|bench_long_full": [
+        "line_copy 0.12/0.50: uscode-a:title7#2525 ~ legal-en-200000-0",
+        "line_copy 0.13/0.50: uscode-a:title15#3714 ~ legal-en-500000-0",
+        "line_copy 0.13/0.50: uscode-a:title7#4030 ~ legal-en-500000-0",
+        "line_copy 0.43/0.60: wikisource-vi-a:rev111769#0 ~ legal-vi-50000-0",
+        "line_copy 0.42/0.57: wikisource-vi-a:rev136184#0 ~ legal-vi-100000-0",
+        "line_copy 0.18/0.67: wikisource-vi-a:rev109262#0 ~ legal-vi-50000-0",
+        "line_copy 0.37/0.57: wikisource-vi-a:rev188787#0 ~ legal-vi-100000-0",
+        "line_copy 0.38/0.57: wikisource-vi-a:rev188787#0 ~ legal-vi-100000-0"
+      ],
+      "set_A|eval_codelog_windows": [
+        "line_copy 0.00/0.75: kubernetes:test/integration/scheduler_perf/config/templates/pod-with-topology-spreading.yaml ~ ",
+        "line_copy 0.00/0.60: kubernetes:test/integration/scheduler_perf/config/templates/pod-with-preferred-topology-spreading.yaml ~ "
+      ],
+      "set_A|repo_all_tags": [
+        "line_copy 0.00/0.50: ollama:openai/openai.go ~ ",
+        "line_copy 0.00/0.80: kubernetes:pkg/apis/networking/v1beta1/doc.go ~ ",
+        "line_copy 0.44/0.69: kubernetes:cmd/kubeadm/app/componentconfigs/kubelet_unix_test.go ~ model-guardspec-classifier-v3b:LICENSE",
+        "line_copy 0.45/0.56: kubernetes:staging/src/k8s.io/apiserver/pkg/server/dynamiccertificates/client_ca.go ~ model-guardspec-classifier-v3b:LICENSE",
+        "line_copy 0.50/0.69: kubernetes:staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/install/install.go ~ model-guardspec-classifier-v3b:LICENSE",
+        "line_copy 0.54/0.50: kubernetes:staging/src/k8s.io/client-go/kubernetes/typed/extensions/v1beta1/fake/fake_ingress.go ~ model-guardspec-classifier-v3b:LICENSE",
+        "line_copy 0.44/0.69: kubernetes:staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/util/client_config.go ~ model-guardspec-classifier-v3b:LICENSE",
+        "line_copy 0.00/1.00: kubernetes:staging/src/k8s.io/pod-security-admission/admission/api/v1beta1/types.go ~ ",
+        "line_copy 0.00/0.53: kubernetes:pkg/controller/volume/events/event.go ~ ",
+        "line_copy 0.00/0.69: kubernetes:pkg/kubelet/stats/pidlimit/pidlimit_unsupported.go ~ ",
+        "line_copy 0.36/0.69: kubernetes:cmd/kubeadm/app/apis/kubeadm/v1beta3/defaults_unix.go ~ model-guardspec-classifier-v3b:LICENSE",
+        "line_copy 0.00/0.75: kubernetes:staging/src/k8s.io/client-go/applyconfigurations/resource/v1alpha3/deviceconfiguration.go ~ "
+      ],
+      "set_B|bench_long_full": [
+        "line_copy 0.00/0.67: uscode-b:title1#38 ~ "
+      ],
+      "set_B|vs_set_A": [
+        "0.77/0.75: prometheus:tsdb/goversion/init.go ~ v6.A.cosign:pkg/providers/doc.go",
+        "0.91/0.90: prometheus:util/runtime/statfs.go ~ v6.A.cosign:pkg/providers/doc.go",
+        "0.68/0.69: prometheus:tsdb/chunks/head_chunks_windows.go ~ v6.A.cosign:pkg/providers/doc.go",
+        "0.44/0.55: prometheus:documentation/examples/remote_storage/remote_storage_adapter/graphite/escape.go ~ v6.A.cosign:pkg/oci/walk/walk.go",
+        "0.41/0.55: prometheus:tsdb/fileutil/dir_windows.go ~ v6.A.kubernetes:test/images/httpd/Dockerfile",
+        "0.66/0.69: prometheus:util/testutil/port.go ~ v6.A.cosign:pkg/providers/doc.go",
+        "0.68/0.60: prometheus:model/metadata/metadata.go ~ v6.A.cosign:pkg/providers/doc.go",
+        "0.66/0.75: prometheus:tsdb/fileutil/dir.go ~ v6.A.cosign:pkg/providers/doc.go",
+        "0.66/0.60: prometheus:config/config_windows_test.go ~ v6.A.cosign:pkg/providers/doc.go",
+        "0.48/0.50: prometheus:documentation/examples/rbac-setup.yml ~ v6.A.kubernetes:cluster/addons/calico-policy-controller/calico-clusterrolebinding.yaml",
+        "0.35/0.62: prometheus:.github/workflows/scorecards.yml ~ v6.A.cosign:.github/workflows/scorecard-action.yml",
+        "0.00/0.50: express-history:d546f93f2f46:.github/workflows/ci.yml ~ "
+      ],
+      "set_C|bench_long_full": [
+        "line_copy 0.00/0.50: uscode-c:title3#127 ~ ",
+        "line_copy 0.10/0.57: wikisource-vi-c:rev199596#0 ~ legal-vi-100000-0"
+      ],
+      "set_C|vs_set_AB": [
+        "0.71/0.69: etcd:raft/rafttest/interaction_env.go ~ v6.A.cosign:pkg/providers/doc.go",
+        "0.86/0.90: etcd:server/proxy/grpcproxy/adapter/lock_client_adapter.go ~ v6.A.cosign:pkg/providers/doc.go",
+        "0.80/0.75: etcd:client/pkg/fileutil/sync.go ~ v6.A.cosign:cmd/cosign/cli/options/upload.go",
+        "0.70/1.00: etcd:client/pkg/fileutil/sync.go ~ v6.A.kubernetes:hack/verify-e2e-images.sh",
+        "0.79/0.82: etcd:client/pkg/types/doc.go ~ v6.A.cosign:pkg/providers/doc.go",
+        "0.81/0.82: etcd:server/etcdserver/api/membership/doc.go ~ v6.A.cosign:pkg/providers/doc.go",
+        "0.67/0.75: etcd:client/pkg/fileutil/sync_linux.go ~ v6.A.cosign:pkg/providers/doc.go",
+        "0.73/0.69: etcd:server/etcdserver/api/v2v3/cluster.go ~ v6.A.cosign:pkg/providers/doc.go",
+        "0.71/0.64: etcd:client/pkg/fileutil/preallocate_unsupported.go ~ v6.A.cosign:pkg/providers/doc.go",
+        "0.81/0.82: etcd:tools/benchmark/doc.go ~ v6.A.cosign:pkg/providers/doc.go",
+        "0.59/0.78: etcd:tools/mod/tools.go ~ v6.A.cosign:pkg/providers/doc.go",
+        "0.76/0.82: etcd:tools/etcd-dump-db/utils.go ~ v6.A.cosign:pkg/providers/doc.go"
+      ]
+    }
+  },
+  "bench_shingle": {
+    "rule": "drop a row sharing any 50-token shingle (classifier tokenizer) with a bench/long full-profile document",
+    "bench_sha256": "36df6248f6525e12dd8210492758a370e6f616a5b8270fa8bf56158c9fe3c964",
+    "docs": 912,
+    "shingles": 9492773,
+    "unique": 7385898,
+    "dropped": {
+      "bench_shingle:dropped:set_A": 17,
+      "bench_shingle:dropped:set_A:embedded": 4,
+      "bench_shingle:dropped:set_A:prose_en": 5,
+      "bench_shingle:dropped:set_A:prose_vi": 4,
+      "bench_shingle:dropped:set_A:twin": 4,
+      "bench_shingle:dropped:set_C": 1,
+      "bench_shingle:dropped:set_C:prose_en": 1
+    },
+    "dropped_examples": {
+      "set_A": [
+        "uscode-a:title7#3164 ~ legal-en-500000-0",
+        "uscode-a:title15#4423 ~ legal-en-500000-0",
+        "uscode-a:title15#1462 ~ legal-en-500000-0",
+        "uscode-a:title15#7897 ~ legal-en-500000-0",
+        "uscode-a:title15#2031 ~ legal-en-500000-0",
+        "wikisource-vi-a:rev114896#0 ~ legal-vi-100000-0, legal-vi-20000-0",
+        "wikisource-vi-a:rev113410#60 ~ legal-vi-50000-0",
+        "wikisource-vi-a:rev127783#0 ~ legal-vi-50000-0",
+        "wikisource-vi-a:rev109262#0 ~ legal-vi-50000-0",
+        "uscode-a:title15#1047 ~ legal-en-500000-0",
+        "uscode-a:title15#1047 ~ legal-en-500000-0",
+        "uscode-a:title15#580 ~ legal-en-500000-0"
+      ],
+      "set_C": [
+        "uscode-c:title3#108 ~ legal-en-500000-0"
+      ]
+    }
+  },
+  "sources": {
+    "kubernetes": {
+      "set": "A",
+      "license": "Apache-2.0",
+      "pinned": "v1.31.0",
+      "kinds": [
+        "code_go",
+        "config",
+        "doc_en",
+        "shell"
+      ]
+    },
+    "cpython": {
+      "set": "A",
+      "license": "PSF-2.0",
+      "pinned": "v3.12.7",
+      "kinds": [
+        "code_python",
+        "config",
+        "doc_en",
+        "shell"
+      ]
+    },
+    "rust-library": {
+      "set": "A",
+      "license": "MIT OR Apache-2.0",
+      "pinned": "1.81.0 (rust-src component)",
+      "kinds": [
+        "code_rust",
+        "config",
+        "doc_en"
+      ]
+    },
+    "nodejs-lib": {
+      "set": "A",
+      "license": "MIT",
+      "pinned": "v20.17.0",
+      "kinds": [
+        "code_js",
+        "doc_en"
+      ]
+    },
+    "postgres-regress": {
+      "set": "A",
+      "license": "PostgreSQL",
+      "pinned": "REL_16_4",
+      "kinds": [
+        "sql"
+      ]
+    },
+    "cosign": {
+      "set": "A",
+      "license": "Apache-2.0",
+      "pinned": "v2.4.1",
+      "kinds": [
+        "code_go",
+        "config",
+        "doc_en",
+        "shell"
+      ]
+    },
+    "hydra": {
+      "set": "A",
+      "license": "Apache-2.0",
+      "pinned": "v2.2.0",
+      "kinds": [
+        "code_go",
+        "config",
+        "doc_en",
+        "shell",
+        "sql"
+      ]
+    },
+    "oauth2-proxy": {
+      "set": "A",
+      "license": "MIT",
+      "pinned": "v7.7.1",
+      "kinds": [
+        "code_go",
+        "config",
+        "doc_en",
+        "shell"
+      ]
+    },
+    "ollama": {
+      "set": "A",
+      "license": "MIT",
+      "pinned": "v0.3.12",
+      "kinds": [
+        "code_go",
+        "config",
+        "doc_en",
+        "shell"
+      ]
+    },
+    "openai-python": {
+      "set": "A",
+      "license": "Apache-2.0",
+      "pinned": "v1.51.0",
+      "kinds": [
+        "code_python",
+        "config",
+        "doc_en",
+        "shell"
+      ]
+    },
+    "detect-secrets": {
+      "set": "A",
+      "license": "Apache-2.0",
+      "pinned": "v1.5.0",
+      "kinds": [
+        "code_python",
+        "config",
+        "doc_en"
+      ]
+    },
+    "requests-history": {
+      "set": "A",
+      "license": "Apache-2.0",
+      "pinned": "0e322af87745",
+      "kinds": [
+        "git-log"
+      ]
+    },
+    "ripgrep-history": {
+      "set": "A",
+      "license": "Unlicense OR MIT",
+      "pinned": "e50df40a1967",
+      "kinds": [
+        "git-log"
+      ]
+    },
+    "uscode-a": {
+      "set": "A",
+      "license": "Public domain (17 U.S.C. 105)",
+      "pinned": "urls",
+      "kinds": [
+        "http-html"
+      ]
+    },
+    "wikisource-vi-a": {
+      "set": "A",
+      "license": "Public domain (PVCC-CPVN / PD-old, checked per revision)",
+      "pinned": "urls",
+      "kinds": [
+        "mediawiki"
+      ]
+    },
+    "garak": {
+      "set": "A",
+      "license": "Apache-2.0",
+      "pinned": "v0.17.1",
+      "kinds": [
+        "secdoc_en"
+      ]
+    },
+    "llm-guard": {
+      "set": "A",
+      "license": "MIT",
+      "pinned": "v0.3.16",
+      "kinds": [
+        "secdoc_en"
+      ]
+    },
+    "atlas-data": {
+      "set": "A",
+      "license": "Apache-2.0",
+      "pinned": "v2026.10",
+      "kinds": [
+        "secdoc_en"
+      ]
+    },
+    "prometheus": {
+      "set": "B",
+      "license": "Apache-2.0",
+      "pinned": "v2.54.1",
+      "kinds": [
+        "code_go",
+        "config",
+        "doc_en",
+        "shell"
+      ]
+    },
+    "django": {
+      "set": "B",
+      "license": "BSD-3-Clause",
+      "pinned": "5.1.1",
+      "kinds": [
+        "code_python",
+        "config",
+        "doc_en"
+      ]
+    },
+    "tokio": {
+      "set": "B",
+      "license": "MIT",
+      "pinned": "tokio-1.40.0",
+      "kinds": [
+        "code_rust",
+        "config",
+        "doc_en"
+      ]
+    },
+    "express": {
+      "set": "B",
+      "license": "MIT",
+      "pinned": "4.21.0",
+      "kinds": [
+        "code_js",
+        "config",
+        "doc_en"
+      ]
+    },
+    "express-history": {
+      "set": "B",
+      "license": "MIT",
+      "pinned": "7e562c6d8dad",
+      "kinds": [
+        "git-log"
+      ]
+    },
+    "uscode-b": {
+      "set": "B",
+      "license": "Public domain (17 U.S.C. 105)",
+      "pinned": "urls",
+      "kinds": [
+        "http-html"
+      ]
+    },
+    "wikisource-vi-b": {
+      "set": "B",
+      "license": "Public domain (PVCC-CPVN / PD-old, checked per revision)",
+      "pinned": "urls",
+      "kinds": [
+        "mediawiki"
+      ]
+    },
+    "nemo-guardrails": {
+      "set": "B",
+      "license": "Apache-2.0",
+      "pinned": "v0.24.1",
+      "kinds": [
+        "secdoc_en"
+      ]
+    },
+    "vigil-llm": {
+      "set": "B",
+      "license": "Apache-2.0",
+      "pinned": "v0.10.3-alpha",
+      "kinds": [
+        "secdoc_en"
+      ]
+    },
+    "etcd": {
+      "set": "C",
+      "license": "Apache-2.0",
+      "pinned": "v3.5.16",
+      "kinds": [
+        "code_go",
+        "config",
+        "doc_en",
+        "shell"
+      ]
+    },
+    "flask": {
+      "set": "C",
+      "license": "BSD-3-Clause",
+      "pinned": "3.0.3",
+      "kinds": [
+        "code_python",
+        "config",
+        "doc_en"
+      ]
+    },
+    "serde": {
+      "set": "C",
+      "license": "MIT OR Apache-2.0",
+      "pinned": "v1.0.210",
+      "kinds": [
+        "code_rust",
+        "config",
+        "doc_en"
+      ]
+    },
+    "axios": {
+      "set": "C",
+      "license": "MIT",
+      "pinned": "v1.7.7",
+      "kinds": [
+        "code_js",
+        "config",
+        "doc_en"
+      ]
+    },
+    "flask-history": {
+      "set": "C",
+      "license": "BSD-3-Clause",
+      "pinned": "c12a5d874c5a",
+      "kinds": [
+        "git-log"
+      ]
+    },
+    "uscode-c": {
+      "set": "C",
+      "license": "Public domain (17 U.S.C. 105)",
+      "pinned": "urls",
+      "kinds": [
+        "http-html"
+      ]
+    },
+    "wikisource-vi-c": {
+      "set": "C",
+      "license": "Public domain (PVCC-CPVN / PD-old, checked per revision)",
+      "pinned": "urls",
+      "kinds": [
+        "mediawiki"
+      ]
+    },
+    "guardrails": {
+      "set": "C",
+      "license": "Apache-2.0",
+      "pinned": "v0.11.0",
+      "kinds": [
+        "secdoc_en"
+      ]
+    },
+    "llm-security": {
+      "set": "C",
+      "license": "MIT",
+      "pinned": "main (2025-07-17)",
+      "kinds": [
+        "secdoc_en"
+      ]
+    },
+    "llm-attacks": {
+      "set": "C",
+      "license": "MIT",
+      "pinned": "main (2024-08-02)",
+      "kinds": [
+        "secdoc_en"
+      ]
+    }
+  },
+  "counts": {
+    "balance:A/en:hardneg_dropped": 2989,
+    "balance:A/vi:hardneg_dropped": 2051,
+    "balance:B/en:hardneg_dropped": 380,
+    "balance:B/vi:hardneg_dropped": 264,
+    "balance:C/en:hardneg_dropped": 338,
+    "balance:C/vi:hardneg_dropped": 246,
+    "bench_shingle:checked:set_A": 23053,
+    "bench_shingle:checked:set_B": 2871,
+    "bench_shingle:checked:set_C": 2823,
+    "bench_shingle:docs": 912,
+    "bench_shingle:dropped:set_A": 17,
+    "bench_shingle:dropped:set_A:embedded": 4,
+    "bench_shingle:dropped:set_A:prose_en": 5,
+    "bench_shingle:dropped:set_A:prose_vi": 4,
+    "bench_shingle:dropped:set_A:twin": 4,
+    "bench_shingle:dropped:set_C": 1,
+    "bench_shingle:dropped:set_C:prose_en": 1,
+    "bench_shingle:shingles": 9492773,
+    "bench_shingle:short:set_A": 619,
+    "bench_shingle:short:set_B": 78,
+    "bench_shingle:short:set_C": 78,
+    "bench_shingle:unique": 7385898,
+    "cross_set_dropped:B_vs_A": 34,
+    "cross_set_dropped:C_vs_AB": 39,
+    "dedupe_dropped:A": 118,
+    "dedupe_dropped:B": 1,
+    "embed_failed:diff_plus": 1,
+    "embed_failed:json_field": 1,
+    "embed_failed:straddle_chunk": 54,
+    "embed_failed:straddle_window": 30,
+    "epoch_base_rows": 31522,
+    "epoch_estimate_rows": 49742,
+    "filler_length_loose": 9,
+    "fillers:A/en/comment": 2500,
+    "fillers:A/en/doc": 2500,
+    "fillers:A/en/docstring": 2500,
+    "fillers:A/en/human_log": 400,
+    "fillers:A/vi/human_log": 400,
+    "fillers:A/vi/prose_vi": 900,
+    "fillers:B/en/comment": 2500,
+    "fillers:B/en/doc": 2500,
+    "fillers:B/en/docstring": 2500,
+    "fillers:B/en/human_log": 400,
+    "fillers:B/vi/human_log": 400,
+    "fillers:B/vi/prose_vi": 371,
+    "fillers:C/en/comment": 2500,
+    "fillers:C/en/doc": 1490,
+    "fillers:C/en/docstring": 474,
+    "fillers:C/en/human_log": 400,
+    "fillers:C/vi/human_log": 400,
+    "fillers:C/vi/prose_vi": 337,
+    "generated:A": 23317,
+    "generated:B": 2907,
+    "generated:C": 2864,
+    "guard:refs:bench_long_full_windows": 50426,
+    "guard:refs:eval": 2176,
+    "guard:refs:eval_codelog_rows": 310,
+    "guard:refs:probe_v4": 4,
+    "guard:refs:repo_files": 1613,
+    "guard:refs:repo_windows": 45270,
+    "guard:refs:val_realistic_holdout": 613,
+    "guard:refs:val_v3_holdout": 1510,
+    "guard:refs:val_v4_holdout": 141,
+    "host_missing:B/sql": 3,
+    "host_missing:C/sql": 4,
+    "leak_fingerprint:set_A": 0,
+    "leak_fingerprint:set_B": 0,
+    "leak_fingerprint:set_C": 0,
+    "leak_line_copy:set_A:bench_long_full": 8,
+    "leak_line_copy:set_A:eval_codelog_windows": 2,
+    "leak_line_copy:set_A:repo_all_tags": 136,
+    "leak_line_copy:set_B:bench_long_full": 1,
+    "leak_line_copy:set_C:bench_long_full": 2,
+    "minimal_pairs": 4934,
+    "pair_half_dropped_by_guard": 12,
+    "payload_candidates": 10535,
+    "payload_leak_fingerprint": 0,
+    "payload_len_skipped": 480,
+    "payload_too_long": 4,
+    "payloads_kept": 10535,
+    "positives:A/en/comment": 171,
+    "positives:A/en/diff_plus": 170,
+    "positives:A/en/docstring": 171,
+    "positives:A/en/end": 172,
+    "positives:A/en/json_field": 171,
+    "positives:A/en/log_message": 171,
+    "positives:A/en/random": 171,
+    "positives:A/en/split_adjacent": 171,
+    "positives:A/en/start": 172,
+    "positives:A/en/straddle_chunk": 132,
+    "positives:A/en/straddle_window": 157,
+    "positives:A/en/yaml_value": 171,
+    "positives:A/vi/comment": 168,
+    "positives:A/vi/diff_plus": 168,
+    "positives:A/vi/docstring": 168,
+    "positives:A/vi/end": 168,
+    "positives:A/vi/json_field": 167,
+    "positives:A/vi/log_message": 168,
+    "positives:A/vi/random": 168,
+    "positives:A/vi/split_adjacent": 167,
+    "positives:A/vi/start": 168,
+    "positives:A/vi/straddle_chunk": 165,
+    "positives:A/vi/straddle_window": 157,
+    "positives:A/vi/yaml_value": 168,
+    "positives:B/en/comment": 18,
+    "positives:B/en/diff_plus": 22,
+    "positives:B/en/docstring": 22,
+    "positives:B/en/end": 23,
+    "positives:B/en/json_field": 22,
+    "positives:B/en/log_message": 21,
+    "positives:B/en/random": 22,
+    "positives:B/en/split_adjacent": 22,
+    "positives:B/en/start": 23,
+    "positives:B/en/straddle_chunk": 14,
+    "positives:B/en/straddle_window": 19,
+    "positives:B/en/yaml_value": 22,
+    "positives:B/vi/comment": 21,
+    "positives:B/vi/diff_plus": 21,
+    "positives:B/vi/docstring": 21,
+    "positives:B/vi/end": 21,
+    "positives:B/vi/json_field": 21,
+    "positives:B/vi/log_message": 21,
+    "positives:B/vi/random": 21,
+    "positives:B/vi/split_adjacent": 21,
+    "positives:B/vi/start": 21,
+    "positives:B/vi/straddle_chunk": 21,
+    "positives:B/vi/straddle_window": 19,
+    "positives:B/vi/yaml_value": 21,
+    "positives:C/en/comment": 18,
+    "positives:C/en/diff_plus": 21,
+    "positives:C/en/docstring": 22,
+    "positives:C/en/end": 22,
+    "positives:C/en/json_field": 22,
+    "positives:C/en/log_message": 22,
+    "positives:C/en/random": 22,
+    "positives:C/en/split_adjacent": 21,
+    "positives:C/en/start": 22,
+    "positives:C/en/straddle_chunk": 16,
+    "positives:C/en/straddle_window": 20,
+    "positives:C/en/yaml_value": 22,
+    "positives:C/vi/comment": 21,
+    "positives:C/vi/diff_plus": 21,
+    "positives:C/vi/docstring": 21,
+    "positives:C/vi/end": 21,
+    "positives:C/vi/json_field": 20,
+    "positives:C/vi/log_message": 21,
+    "positives:C/vi/random": 21,
+    "positives:C/vi/split_adjacent": 20,
+    "positives:C/vi/start": 21,
+    "positives:C/vi/straddle_chunk": 21,
+    "positives:C/vi/straddle_window": 21,
+    "positives:C/vi/yaml_value": 21,
+    "quota:A/code_go/cosign": 120,
+    "quota:A/code_go/hydra": 110,
+    "quota:A/code_go/oauth2-proxy": 110,
+    "quota:A/code_go/ollama": 90,
+    "quota:A/code_python/detect-secrets": 119,
+    "quota:A/code_python/openai-python": 85,
+    "quota:A/config/cosign": 38,
+    "quota:A/config/detect-secrets": 6,
+    "quota:A/config/hydra": 50,
+    "quota:A/config/oauth2-proxy": 40,
+    "quota:A/config/ollama": 6,
+    "quota:A/config/openai-python": 8,
+    "quota:A/doc_en/cpython": 150,
+    "quota:A/doc_en/kubernetes": 40,
+    "quota:A/doc_en/nodejs-lib": 150,
+    "quota:A/secdoc_en/atlas-data": 8,
+    "quota:A/secdoc_en/garak": 150,
+    "quota:A/secdoc_en/llm-guard": 142,
+    "quota:A/shell/cosign": 8,
+    "quota:A/shell/hydra": 20,
+    "quota:A/shell/oauth2-proxy": 1,
+    "quota:A/shell/ollama": 15,
+    "quota:A/shell/openai-python": 7,
+    "quota:A/sql/hydra": 160,
+    "quota:B/doc_en/django": 30,
+    "quota:B/secdoc_en/nemo-guardrails": 50,
+    "quota:B/secdoc_en/vigil-llm": 11,
+    "quota:C/doc_en/flask": 30,
+    "quota:C/secdoc_en/guardrails": 40,
+    "quota:C/secdoc_en/llm-attacks": 6,
+    "quota:C/secdoc_en/llm-security": 5,
+    "short:A/code_js": 3,
+    "short:A/code_python/detect-secrets": 1,
+    "short:A/code_python/openai-python": 5,
+    "short:A/config/ollama": 4,
+    "short:A/secdoc_en": 167,
+    "short:A/secdoc_en/atlas-data": 32,
+    "short:A/secdoc_en/llm-guard": 8,
+    "short:A/shell/oauth2-proxy": 5,
+    "short:B/diff": 39,
+    "short:B/secdoc_en/vigil-llm": 4,
+    "short:B/shell": 22,
+    "short:C/code_python": 46,
+    "short:C/code_rust": 19,
+    "short:C/config": 38,
+    "short:C/secdoc_en": 1,
+    "short:C/secdoc_en/llm-security": 3,
+    "skip_attack_like:prose_vi": 1,
+    "twin_failed:straddle_chunk": 1,
+    "twin_failed:straddle_window": 3,
+    "twin_no_filler": 3,
+    "twins:A/en/comment": 383,
+    "twins:A/en/doc": 513,
+    "twins:A/en/docstring": 487,
+    "twins:A/en/human_log": 615,
+    "twins:A/vi/human_log": 791,
+    "twins:A/vi/prose_vi": 1208,
+    "twins:B/en/comment": 47,
+    "twins:B/en/doc": 64,
+    "twins:B/en/docstring": 64,
+    "twins:B/en/human_log": 74,
+    "twins:B/vi/human_log": 93,
+    "twins:B/vi/prose_vi": 156,
+    "twins:C/en/comment": 43,
+    "twins:C/en/doc": 75,
+    "twins:C/en/docstring": 57,
+    "twins:C/en/human_log": 73,
+    "twins:C/vi/human_log": 103,
+    "twins:C/vi/prose_vi": 147
+  },
+  "pins": {
+    "atlas-data": {
+      "archive_sha256": "a4b8d0dd84c7d5179921dc75a5cc4ba13c5abb0e50a2e8110563af39c34f52e0",
+      "content_sha256": "a9ee95a5459546559a69ba9569b6e9e5d19528835f470678e7e4d931423103d5"
+    },
+    "axios": {
+      "archive_sha256": "ac59f0920d854eddcb982670ec4bb53a1c6c57a2f8c0be917e250a7b7bbe1d4f",
+      "content_sha256": "6f19899f8de99bc90543b5cd33fe9795006655e9dd4794bc6943135f0e99d695"
+    },
+    "cosign": {
+      "archive_sha256": "ae5f16bf350d183c868c3c13eb84bf77463ed779f1175fe6304ff647b1e17efb",
+      "content_sha256": "6e1c980619ab63dc4b91d91f49ab188086887ecc3ba3de59ab4287289c18fa5a"
+    },
+    "cpython": {
+      "archive_sha256": "6df6491ceec4a36ab7cfa8328fbab296507e0a83813edc0890af8a0f443bfe55",
+      "content_sha256": "a53c847b04391c362378be0d17b8d51c8aee6cda27f0cd0743b30c750b959cab"
+    },
+    "detect-secrets": {
+      "archive_sha256": "2120d914d24bbbf0f34a5f0538c058dc4c7eb300e6707be2cd9fa3ac5c6a83ed",
+      "content_sha256": "3208e16d5e69f392aa98b34697ff320a3ce90354a6e5e4fe1a4f9b7992157336"
+    },
+    "django": {
+      "archive_sha256": "991d60aef1cae79847ed3c5e0fd60e2862f20cc57b14b1f3dbb7591a909315d3",
+      "content_sha256": "bbfe378e5655f00f36251953b37c5bdc718ebe4577119596e08a4acc62d436c6"
+    },
+    "etcd": {
+      "archive_sha256": "d12f58832c8b2d57345dd1e6a81d967c43639da6f8e1aefb3d4d681add2adec4",
+      "content_sha256": "a8e3d4bbdf95c09af942506c1ca505280911a34268a859529312febc09a18855"
+    },
+    "express": {
+      "archive_sha256": "855dc6d423e254b2847cb2db815ce763b6031bc38c8f4ce3ed91a8abaef1bdcf",
+      "content_sha256": "1cf034b4c13ef03cafecce80c9794ce2c8b195e27b466792d17483edb65f605b"
+    },
+    "express-history": {
+      "content_sha256": "e1df82afa49fee0e1f3f4d064bd76f5931da3d42129cb2b9ea52b22596146c7e"
+    },
+    "flask": {
+      "archive_sha256": "86a01d23397ca141c9a020cf73b69d499c029bd264f95667cec7e9e6f1a60ddf",
+      "content_sha256": "194f93fd1d8b15b345c4d401e16ee0a6850e5df2792488b211fd52b422d1def3"
+    },
+    "flask-history": {
+      "content_sha256": "5f2a6828621e3c53944eae84ae0dc439eeefc5f865f15a3270d2ccf5990d7989"
+    },
+    "garak": {
+      "archive_sha256": "22c1d011d86ea6375ddaf765a7ceae32cf3b889296336aaee233c196d204c378",
+      "content_sha256": "6af1614e08e09926949e1407cc66216c4d076f3ce223a3170d19e06466aa8f3a"
+    },
+    "guardrails": {
+      "archive_sha256": "8d40f5afda6c8325b983aa0a5f4a6dd67269ef6a3fcb1a507f10ae2e40943a60",
+      "content_sha256": "a3d277d52653def07b21e2df315217d9a140440f3df8b5efb6a9afa12a72854a"
+    },
+    "hydra": {
+      "archive_sha256": "ab7752d466f27e5d5769cdb8af59bd3fbf83318b34d970a06b81903805d506d5",
+      "content_sha256": "771d92f5b144b28a10620c1c8186e6fa76319c74bddcff983bd15cab9595ab5c"
+    },
+    "kubernetes": {
+      "archive_sha256": "4bf401525f96359af0b845b2e19c1aa9a2ac8287c902da0604026c611b0127ce",
+      "content_sha256": "c28699b6ce6eb1dba533833b37b89eff931356d33c26c923543f8163e26766c3"
+    },
+    "llm-attacks": {
+      "archive_sha256": "6367606d7c3bde8e21a6cbec67c948d225c771a01c7f07665a42b193032e881f",
+      "content_sha256": "db7520abfdca33a4eb350a49fb98e85ba3d9cdd85397aeed8c8be8860d41b0c2"
+    },
+    "llm-guard": {
+      "archive_sha256": "4008ca7ee833d792a9369c709397dac5c621588991011527a6f899ec25f00beb",
+      "content_sha256": "eb5ba163659e84387bb9a6522cf32bba2a2ae19802ddf7f251075ffa15b44c43"
+    },
+    "llm-security": {
+      "archive_sha256": "55970196f9e989d35c0dce4b8dfa62a2944c590ed41f61915348edc7c94ebcdc",
+      "content_sha256": "f218f0643c46720b494d5e59307a17b5730cea8a84b82e8168166a4d5c337c8e"
+    },
+    "nemo-guardrails": {
+      "archive_sha256": "b143ec5616c0b5a82212222a02622e0e579994e515a9dab35ebca76ceb58fd31",
+      "content_sha256": "7e73023611eb2588e536347004c3d3511f20c54e8a4dcd807f6134dcd6b52d7d"
+    },
+    "nodejs-lib": {
+      "archive_sha256": "9abf03ac23362c60387ebb633a516303637145cb3c177be3348b16880fd8b28c",
+      "content_sha256": "a94c1021ebb8223cebebd956f08b063b8e5b77eace404d1421e31149fc401d91"
+    },
+    "oauth2-proxy": {
+      "archive_sha256": "069be51c3e0421c9c03d42127717dfb2b7492cbcc818babdb88e76b87f8c1394",
+      "content_sha256": "da415a3bb88bb7d3d5333e24ed035ccc960129a2d4820597f7bf184e72914aa6"
+    },
+    "ollama": {
+      "archive_sha256": "158a687716e1f05673b98e4308208e016c04fbd870ed5b4fc5942eb935b3f743",
+      "content_sha256": "2ee141915d92ed9787520edcede975d0725a1d6e9941e67f1037c2cf4db00745"
+    },
+    "openai-python": {
+      "archive_sha256": "af37dc5272a2c31c92a8e91d812e299eddb0caa1ddb7408d3fe65046d7107883",
+      "content_sha256": "9f1b4e88699720b9df868a04b6cbe36eff198546fa93f365d325d25e596663bc"
+    },
+    "postgres-regress": {
+      "archive_sha256": "971766d645aa73e93b9ef4e3be44201b4f45b5477095b049125403f9f3386d6f",
+      "content_sha256": "7536d739b10a3e13359400bed1a0252040e03dd1aaaa33a0c34d24e38ba3a9ec"
+    },
+    "prometheus": {
+      "archive_sha256": "80d1f1230b55bf75c95b2712812f449a8a0134816ee7fea7b1596421ede6c569",
+      "content_sha256": "3505e1583645c1f3b95dc133b0195da00fe093f21d4f21dad13fa8574f56a5c7"
+    },
+    "requests-history": {
+      "content_sha256": "0cd8f3fa753d2a5f5df02a9593fa9a4ab39f81cb7fbc2622919f06b2fe72be62"
+    },
+    "ripgrep-history": {
+      "content_sha256": "e03efab106597a07c80deb0bb85616266aaa67eb642a45abba3bbfd9846f85f9"
+    },
+    "rust-library": {
+      "archive_sha256": "a7d79e7d8bb541b3ba5881e693ad94133f4b7555681f8530c65270ed5341013e",
+      "content_sha256": "332404b01472d195a9e8b00ae8cc6be49dcbe749e2b1f6a1a2b6095b65a48c44"
+    },
+    "serde": {
+      "archive_sha256": "97499ba78787e2e8aa0f68617138ee09537553c0c75957cdf85e83b7abb25a69",
+      "content_sha256": "9a30e137b4136d3886d6b580bfcbaf1d6698f1b322f7082ab82547c4015c8cf3"
+    },
+    "tokio": {
+      "archive_sha256": "319b91da5cbe031b94f0cde79903cbaca7962f8937a80db3ed39a0a6747d41dd",
+      "content_sha256": "38e1f7820655a1cb45a6b977ecdf002dda90ff1e469670346386cdd9651c5597"
+    },
+    "uscode-a": {
+      "content_sha256": "9d1f111e8d8e05dea56e752fd6169b664df0c9bb7ac041e3c7ba1a576fdc7cd5"
+    },
+    "uscode-b": {
+      "content_sha256": "6020e11159a23439b429cee5869cb6b5de0a099fcb5685375cd69238d2e3334a"
+    },
+    "uscode-c": {
+      "content_sha256": "8b8a7b8aba872059f6de8c5dcb87c511f502a71be84859b63bff7537830a0634"
+    },
+    "vigil-llm": {
+      "archive_sha256": "07064b368e52f6a6f1333172a5a04286770494faf1b8a10d720a582a41891614",
+      "content_sha256": "cfdefa8e5956a3324002c42f6c3a380c1088a8fd31329feca34c872275a472d6"
+    },
+    "wikisource-vi-a": {
+      "content_sha256": "75592cb08b56dc672eaf085b8214bc824d15db0e29e630978d4e0c0f8f0449c7"
+    },
+    "wikisource-vi-b": {
+      "content_sha256": "a06cea52b32ad73b297d0e95dabc58f9373ef9b3b2a3a6f630c70e667a6a9e8a"
+    },
+    "wikisource-vi-c": {
+      "content_sha256": "f2b5dd3346b4deac053fae2fbe69c86f2babccbb6a30693c6be939a49a7eff6e"
+    }
+  },
+  "bench_long_full_sha256": "36df6248f6525e12dd8210492758a370e6f616a5b8270fa8bf56158c9fe3c964",
+  "payload_file_md5": "0f010b785836ad131855cabaca1469a1",
+  "seconds": {
+    "sources": 1,
+    "references": 72,
+    "generate": 54,
+    "guard": 42,
+    "total": 169
+  }
+}

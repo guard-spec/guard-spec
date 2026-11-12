@@ -126,6 +126,10 @@ const L1FloorRule = "fusion.l1_floor"
 // classifier's cap for untrusted content lowered its score (ml.CapL2).
 const L2CapRule = "fusion.l2_capped"
 
+// LongDocRule is the explanation added to a long-path window's rules when
+// the long document rule lowered its score (ml.LongDocRule).
+const LongDocRule = "fusion.long_doc"
+
 // SetL1Floor makes a decisive L1 verdict whose calibrated score is at least
 // min a lower bound of the fused score. 0 turns it off.
 func (f *Fuser) SetL1Floor(min float64) { f.l1Floor = min }

@@ -8,7 +8,8 @@
    validation AUC of the overall risk score.
    v5: validation rows are scored as the gateway scores them: every window
    (windows.py), per-label worst case over a row's windows; --v5-dir adds
-   v5_val and val_v5 (as train.py), never val_v5_holdout.
+   v5_val and val_v5 (as train.py), never val_v5_holdout; --v6-dir adds v6_val and val_v6 (v6), never
+   val_v6_holdout.
 4. Calibration on the validation split, using the INT8 model that ships:
    - choice of risk score (1 - p(benign) or max over attack labels), by
      validation TPR at benign FPR <= 1%;
@@ -50,7 +51,7 @@ from transformers import AutoModelForSequenceClassification, PreTrainedTokenizer
 import window_data as WD
 from common_train import (ROOT, auc, label_matrix, load_config, rates, read_jsonl, risk_scores, sigmoid,
                           threshold_at_fpr, tpr_at_fpr)
-from train import V5_VAL
+from train import V5_VAL, V6_VAL
 from windows import GatewayTokenizer
 
 
@@ -143,6 +144,7 @@ def main():
                     "directory instead of data/, e.g. a GUARD_BUILD_OUT build with external rows")
     ap.add_argument("--out-dir", help="override export.out_dir (relative to train/)")
     ap.add_argument("--v5-dir", help="v5: also calibrate on v5_val.jsonl and val_v5.jsonl of this build (as train.py)")
+    ap.add_argument("--v6-dir", help="v6: also calibrate on v6_val.jsonl and val_v6.jsonl of this build (as train.py)")
     ap.add_argument("--fp16", action="store_true", help="write model_fp16.onnx (GPU, CUDA execution provider) to "
                     "--out-dir instead of the INT8 model and its calibration")
     ap.add_argument("--fp32", help="--fp16: convert this FP32 ONNX export of the same checkpoint instead of "
@@ -160,6 +162,8 @@ def main():
         cfg["export"]["out_dir"] = a.out_dir
     if a.v5_dir:
         cfg["data"]["val"] = cfg["data"]["val"] + [f"{a.v5_dir}/{v}" for v in V5_VAL]
+    if a.v6_dir:
+        cfg["data"]["val"] = cfg["data"]["val"] + [f"{a.v6_dir}/{v}" for v in V6_VAL]
     labels = cfg["labels"]
     max_len = cfg["train"]["max_len"]
     run_dir = ROOT / cfg["export"]["run_dir"]
