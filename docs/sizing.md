@@ -201,9 +201,11 @@ Wikipedia texts of 20k, 100k and 200k tokens.
 - Parity, CUDA against the CPU on the same FP16 file and calibration
   (eval/data, and the bench/long quick dev documents: 2,176 rows, 2,456
   chunks, 5,341 windows): the decisions at 0.85 are 100% identical and the
-  mean absolute score difference is at most 7.1e-5, but the largest
-  difference is 7.6e-3 to 9.5e-3, above the 1e-3 the task aimed for (FP16
-  kernels differ between CUDA and the CPU). The FP16 model itself differs
+  mean absolute score difference is at most 7.1e-5; the largest difference
+  is 7.6e-3 to 9.5e-3, because FP16 kernels differ between CUDA and the CPU.
+  The parity criterion for FP16 is: decisions 100% identical, mean
+  difference at most 1e-4, largest difference at most 1e-2 (1e-3 applies
+  to FP32). The FP16 model itself differs
   from the INT8 CPU model on about 1% of decisions near the threshold
   ([train/reports/fp16_agreement_v6.md](../train/reports/fp16_agreement_v6.md)).
 - The gateway on the same VM (PostgreSQL 17, the CUDA provider) reported

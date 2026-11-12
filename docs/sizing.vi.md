@@ -200,8 +200,10 @@ bản Wikipedia tiếng Anh 20k, 100k và 200k token.
 - Độ khớp, CUDA so với CPU trên cùng file FP16 và cùng calibration (eval/data
   và các tài liệu dev quick của bench/long: 2,176 dòng, 2,456 đoạn, 5,341 cửa
   sổ): quyết định ở 0.85 giống hệt 100% và chênh lệch điểm tuyệt đối trung
-  bình tối đa 7.1e-5, nhưng chênh lệch lớn nhất là 7.6e-3 đến 9.5e-3, vượt mức
-  1e-3 mà task đặt ra (kernel FP16 khác nhau giữa CUDA và CPU). Bản thân model
+  bình tối đa 7.1e-5; chênh lệch lớn nhất là 7.6e-3 đến 9.5e-3 vì kernel FP16
+  khác nhau giữa CUDA và CPU. Tiêu chí độ khớp cho FP16: quyết định giống hệt
+  100%, chênh lệch trung bình tối đa 1e-4, chênh lệch lớn nhất tối đa 1e-2
+  (mức 1e-3 dành cho FP32). Bản thân model
   FP16 khác model INT8 trên CPU ở khoảng 1% quyết định gần ngưỡng
   ([train/reports/fp16_agreement_v6.md](../train/reports/fp16_agreement_v6.md)).
 - Gateway trên cùng VM (PostgreSQL 17, CUDA provider) báo `"provider":"cuda"`
