@@ -85,7 +85,7 @@ class SourcesV6Test(unittest.TestCase):
         bench_revs = set()
         bench_titles = set()
         for s in BENCH["sources"].values():
-            if s["kind"] == "mediawiki":
+            if s.get("kind") == "mediawiki":  # units_of sources reuse a parent's revisions
                 bench_revs |= set(s["revisions"])
                 bench_titles |= {re.sub(r"\s*\(.*\)$", "", t).lower() for t in s["revisions"].values()}
         seen: dict[int, str] = {}
