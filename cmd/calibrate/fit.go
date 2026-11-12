@@ -59,6 +59,8 @@ func runFit(args []string) int {
 	l3Dir := fs.String("l3", "", "L3_MODEL_DIR (default: MODEL_DIR/cache/multilingual-e5-small)")
 	folds := fs.Int("folds", 5, "cross-validation folds")
 	write := fs.Bool("write", false, "write calibration.json into the classifier directory")
+	fp16 := fs.Bool("fp16", false, "-write: store the fit as the \"fp16\" block of the existing calibration.json "+
+		"(-l2 holds model_fp16.onnx and the INT8 model's calibration.json; INFERENCE_PROVIDER=cuda, or the FP16 file named model.onnx on the CPU)")
 	cache := fs.String("cache", "", "read/write raw scores here (skips the models when the file exists)")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -139,8 +141,23 @@ func runFit(args []string) int {
 	if *write {
 		f := ml.CalibrationFile{Model: stack.L2Model, Platt: l2, LogReg: lrs, L2UntrustedMax: capL2,
 			FittedOn: fmt.Sprintf("%s (%d rows), %s", *val, len(rows), time.Now().UTC().Format("2006-01-02"))}
-		data, _ := json.MarshalIndent(f, "", "  ")
 		path := filepath.Join(stack.L2Dir, "calibration.json")
+		if *fp16 {
+			// The FP16 model's block inside the INT8 model's calibration.json.
+			base, err := os.ReadFile(path)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "-fp16 needs the INT8 calibration.json first:", err)
+				return 2
+			}
+			var top ml.CalibrationFile
+			if err := json.Unmarshal(base, &top); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				return 2
+			}
+			f.Model, top.FP16 = "", &f
+			f = top
+		}
+		data, _ := json.MarshalIndent(f, "", "  ")
 		if err := os.WriteFile(path, append(data, '\n'), 0o644); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return 2
