@@ -27,7 +27,7 @@
 # Default for the `onnx-cache` build context: empty (see build/gateway.Dockerfile).
 FROM scratch AS onnx-cache
 
-FROM golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0 AS builder
+FROM golang:1.27.0-bookworm@sha256:ded31c68586d2e49e760acc2e65a884b23d032e9bbbed0ae0c55abd3fcaf4452 AS builder
 # Release version, linked into the binaries (gateway --version).
 ARG VERSION=dev
 
