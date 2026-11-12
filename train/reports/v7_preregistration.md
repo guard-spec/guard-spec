@@ -186,3 +186,22 @@ decision. The rule set and the long-path decision in the code are unchanged by R
   commit c21d7d3, seed 20261105, best epoch 5 of 5 (validation loss 0.0241; MPS v6 arm A 0.0232), 32.5 min of
   training, 1.45 compute units (399.96 → 398.51); the owner rows of the v4-A build were uploaded under the
   owner's approval of 2026-11-12, `/content/job/v7-ref/data` deleted before the VM stopped.
+
+## Holdout exposure recorded before any long6 scoring (2026-11-12)
+
+Reported by the lead, recorded before any model of R6 scored a `long6` document:
+
+- The RF-b74de2b9 GPU timing job on Colab (session `gs-b74-g4b`, 2026-11-12 07:05 to 07:15 UTC, and the earlier
+  lost run `gs-b74-g4`) used one `long6` benign document, `long6-wiki-en-200000-2`, as its 200k-token timing input.
+  The model was the released v6 converted to FP16 on CUDA with its `fp16` calibration, not a v7 arm or `ref`.
+- Its output files (`guardspec-data/v6/colab/gs-b74-g4b/out/timing-b*-r*.json`) hold per-run block counts. The lead
+  saw only aggregate counts over the three timing documents together in one of them, never tied to this
+  document, and nobody looked at per-document decisions. Those files are not opened for R6.
+- **Decision, taken now and only because of the exposure:** `long6-wiki-en-200000-2` is left out of the `long6`
+  benign holdout for every model scored (the chosen arm, `ref`, the released v6). The benign holdout is **89
+  documents** (English 26 at 100k and 23 at 200k, Vietnamese 20 and 20): `guardspec-data/v7/long6/corpus-89/docs.jsonl`,
+  SHA-256 `aefed525b4d01cba767c1dde8d6a88c23ad6497b7890a261a95f8b45bcd2b168`, the pinned `outputs.long6` file
+  without that line. `run_arms_v7.sh holdout` is run with `GUARD_LONG6=guardspec-data/v7/long6-89` (its `corpus`
+  is the 89-document file, its `attack` the unchanged attack documents).
+- The attack documents are unchanged (the instruction covers the benign holdout): 3 of the 336 embedded
+  documents use this document as their host; their scores were never seen either.
