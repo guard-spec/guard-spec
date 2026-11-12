@@ -1,0 +1,721 @@
+{
+  "rule": "reports/v7_preregistration.md (pre-registered)",
+  "ref": "ref",
+  "arms": {
+    "B": {
+      "gates": {
+        "G1": {
+          "ok": true,
+          "value": 0.9315,
+          "v3b": 0.9086,
+          "what": "eval/data dev TPR at FPR <= 1% (fused, direct path) >= v3b"
+        },
+        "G2": {
+          "ok": true,
+          "value": 0.0068,
+          "limit": 0.03,
+          "what": "eval/codelog dev FPR at 0.85 (tool path, corroboration off) <= 0.03"
+        },
+        "G3": {
+          "ok": true,
+          "value": 0.9192,
+          "v3b": 0.8067,
+          "l1": 0.8506,
+          "what": "eval/embedded dev TPR at 0.85 (tool path, corroboration off) >= v3b and >= L1 alone"
+        },
+        "G4": {
+          "ok": true,
+          "value": 0.0243,
+          "v3b": 0.1053,
+          "what": "eval/embedded dev FPR at 0.85 (tool path, corroboration off) <= v3b"
+        },
+        "G5": {
+          "ok": true,
+          "value": 1,
+          "v3b": 0.9355,
+          "margin": 0.01,
+          "n_attack": 31,
+          "what": "val_v3 (the v4-A build's selection split, direct path) TPR at 0.85 >= v3b - 0.01"
+        },
+        "G6": {
+          "ok": false,
+          "value": 0.06666666666666667,
+          "blocked": 1,
+          "docs": 15,
+          "cells": {
+            "en/100k": {
+              "blocked": 0,
+              "docs": 3
+            },
+            "en/200k": {
+              "blocked": 1,
+              "docs": 5
+            },
+            "vi/100k": {
+              "blocked": 0,
+              "docs": 4
+            },
+            "vi/200k": {
+              "blocked": 0,
+              "docs": 3
+            }
+          },
+          "limit": 0.01,
+          "cp95_upper": 0.3194845665783034,
+          "what": "bench/long dev, l1,l2 with the arm's calibration and cap: blocked benign documents of 100k and 200k tokens (EN + VI) <= 1%; with 3-5 documents per cell this means none blocked"
+        },
+        "G7": {
+          "ok": true,
+          "value": 0.8928571428571429,
+          "detected": 200,
+          "docs": 224,
+          "alone": 0.90625,
+          "alone_detected": 29,
+          "alone_docs": 32,
+          "margin": 0.05,
+          "what": "bench/long dev: gateway TPR of payloads in prose (start/end/random, window/chunk/segment boundary, split adjacent; EN + VI) >= the same payloads alone (control) - 0.05"
+        },
+        "G8": {
+          "ok": true,
+          "value": 0.9315,
+          "ref": 0.9473,
+          "ref_cp95_low": 0.9255858576127585,
+          "n_attack": 569,
+          "what": "eval/data dev TPR at FPR <= 1% not below the lower end of the reference's CP95 interval"
+        },
+        "LD-TPR": {
+          "ok": false,
+          "value": 0.8068592057761733,
+          "alone": 0.875,
+          "what": "long5: detection of the embedded R5 documents (seven placements) >= the payloads alone - 0.05"
+        },
+        "LD-REF": {
+          "ok": true,
+          "value": 0,
+          "ref": 13,
+          "docs": 150,
+          "what": "long5: blocked benign 100k + 200k documents (r5 rules, strong75) fewer than the reference"
+        }
+      },
+      "recorded": {
+        "eval_latency_p50_us": {
+          "value": 6299.42,
+          "v3b": 16885.63,
+          "ratio": 0.3730639603023399
+        },
+        "bench_score_pass": {
+          "tokens_per_s": 4994.439804685892,
+          "cpu_s": 19206.666415,
+          "l2_windows": 49594
+        },
+        "bench_l2_cap": true
+      },
+      "longdoc": {
+        "strong75": {
+          "blocked": 0,
+          "docs": 150,
+          "rate": 0.0,
+          "cp95": [
+            0.0,
+            0.024292597166108543
+          ],
+          "blocked_100k": 0,
+          "docs_100k": 75,
+          "cp95_100k": [
+            0.0,
+            0.047995064055142256
+          ],
+          "blocked_200k": 0,
+          "docs_200k": 75,
+          "cp95_200k": [
+            0.0,
+            0.047995064055142256
+          ],
+          "embedded": 0.8068592057761733,
+          "embedded_k": 447,
+          "embedded_n": 554,
+          "embedded_cp95": [
+            0.7714814511692576,
+            0.8389244263985223
+          ],
+          "alone": 0.875,
+          "alone_k": 70,
+          "alone_n": 80,
+          "windows_blocking": 0,
+          "windows": 116245
+        },
+        "base": {
+          "blocked": 2,
+          "docs": 150,
+          "rate": 0.013333333333333334,
+          "cp95": [
+            0.0016188270298403543,
+            0.04733301949633639
+          ],
+          "blocked_100k": 0,
+          "docs_100k": 75,
+          "cp95_100k": [
+            0.0,
+            0.047995064055142256
+          ],
+          "blocked_200k": 2,
+          "docs_200k": 75,
+          "cp95_200k": [
+            0.003245930928965305,
+            0.09303153222072433
+          ],
+          "embedded": 0.8303249097472925,
+          "embedded_k": 460,
+          "embedded_n": 554,
+          "embedded_cp95": [
+            0.7964255246379648,
+            0.8606522027403056
+          ],
+          "alone": 0.875,
+          "alone_k": 70,
+          "alone_n": 80,
+          "windows_blocking": 3,
+          "windows": 116245
+        }
+      },
+      "target": {
+        "met": true,
+        "blocked": 0,
+        "docs": 150,
+        "cp95": [
+          0.0,
+          0.024292597166108543
+        ],
+        "limit": 1
+      },
+      "train": {
+        "best_epoch": 5,
+        "train_minutes": 41.8,
+        "n_train_rows": 61369,
+        "n_train_windows": 64964,
+        "seed": 20261105,
+        "device": "cuda",
+        "val_loss": [
+          0.0789,
+          0.0391,
+          0.0297,
+          0.0246,
+          0.0226
+        ],
+        "oversample_kind": null,
+        "train_files": [
+          "train.jsonl",
+          "v6_train.jsonl",
+          "v7_train.jsonl"
+        ]
+      }
+    },
+    "C": {
+      "gates": {
+        "G1": {
+          "ok": true,
+          "value": 0.9297,
+          "v3b": 0.9086,
+          "what": "eval/data dev TPR at FPR <= 1% (fused, direct path) >= v3b"
+        },
+        "G2": {
+          "ok": true,
+          "value": 0.0068,
+          "limit": 0.03,
+          "what": "eval/codelog dev FPR at 0.85 (tool path, corroboration off) <= 0.03"
+        },
+        "G3": {
+          "ok": true,
+          "value": 0.9156,
+          "v3b": 0.8067,
+          "l1": 0.8506,
+          "what": "eval/embedded dev TPR at 0.85 (tool path, corroboration off) >= v3b and >= L1 alone"
+        },
+        "G4": {
+          "ok": true,
+          "value": 0.0263,
+          "v3b": 0.1053,
+          "what": "eval/embedded dev FPR at 0.85 (tool path, corroboration off) <= v3b"
+        },
+        "G5": {
+          "ok": true,
+          "value": 1,
+          "v3b": 0.9355,
+          "margin": 0.01,
+          "n_attack": 31,
+          "what": "val_v3 (the v4-A build's selection split, direct path) TPR at 0.85 >= v3b - 0.01"
+        },
+        "G6": {
+          "ok": true,
+          "value": 0.0,
+          "blocked": 0,
+          "docs": 15,
+          "cells": {
+            "en/100k": {
+              "blocked": 0,
+              "docs": 3
+            },
+            "en/200k": {
+              "blocked": 0,
+              "docs": 5
+            },
+            "vi/100k": {
+              "blocked": 0,
+              "docs": 4
+            },
+            "vi/200k": {
+              "blocked": 0,
+              "docs": 3
+            }
+          },
+          "limit": 0.01,
+          "cp95_upper": 0.21801936091053403,
+          "what": "bench/long dev, l1,l2 with the arm's calibration and cap: blocked benign documents of 100k and 200k tokens (EN + VI) <= 1%; with 3-5 documents per cell this means none blocked"
+        },
+        "G7": {
+          "ok": true,
+          "value": 0.8973214285714286,
+          "detected": 201,
+          "docs": 224,
+          "alone": 0.90625,
+          "alone_detected": 29,
+          "alone_docs": 32,
+          "margin": 0.05,
+          "what": "bench/long dev: gateway TPR of payloads in prose (start/end/random, window/chunk/segment boundary, split adjacent; EN + VI) >= the same payloads alone (control) - 0.05"
+        },
+        "G8": {
+          "ok": true,
+          "value": 0.9297,
+          "ref": 0.9473,
+          "ref_cp95_low": 0.9255858576127585,
+          "n_attack": 569,
+          "what": "eval/data dev TPR at FPR <= 1% not below the lower end of the reference's CP95 interval"
+        },
+        "LD-TPR": {
+          "ok": false,
+          "value": 0.776173285198556,
+          "alone": 0.875,
+          "what": "long5: detection of the embedded R5 documents (seven placements) >= the payloads alone - 0.05"
+        },
+        "LD-REF": {
+          "ok": true,
+          "value": 0,
+          "ref": 13,
+          "docs": 150,
+          "what": "long5: blocked benign 100k + 200k documents (r5 rules, strong75) fewer than the reference"
+        }
+      },
+      "recorded": {
+        "eval_latency_p50_us": {
+          "value": 5733,
+          "v3b": 16885.63,
+          "ratio": 0.33951946122235294
+        },
+        "bench_score_pass": {
+          "tokens_per_s": 5105.254586855109,
+          "cpu_s": 19153.446203,
+          "l2_windows": 49594
+        },
+        "bench_l2_cap": true
+      },
+      "longdoc": {
+        "strong75": {
+          "blocked": 0,
+          "docs": 150,
+          "rate": 0.0,
+          "cp95": [
+            0.0,
+            0.024292597166108543
+          ],
+          "blocked_100k": 0,
+          "docs_100k": 75,
+          "cp95_100k": [
+            0.0,
+            0.047995064055142256
+          ],
+          "blocked_200k": 0,
+          "docs_200k": 75,
+          "cp95_200k": [
+            0.0,
+            0.047995064055142256
+          ],
+          "embedded": 0.776173285198556,
+          "embedded_k": 430,
+          "embedded_n": 554,
+          "embedded_cp95": [
+            0.7391375374789171,
+            0.810233104312998
+          ],
+          "alone": 0.875,
+          "alone_k": 70,
+          "alone_n": 80,
+          "windows_blocking": 0,
+          "windows": 116245
+        },
+        "base": {
+          "blocked": 4,
+          "docs": 150,
+          "rate": 0.02666666666666667,
+          "cp95": [
+            0.0073125463980138385,
+            0.06686787667748956
+          ],
+          "blocked_100k": 0,
+          "docs_100k": 75,
+          "cp95_100k": [
+            0.0,
+            0.047995064055142256
+          ],
+          "blocked_200k": 4,
+          "docs_200k": 75,
+          "cp95_200k": [
+            0.014720764659171128,
+            0.13096080727847415
+          ],
+          "embedded": 0.7996389891696751,
+          "embedded_k": 443,
+          "embedded_n": 554,
+          "embedded_cp95": [
+            0.7638446840310749,
+            0.8322002118335106
+          ],
+          "alone": 0.875,
+          "alone_k": 70,
+          "alone_n": 80,
+          "windows_blocking": 6,
+          "windows": 116245
+        }
+      },
+      "target": {
+        "met": true,
+        "blocked": 0,
+        "docs": 150,
+        "cp95": [
+          0.0,
+          0.024292597166108543
+        ],
+        "limit": 1
+      },
+      "train": {
+        "best_epoch": 5,
+        "train_minutes": 42.6,
+        "n_train_rows": 62807,
+        "n_train_windows": 66544,
+        "seed": 20261105,
+        "device": "cuda",
+        "val_loss": [
+          0.0757,
+          0.0339,
+          0.0257,
+          0.0217,
+          0.0212
+        ],
+        "oversample_kind": {
+          "v7_hardneg": 3
+        },
+        "train_files": [
+          "train.jsonl",
+          "v6_train.jsonl",
+          "v7_train.jsonl"
+        ]
+      }
+    },
+    "ref": {
+      "gates": {
+        "G1": {
+          "ok": true,
+          "value": 0.9473,
+          "v3b": 0.9086,
+          "what": "eval/data dev TPR at FPR <= 1% (fused, direct path) >= v3b"
+        },
+        "G2": {
+          "ok": true,
+          "value": 0.0203,
+          "limit": 0.03,
+          "what": "eval/codelog dev FPR at 0.85 (tool path, corroboration off) <= 0.03"
+        },
+        "G3": {
+          "ok": true,
+          "value": 0.9174,
+          "v3b": 0.8067,
+          "l1": 0.8506,
+          "what": "eval/embedded dev TPR at 0.85 (tool path, corroboration off) >= v3b and >= L1 alone"
+        },
+        "G4": {
+          "ok": true,
+          "value": 0.0344,
+          "v3b": 0.1053,
+          "what": "eval/embedded dev FPR at 0.85 (tool path, corroboration off) <= v3b"
+        },
+        "G5": {
+          "ok": true,
+          "value": 1,
+          "v3b": 0.9355,
+          "margin": 0.01,
+          "n_attack": 31,
+          "what": "val_v3 (the v4-A build's selection split, direct path) TPR at 0.85 >= v3b - 0.01"
+        },
+        "G6": {
+          "ok": true,
+          "value": 0.0,
+          "blocked": 0,
+          "docs": 15,
+          "cells": {
+            "en/100k": {
+              "blocked": 0,
+              "docs": 3
+            },
+            "en/200k": {
+              "blocked": 0,
+              "docs": 5
+            },
+            "vi/100k": {
+              "blocked": 0,
+              "docs": 4
+            },
+            "vi/200k": {
+              "blocked": 0,
+              "docs": 3
+            }
+          },
+          "limit": 0.01,
+          "cp95_upper": 0.21801936091053403,
+          "what": "bench/long dev, l1,l2 with the arm's calibration and cap: blocked benign documents of 100k and 200k tokens (EN + VI) <= 1%; with 3-5 documents per cell this means none blocked"
+        },
+        "G7": {
+          "ok": true,
+          "value": 0.9330357142857143,
+          "detected": 209,
+          "docs": 224,
+          "alone": 0.96875,
+          "alone_detected": 31,
+          "alone_docs": 32,
+          "margin": 0.05,
+          "what": "bench/long dev: gateway TPR of payloads in prose (start/end/random, window/chunk/segment boundary, split adjacent; EN + VI) >= the same payloads alone (control) - 0.05"
+        },
+        "G8": {
+          "ok": true,
+          "value": 0.9473,
+          "ref": 0.9473,
+          "ref_cp95_low": 0.9255858576127585,
+          "n_attack": 569,
+          "what": "eval/data dev TPR at FPR <= 1% not below the lower end of the reference's CP95 interval"
+        },
+        "LD-TPR": {
+          "ok": true,
+          "value": 0.871841155234657,
+          "alone": 0.8875,
+          "what": "long5: detection of the embedded R5 documents (seven placements) >= the payloads alone - 0.05"
+        },
+        "LD-REF": {
+          "ok": false,
+          "value": 13,
+          "ref": 13,
+          "docs": 150,
+          "what": "long5: blocked benign 100k + 200k documents (r5 rules, strong75) fewer than the reference"
+        }
+      },
+      "recorded": {
+        "eval_latency_p50_us": {
+          "value": 5779.17,
+          "v3b": 16885.63,
+          "ratio": 0.3422537388299992
+        },
+        "bench_score_pass": {
+          "tokens_per_s": 4646.443629840471,
+          "cpu_s": 19470.224086,
+          "l2_windows": 49594
+        },
+        "bench_l2_cap": true
+      },
+      "longdoc": {
+        "strong75": {
+          "blocked": 13,
+          "docs": 150,
+          "rate": 0.08666666666666667,
+          "cp95": [
+            0.04695522023946097,
+            0.1436427232833889
+          ],
+          "blocked_100k": 4,
+          "docs_100k": 75,
+          "cp95_100k": [
+            0.014720764659171128,
+            0.13096080727847415
+          ],
+          "blocked_200k": 9,
+          "docs_200k": 75,
+          "cp95_200k": [
+            0.05636628422530751,
+            0.21561312351658846
+          ],
+          "embedded": 0.871841155234657,
+          "embedded_k": 483,
+          "embedded_n": 554,
+          "embedded_cp95": [
+            0.8411099752087552,
+            0.8985337895177026
+          ],
+          "alone": 0.8875,
+          "alone_k": 71,
+          "alone_n": 80,
+          "windows_blocking": 22,
+          "windows": 116245
+        },
+        "base": {
+          "blocked": 25,
+          "docs": 150,
+          "rate": 0.16666666666666666,
+          "cp95": [
+            0.11085733201760417,
+            0.2361243265404337
+          ],
+          "blocked_100k": 8,
+          "docs_100k": 75,
+          "cp95_100k": [
+            0.04718995174004538,
+            0.1994017442026711
+          ],
+          "blocked_200k": 17,
+          "docs_200k": 75,
+          "cp95_200k": [
+            0.13793556763215142,
+            0.33792161370407603
+          ],
+          "embedded": 0.9025270758122743,
+          "embedded_k": 500,
+          "embedded_n": 554,
+          "embedded_cp95": [
+            0.8747351239125611,
+            0.9259253575620543
+          ],
+          "alone": 0.8875,
+          "alone_k": 71,
+          "alone_n": 80,
+          "windows_blocking": 49,
+          "windows": 116245
+        }
+      },
+      "target": {
+        "met": false,
+        "blocked": 13,
+        "docs": 150,
+        "cp95": [
+          0.04695522023946097,
+          0.1436427232833889
+        ],
+        "limit": 1
+      },
+      "train": {
+        "best_epoch": 5,
+        "train_minutes": 32.5,
+        "n_train_rows": 50099,
+        "n_train_windows": 52373,
+        "seed": 20261105,
+        "device": "cuda",
+        "val_loss": [
+          0.0794,
+          0.0439,
+          0.0294,
+          0.027,
+          0.0241
+        ],
+        "oversample_kind": null,
+        "train_files": [
+          "train.jsonl",
+          "v6_train.jsonl"
+        ]
+      }
+    }
+  },
+  "also_measured": {
+    "v6rel": {
+      "strong75": {
+        "blocked": 9,
+        "docs": 150,
+        "rate": 0.06,
+        "cp95": [
+          0.027799977794465414,
+          0.11084152001362613
+        ],
+        "blocked_100k": 4,
+        "docs_100k": 75,
+        "cp95_100k": [
+          0.014720764659171128,
+          0.13096080727847415
+        ],
+        "blocked_200k": 5,
+        "docs_200k": 75,
+        "cp95_200k": [
+          0.021999252469785235,
+          0.14876047915778212
+        ],
+        "embedded": 0.871841155234657,
+        "embedded_k": 483,
+        "embedded_n": 554,
+        "embedded_cp95": [
+          0.8411099752087552,
+          0.8985337895177026
+        ],
+        "alone": 0.85,
+        "alone_k": 68,
+        "alone_n": 80,
+        "windows_blocking": 19,
+        "windows": 116245
+      },
+      "base": {
+        "blocked": 18,
+        "docs": 150,
+        "rate": 0.12,
+        "cp95": [
+          0.07269346669679311,
+          0.18300887702476154
+        ],
+        "blocked_100k": 7,
+        "docs_100k": 75,
+        "cp95_100k": [
+          0.03835390654171465,
+          0.1828935265562635
+        ],
+        "blocked_200k": 11,
+        "docs_200k": 75,
+        "cp95_200k": [
+          0.07555540584263551,
+          0.24729171444579856
+        ],
+        "embedded": 0.8935018050541517,
+        "embedded_k": 495,
+        "embedded_n": 554,
+        "embedded_cp95": [
+          0.8647804751115338,
+          0.9179352562772398
+        ],
+        "alone": 0.85,
+        "alone_k": 68,
+        "alone_n": 80,
+        "windows_blocking": 34,
+        "windows": 116245
+      }
+    }
+  },
+  "decision": {
+    "status": "no arm qualifies",
+    "chosen": null,
+    "fallback_candidate": "C",
+    "gates_met": {
+      "B": 8,
+      "C": 9
+    },
+    "target": {
+      "met": true,
+      "blocked": 0,
+      "docs": 150,
+      "cp95": [
+        0.0,
+        0.024292597166108543
+      ],
+      "limit": 1
+    },
+    "note": "no v7; long6 is still scored once for the fallback candidate and the reference, for the record"
+  }
+}
