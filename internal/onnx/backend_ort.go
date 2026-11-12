@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strconv"
 	"sync"
+	"sync/atomic"
 
 	"github.com/daulet/tokenizers"
 	ort "github.com/yalue/onnxruntime_go"
@@ -22,8 +23,9 @@ import (
 func Available() bool { return true }
 
 var (
-	envOnce sync.Once
-	envErr  error
+	envOnce   sync.Once
+	envErr    error
+	envLoaded atomic.Bool
 )
 
 // libraryCandidates are tried in order when ONNXRUNTIME_LIB is unset.
@@ -66,9 +68,78 @@ func initEnvironment() error {
 		ort.SetSharedLibraryPath(lib)
 		if err := ort.InitializeEnvironment(); err != nil {
 			envErr = fmt.Errorf("onnx: load %s: %w", lib, err)
+			return
 		}
+		envLoaded.Store(true)
 	})
 	return envErr
+}
+
+// loadedRuntimeVersion is the ONNX Runtime version once the library is
+// loaded, else "" (it never loads it).
+func loadedRuntimeVersion() string {
+	if !envLoaded.Load() {
+		return ""
+	}
+	return ort.GetVersion()
+}
+
+// appendCUDA adds the CUDA execution provider on a device to opts. ONNX
+// Runtime loads libonnxruntime_providers_cuda.so from the directory of
+// libonnxruntime.so; the CPU build of ONNX Runtime has no CUDA provider and
+// fails here.
+func appendCUDA(opts *ort.SessionOptions, device int) error {
+	cuda, err := ort.NewCUDAProviderOptions()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = cuda.Destroy() }()
+	if err := cuda.Update(map[string]string{"device_id": strconv.Itoa(device)}); err != nil {
+		return err
+	}
+	return opts.AppendExecutionProviderCUDA(cuda)
+}
+
+// probeCUDAProvider creates a session with the CUDA provider on device for
+// the one-node probe model and runs it once: CUDA starts (driver, runtime,
+// cuDNN, a visible device) or this fails.
+func probeCUDAProvider(device int) error {
+	if err := initEnvironment(); err != nil {
+		return err
+	}
+	opts, err := ort.NewSessionOptions()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = opts.Destroy() }()
+	if err := appendCUDA(opts, device); err != nil {
+		return err
+	}
+	return runProbe(opts)
+}
+
+// runProbe runs the probe model (y = x + x) with opts.
+func runProbe(opts *ort.SessionOptions) error {
+	s, err := ort.NewDynamicAdvancedSessionWithONNXData(probeModel(), []string{"x"}, []string{"y"}, opts)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = s.Destroy() }()
+	x, err := ort.NewTensor(ort.NewShape(1), []float32{1.5})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = x.Destroy() }()
+	out := []ort.Value{nil}
+	if err := s.Run([]ort.Value{x}, out); err != nil {
+		return err
+	}
+	defer func() { _ = out[0].Destroy() }()
+	y, ok := out[0].(*ort.Tensor[float32])
+	if !ok || len(y.GetData()) != 1 || y.GetData()[0] != 3 {
+		return fmt.Errorf("onnx: provider probe returned %v", out[0])
+	}
+	return nil
 }
 
 // RuntimeVersion is the loaded ONNX Runtime version.
@@ -82,6 +153,13 @@ func RuntimeVersion() (string, error) {
 func newBackend(dir string, kind modelKind, o Options) (tokenizer, session, error) {
 	if err := initEnvironment(); err != nil {
 		return nil, nil, err
+	}
+	if o.Provider == "" || o.Provider == ProviderAuto {
+		// INFERENCE_PROVIDER, resolved once: cuda that cannot start is an
+		// error here too, for callers that did not call InitProvider first.
+		if _, err := InitProvider(); err != nil {
+			return nil, nil, err
+		}
 	}
 	tok, err := newHFTokenizer(filepath.Join(dir, TokenizerFile))
 	if err != nil {
@@ -274,6 +352,11 @@ func newORTSession(path string, kind modelKind, o Options) (*ortSession, error) 
 	}
 	if err := opts.SetGraphOptimizationLevel(ort.GraphOptimizationLevelEnableAll); err != nil {
 		return nil, err
+	}
+	if prov, device := o.provider(); prov == ProviderCUDA {
+		if err := appendCUDA(opts, device); err != nil {
+			return nil, fmt.Errorf("onnx: %s: CUDA execution provider on device %d: %w", path, device, err)
+		}
 	}
 	s.s, err = ort.NewDynamicAdvancedSession(path, s.inputs, []string{output}, opts)
 	if err != nil {

@@ -514,6 +514,17 @@ func (l *Live) L2Name() string {
 	return l.cur.l2.Name
 }
 
+// L2ModelFile is the model file the running classifier was loaded from
+// (model_int8.onnx on the CPU, model_fp16.onnx on CUDA), "" without one.
+func (l *Live) L2ModelFile() string {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	if l.cur.l2 == nil || l.cur.l2.Dir == "" {
+		return ""
+	}
+	return filepath.Base(onnx.ResolveModelFile(l.cur.l2.Dir, onnx.Options{}))
+}
+
 // Fusion is the fusion method of the running generation.
 func (l *Live) Fusion() string {
 	l.mu.RLock()
