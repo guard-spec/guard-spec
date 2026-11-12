@@ -222,7 +222,7 @@ func resolveProvider(get func(string) string, probe func(device int) error,
 			return cfg, st, fmt.Errorf("%w: %s=cuda, but the CUDA execution provider cannot start on device %d: %v. "+
 				"The GPU option needs the -gpu image (ONNX Runtime GPU, CUDA 12), an NVIDIA GPU with driver 525 or newer "+
 				"and the NVIDIA container runtime; set %s=cpu (the default) or auto to run on the CPU",
-				ErrProviderUnavailable, EnvProvider, cfg.DeviceID, err, EnvProvider)
+				ErrProviderUnavailable, EnvProvider, cfg.DeviceID, strings.TrimRight(err.Error(), ". "), EnvProvider)
 		}
 		st.Fallback = err.Error()
 		slog.Warn(EnvProvider+"=auto: the CUDA execution provider cannot start; the models run on the CPU",

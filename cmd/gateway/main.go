@@ -99,6 +99,17 @@ func main() {
 		os.Exit(1)
 	}
 
+	// The execution provider (INFERENCE_PROVIDER), before anything else
+	// starts: the CPU by default; cuda that cannot start stops the gateway
+	// here, auto falls back to the CPU with a warning.
+	prov, err := onnx.InitProvider()
+	if err != nil {
+		slog.Error("inference provider", "err", err)
+		os.Exit(1)
+	}
+	slog.Info("inference provider", append(prov.LogAttrs(), "batch_size", onnx.BatchSize(),
+		"max_concurrency", onnx.MaxConcurrencyFromEnv())...)
+
 	var upstream *proxy.Proxy
 	if cfg.UpstreamURL != "" {
 		upstream, err = proxy.New(proxy.Config{
@@ -129,16 +140,6 @@ func main() {
 		os.Exit(1)
 	}
 	defer db.Close()
-
-	// The execution provider (INFERENCE_PROVIDER): the CPU by default; cuda
-	// that cannot start stops the gateway here, auto falls back to the CPU.
-	prov, err := onnx.InitProvider()
-	if err != nil {
-		slog.Error("inference provider", "err", err)
-		os.Exit(1)
-	}
-	slog.Info("inference provider", append(prov.LogAttrs(), "batch_size", onnx.BatchSize(),
-		"max_concurrency", onnx.MaxConcurrencyFromEnv())...)
 
 	// L1 rules plus the model layers that load (L2 classifier, L3 embeddings).
 	detector, err := buildDetector(context.Background(), cfg.Detector, dbExemplarStore{db: db})
