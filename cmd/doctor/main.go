@@ -15,6 +15,9 @@
 //	migrations  schema_migrations is clean and at the newest migration in -migrations
 //	models      the model files of the requested ML layers match the manifest's SHA-256
 //	layers      which detection layers (L1, L2, L3) the gateway would load
+//	inference   the execution provider (INFERENCE_PROVIDER: cpu by default,
+//	            cuda or auto), the GPU, CUDA and ONNX Runtime versions and the
+//	            classifier file (model_int8.onnx, or model_fp16.onnx on CUDA)
 //	upstream    UPSTREAM_LLM_URL answers HTTP
 //	security    secrets set and strong, GUARD_ENV not dev, TLS hints
 //	secrets     where the secret settings come from (env, file, Vault), that

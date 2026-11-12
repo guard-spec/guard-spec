@@ -1,0 +1,21 @@
+# Used by CI (helm lint and template): the GPU option. No GPU image is
+# published, so the gateway runs the user's own build of
+# build/gateway-gpu.Dockerfile (gpu.image), with INFERENCE_PROVIDER=cuda and
+# one nvidia.com/gpu, on GPU nodes picked with the usual nodeSelector and
+# tolerations keys; the models-pull init container also fetches the FP16
+# model. Not a deployment example: see docs/deploy/README.md, "GPU".
+gateway:
+  gpu:
+    enabled: true
+    image:
+      repository: registry.example.com/guard-spec-gateway
+      tag: 0.6.0-gpu
+  nodeSelector:
+    nvidia.com/gpu.present: "true"
+  tolerations:
+    - key: nvidia.com/gpu
+      operator: Exists
+      effect: NoSchedule
+models:
+  pull:
+    enabled: true

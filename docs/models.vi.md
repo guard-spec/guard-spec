@@ -42,6 +42,13 @@ models/cache/
 Nhiều phiên bản của cùng một model có thể nằm cạnh nhau; nhờ vậy rollback chỉ
 cần một lần khởi động lại.
 
+Với tùy chọn GPU ([triển khai, GPU](deploy/README.vi.md#gpu-tùy-chọn)), một
+phiên bản bộ phân loại có thể có thêm `model_fp16.onnx`: cùng checkpoint ở
+dạng FP16 cho CUDA execution provider của ONNX Runtime (`train/export.py
+--fp16`). Manifest đánh dấu file này `provider: cuda`: `models pull -provider
+cuda` (hoặc `INFERENCE_PROVIDER=cuda`/`auto`, như trong image GPU) sẽ tải
+nó, bản cài cho CPU không bao giờ tải, và CPU vẫn nạp `model_int8.onnx`.
+
 ## Tải model
 
 ```bash

@@ -38,7 +38,7 @@ const (
 )
 
 // checkNames are the checks in the order they run.
-var checkNames = []string{"database", "migrations", "models", "layers", "upstream", "security", "secrets", "encryption", "advisories"}
+var checkNames = []string{"database", "migrations", "models", "layers", "inference", "upstream", "security", "secrets", "encryption", "advisories"}
 
 func isCheckName(s string) bool {
 	for _, n := range checkNames {
@@ -99,6 +99,9 @@ type doctor struct {
 	dbErr bool      // the database check did not connect
 
 	layers *layerReport // computed once, used by models and layers
+
+	// gpuInfo names a CUDA device's GPU and driver; nil: onnx.GPUInfo (tests replace it).
+	gpuInfo func(device int) (gpu, driver string)
 }
 
 // Run runs every check that is not skipped, prints the report and returns
@@ -132,6 +135,7 @@ func Collect(ctx context.Context, get func(string) string, opts Options) Report 
 		"migrations": d.checkMigrations,
 		"models":     d.checkModels,
 		"layers":     d.checkLayers,
+		"inference":  d.checkInference,
 		"upstream":   d.checkUpstream,
 		"security":   d.checkSecurity,
 		"encryption": d.checkEncryption,

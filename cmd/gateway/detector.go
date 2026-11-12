@@ -121,8 +121,25 @@ type detectorStatus struct {
 	// recommended version and the installed ones, shadow mode and the last
 	// reload. Absent without a reloadable detector (tests).
 	Models *ml.Status `json:"models,omitempty"`
+	// Inference is the execution provider (INFERENCE_PROVIDER): the CPU by
+	// default, or CUDA with the GPU, driver, CUDA and ONNX Runtime versions,
+	// and the classifier's model file. Absent without a reloadable detector.
+	Inference *inferenceStatus `json:"inference,omitempty"`
 
 	live *ml.Live
+}
+
+// inferenceStatus is the inference part of /readyz.
+type inferenceStatus struct {
+	onnx.ProviderState
+	BatchSize      int    `json:"batch_size"`
+	MaxConcurrency int    `json:"max_concurrency"`
+	L2ModelFile    string `json:"l2_model_file,omitempty"`
+}
+
+func newInferenceStatus(live *ml.Live) *inferenceStatus {
+	return &inferenceStatus{ProviderState: onnx.CurrentProvider(), BatchSize: onnx.BatchSize(),
+		MaxConcurrency: onnx.DefaultLimiter().Cap(), L2ModelFile: live.L2ModelFile()}
 }
 
 // current fills in the parts that a reload can change.
@@ -138,6 +155,7 @@ func (d detectorStatus) current() detectorStatus {
 	d.Fusion, d.L2Model, d.L1Floor = d.live.Fusion(), d.live.L2Name(), d.live.L1Floor()
 	st := d.live.Status()
 	d.Models = &st
+	d.Inference = newInferenceStatus(d.live)
 	return d
 }
 

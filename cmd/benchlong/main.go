@@ -33,6 +33,11 @@
 // Every text first goes through the gateway's sanitizer, as in cmd/eval.
 // Output: bench/results/long-<host>.{json,md}. The JSON holds quantiles and
 // rates, never raw scores or text.
+//
+// -split dev (or holdout) keeps the corpus documents of one split. -units
+// <file> also writes every document's unit scores as JSON lines (id, kind,
+// split, lang and per layer one score per unit, no text), for comparing two
+// runs unit by unit: INT8 and FP16, or CPU and CUDA (INFERENCE_PROVIDER).
 package main
 
 import (
@@ -142,6 +147,8 @@ func main() {
 		longDoc    = flag.String("longdoc", "on", "apply the classifier's long document rule (calibration.json long_doc) on the long path, as the gateway does: on or off")
 		l2Pass     = flag.String("l2pass", "on", "score the classifier alone on every window (layer \"l2\"): on or off")
 		dump       = flag.String("dump", "", "write the long path's window scores (no text) to <dump>-dev.jsonl.gz and <dump>-holdout.jsonl.gz")
+		split      = flag.String("split", "", "keep only the corpus documents of this split (dev or holdout)")
+		unitsOut   = flag.String("units", "", "also write every document's unit scores (no text) as JSON lines to this file")
 	)
 	flag.Parse()
 	slog.SetLogLoggerLevel(slog.LevelWarn)
@@ -191,6 +198,12 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
+	if *split != "" {
+		docs = filterSplit(docs, *split)
+		if len(docs) == 0 {
+			fatal(fmt.Errorf("no documents of split %q", *split))
+		}
+	}
 	ortVer, err := onnx.RuntimeVersion()
 	if err != nil {
 		fatal(err)
@@ -228,6 +241,12 @@ func main() {
 		fatal(err)
 	}
 	_ = e.close()
+	if *unitsOut != "" {
+		if err := writeUnits(*unitsOut, docs, res); err != nil {
+			fatal(err)
+		}
+		logf("wrote %s", *unitsOut)
+	}
 
 	if !*skipLat && len(layerSets) > 0 {
 		rep.Latency = latencyRuns(ctx, layerSets, docs, concs, intras, *latMax, useCap)
@@ -318,6 +337,53 @@ func loadCorpus(dir string) ([]Doc, string, error) {
 		return nil, "", err
 	}
 	return docs, hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// filterSplit keeps the documents of one split.
+func filterSplit(docs []Doc, split string) []Doc {
+	var out []Doc
+	for _, d := range docs {
+		if splitOf(d) == split {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// UnitScores is one line of -units: a document's scores per layer, one per
+// unit (l2: window; fused: chunk), in text order.
+type UnitScores struct {
+	ID       string               `json:"id"`
+	Kind     string               `json:"kind"`
+	Split    string               `json:"split,omitempty"`
+	Lang     string               `json:"lang"`
+	Tokens   int                  `json:"tokens"`
+	Anomaly  float64              `json:"anomaly"`
+	Rejected bool                 `json:"rejected,omitempty"`
+	Units    map[string][]float64 `json:"units"`
+}
+
+// writeUnits writes the -units file.
+func writeUnits(path string, docs []Doc, res []docScore) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	w := bufio.NewWriter(f)
+	enc := json.NewEncoder(w)
+	for i, d := range docs {
+		r := res[i]
+		if err := enc.Encode(UnitScores{ID: d.ID, Kind: d.Kind, Split: d.Split, Lang: d.Lang, Tokens: r.tokens,
+			Anomaly: r.anomaly, Rejected: r.rejected, Units: r.units}); err != nil {
+			_ = f.Close()
+			return err
+		}
+	}
+	if err := w.Flush(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
 }
 
 func loadTxt(dir, lang string) ([]Doc, error) {
@@ -808,15 +874,22 @@ type Header struct {
 	Layers         []string `json:"layers"`
 	Block          float64  `json:"block_threshold"`
 	L2Cap          bool     `json:"l2_cap"` // the classifier's cap for untrusted content applied to the fused chunks
+	// Provider is the execution provider (INFERENCE_PROVIDER), with the GPU
+	// when it is cuda; ModelFile the classifier file it ran.
+	Provider  onnx.ProviderState `json:"provider"`
+	ModelFile string             `json:"model_file"`
+	BatchSize int                `json:"inference_batch_size"`
 }
 
 func header(e *engine, ort, profile, corpusSHA, host string, docs int) Header {
+	model := onnx.ResolveModelFile(e.l2Dir, onnx.Options{})
 	return Header{
 		Date: time.Now().UTC().Format(time.RFC3339), Host: host, Profile: profile, CorpusSHA256: corpusSHA,
-		Docs: docs, Model: e.l2Name, ModelSHA256: fileSHA(onnx.ResolveModelFile(e.l2Dir, onnx.Options{})), ORT: ort,
+		Docs: docs, Model: e.l2Name, ModelSHA256: fileSHA(model), ORT: ort,
 		CPU: cpuModel(), VCPU: runtime.NumCPU(), GOOS: runtime.GOOS, GOARCH: runtime.GOARCH, Commit: commit(),
 		MaxConcurrency: onnx.MaxConcurrencyFromEnv(), IntraOp: os.Getenv(onnx.EnvIntraOpThreads),
 		Layers: e.names(), Block: blockThreshold, L2Cap: e.capped,
+		Provider: onnx.CurrentProvider(), ModelFile: filepath.Base(model), BatchSize: onnx.BatchSize(),
 	}
 }
 

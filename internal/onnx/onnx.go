@@ -45,7 +45,7 @@ const (
 
 // Environment variables read by this package.
 const (
-	// EnvMaxConcurrency bounds concurrent model runs process-wide (default: NumCPU).
+	// EnvMaxConcurrency bounds concurrent model runs process-wide (default: NumCPU; 2 on CUDA).
 	EnvMaxConcurrency = "INFERENCE_MAX_CONCURRENCY"
 	// EnvIntraOpThreads sets ONNX Runtime intra-op threads per session (default: min(4, NumCPU) on Linux, ORT's choice elsewhere; 0 = ORT's choice).
 	EnvIntraOpThreads = "INFERENCE_INTRA_OP_THREADS"
@@ -71,7 +71,8 @@ type Options struct {
 	MaxLength int
 	// Stride is the overlap between consecutive windows in tokens (default 64).
 	Stride int
-	// BatchSize is the number of windows per ONNX run (default 8).
+	// BatchSize is the number of windows per ONNX run. Default:
+	// $INFERENCE_BATCH_SIZE, else DefaultCUDABatchSize on CUDA, else 8.
 	BatchSize int
 	// MaxChunks caps the windows per text (default 64; negative: no cap).
 	MaxChunks int
@@ -79,9 +80,14 @@ type Options struct {
 	Limiter *Limiter
 	// Head for classifiers. Default HeadAuto (config.json problem_type).
 	Head Head
-	// ModelFile is the model file name inside the directory. Default: the
-	// first of model.onnx and model_int8.onnx that exists.
+	// ModelFile is the model file name inside the directory. Default: see
+	// ResolveModelFile.
 	ModelFile string
+	// Provider is the execution provider of this model: ProviderCPU or
+	// ProviderCUDA (on CUDADeviceID). Default (empty or ProviderAuto):
+	// INFERENCE_PROVIDER as resolved by InitProvider.
+	Provider     Provider
+	CUDADeviceID int
 	// IntraOpThreads for ONNX Runtime. Default: $INFERENCE_INTRA_OP_THREADS, else see EnvIntraOpThreads.
 	IntraOpThreads int
 	// Prefix is text put at the start of every window, after the special
@@ -130,11 +136,14 @@ func (l *Limiter) Release() { <-l.sem }
 // Cap is the number of concurrent runs allowed.
 func (l *Limiter) Cap() int { return cap(l.sem) }
 
-// MaxConcurrencyFromEnv returns $INFERENCE_MAX_CONCURRENCY, or runtime.NumCPU()
-// when unset or invalid.
+// MaxConcurrencyFromEnv returns $INFERENCE_MAX_CONCURRENCY, or when unset or
+// invalid runtime.NumCPU() on the CPU and 2 on CUDA.
 func MaxConcurrencyFromEnv() int {
 	if n, err := strconv.Atoi(os.Getenv(EnvMaxConcurrency)); err == nil && n > 0 {
 		return n
+	}
+	if st, _ := activeProvider(); st.Active == ProviderCUDA {
+		return defaultCUDAMaxConcurrency
 	}
 	return runtime.NumCPU()
 }
@@ -178,13 +187,33 @@ type session interface {
 	Close() error
 }
 
-// ResolveModelFile returns the model path inside dir: Options.ModelFile if set,
-// else the first of model.onnx and model_int8.onnx that exists.
+// provider is the execution provider and CUDA device of a model.
+func (o Options) provider() (Provider, int) {
+	if o.Provider == ProviderCPU || o.Provider == ProviderCUDA {
+		return o.Provider, o.CUDADeviceID
+	}
+	st, _ := activeProvider()
+	return st.Active, st.DeviceID
+}
+
+// modelFileNames are the model files tried in order on a provider.
+func modelFileNames(p Provider) []string {
+	if p == ProviderCUDA {
+		// FP16 for the GPU; a directory without it still loads (slowly).
+		return []string{ModelFP16File, ModelFile, ModelInt8File}
+	}
+	return []string{ModelFile, ModelInt8File}
+}
+
+// ResolveModelFile returns the model path inside dir: Options.ModelFile if
+// set, else the first that exists of model.onnx and model_int8.onnx on the
+// CPU, and of model_fp16.onnx, model.onnx and model_int8.onnx on CUDA.
 func ResolveModelFile(dir string, o Options) string {
 	if o.ModelFile != "" {
 		return filepath.Join(dir, o.ModelFile)
 	}
-	for _, name := range []string{ModelFile, ModelInt8File} {
+	p, _ := o.provider()
+	for _, name := range modelFileNames(p) {
 		if p := filepath.Join(dir, name); fileExists(p) {
 			return p
 		}
@@ -275,7 +304,7 @@ func newModel(tok tokenizer, sess session, cfg modelConfig, o Options) (*model, 
 	}
 	m.batchSize = o.BatchSize
 	if m.batchSize <= 0 {
-		m.batchSize = defaultBatchSize
+		m.batchSize = BatchSize()
 	}
 	m.maxChunks = o.MaxChunks
 	if m.maxChunks == 0 {

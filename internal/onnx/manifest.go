@@ -68,6 +68,46 @@ type ManifestFile struct {
 	Size    int64  `yaml:"size"`
 	SHA256  string `yaml:"sha256"`
 	GitSHA1 string `yaml:"git_sha1"`
+	// Provider marks a file that only one execution provider needs, such as
+	// model_fp16.onnx for cuda. `models pull` and `models init` fetch it only
+	// for that provider (INFERENCE_PROVIDER cuda or auto), so CPU installs
+	// never download it; when it is present it is verified like any other
+	// file, and its absence never makes an install incomplete (the gateway
+	// then loads the INT8 model). Empty: every provider needs the file.
+	Provider Provider `yaml:"provider"`
+}
+
+// SkipIfAbsent reports whether f may be missing from dir: a provider file
+// that is not there.
+func (f ManifestFile) SkipIfAbsent(dir string) bool {
+	if f.Provider == "" {
+		return false
+	}
+	_, err := os.Lstat(filepath.Join(dir, f.Dest))
+	return errors.Is(err, os.ErrNotExist)
+}
+
+// FilesFor are the files of m that provider p needs: the common ones, plus
+// those for CUDA when p is cuda or auto (which may run on CUDA).
+func (m *ManifestModel) FilesFor(p Provider) []ManifestFile {
+	out := make([]ManifestFile, 0, len(m.Files))
+	for _, f := range m.Files {
+		if f.Provider == "" || f.Provider == p || (p == ProviderAuto && f.Provider == ProviderCUDA) {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// ManifestProvider is the provider whose files `models pull`, `models
+// verify`, doctor and the gateway's checks consider: INFERENCE_PROVIDER, the
+// CPU when unset or invalid (the gateway reports an invalid value itself).
+func ManifestProvider(get func(string) string) Provider {
+	p, err := ParseProvider(get(EnvProvider))
+	if err != nil {
+		return ProviderCPU
+	}
+	return p
 }
 
 // LoadManifest reads and validates a manifest file.
@@ -147,6 +187,12 @@ func (m *Manifest) Validate() error {
 			}
 			if f.SHA256 == "" && len(mod.Mirrors) > 0 {
 				return fmt.Errorf("model %s file %s: files of a model with mirrors need sha256", mod.Ref(), f.Src)
+			}
+			if f.Provider != "" && f.Provider != ProviderCUDA {
+				return fmt.Errorf("model %s file %s: provider %q: only cuda files can be marked", mod.Ref(), f.Src, f.Provider)
+			}
+			if f.Provider != "" && f.SHA256 == "" {
+				return fmt.Errorf("model %s file %s: a provider file needs sha256", mod.Ref(), f.Src)
 			}
 		}
 	}
@@ -257,6 +303,9 @@ type Puller struct {
 	// (MODELS_MIRROR): an internal mirror or a local file server.
 	Mirror string
 	Log    func(format string, args ...any)
+	// Provider selects the provider-specific files to pull (ManifestFile.Provider);
+	// empty: the CPU, which needs none of them.
+	Provider Provider
 }
 
 // FileURL is the Hugging Face download URL of a file at the pinned revision.
@@ -289,10 +338,14 @@ func (p *Puller) sources(m *ManifestModel, f ManifestFile) []source {
 	return out
 }
 
-// Installed reports whether every file of m is in place under root and
-// matches the manifest (the full SHA-256 check).
-func Installed(m *ManifestModel, root string) bool {
-	for _, f := range m.Files {
+// Installed reports whether every file of m that the CPU needs is in place
+// under root and matches the manifest (the full SHA-256 check).
+func Installed(m *ManifestModel, root string) bool { return InstalledFor(m, root, ProviderCPU) }
+
+// InstalledFor is Installed for the files that provider p needs
+// (ManifestModel.FilesFor).
+func InstalledFor(m *ManifestModel, root string, p Provider) bool {
+	for _, f := range m.FilesFor(p) {
 		if VerifyFile(filepath.Join(m.Dir(root), f.Dest), f) != nil {
 			return false
 		}
@@ -308,7 +361,11 @@ func Installed(m *ManifestModel, root string) bool {
 // A failed pull leaves the previous state untouched.
 func (p *Puller) Pull(ctx context.Context, m *ManifestModel, root string) error {
 	final := m.Dir(root)
-	if Installed(m, root) {
+	prov := p.Provider
+	if prov == "" {
+		prov = ProviderCPU
+	}
+	if InstalledFor(m, root, prov) {
 		p.logf("%s: present, verified", m.Ref())
 		return nil
 	}
@@ -321,7 +378,7 @@ func (p *Puller) Pull(ctx context.Context, m *ManifestModel, root string) error 
 		return err
 	}
 	defer func() { _ = os.RemoveAll(tmp) }() // no-op after a successful rename
-	for _, f := range m.Files {
+	for _, f := range m.FilesFor(prov) {
 		dest := filepath.Join(tmp, f.Dest)
 		if p.reuse(m, f, dest, final, parent) {
 			continue

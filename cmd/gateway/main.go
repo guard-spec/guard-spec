@@ -30,6 +30,7 @@ import (
 	"github.com/guard-spec/guard-spec/internal/inference"
 	"github.com/guard-spec/guard-spec/internal/inference/ml"
 	"github.com/guard-spec/guard-spec/internal/metrics"
+	"github.com/guard-spec/guard-spec/internal/onnx"
 	"github.com/guard-spec/guard-spec/internal/outputguard"
 	"github.com/guard-spec/guard-spec/internal/policy"
 	"github.com/guard-spec/guard-spec/internal/proxy"
@@ -97,6 +98,17 @@ func main() {
 		slog.Error("config", "err", err)
 		os.Exit(1)
 	}
+
+	// The execution provider (INFERENCE_PROVIDER), before anything else
+	// starts: the CPU by default; cuda that cannot start stops the gateway
+	// here, auto falls back to the CPU with a warning.
+	prov, err := onnx.InitProvider()
+	if err != nil {
+		slog.Error("inference provider", "err", err)
+		os.Exit(1)
+	}
+	slog.Info("inference provider", append(prov.LogAttrs(), "batch_size", onnx.BatchSize(),
+		"max_concurrency", onnx.MaxConcurrencyFromEnv())...)
 
 	var upstream *proxy.Proxy
 	if cfg.UpstreamURL != "" {

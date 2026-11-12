@@ -14,3 +14,7 @@ func LibraryPath() string { return "" }
 func newBackend(string, modelKind, Options) (tokenizer, session, error) {
 	return nil, nil, ErrUnavailable
 }
+
+func probeCUDAProvider(int) error { return ErrUnavailable }
+
+func loadedRuntimeVersion() string { return "" }
