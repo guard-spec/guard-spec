@@ -355,6 +355,11 @@ def load_source(name: str, src: dict, cache: Path, sources: dict | None = None) 
                 # The licence comment every file of the repository starts with: the same text in every file,
                 # and in other code of the training data, so it says nothing about the file (R5).
                 text = re.sub(r"\A\s*/\*.*?Licensed under the Apache License.*?\*/\s*", "", text, count=1, flags=re.S)
+            elif src.get("strip") == "license-header-lines":
+                # The same licence as `//` comment lines at the top of a file (Prometheus, R6).
+                m = re.match(r"\A(?:[ \t]*//[^\n]*\n)+", text)
+                if m and "Licensed under the Apache License" in m.group(0):
+                    text = text[m.end():]
             text = tidy(text)
             if src.get("lang_filter") == "vi" and vietnamese_share(text) < 0.05:
                 continue

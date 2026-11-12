@@ -824,6 +824,288 @@ sources:
     terms: Dataset card license field; used locally for measurement, never redistributed.
     sha256: 32e6a4ace1521214b46f7bf2a62ac840b951f94d5655e244458c0ffdf136d765
 
+  # ---------------------------------------------------------------------
+  # Sources of the `long6` profile (2026-11-12, RF-895d3533 R6): the final
+  # holdout of the v7 classifier (train/reports/v7_preregistration.md),
+  # pinned and committed before any v7 training run and scored once. Its text
+  # is in no other profile and in no v7 training row: other Wikipedia and
+  # Wikisource files, other U.S. Code titles, other RFCs, other repositories
+  # (Prometheus, the Kubernetes setup, tutorials and contribute sections, the
+  # Docker Compose, Desktop, Scout and Hardened Images manuals), and for the Vietnamese laws the units of the Wikisource
+  # dump that `long` and `long5` left unused. The v7 training data
+  # (train/data/sources_v7.yaml) takes its text from further files and
+  # sections, and train/data/build_v7.py drops every training unit that shares
+  # a 50-token shingle with a `long6` (or long, long5, quick, full) document.
+  wikipedia6-en:
+    lang: en
+    genre: wiki
+    kind: hf-parquet
+    repo: wikimedia/wikipedia
+    revision: b04c8d1ceb2f5cd4588862100d08de323dccfbaa
+    file: 20231101.en/train-00002-of-00041.parquet
+    file_sha256: b18674f163d4f106e43396fd58412a79b80a418c72bb728c20af439e7ca4d5b7
+    row_groups: [0, 1, 2, 3]
+    license: CC-BY-SA-3.0 / GFDL
+    terms: Dataset card license field; used locally for measurement, never redistributed.
+    sha256: aa1af89972853c533425055c40a6c71e6a44ceb10e44f3c7414bfd2e6806a9c4
+  wikipedia6-vi:
+    lang: vi
+    genre: wiki
+    kind: hf-parquet
+    repo: wikimedia/wikipedia
+    revision: b04c8d1ceb2f5cd4588862100d08de323dccfbaa
+    file: 20231101.vi/train-00003-of-00004.parquet
+    file_sha256: 0f5c15b2c8836c02547c796a817dd85b980897916259ed9e8f76580482f0cb77
+    row_group_range: [196, 216] # row groups 196 to 215 (articles of 1,500 characters or more; the first groups hold short stubs)
+    license: CC-BY-SA-3.0 / GFDL
+    terms: Dataset card license field; used locally for measurement, never redistributed.
+    sha256: 6a54699932244642ba9924dc5246993058ddcdb454edf42a443193fedb9876ed
+  uscode6-en:
+    lang: en
+    genre: legal
+    kind: http-html
+    # United States Code, 2023 main edition (GovInfo), titles not used above:
+    # 21 (Food and Drugs), 22 (Foreign Relations and Intercourse), 23
+    # (Highways), 31 (Money and Finance) and 47 (Telecommunications).
+    urls:
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title21/html/USCODE-2023-title21.htm
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title22/html/USCODE-2023-title22.htm
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title23/html/USCODE-2023-title23.htm
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title31/html/USCODE-2023-title31.htm
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title47/html/USCODE-2023-title47.htm
+    license: Public domain (17 U.S.C. 105)
+    terms: GovInfo content is public domain U.S. Government work; bulk use is allowed.
+    sha256: e94f390b3b40843e7505e261d33717e9ef64ba1e4a8ee7c51ee86b3b3c94d945
+  prom-tsdb6-en:
+    lang: en
+    genre: code
+    kind: github-tree
+    # Go source of Prometheus (prometheus/prometheus at the v2.54.1 tag,
+    # Apache-2.0): the tsdb directory; with prom-promql6-en one `code` pool.
+    # The Apache-2.0 comment lines at the top of every file are stripped.
+    repo: prometheus/prometheus
+    commit: e6cfa720fbe6280153fab13090a483dbd40bece3
+    prefix: tsdb
+    tree_sha: 04b6d58f28e991af424cb51e1447ad80c79fab67
+    suffixes: [.go]
+    min_bytes: 2000
+    strip: license-header-lines
+    file_header: "// File: {path}\n"
+    max_unit_chars: 60000
+    license: Apache-2.0 (prometheus/prometheus LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 7139d52ca773df36581cde095c9f42fd1756eb5433aab0be4a9e6dadd922afc9
+  prom-promql6-en:
+    lang: en
+    genre: code
+    kind: github-tree
+    repo: prometheus/prometheus
+    commit: e6cfa720fbe6280153fab13090a483dbd40bece3
+    prefix: promql
+    tree_sha: 42b13a9f2e341c5ed194b2fc88fbcc3edf48d1f0
+    suffixes: [.go]
+    min_bytes: 2000
+    strip: license-header-lines
+    file_header: "// File: {path}\n"
+    max_unit_chars: 60000
+    license: Apache-2.0 (prometheus/prometheus LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 7edc6d7b4b779678e446bff0f9803de3d61fc5df3a04eaebbda8ba2e14a6102c
+  k8s-setup6-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    # Kubernetes documentation (kubernetes/website at the commit pinned above,
+    # CC-BY-4.0): the setup and tutorials sections, which no other profile
+    # reads; with docker-compose6-en one `docs` pool.
+    repo: kubernetes/website
+    commit: 4c77b36edb121506e7eb2983777e7c4b49f98ab1
+    prefix: content/en/docs/setup
+    tree_sha: 6997b3cb596ed6e8eb093d93cae3e0df87b785e5
+    suffixes: [.md]
+    min_bytes: 2000
+    strip: front-matter
+    max_unit_chars: 60000
+    license: CC-BY-4.0 (kubernetes/website LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 910d03cb242a5ea86e17dae061a7005c1ceca2e962c156ea01e65a81454f9ffa
+  k8s-tutorials6-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    repo: kubernetes/website
+    commit: 4c77b36edb121506e7eb2983777e7c4b49f98ab1
+    prefix: content/en/docs/tutorials
+    tree_sha: 585009b659d0e448d2c1711e280751519f204a57
+    suffixes: [.md]
+    min_bytes: 2000
+    strip: front-matter
+    max_unit_chars: 60000
+    license: CC-BY-4.0 (kubernetes/website LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 182f35177294dfa17e9c6faee5165f6b07ed2c943f7f92311e5d8ce023e381a5
+  docker-compose6-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    # The Docker Compose manual of the Docker documentation (docker/docs,
+    # Apache-2.0) at a pinned commit, front matter stripped.
+    repo: docker/docs
+    commit: 61cbfdc1e72d0ac62dbac59ceaf7b94dcbe69c80
+    prefix: content/manuals/compose
+    tree_sha: 0b52046ffbd58b4721c9772f7f9b24bf632c4856
+    suffixes: [.md]
+    min_bytes: 2000
+    strip: front-matter
+    max_unit_chars: 60000
+    license: Apache-2.0 (docker/docs LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: a1297324bb8169793c7265b68a001c1cf8fab7a9a099b278bc6e8daf0a2fc2f4
+  k8s-contribute6-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    repo: kubernetes/website
+    commit: 4c77b36edb121506e7eb2983777e7c4b49f98ab1
+    prefix: content/en/docs/contribute
+    tree_sha: 548bf4a59d4d6bf59904966c3275acdef2693faa
+    suffixes: [.md]
+    min_bytes: 2000
+    strip: front-matter
+    max_unit_chars: 60000
+    license: CC-BY-4.0 (kubernetes/website LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 428a4ece8cdf58bea1973462e84d1adf231e398d80993ec7ca07ecc6a7f282e9
+  docker-desktop6-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    # Further Docker manuals (Desktop, Scout, Hardened Images), none of them in the v7 training data.
+    repo: docker/docs
+    commit: 61cbfdc1e72d0ac62dbac59ceaf7b94dcbe69c80
+    prefix: content/manuals/desktop
+    tree_sha: cd20229559b33efebe03697e0831e57235d92b28
+    suffixes: [.md]
+    min_bytes: 2000
+    strip: front-matter
+    max_unit_chars: 60000
+    license: Apache-2.0 (docker/docs LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: d5657e1b2cf8b5bca40030b64192ff55e2c4daaa61267ed4b2850f5448995b89
+  docker-scout6-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    repo: docker/docs
+    commit: 61cbfdc1e72d0ac62dbac59ceaf7b94dcbe69c80
+    prefix: content/manuals/scout
+    tree_sha: ee10861ca5cd1523a42de8e3f05cc2e6b038914e
+    suffixes: [.md]
+    min_bytes: 2000
+    strip: front-matter
+    max_unit_chars: 60000
+    license: Apache-2.0 (docker/docs LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: c5fc0cf86586bb5822f4c42548c5298298df4e78562f3223124967c975186d01
+  docker-dhi6-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    repo: docker/docs
+    commit: 61cbfdc1e72d0ac62dbac59ceaf7b94dcbe69c80
+    prefix: content/manuals/dhi
+    tree_sha: 380eeb907d82a0873823bba232d2b94438f5992f
+    suffixes: [.md]
+    min_bytes: 2000
+    strip: front-matter
+    max_unit_chars: 60000
+    license: Apache-2.0 (docker/docs LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 12b8e7050ec3a926f0c7666e5be5cb9163b27df7c77c4c9d6db8bf9b328ad349
+  wikisource6-en:
+    lang: en
+    genre: prose
+    kind: hf-parquet
+    repo: wikimedia/wikisource
+    revision: f31a033f5f3d2107b3e864e578710df104a00baa
+    file: 20231201.en/train-00002-of-00005.parquet
+    file_sha256: 47a53d6633f0962e9ddb10d30fcbe353ed6dc4de8aef338a0e15a0d921d1611b
+    row_groups: [0, 1]
+    license: CC-BY-SA-3.0 / GFDL
+    terms: Dataset card license field; used locally for measurement, never redistributed.
+    sha256: eca8c9bef12b904d90b3356b593317cbb0ef25d844381f87e3a8e2719e88ccb9
+  rfc6-en:
+    lang: en
+    genre: rfc
+    kind: http-text
+    # 46 further RFCs (MIME, DNS, LDAP, Kerberos, XMPP, iCalendar, IPv6
+    # addressing and neighbour discovery, HOTP/TOTP, HTTP authentication,
+    # OAuth PKCE and introspection, ...), none of them in rfc-en or rfc5-en
+    # (IETF Trust Legal Provisions, BCP 78).
+    base: https://www.rfc-editor.org/rfc/
+    file_header: ""
+    strip: rfc
+    max_unit_chars: 60000
+    paths:
+      - rfc2045.txt
+      - rfc2046.txt
+      - rfc2047.txt
+      - rfc2049.txt
+      - rfc2181.txt
+      - rfc2308.txt
+      - rfc2818.txt
+      - rfc3207.txt
+      - rfc3339.txt
+      - rfc3492.txt
+      - rfc3629.txt
+      - rfc3912.txt
+      - rfc4120.txt
+      - rfc4122.txt
+      - rfc4226.txt
+      - rfc4291.txt
+      - rfc4422.txt
+      - rfc4506.txt
+      - rfc4511.txt
+      - rfc4513.txt
+      - rfc4566.txt
+      - rfc4861.txt
+      - rfc4862.txt
+      - rfc5023.txt
+      - rfc5077.txt
+      - rfc5545.txt
+      - rfc5646.txt
+      - rfc5891.txt
+      - rfc6120.txt
+      - rfc6121.txt
+      - rfc6143.txt
+      - rfc6202.txt
+      - rfc6238.txt
+      - rfc6347.txt
+      - rfc6585.txt
+      - rfc6797.txt
+      - rfc6838.txt
+      - rfc6890.txt
+      - rfc6891.txt
+      - rfc7239.txt
+      - rfc7301.txt
+      - rfc7413.txt
+      - rfc7616.txt
+      - rfc7617.txt
+      - rfc7636.txt
+      - rfc7662.txt
+    license: IETF Trust Legal Provisions (BCP 78)
+    terms: RFC Editor text files; used locally for measurement, never redistributed.
+    sha256: 4562494b355de30aff3dacd24f743da4e1bf08dc8e5c284718cd23e02a943ef5
+  wikisource6-vi-laws:
+    lang: vi
+    genre: legal
+    # The units of wikisource-vi-laws after the last one a `long5` document holds.
+    units_of: wikisource-vi-laws
+    unit_start: 1252
+    license: Public domain (Viet Nam IP Law art. 15); dump CC-BY-SA-3.0 / GFDL
+    terms: Dataset card license field; used locally for measurement, never redistributed.
+    sha256: 5772a9c76ed04ee296e78fd452fa3792072a62da0bccf3bbb77f3a0c626d2c14
+
 # Synthetic genres: generated by build.py from a fixed seed (project-written,
 # Apache-2.0). "hardneg" is benign text about prompt injection and security.
 synthetic:
@@ -956,6 +1238,45 @@ profiles:
     host_tokens: 2000
     segment_host_bytes: 28000
 
+  long6:
+    # The final holdout of v7 (RF-895d3533 R6, train/reports/v7_preregistration.md):
+    # benign documents of 100k and 200k tokens from the `long6` sources and the
+    # synthetic genres with their own seed: 90 documents (English 26 at 100k
+    # and 24 at 200k, Vietnamese 20 and 20; sizes a pool has too little text
+    # for are skipped, so the Vietnamese laws drop out after exclude.json).
+    # Every document is holdout (the `split`
+    # field still follows the hash rule; v7 reads both halves only once, at the
+    # end). The embedded attack documents are built from these hosts by
+    # bench/long/embed_long.py with fresh payloads. Ids carry the prefix `long6-`.
+    sources: [wikipedia6-en, uscode6-en, prom-tsdb6-en, prom-promql6-en, k8s-setup6-en, k8s-tutorials6-en,
+              docker-compose6-en, k8s-contribute6-en, docker-desktop6-en, docker-scout6-en, docker-dhi6-en, wikisource6-en,
+              rfc6-en, wikipedia6-vi, wikisource6-vi-laws]
+    synthetic: [logs, json, csv, email, chat, hardneg]
+    synthetic_seed: 20261113
+    id_prefix: long6-
+    sizes:
+      default: [100000, 200000]
+      synthetic: [100000, 200000]
+    docs_per_size:
+      default: 0
+      wiki-en: 6
+      legal-en: 3
+      code-en: 2
+      docs-en: 4
+      prose-en: 3
+      rfc-en: 2
+      wiki-vi: 14
+      legal-vi: 1
+      logs: 1
+      json: 1
+      csv: 1
+      email: 1
+      chat: 1
+      hardneg: 1
+    payloads_per_lang: 0
+    host_tokens: 2000
+    segment_host_bytes: 28000
+
 # Dev/holdout split of every document (build.py split_of, the eval/ convention):
 # the last hex digit of SHA-256(key) is 0-7 for dev and 8-f for holdout, with
 # key the payload id of an attack or control document (every variant of a
@@ -983,6 +1304,10 @@ outputs:
   # long5: pinned on 2026-11-11 (R5); 150 benign documents, 22.48M tokens, after
   # exclude.json (74 dev, 76 holdout).
   long5: 3f1378dcaac3cff3a389896150b7612749a069d349a96964909d40cac8ea6a89
+  # long6: pinned on 2026-11-12 (R6), before any v7 training run; 90 benign documents,
+  # 13.38M tokens (EN 26 + 24, VI 20 + 20 at 100k + 200k), after exclude.json.
+  # The v7 holdout: scored once, at the end (train/reports/v7_preregistration.md).
+  long6: b87e52e7d6b8d8526c12e379dc5ed868e29a7d9968ae3733b7b9ef913afe94b8
 
 dropped:
   - source: Project Gutenberg (gutenberg.org)
