@@ -39,6 +39,11 @@ const AccountPage = lazy(() => import('./pages/AccountPage'));
 const AdminUsersPage = lazy(() => import('./pages/AdminUsersPage'));
 const IdentityProvidersPage = lazy(() => import('./pages/IdentityProvidersPage'));
 const ProvisioningPage = lazy(() => import('./pages/ProvisioningPage'));
+const PolicyHistoryPage = lazy(() => import('./pages/PolicyHistoryPage'));
+const ApprovalsPage = lazy(() => import('./pages/ApprovalsPage'));
+const InputPage = lazy(() => import('./pages/InputPage'));
+const GettingStartedPage = lazy(() => import('./pages/GettingStartedPage'));
+const SecurityOverviewPage = lazy(() => import('./pages/SecurityOverviewPage'));
 const AlertRulesPage = lazy(() => import('./alerts/RulesPage'));
 const ChannelsPage = lazy(() => import('./alerts/ChannelsPage'));
 const GroupsPage = lazy(() => import('./alerts/GroupsPage'));
@@ -46,13 +51,20 @@ const AlertHistoryPage = lazy(() => import('./alerts/HistoryPage'));
 const DeliveriesPage = lazy(() => import('./alerts/DeliveriesPage'));
 const SiemPage = lazy(() => import('./alerts/SiemPage'));
 
+/** The dashboard opened by signing in or choosing an org: it may hand over to getting started. */
+const LANDING = { landing: '1' };
+
 /** Pages of an organization. */
 const ORG_PAGES: Partial<Record<Route, ComponentType>> = {
   dashboard: DashboardPage,
+  'getting-started': GettingStartedPage,
+  threats: SecurityOverviewPage,
   flow: FlowPage,
   guard: GuardPage,
+  input: InputPage,
   exemplars: ExemplarsPage,
   simulator: SimulatorPage,
+  'policy-history': PolicyHistoryPage,
   providers: ProvidersPage,
   projects: ProjectsPage,
   models: ModelsPage,
@@ -62,6 +74,7 @@ const ORG_PAGES: Partial<Record<Route, ComponentType>> = {
   roles: RolesPage,
   keys: KeysPage,
   security: SecurityPage,
+  approvals: ApprovalsPage,
   provisioning: ProvisioningPage,
   config: ConfigPage,
   organization: OrganizationPage,
@@ -202,7 +215,7 @@ export function App() {
     session.setToken(tok);
     setToken(tok);
     setExpired(false);
-    navigate(session.orgId() ? 'dashboard' : 'orgs', true);
+    navigate(session.orgId() ? 'dashboard' : 'orgs', true, session.orgId() ? LANDING : undefined);
   };
   let content;
   if (route === 'invite') {
@@ -300,7 +313,7 @@ function Authed({ route }: { route: Route }) {
     session.setOrgId(o.id);
     setOrgId(o.id);
     setOrgState(o);
-    navigate('dashboard');
+    navigate('dashboard', false, LANDING);
   }, []);
 
   const visible = useCallback(

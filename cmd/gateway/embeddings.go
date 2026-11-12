@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/google/uuid"
 	"github.com/guard-spec/guard-spec/internal/indirect"
 	"github.com/guard-spec/guard-spec/internal/policy"
 	"github.com/guard-spec/guard-spec/internal/proxy"
@@ -127,10 +126,7 @@ func embeddingsHandler(gw gateway) fiber.Handler {
 			slog.Error("policy evaluation failed", "org", entry.OrgID, "err", err)
 			return policyUnavailable(c)
 		}
-		entry.RuleID = decision.RuleID
-		if entry.RuleID == uuid.Nil && len(decision.Logged) > 0 {
-			entry.RuleID = decision.Logged[0]
-		}
+		recordPolicyMatches(&entry, decision)
 		switch decision.Action {
 		case policy.ActionAllow, policy.ActionRoute:
 		case policy.ActionBlock:

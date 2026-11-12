@@ -1,7 +1,7 @@
 // Copyright 2026 The Guard Spec Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useState, type FormEvent } from 'react';
+import { useId, useState, type FormEvent } from 'react';
 import { ErrorBanner } from '../components/ui';
 import { errorText, useApp } from '../context';
 import type { MessageKey } from '../i18n';
@@ -16,6 +16,17 @@ import { VariableTip } from './HelpText';
  */
 export function decidingIndex(trace: SimulateResponse['trace']): number {
   return trace.findIndex((e) => e.matched && e.action !== 'log');
+}
+
+/** The simulator form's strings for the fields a sample sentence scored (POST /policy/sample). */
+export function formFromVars(vars: Record<string, SimValue>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(vars)) {
+    if (Array.isArray(v)) out[k] = v.join(', ');
+    else if (typeof v === 'number') out[k] = String(Math.round(v * 1000) / 1000);
+    else out[k] = String(v);
+  }
+  return out;
 }
 
 /** Converts the form's strings to typed vars; empty fields are left out. */
@@ -124,6 +135,30 @@ export function Simulator({ orgId, schema, makeRequest, result, onResult, embedd
   const [form, setForm] = useState<Record<string, string>>(DEFAULTS);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // A sample sentence (RF-a1dbafea U3): scored on the control plane, then simulated.
+  const [sample, setSample] = useState('');
+  const [sampled, setSampled] = useState<{ rules: string[] } | null>(null);
+  const sampleId = useId();
+
+  const trySample = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const scored = await api.samplePolicy(sample);
+      // The model named in the form stays; the scored fields replace the rest.
+      const model = form['request.model'];
+      const next = { ...(model ? { 'request.model': model } : {}), ...formFromVars(scored.vars) };
+      setForm(next);
+      setSampled({ rules: scored.rules });
+      onResult(await api.simulate(orgId, makeRequest(simVars(schema, next))));
+    } catch (err) {
+      onResult(null);
+      setSampled(null);
+      setError(t('sim.failed', { error: errorText(err) }));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const run = async (e: FormEvent) => {
     e.preventDefault();
@@ -145,6 +180,21 @@ export function Simulator({ orgId, schema, makeRequest, result, onResult, embedd
         {t('sim.title')}
       </h2>
       {embedded ? null : <p className="muted small">{t('sim.help')}</p>}
+      <div className="sim-sample" data-testid="sim-sample">
+        <label htmlFor={sampleId}>{t('sample.label')}</label>
+        <textarea id={sampleId} rows={3} maxLength={4000} placeholder={t('sample.placeholder')} value={sample} onChange={(e) => setSample(e.target.value)} />
+        <p className="muted small">{t('sample.help')}</p>
+        <div>
+          <button type="button" className="btn" disabled={busy || sample.trim() === ''} onClick={() => void trySample()}>
+            {t('sample.run')}
+          </button>
+        </div>
+        {sampled ? (
+          <p className="small" data-testid="sample-rules" aria-live="polite">
+            {sampled.rules.length > 0 ? t('sample.rules', { rules: sampled.rules.join(', ') }) : t('sample.noRules')}
+          </p>
+        ) : null}
+      </div>
       <form onSubmit={run}>
         {groupFields(schema.fields).map((g) => (
           <fieldset key={g.group} className="plain sim-group">

@@ -261,6 +261,7 @@ func TestMessagesRedactFromOrgSettings(t *testing.T) {
 		return tx.QueryRow(ctx, `SELECT action, pii_entities, injection_score FROM requests WHERE org_id = $1`, org).
 			Scan(&action, &tags, &score)
 	})
+	tags = withoutDetector(tags)
 	if err != nil || action != actionAllow || len(tags) != 1 || tags[0] != "input:redacted=1" || score < 0.85 {
 		t.Errorf("row %s %v %v %v", action, tags, score, err)
 	}

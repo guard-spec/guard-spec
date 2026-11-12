@@ -214,6 +214,65 @@ false positive và latency trên văn bản của bạn (không có tấn công 
 tỷ lệ phát hiện). Ghim core bằng `taskset -c 0,1` và đặt
 `INFERENCE_MAX_CONCURRENCY` tương ứng, như dòng 2 vCPU.
 
+### Tài liệu PDF
+
+PDF gửi kèm trong request được gateway đọc (`PDF_EXTRACT`, mặc định bật) và
+văn bản của nó được quét như mọi tài liệu dài, nên một PDF tốn chi phí trích
+xuất cộng với chi phí quét văn bản theo các mức ở trên. Đo bằng
+`BenchmarkPDFDocument` (chỉ L1) và `BenchmarkPDFDocumentML` (các model qua
+`ml.Live`, đúng như gateway chạy; `cmd/gateway/pdf_bench_test.go`): một PDF
+100 trang sinh tự động với khoảng 840 KB văn bản vô hại (207,629 token;
+92 KiB PDF đã nén dưới dạng base64) đi qua gateway tới một upstream giả, trên
+`/v1/messages`, chat completions và `/v1/responses`, với
+`MAX_SCAN_TOKENS=250000` và `INDIRECT_ACTION=redact` để mọi cửa sổ đều được
+chấm, không có scan cache, từng request một, 3 request cho mỗi API. Apple M3
+Max (14 core, 36 GB), macOS 15.4.1, Go 1.26, commit e637c60, 2026-11-11,
+máy local, chỉ mang tính tham khảo. Mọi con số ở đây đều là số đo; không có
+ước tính.
+
+| Bước | Chỉ L1 | Với các model (L1+L2 trên cửa sổ 256 token, `INFERENCE_INTRA_OP_THREADS=1`) |
+|---|---:|---:|
+| Trích văn bản (PDFium trong wazero) | 0.65 to 1.1 s | 0.95 to 1.2 s |
+| Cả request (trích, làm sạch, quét, chuyển tiếp) | 0.93 to 1.6 s | 41.5 to 47.2 s |
+| Cửa sổ đã chấm | 479 chunk 2 KiB, 0 bỏ qua | 1,093 cửa sổ, 0 bỏ qua |
+| RSS đỉnh tăng thêm qua 3 request | 0.2 MB | 95 MB |
+| Bị redact (tài liệu vô hại bị coi là injection) | 0 / 3 | 0 / 3 |
+
+- Ba API cho cùng số đo trong phạm vi nhiễu (với các model 41.5 s trên `/v1/responses`, 45.8 s trên `/v1/messages`, 47.2 s trên chat completions; chỉ L1 1.52 đến 1.61 s); bảng lấy số của
+  `/v1/messages`.
+- Khởi động nguội: biên dịch module WebAssembly PDFium mất 1.5 to 2.4 s và
+  tài liệu đầu tiên qua một runtime mới mất 0.66 to 1.1 s, với 50 to 150 MB bộ
+  nhớ thường trú cho runtime. Gateway biên dịch module ở nền lúc khởi động
+  (`/readyz` không chờ), nên request chỉ phải trả chi phí này khi tới trước
+  lúc biên dịch xong.
+- Phần quét chiếm gần hết: trích xuất chỉ 2 đến 3% của request khi có
+  model. Quét đạt khoảng 4,500 token/s: làn input lớn mặc định chạy
+  `INFERENCE_LARGE_MAX_CONCURRENCY` = số CPU / 4 (ở đây là 3) lần chạy model
+  cùng lúc, so với K = 4 trong bảng input dài ở trên; tăng giá trị đó để quét
+  một tài liệu nhanh hơn. Trên 2 đến 4 vCPU cloud hãy tính lâu hơn 3 đến 4
+  lần mỗi core, như bảng đó nói: một PDF 200k token ở đó là nhiều phút chứ
+  không phải vài giây.
+- Độ dao động giữa các lần chạy trên laptop này khá lớn (trích xuất 0.65 s ở
+  lần này và 1.1 s ở lần khác, cùng code và cùng tài liệu); hãy đọc mọi con
+  số như một khoảng, như cách các số ở trên được ghi.
+- Bộ nhớ: mỗi tài liệu được phân tích trong một phiên PDFium mới, bộ nhớ
+  tuyến tính của nó (tối đa `PDF_EXTRACT_MEMORY`, 512 MiB) được trả lại sau
+  đó; với runtime đã ấm, tiến trình tăng tối đa khoảng 95 MB qua ba request 200k
+  token đầu tiên và không tăng thêm ở các request sau (Go runtime giữ lại bộ
+  nhớ). Hãy tính `PDF_EXTRACT_MAX_CONCURRENCY` × `PDF_EXTRACT_MEMORY` là
+  trường hợp xấu nhất cộng thêm vào các số ở "Mức dùng tài nguyên đo được".
+- PDF dài vô hại vẫn có thể bị classifier chặn (chặn nhầm tài liệu dài,
+  RF-895d3533); ứng dụng xử lý nhiều tài liệu nên chạy với
+  `INDIRECT_ACTION=redact` cho tới khi việc đó xong.
+
+Chạy lại (dạng thứ hai cần các model và `make onnx-deps`):
+
+```bash
+go test ./cmd/gateway -run '^$' -bench 'PDFDocument$' -benchtime 3x
+CGO_ENABLED=1 CGO_LDFLAGS=-L$PWD/.onnx/lib ONNXRUNTIME_LIB=$PWD/.onnx/lib/libonnxruntime.dylib \
+  go test -tags onnx ./cmd/gateway -run '^$' -bench 'PDFDocumentML' -benchtime 3x
+```
+
 ## Ổ đĩa
 
 - Model: khoảng 135 MB (nhẹ) hoặc 270 MB (đầy đủ) cho mỗi phiên bản được giữ,

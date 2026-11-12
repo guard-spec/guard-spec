@@ -24,7 +24,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ConfirmDialog, Dialog, ErrorBanner, Field, Loading, PageHeader } from '../components/ui';
 import { errorText, useApp, useOrg } from '../context';
 import type { MessageKey } from '../i18n';
-import { setNavigationGuard, takeParam } from '../router';
+import { href, onLink, setNavigationGuard, takeParam } from '../router';
 import type { GatewayModels, GuardSettings, PolicySchema, SimulateRequest, SimulateResponse, SimValue } from '../types';
 import { addRule, connectRule, danglingRoutes, deleteRule, findRule, moveRule, moveRuleByPosition, updateRule } from './edit';
 import { applyHighlight, buildGraph, simulationPath, type DefaultUpstream, type FlowEdge, type FlowNode } from './graph';
@@ -48,9 +48,9 @@ import { NodePanel } from './NodePanel';
 import { DirectionContext, nodeTypes } from './nodes';
 import { RulePanel, type TextState } from './RulePanel';
 import { FALLBACK_SCHEMA, fieldTypesOf } from './schema';
-import { mergeAfterSave } from './save';
+import { deletable, mergeAfterSave } from './save';
 import { Simulator } from './Simulator';
-import { ruleFromTemplate, ruleTemplates, type RuleTemplate } from './templates';
+import { freePolicyName, POLICY_TEMPLATES, policyTemplateRules, ruleFromTemplate, ruleTemplates, type PolicyTemplate, type RuleTemplate } from './templates';
 import { hasErrors, INJECTION_BLOCK, validateCondition } from './validate';
 
 const EDGE_CLASS: Record<string, string> = {
@@ -113,6 +113,7 @@ function FlowPageInner() {
   const [activePolicy, setActivePolicy] = useState<string | null>(null);
   // The new-policy dialog; with key, it renames that policy.
   const [newPolicy, setNewPolicy] = useState<{ key?: string; name: string; project: string } | null>(null);
+  const [choosingTemplate, setChoosingTemplate] = useState(false);
   const [deleting, setDeleting] = useState<EditablePolicy | null>(null);
   const { setViewport } = useReactFlow();
   const paneRef = useRef<HTMLDivElement>(null);
@@ -325,6 +326,7 @@ function FlowPageInner() {
       description: null,
       project_id: projectId,
       enabled: true,
+      log_only: false,
       created_at: '',
       rules: [],
       dirty: true,
@@ -349,6 +351,29 @@ function FlowPageInner() {
     setActivePolicy(key);
     selectRule(rule.key);
     notify(t('tpl.added'));
+  };
+
+  // A whole policy from a template (RF-a1dbafea U3): added to the scope as an
+  // unsaved, log-only policy; Save creates it.
+  const onPolicyTemplate = (tpl: PolicyTemplate) => {
+    if (!policies) return;
+    const name = freePolicyName(t(tpl.name), (n) => policyNameTaken(policies, n));
+    const draft: EditablePolicy = {
+      id: undefined,
+      key: newKey('policy'),
+      name,
+      description: null,
+      project_id: projectId,
+      enabled: true,
+      log_only: true,
+      created_at: '',
+      rules: policyTemplateRules(tpl, (k) => t(k)),
+      dirty: true,
+    };
+    edit((ps) => [...ps, draft]);
+    setActivePolicy(draft.key);
+    setChoosingTemplate(false);
+    notify(t('ptpl.added', { name }));
   };
 
   // Unsaved edits: ask before leaving the page, and before closing the tab.
@@ -399,6 +424,7 @@ function FlowPageInner() {
       if (errors.length === 0) {
         notify(dirtyPolicies > 0 && result.guard ? t('flow.savedAll') : result.guard ? t('flow.guardSaved') : t('flow.savedOk'));
       }
+      if (result.pending.length > 0) notify(t('flow.disablePending', { names: result.pending.join(', ') }), 'error');
     } catch (e) {
       setSaveErrors([...errors, errorText(e)]);
     } finally {
@@ -488,6 +514,9 @@ function FlowPageInner() {
         </button>
         <button type="button" className="btn" onClick={() => setNewPolicy({ name: '', project: projectId ?? '' })} disabled={!writable}>
           + {t('flow.addPolicy')}
+        </button>
+        <button type="button" className="btn" onClick={() => setChoosingTemplate(true)} disabled={!writable}>
+          + {t('ptpl.open')}
         </button>
       </div>
       {!writable ? (
@@ -592,8 +621,24 @@ function FlowPageInner() {
                     </label>
                     <span className="badge">{p.project_id ? (projects.find((x) => x.id === p.project_id)?.name ?? p.project_id) : t('common.orgWide')}</span>
                     <span className="muted small">{t('policy.rules', { count: p.rules.length })}</span>
+                    <label className="check small" title={t('policy.logOnlyHelp')}>
+                      <input
+                        type="checkbox"
+                        checked={p.log_only}
+                        disabled={!writable}
+                        aria-label={`${t('policy.logOnly')} ${p.name}`}
+                        onChange={(e) => edit((ps) => ps.map((x) => (x.key === p.key ? { ...x, log_only: e.target.checked, dirty: true } : x)))}
+                      />
+                      <span>{t('policy.logOnly')}</span>
+                    </label>
+                    {p.log_only ? <span className="badge badge-warn">{t('policy.logOnlyBadge')}</span> : null}
                     {p.dirty ? <span className="badge badge-warn">•</span> : null}
                     <span className="spacer" />
+                    {p.id ? (
+                      <a className="btn btn-small" href={`${href('policy-history')}?policy=${encodeURIComponent(p.id)}`} onClick={onLink('policy-history', { policy: p.id })}>
+                        {t('policy.history')}
+                      </a>
+                    ) : null}
                     <button type="button" className="btn btn-small" aria-pressed={p.key === activePolicy} disabled={!writable} onClick={() => setActivePolicy(p.key)}>
                       + {t('flow.addRule')}
                     </button>
@@ -605,9 +650,23 @@ function FlowPageInner() {
                     >
                       ✎
                     </button>
-                    <button type="button" className="btn-icon" aria-label={`${t('policy.delete')} ${p.name}`} onClick={() => setDeleting(p)}>
-                      🗑
-                    </button>
+                    {/* Only a disabled policy is deleted (as saved): disabling is the guarded step. */}
+                    {deletable(p, original) ? (
+                      <button type="button" className="btn-icon" aria-label={`${t('policy.delete')} ${p.name}`} onClick={() => setDeleting(p)}>
+                        🗑
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="btn-icon"
+                        aria-disabled="true"
+                        aria-label={`${t('policy.delete')} ${p.name}`}
+                        title={t('policy.deleteNeedsDisabled')}
+                        onClick={() => notify(t('policy.deleteNeedsDisabled'), 'error')}
+                      >
+                        🗑
+                      </button>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -716,6 +775,7 @@ function FlowPageInner() {
                     description: null,
                     project_id: newPolicy.project || null,
                     enabled: true,
+                    log_only: false,
                     created_at: '',
                     rules: [],
                     dirty: true,
@@ -748,6 +808,31 @@ function FlowPageInner() {
             )}
           </Field>
         )}
+      </Dialog>
+
+      <Dialog open={choosingTemplate} wide title={t('ptpl.title')} onClose={() => setChoosingTemplate(false)}>
+        <p className="muted">{t('ptpl.intro', { scope: scopeLabel })}</p>
+        <ul className="template-list" data-testid="policy-templates">
+          {POLICY_TEMPLATES.map((tpl) => (
+            <li key={tpl.id}>
+              <div>
+                <strong>{t(tpl.name)}</strong>
+                <div className="small muted">{t(tpl.desc)}</div>
+                <ul className="small tpl-rules">
+                  {tpl.rules.map((r) => (
+                    <li key={r.name}>
+                      <span className={`action action-${r.action}`}>{r.action}</span> {t(r.name)}
+                    </li>
+                  ))}
+                </ul>
+                {tpl.needsPii && !guard?.input_pii ? <div className="small tpl-warn">{t('ptpl.needsPii')}</div> : null}
+              </div>
+              <button type="button" className="btn btn-small btn-primary" aria-label={`${t('ptpl.create')}: ${t(tpl.name)}`} onClick={() => onPolicyTemplate(tpl)}>
+                {t('ptpl.create')}
+              </button>
+            </li>
+          ))}
+        </ul>
       </Dialog>
 
       <ConfirmDialog

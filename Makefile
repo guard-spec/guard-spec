@@ -37,6 +37,7 @@ fuzz:
 	$(GO) test ./internal/policy/ -run NONE -fuzz FuzzValidateRules -fuzztime $(FUZZTIME)
 	$(GO) test ./internal/policy/ -run NONE -fuzz FuzzParseCondition -fuzztime $(FUZZTIME)
 	$(GO) test ./cmd/gateway/ -run NONE -fuzz FuzzChatRequest -fuzztime $(FUZZTIME)
+	$(GO) test ./internal/pdftext/ -run NONE -fuzz FuzzExtract -fuzztime $(FUZZTIME) -parallel 8
 
 # Go benchmarks (README, "Benchmarks"): input sanitizer, output guard, CEL
 # policy evaluation and the gateway's HTTP path end to end with L1 only (no

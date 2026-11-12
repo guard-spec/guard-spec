@@ -11,6 +11,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
+	"github.com/guard-spec/guard-spec/internal/indirect"
 	"github.com/guard-spec/guard-spec/internal/tlsreload"
 	"github.com/guard-spec/guard-spec/internal/version"
 )
@@ -66,8 +67,17 @@ func registerProbes(app *fiber.App, gw gateway) {
 		if !det.ready() {
 			status, code = "degraded", fiber.StatusServiceUnavailable
 		}
-		return c.Status(code).JSON(fiber.Map{"status": status, "version": version.String(), "detector": det})
+		return c.Status(code).JSON(fiber.Map{"status": status, "version": version.String(), "detector": det,
+			"input": gw.inputLimits()})
 	})
+}
+
+// inputLimits is the input part of /readyz: the instance limits the control
+// plane checks an organization's input settings against (input_settings.go).
+func (gw gateway) inputLimits() fiber.Map {
+	cfg := gw.baseScanConfig()
+	return fiber.Map{"max_scan_tokens": cfg.MaxScanTokens, "max_input_tokens_ceiling": indirect.InputTokenCeiling(cfg.MaxScanTokens),
+		"pdf_extract": gw.pdf != nil, "unscanned_parts": cfg.Unscanned, "readable_file_types": indirect.ReadableFileTypes}
 }
 
 // newAdminApp is the app of the admin listener: probes and /admin.

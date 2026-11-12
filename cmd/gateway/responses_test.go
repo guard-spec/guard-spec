@@ -304,7 +304,7 @@ func TestResponsesRedactsToolOutput(t *testing.T) {
 	if strings.Contains(sent, "Ignore all previous") || !strings.Contains(sent, redactedToolOutput) || !strings.Contains(sent, "benign output") {
 		t.Errorf("sent %s", sent)
 	}
-	if row := h.oneRow(t); row.Redacted != 1 || !slices.Contains(auditTags(row), "input:redacted=1") {
+	if row := h.oneRow(t); row.Redacted != 1 || !slices.Contains(inputAuditTags(row), "input:redacted=1") {
 		t.Errorf("row %+v", row)
 	}
 }
@@ -330,8 +330,8 @@ func TestResponsesServerStateThroughGateway(t *testing.T) {
 	if resp.StatusCode != 200 {
 		t.Fatalf("allowed: %d %s", resp.StatusCode, got)
 	}
-	if row := h.oneRow(t); row.Action != actionAllow || !slices.Contains(auditTags(row), "input:server_state=1") {
-		t.Errorf("row %+v tags %v", row, auditTags(row))
+	if row := h.oneRow(t); row.Action != actionAllow || !slices.Contains(inputAuditTags(row), "input:server_state=1") {
+		t.Errorf("row %+v tags %v", row, inputAuditTags(row))
 	}
 }
 

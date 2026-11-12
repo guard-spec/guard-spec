@@ -101,7 +101,7 @@ variable "migration_host_security_group_id" {
 variable "image_tag" {
   description = "Guard Spec release (image tag) for both services, without the leading v. Pin a digest with the *_image_digest variables."
   type        = string
-  default     = "0.5.0"
+  default     = "0.6.0"
 }
 
 variable "gateway_image" {

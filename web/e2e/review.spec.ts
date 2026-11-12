@@ -77,7 +77,7 @@ test('creates a new policy disabled in one request', async ({ page, mock }) => {
   await page.getByRole('dialog').getByLabel('Policy name').fill('later');
   await page.getByRole('dialog').getByRole('button', { name: 'Create' }).click();
   const row = page.getByRole('listitem').filter({ hasText: 'later' });
-  await row.getByRole('checkbox').uncheck();
+  await row.getByRole('checkbox', { name: 'later', exact: true }).uncheck();
   await row.getByRole('button', { name: '+ Add rule' }).click();
   await page.getByRole('button', { name: '+ Add rule' }).first().click();
   await page.getByRole('button', { name: 'Save changes' }).click();

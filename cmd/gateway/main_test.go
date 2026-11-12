@@ -18,11 +18,11 @@ import (
 var devOrg = uuid.MustParse("00000000-0000-0000-0000-000000000001")
 
 // testLookup accepts only the key "test".
-func testLookup(_ context.Context, keyHash string) (uuid.UUID, uuid.UUID, error) {
+func testLookup(_ context.Context, keyHash string) (tenant.KeyInfo, error) {
 	if keyHash != tenant.HashKey("test") {
-		return uuid.Nil, uuid.Nil, errors.New("unknown key")
+		return tenant.KeyInfo{}, errors.New("unknown key")
 	}
-	return devOrg, uuid.Nil, nil
+	return tenant.KeyInfo{OrgID: devOrg}, nil
 }
 
 type failingBackend struct{}

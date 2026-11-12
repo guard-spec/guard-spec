@@ -123,6 +123,48 @@ curl -s localhost:8080/readyz | jq .detector        # 6. or https://<GATEWAY_HOS
   (`-strict` coi cả cảnh báo là lỗi, `-json` dùng cho script). Xem
   [README, Kubernetes](../README.md#kubernetes).
 
+### Ghi chú migration
+
+Các migration của một bản làm gì ngoài việc thêm bảng, và cần kiểm tra gì sau
+đó. [CHANGELOG](../CHANGELOG.md) có đầy đủ ghi chú nâng cấp của từng phiên bản.
+
+- **026 (phiên bản chính sách).** Thêm `policies.log_only` và bảng
+  `policy_versions`, và ghi một phiên bản cho mỗi chính sách đang có (trạng
+  thái lúc nâng cấp) để lần sửa đầu tiên sau nâng cấp có thể khôi phục. Xuống
+  (down): lịch sử bị xóa và chính sách chỉ ghi log trở thành chính sách thật,
+  nên hãy tắt các chính sách đó trước.
+- **027 (phê duyệt hai người).** Thêm bảng `approval_requests` và hai cột
+  `org_security`; tắt với mọi tổ chức. Down: yêu cầu đang chờ bị xóa.
+- **028 (chính sách khóa API).** Thay hàm `lookup_api_key` để trả thêm địa chỉ
+  được phép của khóa. Gateway trước 0.7.0 vẫn chạy với hàm mới (chỉ đọc hai cột
+  đầu); gateway 0.7.0 cần migration này, nên hãy áp dụng trước khi gateway khởi
+  động, như job `migrate` của compose vẫn làm. Đặt `TRUSTED_PROXIES` cho
+  **gateway** khi nó đứng sau reverse proxy và bạn dùng `allowed_cidrs`: nếu
+  không, địa chỉ của proxy sẽ được coi là client. Down: khóa giới hạn địa chỉ
+  dùng được từ mọi nơi trở lại; hãy thu hồi trước nếu điều đó quan trọng. Hạn
+  do xoay khóa hoặc thời hạn tối đa đặt ra vẫn giữ nguyên.
+- **029 (phê duyệt nhất quán).** Thêm trạng thái `cancelled`, một chỉ mục duy
+  nhất một phần để mỗi tổ chức, loại và đối tượng chỉ có một yêu cầu đang chờ,
+  và cho quản trị viên hệ thống đọc các yêu cầu xóa tổ chức đang chờ. Migration
+  hủy các yêu cầu `policy.delete` đang chờ (xóa chính sách không còn cần duyệt;
+  chỉ xóa được chính sách đã tắt) và, nếu một thay đổi đang chờ hai lần, hủy mọi
+  yêu cầu trừ yêu cầu cũ nhất. Sau migration: client API và tệp cấu hình xóa
+  chính sách **đang bật** sẽ nhận 409 `policy_enabled` (422 với tệp): hãy tắt
+  trước. Xóa tổ chức luôn thành yêu cầu do một owner khác hoặc quản trị viên hệ
+  thống duyệt, dù phê duyệt hai người bật hay tắt. Down: yêu cầu đã hủy được
+  coi là hết hạn và yêu cầu trùng lại được phép.
+- **030 (thiết lập đầu vào).** Thêm `org_input_settings` (một dòng cho mỗi tổ
+  chức tự đặt chế độ đầu vào, giới hạn token, loại file và cách xử lý file
+  không đọc được) và loại phê duyệt `input_settings.loosen`. Sau migration
+  không tổ chức nào có dòng này, nên mọi tổ chức giữ hành vi của instance
+  (`PDF_EXTRACT`, `UNSCANNED_PARTS`, `MAX_SCAN_TOKENS`) cho đến khi admin đặt
+  thiết lập. Gateway 0.7.0 đọc bảng này cùng thiết lập bảo vệ của mỗi request:
+  hãy chạy migration trước khi gateway khởi động, nếu không request sẽ bị từ
+  chối an toàn với 503. Đặt `GATEWAY_URL` cho control plane để nó kiểm tra
+  `max_input_tokens` theo `MAX_SCAN_TOKENS` của gateway (không đặt thì giới
+  hạn là 40.000). Down: thiết lập và các yêu cầu nới lỏng đang chờ bị xóa, mọi
+  tổ chức quay về hành vi của instance.
+
 ## Rollback
 
 ### Image, không đổi schema

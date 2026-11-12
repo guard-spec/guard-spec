@@ -27,13 +27,13 @@
   --skeleton: #e9edf2;
   --danger: #c62828;
   --danger-soft: #fdecec;
-  --ok: #1f8a4c;
+  --ok: #17753f;
   --ok-soft: #e4f5ea;
   --warn: #9a6200;
   --warn-soft: #fff4dc;
   --log: #476582;
   --log-soft: #e7edf3;
-  --route: #00838f;
+  --route: #006d77;
   --route-soft: #e0f4f5;
   --input-bg: #ffffff;
   --active-line: rgba(47, 111, 237, 0.06);
@@ -1035,7 +1035,8 @@ tbody tr:last-child td {
   border-bottom: none;
 }
 .row-muted td {
-  opacity: 0.6;
+  color: var(--muted);
+  filter: grayscale(1);
 }
 .row-actions {
   text-align: right;
@@ -1308,7 +1309,8 @@ tbody tr:last-child td {
   font-weight: 600;
 }
 .trace-after {
-  opacity: 0.6;
+  color: var(--muted);
+  filter: grayscale(1);
 }
 
 /* Diagram nodes */
@@ -1366,7 +1368,7 @@ tbody tr:last-child td {
   border-color: var(--accent);
 }
 .fnode-off {
-  opacity: 0.6;
+  filter: grayscale(1);
   border-style: dashed;
 }
 .fnode-rule {
@@ -1683,7 +1685,8 @@ tbody tr:last-child td {
   padding-left: 24px;
 }
 .method-list-off {
-  opacity: 0.6;
+  color: var(--muted);
+  filter: grayscale(1);
 }
 .test-note {
   color: var(--warn);
@@ -3085,4 +3088,273 @@ fieldset.plain {
   padding: 0;
   margin: 0 0 12px;
   min-width: 0;
+}
+
+/* ── Policy history (migration 026) ───────────────────────────────────── */
+.history-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) 2fr;
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .history-layout {
+    grid-template-columns: 1fr;
+  }
+}
+.history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.history-list li.is-selected .history-row {
+  background: var(--accent-soft);
+}
+.history-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  text-align: left;
+  padding: 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.history-row:hover {
+  background: var(--surface-2);
+}
+.history-version {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.history-reason {
+  color: var(--muted);
+  font-style: italic;
+}
+.history-rules,
+.history-changes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.history-rules li,
+.history-changes li {
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--surface-2);
+}
+.diff-line {
+  margin-top: 4px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  overflow-wrap: anywhere;
+}
+.diff-from {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+.diff-to {
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+}
+
+/* ── Two-person approval (migration 027) ──────────────────────────────── */
+.approval-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.approval-item {
+  display: grid;
+  gap: 6px;
+}
+.approval-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ── Getting started (RF-a1dbafea U1) ───────────────────────────────────── */
+.steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.step {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+}
+.step:first-child {
+  border-top: 0;
+}
+.step-body p {
+  margin: 2px 0 0;
+}
+.step-icon {
+  margin-top: 1px;
+}
+.step-icon-done {
+  color: var(--ok);
+}
+.step-icon-warn {
+  color: var(--warn);
+}
+.step-icon-todo {
+  color: var(--muted);
+}
+.start-meter {
+  width: 100%;
+  height: 8px;
+  margin: 0 0 12px;
+  accent-color: var(--ok);
+}
+.setup-card {
+  align-items: center;
+  gap: 8px;
+}
+.setup-card .btn {
+  margin-left: auto;
+}
+@media (max-width: 640px) {
+  .step {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .step > .btn {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
+
+/* ── False-positive panel (RF-a1dbafea U2) ──────────────────────────────── */
+.layer-scores {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  max-width: 420px;
+}
+.layer-scores li {
+  display: grid;
+  grid-template-columns: 9.5em minmax(60px, 1fr) 3.5em;
+  align-items: center;
+  gap: 8px;
+}
+.layer-scores .muted {
+  grid-column: 2 / span 2;
+}
+.layer-name {
+  font-size: 13px;
+}
+.fp-panel {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.fp-panel h3 {
+  margin: 0 0 4px;
+  font-size: 15px;
+}
+.impact {
+  margin: 8px 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+}
+.fp-form textarea,
+.fp-form input {
+  width: 100%;
+}
+
+/* ── Sample sentences and policy templates (RF-a1dbafea U3) ─────────────── */
+.sim-sample {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.sim-sample textarea {
+  width: 100%;
+}
+.sim-sample p {
+  margin: 0;
+}
+.tpl-rules {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+.tpl-warn {
+  color: var(--warn);
+  margin-top: 4px;
+}
+
+/* ── Security overview, command palette (RF-a1dbafea U4) ────────────────── */
+.tile-value-text {
+  font-size: 20px;
+  overflow-wrap: anywhere;
+}
+.kv-tight {
+  margin: 6px 0 0;
+  row-gap: 2px;
+}
+.bar-attack {
+  fill: var(--danger);
+}
+.palette-button {
+  gap: 6px;
+  color: var(--muted);
+}
+.palette-button kbd {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--muted);
+}
+.palette input {
+  width: 100%;
+  font-size: 15px;
+}
+.palette-list {
+  margin: 8px 0 0;
+  max-height: min(52vh, 420px);
+  overflow-y: auto;
+}
+.palette-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 7px 10px;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.palette-item.is-active {
+  background: var(--accent-soft);
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+.palette-help {
+  margin: 8px 0 0;
+}
+@media (max-width: 640px) {
+  .palette-button-text,
+  .palette-button kbd {
+    display: none;
+  }
 }

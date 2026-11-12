@@ -4,7 +4,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../api';
 import { compareTimes, gatewayChain, makeRule, timeKey, toEditable, type EditablePolicy } from './model';
-import { mergeAfterSave, savePolicies, type SaveApi } from './save';
+import { deletable, mergeAfterSave, savePolicies, type SaveApi } from './save';
 import { baseline, policy, projectPolicy } from './testdata';
 
 describe('policy order by creation time', () => {
@@ -42,6 +42,7 @@ function draft(over: Partial<EditablePolicy> = {}): EditablePolicy {
     description: null,
     project_id: null,
     enabled: false,
+    log_only: false,
     created_at: '',
     rules: [makeRule('r')],
     dirty: true,
@@ -101,5 +102,20 @@ describe('mergeAfterSave', () => {
       ['new-id', 'new', false],
       ['policy-9', 'taken', true],
     ]);
+  });
+});
+
+describe('deletable', () => {
+  const on = { ...toEditable(baseline), enabled: true };
+  const off = { ...on, enabled: false };
+  it('offers to delete a draft, and a saved policy only while it is disabled as saved', () => {
+    expect(deletable(draft(), null)).toBe(true);
+    expect(deletable(on, [on])).toBe(false);
+    expect(deletable(off, [off])).toBe(true);
+    // Unchecked but not saved yet: the server still has it enabled.
+    expect(deletable(off, [on])).toBe(false);
+    // Checked again but not saved: the server has it disabled.
+    expect(deletable(on, [off])).toBe(true);
+    expect(deletable(on, null)).toBe(false);
   });
 });

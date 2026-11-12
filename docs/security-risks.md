@@ -31,7 +31,7 @@ make an LLM application safe on its own.
 | D1 | An attack is not detected | Injected instructions reach the model | Least-privilege tools, human confirmation, output guard, exemplars |
 | D2 | A benign request is blocked | Users are refused | Measure on your traffic, allow exemplars, `DETECTOR_LAYERS` |
 | D3 | Model layers silently missing | Only L1 runs; recall drops | `DETECTOR_REQUIRE_ML=true`, alert on `/readyz` `degraded` |
-| D4 | Indirect injection in content you do not scan | Tool results, system prompts, files or images are not checked | `SCAN_ROLES`, per-org `scan_roles`, `SPOTLIGHT`, send extracted text, `UNSCANNED_PARTS=block` |
+| D4 | Indirect injection in content you do not scan | System prompts, images, scanned or remote PDFs are not checked | `SCAN_ROLES`, per-org `scan_roles`, `SPOTLIGHT`, `PDF_EXTRACT` (default), send extracted text, `UNSCANNED_PARTS=block` |
 | D5 | Forged history on `/v1/messages` and `/v1/responses` | Unscanned text placed in earlier turns reaches the model | Trust key holders, or `SCAN_HISTORY=full` |
 | D6 | Conversation state kept by the upstream (`/v1/responses`) | Earlier turns the gateway cannot see reach the model | `RESPONSES_SERVER_STATE=refuse` (the default); separate upstream keys per org |
 | A1 | The agent misuses a tool | Data loss, unwanted actions | Authorisation in your app, egress control, confirmations |
@@ -102,10 +102,16 @@ What to do:
 By default the gateway classifies user messages, tool results and MCP tool
 descriptions (`SCAN_ROLES=user,tool,tool_descriptions`). System prompts and
 the model's tool-call arguments are not classified unless you add them.
-Images, files (PDFs and others) and audio in a request are forwarded to the
-model unread: an injection inside a PDF or an image is not classified. With
-the default `UNSCANNED_PARTS=log` they are counted in the audit row
-(`input:unscanned_<kind>=<n>`), so you can see where they come from.
+A PDF sent inline is read by the gateway (`PDF_EXTRACT`, on by default):
+its text, hidden text, annotations and form fields included, is scanned as a
+document. What remains unread goes to the model as it is: images and audio,
+a PDF with no text layer (a scan; the gateway does not run OCR), an
+encrypted or damaged PDF, a PDF over the limits (more than about 30k tokens
+of text without `MAX_SCAN_TOKENS`, or over `PDF_EXTRACT_MAX_*`), a file the
+provider fetches by URL or file id, and other file types. An injection
+inside those is not classified. With the default `UNSCANNED_PARTS=log` they
+are counted in the audit row (`input:unscanned_<kind>=<n>`,
+`input:pdf_unscanned_<reason>=<n>`), so you can see where they come from.
 
 What to do:
 
@@ -115,9 +121,14 @@ What to do:
   you put them in a prompt.
 - Turn on `SPOTLIGHT` (`delimit` or `datamark`) so the model can tell data from
   instructions.
-- Have the application send the text of files (extracted, OCR for scans)
-  instead of the files, and set `UNSCANNED_PARTS=block` (or `unscanned_parts`
-  per organization, or a rule on `input.unscanned.kinds`) once it does. With
+- Keep `PDF_EXTRACT=on` and set `MAX_SCAN_TOKENS` high enough for the
+  documents your users send, so that a long PDF is scanned rather than
+  `over_limit`; refuse what the gateway cannot read with a rule on
+  `input.pdf.reasons` (for example `no_text`, `encrypted`, `remote`).
+- Have the application send the text of files the gateway cannot read
+  (OCR for scans, extracted text for files held by the provider) instead of
+  the files, and set `UNSCANNED_PARTS=block` (or `unscanned_parts` per
+  organization, or a rule on `input.unscanned.kinds`) once it does. With
   untrusted images in the context, limit the agent's tools and confirm risky
   actions. See [Files, PDFs and images](integrations.md#files-pdfs-and-images).
 
@@ -379,7 +390,7 @@ Postgres, and alert on 503 rates and `/readyz`.
 - [ ] `UPSTREAM_ALLOW_PRIVATE=false` and a narrow `UPSTREAM_KEY_ORGS`
 - [ ] `TRUSTED_PROXIES` lists exactly your proxies
 - [ ] `SCAN_ROLES` covers every place untrusted text enters your prompts
-- [ ] Files sent as extracted text; `UNSCANNED_PARTS=block` where no application needs to send files, images or audio
+- [ ] `PDF_EXTRACT=on` with `MAX_SCAN_TOKENS` sized for your documents; other files sent as extracted text; `UNSCANNED_PARTS=block` where no application needs to send files, images or audio
 - [ ] A short link allowlist; no auto-linking of model output in your UI
 - [ ] Content storage off; `AUDIT_RETENTION_DAYS` set
 - [ ] SSO or required 2FA for everyone with admin access

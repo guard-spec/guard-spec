@@ -12,7 +12,9 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/guard-spec/guard-spec/internal/indirect"
+	"github.com/guard-spec/guard-spec/internal/metrics"
 	"github.com/guard-spec/guard-spec/internal/outputguard"
+	"github.com/guard-spec/guard-spec/internal/pdftext"
 	"github.com/guard-spec/guard-spec/internal/policy"
 	"github.com/guard-spec/guard-spec/internal/proxy"
 	"github.com/guard-spec/guard-spec/internal/tenant"
@@ -364,12 +366,23 @@ func (g *textGuard) guardBlocks(blocks []any) error {
 			// Anthropic's API takes these in assistant turns only; scanned
 			// wherever they are.
 			err = g.guardServerToolResult(b, nil)
+		case "input_file":
+			// A Responses API file item: a PDF sent inline is scanned as a
+			// document (pdf_extract.go); otherwise forwarded unread.
+			if err = g.checkFile(kind, b); err == nil {
+				err = g.guardFilePart(kind, b, func() { replaceWithText(b, "input_text") })
+			}
 		default:
 			// text, and any block with a text field. Images, files and
 			// audio have none: they are forwarded unread and counted
-			// (unscanned.go).
+			// (unscanned.go), once the org's input settings let them.
 			if _, hasText := b["text"]; !hasText {
-				g.noteUnscanned(kind)
+				if err = g.checkFile(kind, b); err != nil {
+					break
+				}
+				if err = g.unreadPart(kind); err != nil {
+					break
+				}
 			}
 			err = g.guardStrings(b, "text")
 		}
@@ -430,8 +443,11 @@ func (g *textGuard) guardStrings(b map[string]any, keys ...string) error {
 }
 
 // guardDocument covers a document block: its title and context, and its
-// content when it is text (source type text or content). A PDF or an image
-// (base64, url, file) is passed on unscanned, like an image part.
+// content when it is text (source type text or content). A PDF sent inline
+// (base64, media type application/pdf) has its text extracted and scanned
+// like a text document (pdf_extract.go); a document the gateway cannot read
+// (an image, a url or file source, a PDF with no usable text) is passed on
+// unscanned, like an image part.
 func (g *textGuard) guardDocument(b map[string]any) error {
 	if err := g.guardStrings(b, "title", "context"); err != nil {
 		return err
@@ -440,7 +456,7 @@ func (g *textGuard) guardDocument(b map[string]any) error {
 	if !ok {
 		return nil
 	}
-	if err := rejectShadowKeys(src, "type", "data", "content"); err != nil {
+	if err := rejectShadowKeys(src, "type", "data", "content", "media_type"); err != nil {
 		return err
 	}
 	switch src["type"] {
@@ -449,8 +465,36 @@ func (g *textGuard) guardDocument(b map[string]any) error {
 	case "content":
 		return g.guardNested(src, "content")
 	}
-	g.noteUnscanned("document") // a PDF or an image: base64, url or file
-	return nil
+	// A file: the org's input settings first (input_settings.go).
+	if err := g.checkFile("document", b); err != nil {
+		return err
+	}
+	if g.pdf == nil {
+		// A PDF or an image: base64, url or file.
+		return g.fileUnreadable("document", "PDF_EXTRACT is off", false)
+	}
+	switch src["type"] {
+	case "base64":
+		if src["media_type"] != "application/pdf" {
+			return g.unreadPart("document") // an image
+		}
+		raw, _ := src["data"].(string)
+		if base64Len(raw) > g.pdf.limits.MaxBytes {
+			metrics.PDFExtract.WithLabelValues(pdftext.ReasonOverLimit).Inc()
+			return g.fileUnreadable("document", pdftext.ReasonOverLimit, true)
+		}
+		data, err := decodeBase64(raw)
+		if err != nil {
+			metrics.PDFExtract.WithLabelValues(pdftext.ReasonDamaged).Inc()
+			return g.fileUnreadable("document", pdftext.ReasonDamaged, true)
+		}
+		return g.guardPDF("document", data, false)
+	case "url", "file":
+		// A PDF the upstream fetches (url) or keeps (file_id): the gateway
+		// cannot read it.
+		return g.guardPDF("document", nil, true)
+	}
+	return g.unreadPart("document")
 }
 
 // toolUseTexts returns the string values of the input of an assistant

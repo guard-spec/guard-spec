@@ -45,15 +45,29 @@ export interface ApiKey {
   created_at: string;
   expires_at: string | null;
   revoked: boolean;
+  /** Networks the key may be used from (migration 028); empty: any address. */
+  allowed_cidrs?: string[];
+  /** The successor's prefix after a rotation, and when. */
+  rotated_to?: string | null;
+  rotated_at?: string | null;
 }
 
 export interface CreatedApiKey {
   key: string;
   key_prefix: string;
-  alias: string;
+  alias: string | null;
   project_id: UUID | null;
   rpm_limit: number | null;
   tpm_limit: number | null;
+  expires_at?: string | null;
+  allowed_cidrs?: string[];
+}
+
+/** POST .../api-keys/:prefix/rotate: the successor, shown once. */
+export interface RotatedApiKey extends CreatedApiKey {
+  rotated_from: string;
+  /** When the old key stops working (the end of the overlap). */
+  old_expires_at: string;
 }
 
 export interface NewApiKey {
@@ -62,6 +76,7 @@ export interface NewApiKey {
   expires_at?: string | null;
   rpm_limit?: number | null;
   tpm_limit?: number | null;
+  allowed_cidrs?: string[];
 }
 
 // ── Conditions: the react-querybuilder JSON tree ────────────────────────────
@@ -102,6 +117,8 @@ export interface Policy {
   description: string | null;
   version: number;
   enabled: boolean;
+  /** Decisions are recorded in the request log (policy:would_<action> tags), not applied (migration 026). */
+  log_only?: boolean;
   rules: Rule[];
   created_at: string;
   updated_at: string;
@@ -113,6 +130,67 @@ export interface PolicyInput {
   rules: Rule[];
   project_id?: UUID | null;
   enabled?: boolean;
+  log_only?: boolean;
+  /** Kept with the version the save creates (at most 500 characters). */
+  reason?: string;
+}
+
+// ── Policy history (migration 026) ──────────────────────────────────────────
+
+export type PolicyVersionKind = 'create' | 'update' | 'rollback' | 'config';
+
+export interface PolicyVersion {
+  version: number;
+  kind: PolicyVersionKind;
+  name: string;
+  description: string | null;
+  project_id: UUID | null;
+  enabled: boolean;
+  log_only: boolean;
+  rules: Rule[];
+  author: { id: UUID | null; email: string | null } | null;
+  reason: string | null;
+  /** A rollback: the version it restored. */
+  rolled_back_to: number | null;
+  created_at: string;
+}
+
+/** GET /organizations/:orgId/policies/:id/versions: newest first. */
+export interface PolicyVersions {
+  items: PolicyVersion[];
+  current: number;
+}
+
+export interface PolicyFieldChange {
+  field: 'name' | 'description' | 'project_id' | 'enabled' | 'log_only';
+  from: unknown;
+  to: unknown;
+}
+
+export interface PolicyRuleChange {
+  op: 'added' | 'removed' | 'changed' | 'moved';
+  rule_id: UUID;
+  name: string;
+  from?: Rule;
+  to?: Rule;
+  /** 0-based positions; -1 when the rule is not in that version. */
+  from_index: number;
+  to_index: number;
+}
+
+/** GET .../versions/diff?from=&to= */
+export interface PolicyDiff {
+  from: number;
+  to: number;
+  fields: PolicyFieldChange[];
+  rules: PolicyRuleChange[];
+}
+
+/** POST .../policies/:id/rollback */
+export interface RollbackResult {
+  id: UUID;
+  version: number;
+  rolled_back_to: number;
 }
 
 // ── Guard settings ──────────────────────────────────────────────────────────
@@ -285,6 +363,9 @@ export interface DashboardStats {
   top_rules: { rule_id: UUID; rule: string | null; policy: string | null; count: number }[];
   /** project_id and name are null for requests without a project. */
   top_projects: { project_id: UUID | null; name: string | null; count: number; blocked: number }[];
+  /** The projects and API keys with the most refused requests (refused ones only); absent from older control planes. */
+  top_blocked_projects?: { project_id: UUID | null; name: string | null; count: number; blocked: number }[];
+  top_blocked_keys?: { key_prefix: string; alias: string | null; count: number; blocked: number }[];
 }
 
 // ── Classifier models and shadow comparison ─────────────────────────────────
@@ -313,6 +394,8 @@ export interface GatewayModels {
   layers?: string[] | null;
   /** The gateway's version (its /readyz); absent from older control planes or gateways. */
   gateway_version?: string;
+  /** This control plane's version; absent from older control planes. */
+  control_plane_version?: string;
   /** The fusion combiner: logreg or max. */
   fusion?: string;
   /** FUSION_L1_FLOOR as applied (0: off); null or absent when the gateway does not report it. */
@@ -444,6 +527,15 @@ export interface TraceEntry {
   matched: boolean;
   action: Action;
   error?: string;
+  /** Matched in a log-only policy: recorded, not applied. */
+  log_only?: boolean;
+}
+
+/** A rule of a log-only policy that would have decided. */
+export interface LogOnlyMatch {
+  rule_id: UUID;
+  rule_name: string;
+  action: Action;
 }
 
 export type UpstreamSource = 'rule' | 'project' | 'org' | 'env' | 'stub';
@@ -457,6 +549,7 @@ export interface SimulateResponse {
     rule_name?: string;
     route_target?: string | null;
     logged?: UUID[];
+    log_only?: LogOnlyMatch[];
     error?: string;
   };
   /** error is set when the chosen upstream is missing or disabled (502). */
@@ -601,6 +694,95 @@ export interface OrgSecurity {
   content_view_reason?: boolean;
   /** A SCIM deactivation also revokes the API keys the user created in the org (default true). */
   scim_revoke_keys?: boolean;
+  /** Disabling a policy and turning content storage on wait for a second admin (migration 027, default false). Deleting the org always does. */
+  two_person_approval?: boolean;
+  /** How long such a request waits for a decision (default 24, at most 720). */
+  approval_expiry_hours?: number;
+  /** Every new API key expires within this many days (migration 028); null: no limit. */
+  api_key_max_lifetime_days?: number | null;
+}
+
+// ── Two-person approval (migrations 027 and 029) ────────────────────────────
+
+/** policy.delete is history only: deleting a policy needs it disabled instead (migration 029). */
+/** input_settings.loosen: loosening the input settings (migration 030). */
+export type ApprovalKind = 'policy.disable' | 'policy.delete' | 'content_storage.enable' | 'org.delete' | 'input_settings.loosen';
+export const APPROVAL_KINDS: readonly ApprovalKind[] = ['policy.disable', 'policy.delete', 'content_storage.enable', 'org.delete', 'input_settings.loosen'];
+/** cancelled: what the request was about is gone or already done (migration 029). */
+export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'expired' | 'cancelled';
+export const APPROVAL_STATUSES: readonly ApprovalStatus[] = ['pending', 'approved', 'rejected', 'expired', 'cancelled'];
+
+export interface ApprovalRequest {
+  id: UUID;
+  /** The organization (GET /admin/approvals spans every organization). */
+  org_id?: UUID;
+  kind: ApprovalKind;
+  /** A policy id or the organization id. */
+  target: string | null;
+  /** The policy's name while it exists. */
+  target_label?: string | null;
+  payload: Record<string, unknown>;
+  reason: string | null;
+  status: ApprovalStatus;
+  requested_by: { id: UUID | null; email: string | null } | null;
+  decided_by: { id: UUID | null; email: string | null } | null;
+  decided_at: string | null;
+  decision_note: string | null;
+  expires_at: string;
+  created_at: string;
+}
+
+/** A 202 answer of a guarded change: the request that must be approved first. */
+export interface ApprovalPending {
+  approval_required: true;
+  /** The same change was already waiting: this is that request. */
+  already_pending?: boolean;
+  request: ApprovalRequest;
+}
+
+// ── Input settings (migration 030) ─────────────────────────────────────────
+
+export type InputMode = 'text_only' | 'hybrid';
+export type UnreadableFileAction = 'block' | 'pass';
+
+/** What the gateway accepts as input for one organization. */
+export interface InputSettings {
+  input_mode: InputMode;
+  /** null: the instance's limit. */
+  max_input_tokens: number | null;
+  /** hybrid only; among the instance's readable_file_types. */
+  allowed_file_types: string[];
+  unreadable_file_action: UnreadableFileAction;
+}
+
+/** The instance limits the settings stay within, from the gateway's /readyz. */
+export interface InstanceInput {
+  /** gateway: read from the gateway; default: it could not be read, the short path's limit is assumed. */
+  source: 'gateway' | 'default';
+  max_input_tokens_ceiling: number;
+  max_scan_tokens: number | null;
+  pdf_extract: boolean | null;
+  unscanned_parts: UnscannedMode | null;
+  readable_file_types: string[];
+  error?: string;
+}
+
+/** GET /organizations/{id}/input-settings. */
+export interface InputSettingsState {
+  /** No settings: the instance's behaviour applies. */
+  inherit: boolean;
+  settings: InputSettings | null;
+  updated_at: string | null;
+  instance: InstanceInput;
+  two_person_approval: boolean;
+  /** The loosening waiting for a second admin. */
+  pending: ApprovalRequest | null;
+}
+
+/** A 202 answer of a loosening: the tightening part applied (applied_now), the rest waits. */
+export interface InputSettingsPending extends ApprovalPending {
+  applied_now: boolean;
+  state: InputSettingsState;
 }
 
 // ── SCIM provisioning and IdP group roles (migration 025) ──────────────────
@@ -752,4 +934,59 @@ export interface LinkResult {
   provider_id: string;
   display_name?: string;
   email?: string | null;
+}
+
+// ── Getting started, false-positive impact, sample sentences (RF-a1dbafea) ──
+
+/** GET /organizations/{org}/getting-started: the setup checklist, counts only. */
+export interface GettingStarted {
+  upstream: {
+    /** An enabled model provider, or the gateway's UPSTREAM_LLM_URL. */
+    configured: boolean;
+    upstreams: number;
+    env: boolean;
+    /** From the request log of the last 7 days; null without traffic. */
+    reachable: boolean | null;
+    last_answer_at: string | null;
+    last_error_at: string | null;
+  };
+  api_keys: number;
+  policies: number;
+  models: { configured: boolean; reachable: boolean; layers: string[]; version?: string; error?: string };
+  alert_channels: number;
+  input_settings: boolean;
+  /** The required steps (provider, API key, policy, detection layers) are done. */
+  complete: boolean;
+  checked_at: string;
+}
+
+/** POST /policy/sample: rule fields of a sample sentence, scored with L1, the sanitizer and the PII patterns (L2 and L3 are -1). */
+export interface SampleScore {
+  vars: Record<string, SimValue>;
+  layers: string[];
+  /** The L1 rules and categories that fired. */
+  rules: string[];
+}
+
+/** GET /organizations/{org}/requests/{id}/impact: what a false-positive fix concerns, counted from stored scores and hashes over 7 days. */
+export interface RequestImpact {
+  window: '7d';
+  from: string;
+  to: string;
+  request: {
+    id: UUID;
+    action: string;
+    /** What refused it: a policy rule, the detector's score, the input settings; none when not refused. */
+    decided_by: 'rule' | 'detector' | 'input' | 'none';
+    injection_score: number;
+    injection_label: string | null;
+    rule_id: UUID | null;
+    has_hash: boolean;
+  };
+  /** Requests with the identical body; null without a stored hash. */
+  same_input: { total: number; blocked: number } | null;
+  /** The requests the same rule decided; null unless a rule refused it. */
+  same_rule: { total: number; blocked: number } | null;
+  /** The detector's refusals at or below this score; null unless the detector refused it. */
+  threshold: { org: number | null; gateway_default: number; above_default: boolean; at_or_below: number } | null;
 }

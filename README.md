@@ -30,7 +30,7 @@ answer for exfiltration links, personal data and a leaked canary before the
 answer reaches your users. It is written in Go, runs as two services next to Postgres, and has
 been built and evaluated for **English and Vietnamese**.
 
-Status: **v0.5.0, pre-1.0.** The API and the database schema can still
+Status: **v0.6.0, pre-1.0.** The API and the database schema can still
 change. Read [Security model and limitations](#security-model-and-limitations)
 before you rely on it.
 
@@ -93,9 +93,11 @@ before you rely on it.
   as a backstop.
 - **Audit:** one row per request (content off by default), an activity log of
   every configuration and security change, retention in days.
-- **Admin UI** in English and Vietnamese, light and dark: dashboard, request
-  flow, simulator, policies, providers, request log, alerts, members and
-  security ([Admin UI](#admin-ui)).
+- **Admin UI** in English and Vietnamese, light and dark, checked with
+  axe-core: getting started, dashboard and security overview, request flow
+  with policy templates and sample sentences, simulator, providers, request
+  log with one-click false-positive handling, alerts, members and security,
+  and a Ctrl+K command palette ([Admin UI](#admin-ui)).
 
 **Operations**
 - Docker Compose for a single host, a Helm chart for Kubernetes, an image with
@@ -327,7 +329,7 @@ scripts/quickstart.sh
    existing `.env` is never overwritten;
 2. runs `docker compose -f docker-compose.yml up -d` with
    `ghcr.io/guard-spec/guard-spec-gateway` and `-control-plane` at
-   `GUARDSPEC_VERSION` (default `0.5.0`). Before the gateway starts, the
+   `GUARDSPEC_VERSION` (default `0.6.0`). Before the gateway starts, the
    `models-init` service pulls the recommended models (about 270 MB, SHA-256
    verified) into `./models/cache`; on later starts it finds them and does
    nothing;
@@ -667,7 +669,14 @@ in a second table.
 | `MAX_SCAN_TOKENS` | empty (today's limits) | The most tokens the gateway scans for one proxied request. Empty or `0`: the byte limits as before (about 28 KB of user, system and tool-call text; 128 KiB of tool results, documents and tool descriptions; 1 MiB of earlier turns), 413 above them. Set: the request's token cap (413 above it), and requests past those byte limits are scanned on the long path in the large-input lane instead of refused. See [Large inputs](#large-inputs) |
 | `INFERENCE_LARGE_MAX_CONCURRENCY` | CPUs / 4 (the container's CPU limit counts; at least 1) | Large requests scanned at once, and their model runs, on a limiter of their own |
 | `LARGE_SCAN_ORG_CONCURRENCY` | half of `INFERENCE_LARGE_MAX_CONCURRENCY` (at least 1) | Large requests of one org scanned at once |
-| `LARGE_SCAN_QUEUE_TIMEOUT` | `30s` | How long a large request waits for the lane before 429 with `Retry-After` |
+| `LARGE_SCAN_QUEUE_TIMEOUT` | `30s` | How long a large request waits for the lane before 429 with `Retry-After`; also how long a request waits for a free PDF extractor (`PDF_EXTRACT`) |
+| `PDF_EXTRACT` | `on` | `on` or `off`. `on`: the text of a PDF sent inline (a `document` block with a base64 source on `/v1/messages`, a `file` part with `file_data` on chat completions, an `input_file` item with `file_data` on `/v1/responses`) is extracted (hidden text, annotations and form fields included) and scanned as a document, so `INDIRECT_ACTION` and `MAX_SCAN_TOKENS` apply; the forwarded body is unchanged unless `redact` replaces the part with the document placeholder. A PDF that yields no text (`no_text`, `encrypted`, `damaged`, `timeout`, `over_limit`, `internal`) or that the gateway cannot fetch (a url or file id: `remote`) stays an unscanned part under `UNSCANNED_PARTS`, with audit tags `input:pdf_scanned=<n>` and `input:pdf_unscanned_<reason>=<n>` and the rule fields `input.pdf.count`, `input.pdf.scanned`, `input.pdf.reasons`. `off`: PDFs are unscanned parts, as in 0.5.0. No per-org override of extraction; an organization can refuse PDFs or unreadable ones with its [input settings](#per-organization-input-settings). See [PDFs](#pdfs) |
+| `PDF_EXTRACT_MAX_BYTES` | `33554432` (32 MiB) | Largest PDF the extractor opens, in bytes (`1024` to `1073741824`); larger ones are `over_limit`. The body limit applies first: a PDF arrives base64-encoded, so the largest PDF that can reach the gateway is about 3/4 of `MAX_REQUEST_BYTES` (3 MiB by default). The start-up log states the effective limit and warns when this is set above it |
+| `PDF_EXTRACT_MAX_PAGES` | `600` | Most pages extracted from one PDF (`1` to `100000`); more is `over_limit` |
+| `PDF_EXTRACT_MAX_TEXT_BYTES` | `4194304` (4 MiB), or 4 × `MAX_SCAN_TOKENS` when that is smaller | Most text extracted from one PDF, in bytes (`1024` to `1073741824`); more is `over_limit`. With `MAX_SCAN_TOKENS` unset, text past the short path's 128 KiB of documents is `over_limit` as well |
+| `PDF_EXTRACT_TIMEOUT` | `10s` | Wall-clock budget for one PDF (`100ms` to `10m`), the wait for an extractor excluded; past it the PDF is `timeout` |
+| `PDF_EXTRACT_MEMORY` | `536870912` (512 MiB) | Memory cap of one PDFium instance (WebAssembly linear memory), in bytes (`33554432`, 32 MiB, to `4294967296`, 4 GiB); a document that needs more is `damaged` |
+| `PDF_EXTRACT_MAX_CONCURRENCY` | CPUs / 2 (at least 1) | PDFs extracted at once (`1` to `1024`); others wait up to `LARGE_SCAN_QUEUE_TIMEOUT`, then 429 with `Retry-After` |
 | `MAX_REQUEST_BYTES` | `4194304` (4 MiB) | Largest request body; a larger one gets 413 before it is read. Raise it with `MAX_SCAN_TOKENS` past about 1M tokens |
 | `METRICS_ADDR` | `:9090` | Metrics listener; `off` disables it |
 | `METRICS_TENANT_LABELS` | `false` | `true` adds one metric series per org |
@@ -689,7 +698,7 @@ in a second table.
 | `GATEWAY_URL` | empty (compose: `http://gateway:8080`) | The gateway's base URL inside the deployment. The control plane reads its `/readyz` (server side, 3 s timeout) for the Models page; empty: the page says it is not configured |
 | `UPSTREAM_KEY_ORGS` | empty (compose: `UPSTREAM_KEY_MAIN=*`) | As on the gateway. Saving an upstream (or a config file) that names a key variable not allowed for the org is refused |
 | `UPSTREAM_KEY_*`, `UPSTREAM_ALLOW_PRIVATE` | empty, `false` (compose: `false`; dev override: `true`) | Used only by `POST .../upstreams/:id/test` (owner only), which applies the gateway's key allowlist and address rules. A key is sent with a test only to orgs `UPSTREAM_KEY_ORGS` lists by id, not through `*` (except with `GUARD_ENV=dev`); the answer says `key_sent`. Give the control plane `UPSTREAM_KEY_*` variables only if tests should use them |
-| `TRUSTED_PROXIES` | empty | Comma-separated CIDRs or addresses of reverse proxies. Their `X-Forwarded-For` is read from the right, and the first address that is not a trusted proxy is the client, for rate limits, sessions and the activity log. Empty: the header is ignored and the TCP peer is the client |
+| `TRUSTED_PROXIES` | empty | Comma-separated CIDRs or addresses of reverse proxies. Their `X-Forwarded-For` is read from the right, and the first address that is not a trusted proxy is the client, for rate limits, sessions and the activity log. The gateway reads it too, for API keys limited to addresses (`allowed_cidrs`). Empty: the header is ignored and the TCP peer is the client |
 | `MFA_ENC_KEY` | empty (dev: a fixed key) | 32 random bytes in base64 (`openssl rand -base64 32`). Encrypts TOTP secrets with AES-256-GCM. Without it 2FA cannot be turned on; when users already have 2FA the control plane refuses to start without it. The development key is refused outside `GUARD_ENV=dev`. Back it up with the database: a lost key disables everyone's 2FA. Several keys, comma-separated and the newest first, for a rotation (`control-plane keys rotate`) |
 | `CONTENT_KEK` | empty | Opens the stored content the gateway encrypted; the same value as on the gateway (or `CONTENT_KEK_FILE`, `CONTENT_KEK_VAULT_KEY`). See [Encryption](docs/security/README.md#encryption) |
 | `<SECRET>_FILE`, `vault:` values | — | Any secret setting can come from a file (`NAME_FILE`) or HashiCorp Vault KV v2 (`NAME=vault:<mount>/<path>#<key>`, with `VAULT_ADDR`, `VAULT_TOKEN` or `VAULT_TOKEN_FILE`, `SECRETS_VAULT_TTL` default `5m`). See [Secrets](docs/security/README.md#where-secrets-come-from) |
@@ -720,7 +729,7 @@ URL tried before Hugging Face: `<mirror>/<name>/<version>/<file>`).
 | `GATEWAY_PORT`, `METRICS_PORT` | `8080`, `9090` | Host ports of the gateway |
 | `CONTROL_PLANE_PORT`, `CONTROL_PLANE_METRICS_PORT` | `18081`, `9091` | Host ports of the control plane |
 | `POSTGRES_PORT` | `5432` | Host port of Postgres (dev override only) |
-| `GUARDSPEC_VERSION` | `0.5.0` | Tag of the `ghcr.io/guard-spec/guard-spec-*` images in `docker-compose.yml` (the dev override builds from source instead) |
+| `GUARDSPEC_VERSION` | `0.6.0` | Tag of the `ghcr.io/guard-spec/guard-spec-*` images in `docker-compose.yml` (the dev override builds from source instead) |
 | `MODELS_UID`, `MODELS_GID` | `0` | Owner of files written by `models-init` and `models-pull` |
 | `QUICKSTART_TIMEOUT` | `600` | `scripts/quickstart.sh`: seconds to wait for `/readyz` |
 
@@ -807,10 +816,16 @@ needs `Authorization: Bearer <token from /v1/auth/login>`. Roles are `owner`,
 | `GET /policy/schema` (fields, operators per type, actions) | any user |
 | `POST /policy/parse` (`{"text"}` to `{"condition"}`; 422 `{"error","position"}`) | any user |
 | `POST /policy/format` (`{"condition"}` to `{"text"}`; 422 on an invalid tree) | any user |
+| `POST /policy/sample` (`{"text"}`, at most 8000 bytes, to `{vars, layers, rules}`: a sample sentence scored with the sanitizer, the L1 rules and the personal data patterns for the simulator; `scores.l2` and `scores.l3` are -1; nothing stored; 60 per user per minute) | any user |
 | `GET /organizations/:orgId` (includes `default_upstream_id`) | viewer |
-| `PATCH /organizations/:orgId` (`audit_store_content`) | admin |
+| `PATCH /organizations/:orgId` (`audit_store_content`; 202 with a pending request under [two-person approval](#governance)) | admin |
+| `DELETE /organizations/:orgId` (`{"confirm": "<slug>", "reason"}`; never the default organization; an owner gets 202 with a request another owner or an instance administrator approves; an instance administrator deletes at once with a `reason`) | owner, instance admin |
+| `GET /organizations/:orgId/approvals?status=pending\|approved\|rejected\|expired\|cancelled\|all` | admin, instance admin |
+| `POST /organizations/:orgId/approvals/:id/approve`, `.../reject` (`{"note"}`; the requester cannot approve their own; an organization's deletion is approved by another owner or an instance administrator) | admin, instance admin |
 | `GET`, `PUT /organizations/:orgId/guard-settings` | viewer, admin |
-| `GET`, `PUT /organizations/:orgId/security` (2FA requirement, login methods, domain join, session lifetime, `scim_revoke_keys`) | admin, owner |
+| `GET /organizations/:orgId/input-settings` (the settings or `inherit`, the instance limits read from the gateway, a pending loosening) | viewer |
+| `PUT /organizations/:orgId/input-settings` (`{input_mode, max_input_tokens, allowed_file_types, unreadable_file_action, reason}`), `DELETE` (back to the instance's behaviour, `{reason}`); 202 with a pending request when it loosens and [two-person approval](#governance) is on. See [Per-organization input settings](#per-organization-input-settings) | admin |
+| `GET`, `PUT /organizations/:orgId/security` (2FA requirement, login methods, domain join, session lifetime, `scim_revoke_keys`, `two_person_approval`, `approval_expiry_hours`, `api_key_max_lifetime_days`) | admin, owner |
 | `GET /organizations/:orgId/scim/tokens` (tokens without their value, `base_url`, number of SCIM users and groups) | admin |
 | `POST /organizations/:orgId/scim/tokens` (`{name, expires_at}`; the token is in the answer once), `DELETE .../scim/tokens/:id` | owner |
 | `GET`, `PUT /organizations/:orgId/group-roles` (IdP group to role mappings) | admin, owner |
@@ -819,8 +834,9 @@ needs `Authorization: Bearer <token from /v1/auth/login>`. Roles are `owner`,
 | `POST /organizations/:orgId/members/:userId/reset-mfa` | owner |
 | `GET /organizations/:orgId/activity?actor=&action=` | admin |
 | `GET`, `PUT`, `DELETE /organizations/:orgId/projects/:projectId/members[/:userId]` | viewer, admin |
-| `GET`, `POST /organizations/:orgId/api-keys` | admin |
-| `PATCH`, `DELETE /organizations/:orgId/api-keys/:keyId` | admin |
+| `GET`, `POST /organizations/:orgId/api-keys` (`expires_at`, `allowed_cidrs`; see [API key policy](#governance)) | admin |
+| `PATCH` (`rpm_limit`, `tpm_limit`, `allowed_cidrs`, `expires_at`), `DELETE /organizations/:orgId/api-keys/:keyId` | admin |
+| `POST /organizations/:orgId/api-keys/:keyId/rotate` (`{"overlap_hours": 24}`; the successor key is in the answer once) | admin |
 | `GET`, `POST /organizations/:orgId/projects` (list includes `default_upstream_id`) | viewer, admin |
 | `GET`, `POST /organizations/:orgId/upstreams` | viewer, admin |
 | `PUT`, `DELETE /organizations/:orgId/upstreams/:id` (409 while a rule or default uses it) | admin |
@@ -828,12 +844,17 @@ needs `Authorization: Bearer <token from /v1/auth/login>`. Roles are `owner`,
 | `PUT /organizations/:orgId/default-upstream` (`{"upstream_id": id or null}`) | admin |
 | `PUT /organizations/:orgId/projects/:projectId/default-upstream` | admin |
 | `GET`, `PUT /organizations/:orgId/config[?dry_run=true]` (YAML; `GET` is 409 when the stored config would not apply again) | viewer, admin |
-| `GET`, `POST /organizations/:orgId/policies` (409 on a name the org already uses; `enabled` defaults to true) | viewer, admin |
+| `GET`, `POST /organizations/:orgId/policies` (409 on a name the org already uses; `enabled` defaults to true; `log_only`, `reason`) | viewer, admin |
 | `POST /organizations/:orgId/policies/simulate` | viewer |
-| `PUT`, `DELETE /organizations/:orgId/policies/:id` | admin |
+| `PUT`, `DELETE /organizations/:orgId/policies/:id` (disabling answers 202 under two-person approval; only a disabled policy is deleted, else 409 `policy_enabled`) | admin |
+| `GET /organizations/:orgId/policies/:id/versions`, `GET .../versions/diff?from=&to=` ([policy history](#governance)) | viewer |
+| `POST /organizations/:orgId/policies/:id/rollback` (`{"version", "reason"}`; without `version`, one step back) | admin |
 | `GET /organizations/:orgId/requests?limit=&cursor=&action=` (includes `route_target`, `repeat_count` and `has_content`; never the content) | viewer |
+| `GET /organizations/:orgId/requests/:requestId/impact` (what a false-positive fix concerns over 7 days, from stored scores and hashes: `same_input`, `same_rule`, `threshold`; counts only; see [Admin UI](#admin-ui)) | viewer |
+| `GET /organizations/:orgId/getting-started` (the setup checklist: enabled providers and reachability from the request log, active API keys, enabled policies, the gateway's layers and version, alert channels, own input settings, `complete`; counts only) | viewer |
 | `POST /organizations/:orgId/requests/:requestId/content` `{"reason"}`: the stored prompt and answer of one request, logged as `request.content_viewed` with the reason | the org's `content_read_role` (default admin) |
 | `GET /organizations/:orgId/dashboard?window=24h\|7d\|30d&project_id=` (request log aggregates; see below) | viewer |
+| `GET /organizations/:orgId/reports/requests.csv?window=24h\|7d\|30d` or `?from=&to=` (the same per period as CSV, counts only; see [Governance](#governance)) | viewer |
 | `GET`, `POST /organizations/:orgId/exemplars` | viewer, admin |
 | `PUT`, `DELETE /organizations/:orgId/exemplars/:id` | admin |
 | `GET`, `POST /organizations/:orgId/invites`, `DELETE .../invites/:inviteId` (also under `/orgs/:orgId`) | admin |
@@ -851,8 +872,10 @@ log in Postgres over a window that ends now (`window` is `24h`, the default,
 `block_rate`, `by_action`, `latency_ms` (`p50`, `p95`, `p99`; null without
 latencies), a `series` of `{start, count, blocked}` per hour (24h) or per day
 (UTC, empty buckets included), and the top five `top_labels` (benign left
-out), `top_rules` (with rule and policy names) and `top_projects`. The admin
-UI dashboard reads it.
+out), `top_rules` (with rule and policy names) and `top_projects`, and the
+most attacked: `top_blocked_projects` and `top_blocked_keys` (key prefix and
+alias), refused requests only. The admin UI dashboard and security overview
+read it.
 
 **Errors** are `{"error": "message"}`; the identity endpoints add a
 machine-readable `"code"` (such as `mfa_required`, `login_method_not_allowed`,
@@ -919,12 +942,25 @@ values of all kinds); both read `[]` and `0` unless the org turned on
 `input.unscanned.count` (how many such parts, all kinds together) describe
 the parts the gateway forwards but cannot read, in the turns it scans; see
 [Content the gateway cannot read](#content-the-gateway-cannot-read).
+`input.pdf.count` (PDF parts in those turns), `input.pdf.scanned` (how many
+of them were read with `PDF_EXTRACT`) and `input.pdf.reasons` (why the others
+were not: `no_text`, `encrypted`, `damaged`, `timeout`, `over_limit`,
+`internal`, `remote`) describe the PDFs. Example: `"encrypted" in
+input.pdf.reasons` with action `block`.
+`input.files.types` lists the types of the images, files and audio in those
+turns, detected from their content (`pdf`, `png`, `jpeg`, `gif`, `webp`,
+`docx`, `xlsx`, `pptx`, `zip`, `wav`, `mp3`, `ogg`, `flac`, `unknown`,
+`remote`); see [Per-organization input settings](#per-organization-input-settings).
 `pii.entities`, `toxicity.score` and `topic.categories` were removed: new
 rules may not name them, and stored rules that do read `[]` or `0` as they
 always did. A policy holds at most 200 rules; each rule has a CEL
 cost limit, the rules of one request share a cost budget and a timeout, and
 any of these limits fails closed with 503. Project policies run before the
-org-wide ones.
+org-wide ones. A policy with `log_only` is evaluated like any other, but
+what its `allow`, `block` and `route` rules would have decided is only
+recorded in the request log (tag `policy:would_block=<rule id>`); the
+request goes on to the next policy. Every save is kept as a version
+(see [Governance](#governance)).
 
 ## Routing
 
@@ -1115,6 +1151,14 @@ upstreams, the output guard and the client.
 - A scope without rules offers one-click templates: block high-risk
   injection, log possible injection in tool responses, route suspicious
   requests to another upstream (when there is one) and block hidden Unicode.
+- **Policy from template** adds a whole policy in one click: **Personal
+  data** (block card and CCCD numbers, log other personal data), **OTP and
+  KYC** (block attempts to extract OTPs, secrets or the prompt, a CCCD sent
+  with a phone number; log ID photos the gateway cannot read) and
+  **Banking** (injection from 0.6, injection in tool results and documents,
+  hidden characters, card numbers). It starts **log only** in the current
+  scope, so the request log shows what it would block before you turn it on;
+  the dialog says when its rules need personal data detection.
 - Drag a rule up or down to reorder it within its policy (or use the arrow
   buttons). Drag from a rule's round **match** handle to Block, Allow, Log or
   an upstream to set its action; an upstream makes it a `route` rule.
@@ -1122,7 +1166,11 @@ upstreams, the output guard and the client.
   The server validates every rule; its errors are shown on the rule.
 - The **Simulator** evaluates a request (scores, category, model and other
   schema fields) against the rules shown, unsaved changes included, highlights
-  the path and lists every rule's outcome.
+  the path and lists every rule's outcome. **Try a sample sentence** scores a
+  text on the control plane (`POST /v1/policy/sample`: the sanitizer, the L1
+  rules, the personal data patterns), fills the fields, runs the simulator
+  and lists the L1 rules that fired. L2 and L3 need the gateway's models, so
+  they show as not run (-1); nothing is stored.
 
 | Rule editor, visual | Rule editor, text |
 |---|---|
@@ -1154,9 +1202,57 @@ them, each linked to the policy and rule on the Flow page.
 |---|---|
 | ![Upstreams](docs/images/admin-upstreams.png) | ![Config as code with a diff](docs/images/admin-config.png) |
 
-Guard settings, API keys (the secret is shown once, at creation), projects,
+Guard settings, API keys (the secret is shown once, at creation; a key can
+be limited to addresses and rotated with an overlap window), projects,
 exemplars and the audit log (with the route target of each request) have
-pages of their own.
+pages of their own. **Policy history** lists every saved version of a
+policy with its author, time and reason, shows the changes between two
+versions and rolls back to any of them; the Flow page has a **Log only**
+switch per policy and offers to delete a policy only once it is disabled.
+**Approvals** lists the requests waiting for a second administrator (and,
+for instance administrators, every organization's pending deletion), and
+the **Dashboard**
+downloads its period as CSV (see [Governance](#governance)).
+
+**Getting started** lists the setup steps with their real state
+(`GET /v1/organizations/{id}/getting-started`): a model provider (and
+whether the last forwarded request in 7 days got an answer), an API key, an
+enabled policy and the detection layers the gateway reports (required), an
+alert channel and the organization's own input settings (recommended). Each
+step links to the page that sets it up. An organization still missing a
+provider, a key or a policy lands there after sign-in until the steps are
+done or the page is hidden (per organization, in this browser); the
+dashboard shows a setup card while a required step is left.
+
+**Security overview** shows the refused requests and their trend over 24
+hours, 7 or 30 days, the most attacked API keys and projects, the top
+detections, the health of the detection models (layers, a verified
+classifier, a recommended update, a failed reload) and the running gateway
+and control plane versions, with the CSV report of the period.
+
+**False positives in one click.** A request's details show why it was
+refused: the score of each detection layer that ran and the rules and
+categories that fired (gateways from 0.7 record them as `detector:*` tags,
+never text), the policy rule, and the log-only rules that would have
+decided. A refused request gets a panel to add an **allow exemplar** of the
+text or **report the false positive**, without leaving the page. The text is
+never fetched for it: it starts from the stored prompt only when you already
+read it (content storage on, your role, a logged reason), else you type it.
+The panel previews the impact from what the control plane stores
+(`GET .../requests/{id}/impact`, 7 days): identical requests (same body hash)
+and how many were refused; for a rule's refusal, how many requests that rule
+decided (an exemplar does not change a rule; the panel links to the flow);
+for the detector's, how many refusals at or below the score a higher block
+threshold would let through, or that the score is above the gateway's
+threshold. It cannot tell exactly which other requests an exemplar would
+flip: that would need the texts and the detector's models, and it says so.
+
+**Command palette.** Ctrl+K (⌘K on a Mac), or **Search** in the top bar,
+goes to any page the role may see and to the organization's policies,
+projects, model providers and API keys. Arrows move, Enter opens, Escape
+closes. The **request log** saves named filters (action and search, per
+organization, in this browser) and downloads the CSV report for a chosen
+period and project.
 
 **Report** on a request log row (or in its details) turns a missed attack or a
 wrongly blocked text into a prefilled GitHub issue for the project's "Bypass"
@@ -1174,7 +1270,9 @@ sends nothing. Viewers can report. What happens to a report is described in
 The UI loads nothing from other origins and runs under the control plane's
 `Content-Security-Policy` (`default-src 'self'`, no inline scripts or styles);
 the e2e tests run the production build under that policy and fail on any
-violation. Screenshots are taken against the mocked API of the e2e tests
+violation. Every page is checked with axe-core in English and Vietnamese
+(`e2e/a11y.spec.ts`): a serious or critical WCAG 2.1 A or AA violation fails
+the build. Screenshots are taken against the mocked API of the e2e tests
 (`npm run screenshots` in `web/`).
 
 ## Alerts and notifications
@@ -1526,12 +1624,15 @@ What it does **not** protect against:
 - **Harmful but non-injection requests.** It is not a content moderation or
   toxicity filter. It does not judge whether a request or an answer is
   harmful, biased or false.
-- **Content it cannot read.** Images, files (PDFs and others) and audio in a
-  request are forwarded to the model without being classified, so an
-  injection inside them is not found; the gateway does not extract text or
-  run OCR. They are no longer invisible: by default (`UNSCANNED_PARTS=log`)
-  the audit row counts them (`input:unscanned_<kind>=<n>`), `block` refuses
-  such requests, and rules can act on `input.unscanned.kinds`
+- **Content it cannot read.** Images, audio and files in a request are
+  forwarded to the model without being classified, so an injection inside
+  them is not found. A PDF sent inline is read (`PDF_EXTRACT`, on by
+  default) unless it has no text layer (the gateway does not run OCR), is
+  encrypted, damaged, over the limits, or referenced by URL or file id.
+  They are not invisible: by default (`UNSCANNED_PARTS=log`) the audit row
+  counts them (`input:unscanned_<kind>=<n>`,
+  `input:pdf_unscanned_<reason>=<n>`), `block` refuses such requests, and
+  rules can act on `input.unscanned.kinds` and `input.pdf.reasons`
   ([Content the gateway cannot read](#content-the-gateway-cannot-read)).
   Send extracted text instead of the file where you can
   ([Files, PDFs and images](docs/integrations.md#files-pdfs-and-images)). A
@@ -2047,11 +2148,13 @@ JSON column.
 
 ### Content the gateway cannot read
 
-The detector reads text. Images, files and audio in a request are forwarded
-to the model, which can read them (a vision model reads text in an image, a
-PDF's text reaches the model), so an injection inside a PDF or an image is
-not classified. `UNSCANNED_PARTS` makes these parts visible and lets you
-refuse them.
+The detector reads text. Images, audio and files in a request are forwarded
+to the model, which can read them (a vision model reads text in an image, the
+provider gives the model a PDF's text), so an injection inside them is not
+classified. A PDF sent inline is the exception: with `PDF_EXTRACT=on` (the
+default) the gateway extracts its text and scans it as a document, see
+[PDFs](#pdfs) below. `UNSCANNED_PARTS` makes the parts it still cannot read
+visible and lets you refuse them.
 
 - **What counts.** Chat completions: `image_url`, `file` (`file_data` or
   `file_id`) and `input_audio` content parts. `/v1/messages`: `image` blocks,
@@ -2059,7 +2162,8 @@ refuse them.
   inside a `tool_result`. `/v1/responses`: `input_image`, `input_file` and
   `input_audio`. The kinds are `image`, `file`, `audio` and `other`: a part
   with no text of a type the gateway does not know, so a new provider part
-  type is not missed.
+  type is not missed. A PDF whose text was extracted and scanned is not
+  counted; one the gateway could not read (the reasons below) is a `file`.
 - **Not counted**, because they are scanned or are not input: text parts,
   `document` blocks with `source` `text` or `content`, `search_result`
   blocks, content the model produced in assistant turns, and encrypted
@@ -2103,10 +2207,131 @@ refuse them.
   already applies to one tenant; use a project policy to single out some
   keys. A rule's `block` is a policy refusal (`content_filter`), not
   `unscanned_content`.
-- **Not done here.** The gateway does not extract the text of a PDF or run
-  OCR. Have the application send the text instead of the file, or scan the
-  extracted text at upload; see
+- **Not done here.** The gateway does not run OCR (a scanned PDF, an image)
+  and does not fetch a file the provider holds (a URL or file id). Have the
+  application send the text instead of the file, or scan the extracted text
+  at upload; see
   [Files, PDFs and images](docs/integrations.md#files-pdfs-and-images).
+
+#### PDFs
+
+With `PDF_EXTRACT=on` (the default) a PDF sent inline (a `document` block
+with a `base64` source on `/v1/messages`, a `file` part with `file_data` on
+chat completions, an `input_file` item with `file_data` on `/v1/responses`;
+plain base64 or a data URL) is opened with PDFium, run as WebAssembly inside
+the gateway (no native library, no external service), and its text is
+scanned as an untrusted document on the same path as a `document` block with
+a text source: `INDIRECT_ACTION` applies (`block` refuses the request,
+`redact` replaces the part with the document placeholder), as do the scan
+cache and `MAX_SCAN_TOKENS`. The PDF itself is never rewritten: the
+forwarded body is byte-identical unless a part is redacted.
+
+- **What is read.** Every text object of every page, whether a reader would
+  see it or not: white, invisible (render mode 3), tiny, clipped and
+  off-page text, and text under an image; the contents of annotations
+  (comments, free text); the values of form fields. That is the text a model
+  gets from the provider's extraction, and more.
+- **What is not.** A scanned or image-only PDF (a page that is a picture of
+  text has no text layer; there is no OCR: `no_text`), an encrypted PDF
+  (`encrypted`), a file PDFium cannot open (`damaged`), a PDF the gateway
+  cannot fetch (a `url` or `file` source on `/v1/messages`, `file_id` on
+  chat completions, `file_id` or `file_url` on `/v1/responses`: `remote`),
+  text past the limits (`over_limit`: more than `PDF_EXTRACT_MAX_BYTES`,
+  `PDF_EXTRACT_MAX_PAGES` or `PDF_EXTRACT_MAX_TEXT_BYTES`, or, with
+  `MAX_SCAN_TOKENS` unset, more than the 128 KiB of documents the short
+  path scans) or past the time budget (`timeout`, `PDF_EXTRACT_TIMEOUT`);
+  an extractor fault is `internal`. Document metadata (title, author,
+  keywords), bookmarks, embedded files, JavaScript and the text inside
+  images on a page are not read. Such a PDF is forwarded as before, as an
+  unscanned `file` under `UNSCANNED_PARTS`; partial text never counts as a
+  scan.
+- **Where it shows.** The audit row's tags `input:pdf_scanned=<n>` and
+  `input:pdf_unscanned_<reason>=<n>` next to `input:unscanned_file=<n>`
+  (the unscanned tags are left out with `UNSCANNED_PARTS=allow`); the rule
+  fields `input.pdf.count`, `input.pdf.scanned` and `input.pdf.reasons`
+  (for example `"encrypted" in input.pdf.reasons` with action `block`, or
+  `input.pdf.count > input.pdf.scanned` to refuse any PDF the gateway could
+  not read; the Simulator takes them too); the metrics
+  `guardspec_gateway_pdf_extract_total{result}` (the reasons, `ok` and
+  `busy`), `guardspec_gateway_pdf_extract_seconds` and
+  `guardspec_gateway_pdf_text_bytes`. A PDF in an earlier turn is scored
+  (through the scan cache) but not counted, like the unscanned counts.
+- **Limits and cost.** At most `PDF_EXTRACT_MAX_CONCURRENCY` PDFs (half the
+  CPUs) are read at once, each in a PDFium instance with its own memory cap
+  (`PDF_EXTRACT_MEMORY`, 512 MiB) and time budget (`PDF_EXTRACT_TIMEOUT`,
+  10 s); a request that gets no extractor within `LARGE_SCAN_QUEUE_TIMEOUT`
+  is answered 429 with `Retry-After`. A PDF arrives base64-encoded, so the
+  largest one that fits in `MAX_REQUEST_BYTES` is about three quarters of
+  it (3 MiB with the default 4 MiB); the start-up log states the effective
+  limit and warns when `PDF_EXTRACT_MAX_BYTES` was set above it. A long PDF
+  needs `MAX_SCAN_TOKENS`: without it, more than 128 KiB of extracted text
+  (about 30k tokens, some 40 pages of prose) is `over_limit` and the PDF
+  goes to the model unscanned. Measured on an M3 Max, a 100-page PDF of
+  about 200k tokens takes about 1 s to extract and 40 to 50 s to scan with
+  the models (every window scored, the large-input lane at its default of
+  CPUs / 4 model runs at once); see [sizing, PDF documents](docs/sizing.md#pdf-documents).
+- **Recommended.** For document-heavy applications set
+  `INDIRECT_ACTION=redact`: the classifier still takes some long benign
+  documents for injections (RF-895d3533), and with `redact` the request goes
+  on without the document instead of failing, with the audit row recording
+  it. Keep `UNSCANNED_PARTS=log` and watch `input:pdf_unscanned_*` to see
+  which PDFs are not read; a rule on `input.pdf.reasons` refuses the kinds
+  you do not want. `PDF_EXTRACT=off` is the behaviour of 0.5.0: every PDF is
+  an unscanned part.
+
+### Per-organization input settings
+
+An organization's admins can set what the gateway accepts from the
+organization's applications (admin UI: **Input settings**, or
+`PUT /v1/organizations/:orgId/input-settings`). The instance's environment
+stays the ceiling. An organization without settings keeps the instance's
+behaviour exactly (`PDF_EXTRACT`, `UNSCANNED_PARTS`, `MAX_SCAN_TOKENS`, as
+described above).
+
+| Setting | Values | Effect |
+| --- | --- | --- |
+| `input_mode` | `text_only`, `hybrid` | `text_only`: every image, file and audio part is refused with 415 `files_not_accepted`, whose message tells the application to convert files to text. `hybrid`: text and the files whose type is allowed. |
+| `max_input_tokens` | 1 to the instance's limit, or `null` | A request with more tokens of text to scan is refused with 413 `max_input_tokens_exceeded` before it is scanned. The limit is the gateway's `MAX_SCAN_TOKENS`, or 40,000 (the short path) without it; a larger value is refused with 400. `null`: the instance's limit. |
+| `allowed_file_types` | `pdf` (types the gateway can read) | `hybrid` only. Any other file type is refused with 415 `file_type_not_allowed`. |
+| `unreadable_file_action` | `block` (default), `pass` | An allowed file the gateway cannot read (a scanned, encrypted or damaged PDF, one over the extractor's limits, or any PDF with `PDF_EXTRACT=off`): `block` refuses the request with 422 `file_unreadable`; `pass` forwards it as an unscanned part and tags the audit row `input:unreadable_passed=<n>` (`UNSCANNED_PARTS=block` still refuses it). |
+
+The type of every part is detected from its content (`%PDF-`, the PNG,
+JPEG, GIF and WebP signatures, an Office Open XML zip, WAV, MP3, Ogg,
+FLAC) and checked against what the part declares: the `media_type`, the
+type of a data URL, the `filename` extension or the audio `format`. A
+mismatch is refused with 415 `file_type_mismatch`; the extension alone is
+never trusted. A file the gateway does not receive (a URL, `file_id` or
+`file_url`) cannot be checked and is refused with 415 `file_not_inline`.
+The detected types are the policy field `input.files.types` (with or
+without settings) and, for an organization with settings, the audit tags
+`input:file_<type>=<n>`. A refusal is tagged `input:refused=<reason>` and
+counted in `guardspec_gateway_input_refused_total{reason}`.
+
+Tightening a setting applies at once. Loosening one (a file type added,
+`max_input_tokens` raised or cleared, `pass` instead of `block`,
+`text_only` to `hybrid`, or `DELETE` back to the instance's behaviour) is
+always written to the activity log (`input_settings.updated`, with what it
+loosened) and, when the organization has
+[two-person approval](#governance) on, answers 202 with an
+`input_settings.loosen` request that another admin approves: the
+tightening part of the same change applies at once. One such request is
+pending at a time (a different loosening meanwhile is refused with 409
+`approval_pending`), and a later change of the settings cancels it.
+
+The control plane reads the instance's limits from the gateway's `/readyz`
+(`input`), through `GATEWAY_URL`; without it the bound of
+`max_input_tokens` is 40,000, and the gateway still applies its own
+`MAX_SCAN_TOKENS`. Office files, `/v1/files` uploads and OCR are not
+read.
+
+```bash
+# Text only for this organization, at most 8,000 tokens a request
+curl -s -X PUT $CP/organizations/$ORG/input-settings -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"input_mode":"text_only","max_input_tokens":8000}'
+# Accept PDFs and refuse those the gateway cannot read
+curl -s -X PUT $CP/organizations/$ORG/input-settings -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"input_mode":"hybrid","allowed_file_types":["pdf"],"unreadable_file_action":"block","reason":"contracts"}'
+```
 
 ### Large inputs
 
@@ -2202,6 +2427,8 @@ Keep that port on the internal network.
 | `scan_windows_total` | `result` (`scored`, `duplicate`: an identical window was scored, `skipped`: its text was already refused): token windows of long-path scans ([Large inputs](#large-inputs)) |
 | `scan_tokens` | none: histogram of the tokens each large request scanned |
 | `scan_queue_wait_seconds` | `outcome` (`admitted`, `timeout`, `full`, `canceled`): wait for the large-input lane |
+| `input_refused_total` | `reason` (`text_only`, `type_not_allowed`, `type_mismatch`, `not_inline`, `unreadable`, `max_input_tokens`): requests an organization's [input settings](#per-organization-input-settings) refused |
+| `input_files_total` | `type` (`pdf`, `png`, `jpeg`, ..., `unknown`, `remote`): image, file and audio parts by detected type |
 
 The control plane exports `guardspec_control_plane_requests_total`,
 `guardspec_control_plane_request_duration_seconds`,
@@ -2490,8 +2717,11 @@ replaces the current one even when it is lower, and leaving the admins group
 takes the access away (at once with SCIM, at the next login with SAML).
 SAML role changes are logged as `member.role_from_group`.
 
-**Activity log.** Member, invite, API key, policy, upstream, security and
-config changes and 2FA resets are recorded per org
+**Activity log.** Member, invite, API key (`api_key.created`, `.updated`,
+`.rotated`, `.revoked`), policy (`policy.created`, `.updated` with the
+version, `.rolled_back`, `.deleted`), approval (`approval.requested`,
+`.approved`, `.rejected`, `.cancelled`), report (`report.downloaded`), upstream, security
+and config changes and 2FA resets are recorded per org
 (`GET /v1/organizations/:orgId/activity`); SSO provider and instance user
 changes, logins (success and failure) and the user's own 2FA events at
 `GET /v1/admin/activity`. Details never hold secrets; a failed login keeps
@@ -2526,6 +2756,125 @@ its rows are deleted through a function with the table owner's rights (as
 for audit rows); the application role still cannot read or delete across
 orgs. Expired entries of the shared scan cache (`SCAN_CACHE_BACKEND=postgres`)
 go in the same run, whatever the retention periods are.
+
+### Governance
+
+Four controls for the people who run an organization (migrations 026 to
+029); all off or unchanged by default, except that deleting an organization
+always takes two people and a policy is deleted only once it is disabled.
+
+**Policy history.** Every save of a policy (API, admin UI, config as code)
+is kept as a version: the whole policy as it was after the save, the
+author, the time and an optional `reason` (at most 500 characters) given
+with the `POST` or `PUT`. `GET /v1/organizations/{id}/policies/{pid}/versions`
+lists them newest first (`items`, `current`), `GET .../versions/diff?from=1&to=3`
+compares two (`fields` that changed and `rules` added, removed, changed or
+moved, by rule id; without `to` the current version, without `from` the one
+before it), and `POST .../rollback` `{"version": 1, "reason": "..."}` makes
+the policy what it was at that version, as a new version (without `version`,
+one step back). A rollback is checked like any save: the name must still be
+free, the rules must still run on this gateway and route targets must
+exist. The activity log records `policy.updated` (with the version) and
+`policy.rolled_back` (`to_version`, `version`). Policies that existed before
+migration 026 start their history with their state at the upgrade. A policy
+with `log_only: true` records instead of deciding: a matching `block`,
+`allow` or `route` rule of it is written to the request log as
+`policy:would_block=<rule id>` (`would_allow`, `would_route`) and the
+request goes on to the next policy; its `log` rules behave as always. The
+request log row names the first such rule when nothing else decided, the
+simulator reports `log_only` on the rule and the decision, and the Flow
+page shows the switch next to each policy. Config as code carries
+`log_only` per policy.
+
+**Two-person approval.** `PUT /v1/organizations/{id}/security`
+`{"two_person_approval": true, "approval_expiry_hours": 24}` (owner) makes
+two changes wait for a second administrator: disabling a policy (`PUT`
+with `enabled: false`, or a rollback to a disabled version; the rest of the
+save applies at once) and turning on the storage of prompt and answer
+content (`audit_store_content: true`). The call answers 202
+`{"approval_required": true, "request": {...}}` and changes nothing; asking
+again while the same change is pending answers that request
+(`"already_pending": true`): there is at most one pending request per
+organization, kind and target. `GET /v1/organizations/{id}/approvals` lists
+the pending requests (`kind`, `target`, `target_label`, `requested_by`,
+`reason`, `expires_at`); `POST .../approvals/{rid}/approve` `{"note"}`
+applies the change in the same transaction, as the approver, and
+`.../reject` ends it. The requester cannot approve their own request (403
+`self_approval`) but can reject it; a request past `approval_expiry_hours`
+(1 to 720) expires and changes nothing (409 `approval_expired`). Approving
+a disable locks the request and the policy and only turns `enabled` off:
+edits made to the policy after the request stay. A request whose change no
+longer applies (the policy was deleted, or is already disabled) is
+cancelled instead of failing: the approval answers 409 `approval_cancelled`
+with the request, and the list cancels such requests as it finds them.
+Turning storage off, enabling a policy and everything else apply at once,
+as before; with the setting off nothing changes.
+
+**Deleting a policy** never waits for approval, but only a disabled policy
+can be deleted: `DELETE .../policies/{pid}` on an enabled one answers 409
+`{"error": "disable the policy before deleting it", "code": "policy_enabled"}`,
+whatever the security policy says. Under two-person approval the guarded
+step, disabling, cannot be skipped by deleting instead. Config as code
+follows the same rule: a file that leaves out an enabled policy is refused
+(422; set `enabled: false`, apply, then remove it), and with two-person
+approval on a file cannot disable an enabled policy (disable it on the
+Policy flow page or with `PUT`). The Policy flow page offers to delete a
+policy only while it is disabled as saved.
+
+**Deleting an organization** always takes two people, whatever
+`two_person_approval` says: `DELETE /v1/organizations/{id}`
+`{"confirm": "<slug>", "reason": "..."}` by an owner answers 202 with a
+pending request that another owner of the organization or an instance
+administrator approves (an admin may reject it, the requester may withdraw
+it). An instance administrator may delete an organization at once, member
+or not, but must give a `reason` (400 `reason_required` without one); the
+default organization is never deleted (409 `default_org`). Instance
+administrators see every organization's pending deletion at
+`GET /v1/admin/approvals` and on the **Approvals** page. The organization's
+own log goes with it, so `org.deleted` (with the slug, the reason and, for
+an approval, the request) and `approval.approved` are written to the
+instance log.
+
+Every step is in the activity log (`approval.requested`,
+`approval.approved` with the effect's own action, `approval.rejected`,
+`approval.cancelled`) and reaches the alert channels as
+`activity.approval.*` events. The admin UI lists the requests on
+**Approvals**.
+
+**API key policy.** A key can be limited to addresses:
+`POST /v1/organizations/{id}/api-keys` `{"alias": "edge", "allowed_cidrs":
+["203.0.113.0/24", "198.51.100.7"]}` (at most 32 CIDRs or addresses; also
+`PATCH`). The gateway refuses the key from any other address with 403
+`{"error": "API key is not allowed from this address"}` (the Anthropic error
+shape on `/v1/messages`), using the client address it resolves through
+`TRUSTED_PROXIES`, never a header a client sent on its own; an expired or
+revoked key stays 401. `api_key_max_lifetime_days` in the security policy
+(1 to 3650, null for no limit) caps the `expires_at` of every new key and
+fills it in when a key is created without one; existing keys are not
+changed. `POST .../api-keys/{prefix}/rotate` `{"overlap_hours": 24}` (0 to
+720) creates a successor with the same alias, project, limits and
+addresses, returned once, and gives the old key an expiry at the end of the
+overlap (`rotated_to` and `rotated_at` in the list; a rotated key cannot be
+rotated again, rotate its successor). Logged as `api_key.rotated`.
+
+**Reports.** `GET /v1/organizations/{id}/reports/requests.csv?window=7d`
+(or `?from=2026-11-01T00:00:00Z&to=2026-11-08T00:00:00Z`, at most 92 days;
+`project_id` narrows it) answers the request log per hour (up to 48 hours)
+or day (UTC) in long form, one row per period and item:
+`period_start,period_end,section,key,requests,blocked` with the sections
+`total` (`all`), `action` (`allow`, `block`, `route`, `error`), `reason`
+(why a request was blocked: `policy:<rule name>`, else the detector's label,
+else `other`), `project` (the name, or `none`) and `api_key` (the prefix, or
+`none`). Counts only, never content; empty periods are left out; the file
+name is `guard-spec-<slug>-<from>-<to>.csv`; each download is logged as
+`report.downloaded`. The dashboard's **Download CSV** button fetches its
+window and project. There is no scheduler for per-organization jobs in
+the control plane, so a periodic report is a cron job:
+
+```bash
+0 6 * * 1 curl -sf -H "Authorization: Bearer $TOKEN" \
+  "$CP/organizations/$ORG/reports/requests.csv?window=7d" -o "weekly-$(date +\%F).csv"
+```
 
 ### Scan cache
 

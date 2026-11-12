@@ -22,6 +22,259 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   of windows). No shipped calibration has one, so nothing changes; the first
   candidate rules did not meet their target on bench/long (see
   `train/MODEL_CARD.md`, v6, "R3") (RF-895d3533).
+- **Policy history** (RF-5f318378). Every save of a policy (API, admin UI,
+  config as code) is kept as a version with its author, time and an
+  optional `reason` (migration 026, `policy_versions`).
+  `GET /v1/organizations/{id}/policies/{pid}/versions` lists them,
+  `.../versions/diff?from=&to=` compares two (fields and rules by id), and
+  `POST .../rollback` `{"version", "reason"}` restores one as a new version
+  (one step back without `version`), checked like any save. Logged as
+  `policy.updated` (with the version) and `policy.rolled_back`. A
+  **log-only** policy (`log_only: true`; the Flow page's "Log only" switch;
+  `log_only` in the YAML config) is evaluated but only records what its
+  allow, block and route rules would have decided, as request-log tags
+  `policy:would_block=<rule id>` (`would_allow`, `would_route`); the request
+  goes on to the next policy. The simulator reports `log_only` too. New
+  **Policy history** page: versions, diff, rollback.
+- **Two-person approval** (RF-5f318378). Per-organization opt-in in the
+  security policy (`two_person_approval`, `approval_expiry_hours`, default
+  24, at most 720; migrations 027 and 029). On, disabling a policy (also by
+  a rollback to a disabled version) and turning on content storage
+  (`audit_store_content`) answer 202 with a pending request instead of
+  taking effect; another admin approves (`POST .../approvals/{rid}/approve`,
+  the change applies in the same transaction under row locks: approving a
+  disable only turns `enabled` off and keeps later edits) or rejects it, the
+  requester cannot approve their own, and a request past its time expires.
+  At most one request per organization, kind and target is pending: asking
+  again answers that one (`already_pending`). A request whose policy was
+  deleted or is already disabled is cancelled (409 `approval_cancelled` on
+  approval; status `cancelled`). Off, nothing changes. Logged as
+  `approval.requested`, `approval.approved`, `approval.rejected` and
+  `approval.cancelled`, and sent to the alert channels as
+  `activity.approval.*`. New: `DELETE /v1/organizations/{id}`
+  `{"confirm": "<slug>", "reason"}`, which always takes two people: an
+  owner's call is a request that another owner or an instance administrator
+  approves, whatever the setting; an instance administrator may delete at
+  once with a `reason`, kept in the instance activity log; never the
+  default organization. `GET .../approvals`, `GET /v1/admin/approvals`
+  (every organization's pending deletion, for instance administrators), the
+  **Approvals** page and the setting on the Security page.
+- **API key policy** (RF-5f318378, migration 028). `allowed_cidrs` on a key
+  (create and `PATCH`): the gateway refuses it from any other address with
+  403 `{"error": "API key is not allowed from this address"}`, using the
+  client address resolved through `TRUSTED_PROXIES`, which the gateway now
+  reads too; never a header a client sent itself. `api_key_max_lifetime_days`
+  in the security policy caps and fills in the `expires_at` of new keys.
+  `POST .../api-keys/{prefix}/rotate` `{"overlap_hours": 24}` creates a
+  successor with the same alias, project, limits and addresses (shown once)
+  while the old key keeps working for the overlap and then expires
+  (`rotated_to`, `rotated_at`; logged as `api_key.rotated`). The API keys
+  page gets the address list and rotation; the Security page the maximum
+  lifetime. `PATCH` also takes `expires_at`.
+- **CSV report** (RF-5f318378).
+  `GET /v1/organizations/{id}/reports/requests.csv?window=24h|7d|30d` (or
+  `from` and `to`, at most 92 days; `project_id`) answers the request log
+  per hour or day in long form: totals, actions, block reasons (the policy
+  rule or the detector's label), projects and API key prefixes, with
+  requests and blocked counts; never content. Viewer role, like the
+  dashboard, which gets a **Download CSV** button. Logged as
+  `report.downloaded`. No schedule: the control plane has no
+  per-organization scheduler to reuse; a cron job with `curl` is the way.
+- **Per-organization input settings** (RF-113cd269, migration 030,
+  `org_input_settings`). `GET`, `PUT` and `DELETE`
+  `/v1/organizations/{id}/input-settings` set what the gateway accepts from
+  an organization, within the instance's limits: `input_mode` `text_only`
+  (every image, file and audio part refused with 415
+  `files_not_accepted`, telling the app to send text) or `hybrid` (text and
+  the files in `allowed_file_types`, today `pdf`; others 415
+  `file_type_not_allowed`); `max_input_tokens` (413
+  `max_input_tokens_exceeded` before scanning; at most the gateway's
+  `MAX_SCAN_TOKENS`, or 40,000 without it, else 400); and
+  `unreadable_file_action` for an allowed file the gateway cannot read
+  (`block`: 422 `file_unreadable`; `pass`: forwarded unscanned and tagged).
+  File types are detected from the content (`%PDF-`, PNG, JPEG, OOXML zip
+  signatures, ...) and checked against the declared media type, data URL
+  or file name: a mismatch is 415 `file_type_mismatch`, and a file the
+  gateway does not receive (a URL or file id) 415 `file_not_inline`. An
+  organization without settings keeps the instance's behaviour exactly.
+  Tightening applies at once; loosening is always in the activity log
+  (`input_settings.updated` with what it loosened) and, with two-person
+  approval on, waits as an `input_settings.loosen` request (the tightening
+  part of the same change applies at once; one pending request per
+  organization; a later change of the settings cancels it). The gateway
+  reads the settings with the guard settings, tags refusals
+  `input:refused=<reason>`, and counts them in
+  `guardspec_gateway_input_refused_total{reason}` and the detected types in
+  `guardspec_gateway_input_files_total{type}`. New policy field
+  `input.files.types`. `/readyz` reports the input limits (`input`), which
+  the control plane reads through `GATEWAY_URL`. New **Input settings**
+  page.
+- **Getting started** (RF-a1dbafea). `GET /v1/organizations/{id}/getting-started`
+  (viewer, counts only) reports the setup steps: enabled model providers or
+  `UPSTREAM_LLM_URL` with reachability from the last 7 days of the request
+  log, active API keys, enabled policies, the gateway's layers and version
+  (`/readyz` through `GATEWAY_URL`), enabled alert channels and the org's own
+  input settings, and `complete`. The new admin UI page links each step to
+  the page that sets it up; an organization missing a provider, a key or a
+  policy lands there after sign-in until done or hidden, and the dashboard
+  shows a setup card.
+- **One-click false-positive handling** (RF-a1dbafea). The gateway records
+  the detector's explanation in the request log tags: the calibrated score
+  of each layer that ran (`detector:l1=0.912`) and the rules and categories
+  that fired (`detector:rule=<id>`), never text. The request details show
+  them, and a refused request gets a panel to add an allow exemplar or file
+  a false-positive report without leaving the page, with an impact preview
+  from `GET /v1/organizations/{id}/requests/{rid}/impact` (viewer, 7 days,
+  counts only): identical requests by body hash, the requests the refusing
+  rule decided, or the detector's refusals at or below the score (what a
+  higher block threshold would let through). The exemplar's text starts
+  from stored content only when the user already read it through the
+  logged reason flow.
+- **Policy editor** (RF-a1dbafea). `POST /v1/policy/sample` `{"text"}`
+  scores a sample sentence with the sanitizer, the L1 rules and the
+  personal data patterns (`scores.l2` and `scores.l3` are -1; nothing
+  stored; 60 per user per minute); the simulator's **Try a sample
+  sentence** fills its fields from it and runs the existing simulate API.
+  **Policy from template** creates a log-only policy in one click:
+  personal data, OTP and KYC, banking.
+- **Security overview, command palette, saved filters** (RF-a1dbafea). A
+  security overview page (attack trend, most attacked API keys and
+  projects, top detections, model health, running versions, CSV). The
+  dashboard API adds `top_blocked_projects` and `top_blocked_keys`;
+  `GET /v1/gateway/models` adds `control_plane_version`. Ctrl+K (Cmd+K)
+  opens a command palette over pages, policies, projects, model providers
+  and API keys. The request log saves named filters (in the browser) and
+  downloads the CSV report for a chosen period and project.
+- **Accessibility checks** (RF-a1dbafea). `web/e2e/a11y.spec.ts` runs
+  axe-core (`@axe-core/playwright` 4.13.0, a dev dependency) on every page
+  of the admin UI in English and Vietnamese and on the new dialogs, and
+  fails on a serious or critical WCAG 2.1 A or AA violation.
+
+### Changed
+
+- Only a disabled policy can be deleted: `DELETE .../policies/{pid}` on an
+  enabled policy answers 409 `policy_enabled` ("disable the policy before
+  deleting it"), and a config-as-code file that leaves out an enabled
+  policy is refused (422). Deleting a policy needs no approval, so it can
+  no longer be used to skip the approval of disabling it. The Policy flow
+  page offers to delete a policy only once it is disabled.
+- `lookup_api_key` (the gateway's key lookup) also returns a key's allowed
+  addresses; older gateways keep working against it.
+- The gateway reads `TRUSTED_PROXIES` (the control plane always did), for
+  keys limited to addresses; the shared logic is `internal/clientip`.
+- `GET /v1/organizations/{id}/policies` and the YAML config carry
+  `log_only`; `POST` and `PUT` take `log_only` and `reason` and answer the
+  new `version`.
+- Admin UI contrast meets WCAG AA: the light theme's green (`--ok`) and
+  teal (`--route`) are darker, and dimmed rows, disabled diagram steps and
+  unreached simulator rules are greyed instead of made translucent. The
+  code editor's content declares its tab stop.
+- Request log rows of a 0.7.0 gateway carry `detector:*` tags after the
+  other tags; clients that compare the whole `pii_entities` list should
+  ignore them.
+
+### Upgrade notes
+
+- Migration 026 writes one version row per existing policy (its state at
+  the upgrade). Migration 028 replaces `lookup_api_key`: apply the
+  migrations before a 0.7.0 gateway starts (the compose `migrate` job does).
+  See [docs/upgrade.md](docs/upgrade.md#migration-notes).
+- Behind a reverse proxy, set `TRUSTED_PROXIES` on the gateway before using
+  `allowed_cidrs`; without it the proxy's address is the client and such
+  keys are refused.
+- Two-person approval, the key lifetime and address limits are off until an
+  owner turns them on; existing keys are not changed.
+- Clients that disable a policy should expect 202 `approval_required` when
+  the organization requires a second admin, and clients or config files
+  that delete a policy must disable it first (409 `policy_enabled`, 422 for
+  a file). Migration 029 cancels pending policy deletion requests and
+  duplicate pending requests. Deleting an organization always waits for
+  another owner or an instance administrator.
+- Migration 030 adds `org_input_settings` and the approval kind
+  `input_settings.loosen`. A 0.7.0 gateway reads the table with every
+  request's guard settings: apply the migration before it starts, or its
+  requests fail closed (503). No organization has input settings after the
+  upgrade, so every one keeps 0.6.0's behaviour until an admin sets them.
+  Set `GATEWAY_URL` on the control plane so it checks `max_input_tokens`
+  against the gateway's `MAX_SCAN_TOKENS`; without it the bound is 40,000.
+
+## [0.6.0] - 2026-11-11
+
+### Added
+
+- PDF text extraction in the gateway (RF-8e6d0a82). A PDF sent inline (a
+  `document` block with a `base64` source on `/v1/messages`, a `file` part
+  with `file_data` on chat completions, an `input_file` item with
+  `file_data` on `/v1/responses`) was forwarded unread, as an unscanned
+  part. With `PDF_EXTRACT=on`, the default, the gateway extracts its text
+  with PDFium running as a WebAssembly module in wazero
+  (`internal/pdftext`; no cgo, no native library, no external service) and
+  scans it as an untrusted document on the same path as a text document:
+  `INDIRECT_ACTION` applies (`block` refuses the request, `redact`
+  replaces the part with the document placeholder), as do the scan cache
+  and `MAX_SCAN_TOKENS`; the forwarded body is otherwise byte-identical.
+  The text is what a model would see: every text object (white, 1pt,
+  invisible and off-page text included), annotation contents and form
+  field values. A PDF the gateway cannot read stays an unscanned part under
+  `UNSCANNED_PARTS`, with the reason recorded: `no_text` (a scan or
+  image-only PDF; there is no OCR), `encrypted`, `damaged`, `timeout`,
+  `over_limit`, `internal`, and `remote` for a `url`, `file_id` or
+  `file_url` source the gateway cannot fetch. Settings: `PDF_EXTRACT`
+  (`on`/`off`), `PDF_EXTRACT_MAX_BYTES` (32 MiB), `PDF_EXTRACT_MAX_PAGES`
+  (600), `PDF_EXTRACT_MAX_TEXT_BYTES` (4 MiB, or 4 × `MAX_SCAN_TOKENS` when
+  that is smaller; with `MAX_SCAN_TOKENS` unset, text past the short
+  path's 128 KiB of documents is `over_limit`), `PDF_EXTRACT_TIMEOUT`
+  (10 s), `PDF_EXTRACT_MEMORY` (512 MiB per PDFium instance),
+  `PDF_EXTRACT_MAX_CONCURRENCY` (half the CPUs; a request that gets no
+  extractor within `LARGE_SCAN_QUEUE_TIMEOUT` is answered 429 with
+  `Retry-After`). The start-up log states the effective PDF size limit (a
+  PDF arrives base64-encoded, so about 3/4 of `MAX_REQUEST_BYTES`: 3 MiB
+  by default) and warns when `PDF_EXTRACT_MAX_BYTES` was set above it.
+  Audit tags `input:pdf_scanned=<n>` and `input:pdf_unscanned_<reason>=<n>`
+  next to `input:unscanned_file=<n>`; rule fields `input.pdf.count`,
+  `input.pdf.scanned` and `input.pdf.reasons` (the Simulator takes them);
+  metrics `guardspec_gateway_pdf_extract_total{result}`,
+  `guardspec_gateway_pdf_extract_seconds` and
+  `guardspec_gateway_pdf_text_bytes`. Recent documents are kept by content
+  hash, so a session that resends a PDF each turn parses it once; the
+  PDFium module is compiled in the background at start-up and readiness
+  never waits for it. Measured on an Apple M3 Max
+  (`BenchmarkPDFDocument`, `BenchmarkPDFDocumentML`: a 100-page PDF of
+  about 200k tokens, every window scored): extraction about 1 s, the
+  whole request with the models 41 to 47 s (1,093 windows of 256 tokens,
+  none skipped, about 4,500 tokens/s with the large-input lane at its
+  default of CPUs / 4 model runs), compiling the module 1.5 to 2.4 s once
+  per process, in the background. go-pdfium
+  is MIT, wazero and the PDFium module Apache-2.0 (`NOTICE`,
+  `THIRD_PARTY_LICENSES.md`). See [PDFs](README.md#pdfs) and
+  [sizing, PDF documents](docs/sizing.md#pdf-documents).
+
+### Changed
+
+- The decision on the default classifier is no longer planned for this
+  release. v3b stays the default; the [0.5.0] entry said the owner would
+  decide on v5 for 0.6.0 after a shadow run. That decision now follows the
+  shadow run of the long-input work (RF-895d3533), in a later release
+  (`docs/models.md`, `models/manifest.yaml`, `train/MODEL_CARD.md`).
+
+### Security
+
+- Go 1.26.10 → 1.26.11 (`go.mod` toolchain and the golang builder images of
+  the gateway, control-plane and rebuild Dockerfiles, pinned by digest):
+  fixes GO-2026-6859 in the standard library's `net/http`, which
+  `govulncheck` reported against every binary. The 0.5.0 images were built
+  with 1.26.10; upgrade.
+
+### Upgrade notes
+
+- No migration, no API change. `PDF_EXTRACT` defaults to `on`: a PDF sent
+  inline, which 0.5.0 forwarded unread, is now scanned and can be refused
+  (`INDIRECT_ACTION=block`, the default) or redacted. The classifier may
+  still take a long benign PDF for an injection (RF-895d3533), so set
+  `INDIRECT_ACTION=redact` for document-heavy applications, and set
+  `MAX_SCAN_TOKENS` for PDFs over about 30k tokens of text (otherwise they
+  are `over_limit` and forwarded unscanned, as before). To keep the 0.5.0
+  behaviour, set `PDF_EXTRACT=off`.
 
 ## [0.5.0] - 2026-11-10
 
@@ -1208,7 +1461,8 @@ First release.
 - List endpoints still answer the older `{"data": [...]}` shape when called
   without `limit` and `cursor`; use the paginated form.
 
-[Unreleased]: https://github.com/guard-spec/guard-spec/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/guard-spec/guard-spec/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/guard-spec/guard-spec/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/guard-spec/guard-spec/compare/v0.4.2...v0.5.0
 [0.4.2]: https://github.com/guard-spec/guard-spec/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/guard-spec/guard-spec/compare/v0.4.0...v0.4.1

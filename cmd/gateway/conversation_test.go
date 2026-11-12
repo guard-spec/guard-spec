@@ -313,8 +313,8 @@ func TestMultiTurnSet(t *testing.T) {
 						t.Errorf("%s: conversation.score %.2f", c.ID, row.Conversation)
 					}
 					if m.conversation && (row.SourceRole != sourceConversation || row.Detected != "l1" ||
-						!slices.Contains(auditTags(row), "input:signal=conversation")) {
-						t.Errorf("%s: source %q layer %q tags %v", c.ID, row.SourceRole, row.Detected, auditTags(row))
+						!slices.Contains(inputAuditTags(row), "input:signal=conversation")) {
+						t.Errorf("%s: source %q layer %q tags %v", c.ID, row.SourceRole, row.Detected, inputAuditTags(row))
 					}
 				case c.Kind == "benign" && resp.StatusCode == 200:
 					allowed++
@@ -586,7 +586,7 @@ func TestConversationEvent(t *testing.T) {
 	if evs := eventsFor(&e, 0.5); evs[0].Attrs["signal"] != nil {
 		t.Errorf("signal on a per-turn finding: %+v", evs[0].Attrs)
 	}
-	if tags := auditTags(e); len(tags) != 0 {
+	if tags := inputAuditTags(e); len(tags) != 0 {
 		t.Errorf("tags %v", tags)
 	}
 }

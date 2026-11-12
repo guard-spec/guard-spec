@@ -30,7 +30,7 @@ câu trả lời của model (link rò rỉ dữ liệu, dữ liệu cá nhân, 
 trước khi đến người dùng. Viết bằng Go, chạy thành hai service cạnh Postgres,
 được xây dựng và đánh giá cho **tiếng Anh và tiếng Việt**.
 
-Trạng thái: **v0.5.0, trước 1.0.** API và schema cơ sở dữ liệu còn có thể
+Trạng thái: **v0.6.0, trước 1.0.** API và schema cơ sở dữ liệu còn có thể
 thay đổi. Hãy đọc phần [Mô hình bảo mật và giới hạn](#mô-hình-bảo-mật-và-giới-hạn)
 trước khi dùng.
 
@@ -70,9 +70,11 @@ trước khi dùng.
   lớp chặn cuối.
 - **Audit:** mỗi request một dòng (mặc định không lưu nội dung), nhật ký mọi
   thay đổi cấu hình và bảo mật, tự xóa sau số ngày cấu hình.
-- **Giao diện quản trị** tiếng Anh và tiếng Việt, sáng và tối: dashboard, luồng
-  request, giả lập, policy, nhà cung cấp, log request, cảnh báo, thành viên và
-  bảo mật ([Giao diện quản trị](#giao-diện-quản-trị)).
+- **Giao diện quản trị** tiếng Anh và tiếng Việt, sáng và tối, kiểm tra bằng
+  axe-core: bắt đầu, dashboard và tổng quan bảo mật, luồng request với policy
+  mẫu và câu mẫu, giả lập, nhà cung cấp, log request với xử lý chặn nhầm một
+  chạm, cảnh báo, thành viên và bảo mật, hộp tìm kiếm Ctrl+K
+  ([Giao diện quản trị](#giao-diện-quản-trị)).
 
 **Vận hành**
 - Docker Compose cho một máy, Helm chart cho Kubernetes, image có sẵn model
@@ -375,7 +377,14 @@ dùng nhất:
 | `UNSCANNED_PARTS` | `log` | Phần gateway chuyển tiếp nhưng không đọc được nên không quét injection (ảnh, file như PDF, âm thanh, và phần không có văn bản thuộc kiểu gateway không biết): `log` cho qua và gắn thẻ `input:unscanned_<loại>=<số>` vào audit; `block` từ chối cả request (400 `unscanned_content`), không gửi gì lên upstream; `allow` cho qua, chỉ đếm metric. Tổ chức chỉ được đặt chặt hơn (`unscanned_parts`). Xem [Phần gateway không đọc được](#phần-gateway-không-đọc-được) |
 | `MAX_SCAN_TOKENS` | rỗng (giới hạn hiện tại) | Số token tối đa gateway quét cho một request được proxy. Rỗng hoặc `0`: giữ giới hạn theo byte như trước (khoảng 28 KB văn bản của người dùng, system và tham số tool call; 128 KiB kết quả tool, tài liệu và mô tả tool; 1 MiB lượt cũ), vượt thì 413. Khi đặt: là trần token của request (vượt thì 413), và request vượt các giới hạn byte đó được quét theo đường dài trong làn input lớn thay vì bị từ chối. Xem [Input lớn](#input-lớn) |
 | `INFERENCE_LARGE_MAX_CONCURRENCY` / `LARGE_SCAN_ORG_CONCURRENCY` | số CPU / 4 (ít nhất 1) / một nửa của nó | Số request lớn được quét cùng lúc (và các lượt chạy model của chúng, trên limiter riêng) / của một tổ chức |
-| `LARGE_SCAN_QUEUE_TIMEOUT` | `30s` | Thời gian request lớn chờ làn trước khi nhận 429 kèm `Retry-After` |
+| `LARGE_SCAN_QUEUE_TIMEOUT` | `30s` | Thời gian request lớn chờ làn trước khi nhận 429 kèm `Retry-After`; cũng là thời gian request chờ một bộ trích xuất PDF rảnh (`PDF_EXTRACT`) |
+| `PDF_EXTRACT` | `on` | `on` hoặc `off`. `on`: văn bản của PDF gửi kèm trong request (khối `document` nguồn base64 trên `/v1/messages`, phần `file` có `file_data` trên chat completions, mục `input_file` có `file_data` trên `/v1/responses`) được trích xuất (kể cả chữ ẩn, chú thích và trường biểu mẫu) và quét như một tài liệu, nên `INDIRECT_ACTION` và `MAX_SCAN_TOKENS` áp dụng; body chuyển tiếp giữ nguyên, trừ khi `redact` thay phần đó bằng placeholder tài liệu. PDF không lấy được chữ (`no_text`, `encrypted`, `damaged`, `timeout`, `over_limit`, `internal`) hoặc gateway không tải được (url hay file id: `remote`) vẫn là phần không quét theo `UNSCANNED_PARTS`, với thẻ audit `input:pdf_scanned=<số>` và `input:pdf_unscanned_<lý do>=<số>` và các trường luật `input.pdf.count`, `input.pdf.scanned`, `input.pdf.reasons`. `off`: PDF là phần không quét như ở 0.5.0. Không có ghi đè việc trích xuất theo tổ chức; tổ chức có thể từ chối PDF hoặc PDF không đọc được bằng [thiết lập đầu vào](#thiết-lập-đầu-vào-theo-tổ-chức). Xem [PDF](#pdf) |
+| `PDF_EXTRACT_MAX_BYTES` | `33554432` (32 MiB) | PDF lớn nhất bộ trích xuất mở, tính bằng byte (`1024` đến `1073741824`); lớn hơn là `over_limit`. Giới hạn body áp dụng trước: PDF đến dưới dạng base64, nên PDF lớn nhất tới được gateway chỉ khoảng 3/4 `MAX_REQUEST_BYTES` (3 MiB theo mặc định). Log lúc khởi động ghi giới hạn hiệu lực và cảnh báo khi biến này được đặt cao hơn |
+| `PDF_EXTRACT_MAX_PAGES` | `600` | Số trang tối đa trích xuất từ một PDF (`1` đến `100000`); nhiều hơn là `over_limit` |
+| `PDF_EXTRACT_MAX_TEXT_BYTES` | `4194304` (4 MiB), hoặc 4 × `MAX_SCAN_TOKENS` nếu nhỏ hơn | Lượng chữ tối đa trích từ một PDF, tính bằng byte (`1024` đến `1073741824`); nhiều hơn là `over_limit`. Khi `MAX_SCAN_TOKENS` không đặt, chữ vượt 128 KiB tài liệu của đường ngắn cũng là `over_limit` |
+| `PDF_EXTRACT_TIMEOUT` | `10s` | Ngân sách thời gian cho một PDF (`100ms` đến `10m`), không tính thời gian chờ bộ trích xuất; quá thì PDF là `timeout` |
+| `PDF_EXTRACT_MEMORY` | `536870912` (512 MiB) | Trần bộ nhớ của một phiên PDFium (bộ nhớ tuyến tính WebAssembly), tính bằng byte (`33554432`, 32 MiB, đến `4294967296`, 4 GiB); tài liệu cần nhiều hơn là `damaged` |
+| `PDF_EXTRACT_MAX_CONCURRENCY` | số CPU / 2 (ít nhất 1) | Số PDF trích xuất cùng lúc (`1` đến `1024`); các request khác chờ tối đa `LARGE_SCAN_QUEUE_TIMEOUT` rồi nhận 429 kèm `Retry-After` |
 | `MAX_REQUEST_BYTES` | `4194304` (4 MiB) | Kích thước body tối đa; lớn hơn thì 413 trước khi đọc |
 | `EMBEDDINGS_SCAN` | `off` | `on`: chấm từng input của `/v1/embeddings` như tài liệu không tin cậy |
 | `AUDIT_STORE_CONTENT` | `false` | Lưu nội dung prompt/response vào audit |
@@ -398,14 +407,28 @@ không gọi model), `POST /guardrail/scan/tools` (chấm định nghĩa tool MC
 
 Control plane (cổng 8081, compose mở ra 18081): đăng nhập, tổ chức, API key,
 project, policy, guard settings, exemplar, lời mời, audit log. Bảng đầy đủ và
-ví dụ curl ở mục [APIs](README.md#apis).
+ví dụ curl ở mục [APIs](README.md#apis). Các endpoint quản trị (lịch sử
+chính sách, phê duyệt hai người, chính sách khóa API, báo cáo CSV) ở mục
+[Quản trị](#quản-trị).
 
 `GET /v1/organizations/:orgId/dashboard?window=24h|7d|30d&project_id=` (vai trò
 viewer trở lên, như `/requests`) trả về số liệu tổng hợp của nhật ký yêu cầu,
 tính trong Postgres trên toàn bộ khoảng thời gian: tổng số yêu cầu, số bị chặn,
 tỷ lệ chặn, số theo quyết định, độ trễ p50/p95/p99, chuỗi thời gian theo giờ
-(24h) hoặc theo ngày (UTC), các nhãn phát hiện, luật và dự án nhiều nhất.
-Trang Bảng điều khiển dùng endpoint này.
+(24h) hoặc theo ngày (UTC), các nhãn phát hiện, luật và dự án nhiều nhất, cùng
+các dự án và API key bị tấn công nhiều nhất (`top_blocked_projects`,
+`top_blocked_keys`, chỉ tính request bị từ chối). Trang Bảng điều khiển và
+Tổng quan bảo mật dùng endpoint này.
+
+Cho giao diện quản trị (chỉ trả về số đếm, không bao giờ trả nội dung):
+`GET /v1/organizations/:orgId/getting-started` (viewer) trả về trạng thái các
+bước thiết lập; `GET /v1/organizations/:orgId/requests/:requestId/impact`
+(viewer) cho biết một thay đổi để xử lý chặn nhầm liên quan tới bao nhiêu
+request trong 7 ngày, tính từ điểm và mã băm đã lưu (`same_input`,
+`same_rule`, `threshold`); `POST /v1/policy/sample` `{"text"}` (mọi người dùng
+đã đăng nhập, 60 lần mỗi phút) chấm một câu mẫu bằng bộ làm sạch, luật L1 và
+mẫu dữ liệu cá nhân cho bộ mô phỏng (`scores.l2`, `scores.l3` là -1), không
+lưu gì.
 
 ### Trường của luật (policy)
 
@@ -424,6 +447,15 @@ mọi loại); hai trường cuối là `[]` và `0` nếu tổ chức chưa b�
 và `input.unscanned.count` (tổng số phần đó, mọi loại) mô tả các phần gateway
 chuyển tiếp nhưng không đọc được, trong những lượt nó quét; xem
 [Phần gateway không đọc được](#phần-gateway-không-đọc-được).
+`input.pdf.count` (số phần PDF trong các lượt đó), `input.pdf.scanned` (bao
+nhiêu phần đã được đọc nhờ `PDF_EXTRACT`) và `input.pdf.reasons` (lý do các
+phần còn lại không đọc được: `no_text`, `encrypted`, `damaged`, `timeout`,
+`over_limit`, `internal`, `remote`) mô tả các PDF. Ví dụ: `"encrypted" in
+input.pdf.reasons` với hành động `block`.
+`input.files.types` liệt kê loại của hình ảnh, file và âm thanh trong các lượt
+đó, nhận diện từ nội dung (`pdf`, `png`, `jpeg`, `gif`, `webp`, `docx`,
+`xlsx`, `pptx`, `zip`, `wav`, `mp3`, `ogg`, `flac`, `unknown`, `remote`); xem
+[Thiết lập đầu vào theo tổ chức](#thiết-lập-đầu-vào-theo-tổ-chức).
 Các trường `pii.entities`, `toxicity.score` và `topic.categories` đã bị bỏ:
 luật mới không được dùng chúng, còn luật đã lưu có dùng thì vẫn đọc `[]` hoặc
 `0` như trước. Chi tiết ở mục [APIs](README.md#apis).
@@ -476,11 +508,13 @@ kế tiếp.
 
 ### Phần gateway không đọc được
 
-Bộ phát hiện chỉ đọc văn bản. Ảnh, file và âm thanh trong request được chuyển
-tới model, và model đọc được chúng (model vision đọc chữ trong ảnh, văn bản
-của PDF tới được model), nên prompt injection nằm trong PDF hay ảnh không được
-chấm điểm. `UNSCANNED_PARTS` làm các phần này hiện ra trong audit và cho phép
-từ chối chúng.
+Bộ phát hiện chỉ đọc văn bản. Ảnh, âm thanh và file trong request được chuyển
+tới model, và model đọc được chúng (model vision đọc chữ trong ảnh, nhà cung
+cấp đưa văn bản của PDF cho model), nên prompt injection nằm trong đó không
+được chấm điểm. Ngoại lệ là PDF gửi kèm trong request: với `PDF_EXTRACT=on`
+(mặc định) gateway trích văn bản của nó và quét như một tài liệu, xem
+[PDF](#pdf) bên dưới. `UNSCANNED_PARTS` làm những phần gateway vẫn không đọc
+được hiện ra trong audit và cho phép từ chối chúng.
 
 - **Tính những gì.** Chat completions: content part `image_url`, `file`
   (`file_data` hoặc `file_id`) và `input_audio`. `/v1/messages`: block
@@ -488,7 +522,8 @@ từ chối chúng.
   cả bên trong `tool_result`. `/v1/responses`: `input_image`, `input_file` và
   `input_audio`. Các loại: `image`, `file`, `audio` và `other` (phần không có
   văn bản thuộc kiểu gateway không biết, để không bỏ sót kiểu part mới của nhà
-  cung cấp).
+  cung cấp). PDF đã được trích và quét thì không tính; PDF gateway không đọc
+  được (các lý do bên dưới) tính là `file`.
 - **Không tính** (vì đã được quét, hoặc không phải input): part văn bản,
   `document` có `source` là `text` hoặc `content`, `search_result`, nội dung
   model tạo ra trong lượt assistant, reasoning mã hoá và chữ ký.
@@ -525,9 +560,125 @@ từ chối chúng.
   áp dụng cho tenant đó; muốn tách riêng một số key thì dùng policy của
   project. Luật `block` từ chối như mọi luật khác (`content_filter`), không
   phải `unscanned_content`.
-- **Chưa làm.** Gateway không trích văn bản từ PDF và không chạy OCR. Hãy để
-  ứng dụng gửi văn bản thay cho file, hoặc quét văn bản trích được lúc tải lên;
-  xem [File, PDF và ảnh](docs/integrations.vi.md#file-pdf-và-ảnh).
+- **Chưa làm.** Gateway không chạy OCR (PDF scan, ảnh) và không tải file mà
+  nhà cung cấp đang giữ (URL hay file id). Hãy để ứng dụng gửi văn bản thay
+  cho file, hoặc quét văn bản trích được lúc tải lên; xem
+  [File, PDF và ảnh](docs/integrations.vi.md#file-pdf-và-ảnh).
+
+#### PDF
+
+Với `PDF_EXTRACT=on` (mặc định), PDF gửi kèm trong request (block `document`
+nguồn `base64` trên `/v1/messages`, part `file` có `file_data` trên chat
+completions, mục `input_file` có `file_data` trên `/v1/responses`; base64
+thuần hoặc data URL) được mở bằng PDFium chạy dưới dạng WebAssembly ngay
+trong gateway (không cần thư viện native hay dịch vụ ngoài), và văn bản của
+nó được quét như tài liệu không tin cậy, cùng đường với block `document` có
+nguồn văn bản: `INDIRECT_ACTION` áp dụng (`block` từ chối request, `redact`
+thay phần đó bằng placeholder tài liệu), scan cache và `MAX_SCAN_TOKENS`
+cũng vậy. Bản thân PDF không bao giờ bị sửa: body chuyển tiếp giữ nguyên
+từng byte, trừ khi một phần bị redact.
+
+- **Đọc những gì.** Mọi đối tượng văn bản trên mọi trang, dù người đọc có
+  thấy hay không: chữ trắng, chữ ẩn (render mode 3), chữ cực nhỏ, chữ bị
+  cắt hay nằm ngoài trang, chữ nằm dưới ảnh; nội dung chú thích (comment,
+  free text); giá trị các trường biểu mẫu. Đó là văn bản model nhận được
+  từ bước trích của nhà cung cấp, và còn hơn thế.
+- **Không đọc được gì.** PDF scan hoặc chỉ có ảnh (trang là một tấm ảnh
+  chụp chữ, không có lớp văn bản; không có OCR: `no_text`), PDF mã hoá
+  (`encrypted`), file PDFium không mở được (`damaged`), PDF gateway không
+  tải được (nguồn `url` hay `file` trên `/v1/messages`, `file_id` trên chat
+  completions, `file_id` hay `file_url` trên `/v1/responses`: `remote`),
+  văn bản vượt giới hạn (`over_limit`: quá `PDF_EXTRACT_MAX_BYTES`,
+  `PDF_EXTRACT_MAX_PAGES` hay `PDF_EXTRACT_MAX_TEXT_BYTES`, hoặc khi
+  `MAX_SCAN_TOKENS` không đặt, quá 128 KiB tài liệu mà đường ngắn quét
+  được) hay quá ngân sách thời gian (`timeout`, `PDF_EXTRACT_TIMEOUT`); lỗi
+  của bộ trích xuất là `internal`. Metadata của tài liệu (tiêu đề, tác giả,
+  từ khoá), bookmark, file nhúng, JavaScript và chữ bên trong ảnh trên
+  trang không được đọc. PDF như vậy được chuyển tiếp như trước, là phần
+  `file` không quét theo `UNSCANNED_PARTS`; văn bản trích được một phần
+  không bao giờ được tính là đã quét.
+- **Thấy ở đâu.** Thẻ `input:pdf_scanned=<số>` và
+  `input:pdf_unscanned_<lý do>=<số>` trên dòng audit, cạnh
+  `input:unscanned_file=<số>` (các thẻ không quét bị bỏ khi
+  `UNSCANNED_PARTS=allow`); trường luật `input.pdf.count`,
+  `input.pdf.scanned` và `input.pdf.reasons` (ví dụ `"encrypted" in
+  input.pdf.reasons` với hành động `block`, hay `input.pdf.count >
+  input.pdf.scanned` để từ chối mọi PDF gateway không đọc được; Simulator
+  cũng nhận); metric `guardspec_gateway_pdf_extract_total{result}` (các lý
+  do, `ok` và `busy`), `guardspec_gateway_pdf_extract_seconds` và
+  `guardspec_gateway_pdf_text_bytes`. PDF ở lượt trước được chấm điểm (qua
+  scan cache) nhưng không đếm, giống số phần không quét.
+- **Giới hạn và chi phí.** Tối đa `PDF_EXTRACT_MAX_CONCURRENCY` PDF (một nửa
+  số CPU) được đọc cùng lúc, mỗi PDF trong một phiên PDFium có trần bộ nhớ
+  riêng (`PDF_EXTRACT_MEMORY`, 512 MiB) và ngân sách thời gian riêng
+  (`PDF_EXTRACT_TIMEOUT`, 10 s); request không có bộ trích xuất rảnh trong
+  `LARGE_SCAN_QUEUE_TIMEOUT` nhận 429 kèm `Retry-After`. PDF đến dưới dạng
+  base64, nên PDF lớn nhất lọt qua `MAX_REQUEST_BYTES` chỉ khoảng ba phần
+  tư con số đó (3 MiB với mặc định 4 MiB); log lúc khởi động ghi giới hạn
+  hiệu lực và cảnh báo khi `PDF_EXTRACT_MAX_BYTES` được đặt cao hơn. PDF
+  dài cần `MAX_SCAN_TOKENS`: nếu không, quá 128 KiB văn bản trích được
+  (khoảng 30k token, chừng 40 trang văn xuôi) là `over_limit` và PDF tới
+  model mà không được quét. Đo trên M3 Max, một PDF 100 trang khoảng 200k
+  token mất khoảng 1 s để trích và 40 đến 50 s để quét với các model (mọi cửa
+  sổ đều được chấm, làn input lớn ở mặc định số CPU / 4 lần chạy model cùng
+  lúc);
+  xem [định cỡ, Tài liệu PDF](docs/sizing.vi.md#tài-liệu-pdf).
+- **Khuyến nghị.** Ứng dụng xử lý nhiều tài liệu nên đặt
+  `INDIRECT_ACTION=redact`: classifier vẫn nhầm một số tài liệu dài vô hại
+  là injection (RF-895d3533), và với `redact` request đi tiếp mà không có
+  tài liệu đó thay vì thất bại, dòng audit ghi lại việc này. Giữ
+  `UNSCANNED_PARTS=log` và theo dõi `input:pdf_unscanned_*` để biết PDF nào
+  không được đọc; luật trên `input.pdf.reasons` từ chối những loại bạn
+  không muốn. `PDF_EXTRACT=off` là hành vi của 0.5.0: mọi PDF là phần không
+  quét.
+
+### Thiết lập đầu vào theo tổ chức
+
+Admin của tổ chức có thể đặt những gì gateway nhận từ các ứng dụng của tổ
+chức (giao diện: **Thiết lập đầu vào**, hoặc
+`PUT /v1/organizations/:orgId/input-settings`). Biến môi trường của instance
+luôn là trần. Tổ chức chưa có thiết lập giữ nguyên hành vi của instance
+(`PDF_EXTRACT`, `UNSCANNED_PARTS`, `MAX_SCAN_TOKENS`, như mô tả ở trên).
+
+| Thiết lập | Giá trị | Tác dụng |
+| --- | --- | --- |
+| `input_mode` | `text_only`, `hybrid` | `text_only`: mọi phần hình ảnh, file và âm thanh bị từ chối với 415 `files_not_accepted`, thông báo yêu cầu ứng dụng chuyển file thành văn bản. `hybrid`: văn bản và các file thuộc loại được phép. |
+| `max_input_tokens` | 1 đến giới hạn của instance, hoặc `null` | Request có nhiều token văn bản cần quét hơn bị từ chối với 413 `max_input_tokens_exceeded` trước khi quét. Giới hạn là `MAX_SCAN_TOKENS` của gateway, hoặc 40.000 (đường ngắn) nếu không đặt; giá trị lớn hơn bị từ chối với 400. `null`: dùng giới hạn của instance. |
+| `allowed_file_types` | `pdf` (các loại gateway đọc được) | Chỉ với `hybrid`. Loại file khác bị từ chối với 415 `file_type_not_allowed`. |
+| `unreadable_file_action` | `block` (mặc định), `pass` | File được phép nhưng gateway không đọc được (PDF dạng ảnh scan, mã hoá, hỏng, vượt giới hạn của bộ trích xuất, hoặc mọi PDF khi `PDF_EXTRACT=off`): `block` từ chối request với 422 `file_unreadable`; `pass` chuyển tiếp như phần không quét và gắn thẻ audit `input:unreadable_passed=<số>` (`UNSCANNED_PARTS=block` vẫn từ chối). |
+
+Loại của mỗi phần được nhận diện từ nội dung (`%PDF-`, chữ ký PNG, JPEG,
+GIF, WebP, zip Office Open XML, WAV, MP3, Ogg, FLAC) và đối chiếu với loại
+phần đó khai báo: `media_type`, loại của data URL, phần mở rộng của
+`filename` hoặc `format` của âm thanh. Không khớp thì bị từ chối với 415
+`file_type_mismatch`; không bao giờ chỉ tin phần mở rộng. File gateway không
+nhận trực tiếp (URL, `file_id` hoặc `file_url`) không kiểm tra được và bị từ
+chối với 415 `file_not_inline`. Các loại nhận diện được là trường luật
+`input.files.types` (có hay không có thiết lập) và, với tổ chức có thiết
+lập, thẻ audit `input:file_<loại>=<số>`. Mỗi lần từ chối có thẻ
+`input:refused=<lý do>` và được đếm trong
+`guardspec_gateway_input_refused_total{reason}`; các loại file được đếm
+trong `guardspec_gateway_input_files_total{type}`.
+
+Siết chặt một thiết lập có hiệu lực ngay. Nới lỏng (thêm loại file, tăng
+hoặc bỏ `max_input_tokens`, `pass` thay cho `block`, `text_only` sang
+`hybrid`, hoặc `DELETE` để quay về hành vi của instance) luôn được ghi vào
+nhật ký hoạt động (`input_settings.updated`, kèm những gì được nới) và, khi
+tổ chức bật [phê duyệt hai người](#quản-trị), trả về 202 với yêu cầu
+`input_settings.loosen` để một admin khác duyệt: phần siết chặt trong cùng
+thay đổi vẫn áp dụng ngay. Mỗi lúc chỉ có một yêu cầu như vậy đang chờ (một
+thay đổi nới lỏng khác trong lúc đó bị từ chối với 409 `approval_pending`),
+và một thay đổi thiết lập sau đó sẽ hủy yêu cầu.
+
+| API (control plane, tiền tố `/v1`) | Vai trò |
+| --- | --- |
+| `GET /organizations/:orgId/input-settings` (thiết lập hoặc `inherit`, giới hạn của instance đọc từ gateway, yêu cầu nới lỏng đang chờ) | viewer |
+| `PUT /organizations/:orgId/input-settings` (`{input_mode, max_input_tokens, allowed_file_types, unreadable_file_action, reason}`), `DELETE` (quay về hành vi của instance, `{reason}`) | admin |
+
+Control plane đọc giới hạn của instance từ `/readyz` của gateway (`input`),
+qua `GATEWAY_URL`; nếu không đặt, giới hạn của `max_input_tokens` là 40.000
+và gateway vẫn áp `MAX_SCAN_TOKENS` của chính nó. File Office, file tải qua
+`/v1/files` và OCR không được đọc.
 
 ### Input lớn
 
@@ -589,6 +740,100 @@ liệu của bạn và xem điểm trong
 nhật ký yêu cầu trước. Quét một tài liệu 200k token mất vài chục giây trên vài
 lõi CPU. `POST /guardrail/scan` và `/v1/embeddings` giữ giới hạn hiện tại.
 
+### Quản trị
+
+Bốn công cụ cho người vận hành một tổ chức (migration 026 đến 029); mặc định
+đều tắt hoặc không đổi gì, trừ hai điều: xóa tổ chức luôn cần hai người, và chỉ
+xóa được chính sách đã tắt. Chi tiết tiếng Anh ở
+[Governance](README.md#governance).
+
+**Lịch sử chính sách.** Mỗi lần lưu chính sách (API, giao diện quản trị, cấu
+hình dạng mã) được giữ thành một phiên bản: toàn bộ chính sách sau khi lưu,
+người lưu, thời điểm và lý do (`reason`, tùy chọn, tối đa 500 ký tự).
+`GET /v1/organizations/{id}/policies/{pid}/versions` liệt kê các phiên bản
+(mới nhất trước), `GET .../versions/diff?from=1&to=3` so sánh hai phiên bản
+(các trường và các luật thêm, bỏ, sửa, đổi vị trí theo id luật), và
+`POST .../rollback` `{"version": 1, "reason": "..."}` khôi phục về phiên bản
+đó thành một phiên bản mới (không có `version`: lùi một bước). Khôi phục được
+kiểm tra như mọi lần lưu: tên còn trống, luật còn chạy được trên gateway, đích
+định tuyến còn tồn tại. Nhật ký hoạt động ghi `policy.updated` (kèm phiên bản)
+và `policy.rolled_back`. Chính sách có `log_only: true` chỉ ghi nhận thay vì
+quyết định: luật `block`, `allow`, `route` khớp được ghi vào nhật ký yêu cầu
+dạng `policy:would_block=<id luật>` (`would_allow`, `would_route`) và yêu cầu đi
+tiếp sang chính sách kế; luật `log` vẫn như cũ. Bộ mô phỏng báo `log_only`, trang
+Luồng có công tắc **Chỉ ghi log** cạnh mỗi chính sách, cấu hình dạng mã có
+`log_only` cho từng chính sách. Trang **Lịch sử chính sách** hiển thị các phiên
+bản, so sánh và khôi phục.
+
+**Phê duyệt hai người.** `PUT /v1/organizations/{id}/security`
+`{"two_person_approval": true, "approval_expiry_hours": 24}` (owner) khiến hai
+thay đổi phải chờ quản trị viên thứ hai: tắt chính sách (`PUT` với
+`enabled: false`, hoặc khôi phục về một phiên bản đang tắt; phần còn lại của
+lần lưu áp dụng ngay) và bật lưu nội dung prompt và câu trả lời
+(`audit_store_content: true`). Lời gọi trả về 202
+`{"approval_required": true, "request": {...}}` và chưa đổi gì; gửi lại cùng
+thay đổi khi nó đang chờ sẽ nhận lại chính yêu cầu đó (`"already_pending":
+true`): mỗi tổ chức, loại và đối tượng chỉ có tối đa một yêu cầu đang chờ.
+`GET /v1/organizations/{id}/approvals` liệt kê yêu cầu đang chờ,
+`POST .../approvals/{rid}/approve` `{"note"}` áp dụng thay đổi trong cùng giao
+dịch, `.../reject` kết thúc nó. Người yêu cầu không tự duyệt được (403
+`self_approval`) nhưng có thể từ chối; yêu cầu quá `approval_expiry_hours` (1
+đến 720) sẽ hết hạn và không đổi gì (409 `approval_expired`). Duyệt việc tắt
+chính sách sẽ khóa yêu cầu và chính sách rồi chỉ tắt `enabled`: các chỉnh sửa
+chính sách sau khi gửi yêu cầu vẫn được giữ. Yêu cầu không còn gì để áp dụng
+(chính sách đã bị xóa hoặc đã tắt) sẽ bị hủy thay vì báo lỗi khó hiểu: lời
+duyệt trả về 409 `approval_cancelled` kèm yêu cầu, và danh sách tự hủy các yêu
+cầu như vậy khi gặp. Tắt thiết lập này thì mọi thứ như trước.
+
+**Xóa chính sách** không bao giờ phải chờ duyệt, nhưng chỉ xóa được chính sách
+đã tắt: `DELETE .../policies/{pid}` với chính sách đang bật trả về 409
+`{"error": "disable the policy before deleting it", "code": "policy_enabled"}`,
+bất kể chính sách bảo mật. Nhờ vậy khi bật phê duyệt hai người, không thể né
+bước tắt (bước cần duyệt) bằng cách xóa. Cấu hình dạng mã theo cùng quy tắc:
+tệp bỏ sót một chính sách đang bật sẽ bị từ chối (422; đặt `enabled: false`,
+áp dụng, rồi mới xóa khỏi tệp), và khi bật phê duyệt hai người thì tệp không
+tắt được chính sách đang bật (hãy tắt ở trang Luồng chính sách hoặc bằng
+`PUT`). Trang Luồng chính sách chỉ cho xóa chính sách khi nó đã tắt và đã lưu.
+
+**Xóa tổ chức** luôn cần hai người, bất kể `two_person_approval`:
+`DELETE /v1/organizations/{id}` `{"confirm": "<slug>", "reason": "..."}` do một
+owner gửi trả về 202 kèm yêu cầu mà một owner khác của tổ chức hoặc quản trị
+viên hệ thống duyệt (admin có thể từ chối, người yêu cầu có thể rút lại). Quản
+trị viên hệ thống có thể xóa ngay một tổ chức, dù là thành viên hay không,
+nhưng phải ghi `reason` (thiếu thì 400 `reason_required`); tổ chức mặc định
+không bao giờ xóa được (409 `default_org`). Quản trị viên hệ thống xem mọi yêu
+cầu xóa tổ chức đang chờ ở `GET /v1/admin/approvals` và trên trang **Phê
+duyệt**. Nhật ký của tổ chức bị xóa theo nó, nên `org.deleted` (kèm slug, lý do
+và yêu cầu nếu có) và `approval.approved` được ghi vào nhật ký hệ thống.
+
+Mỗi bước ghi vào nhật ký hoạt động (`approval.requested`, `approval.approved`,
+`approval.rejected`, `approval.cancelled`) và tới các kênh cảnh báo dạng sự kiện
+`activity.approval.*`. Giao diện quản trị có trang **Phê duyệt**.
+
+**Chính sách khóa API.** Khóa có thể giới hạn theo địa chỉ:
+`POST /v1/organizations/{id}/api-keys` `{"alias": "edge", "allowed_cidrs":
+["203.0.113.0/24", "198.51.100.7"]}` (tối đa 32 mục; `PATCH` cũng được). Gateway
+từ chối khóa từ địa chỉ khác với 403 `{"error": "API key is not allowed from
+this address"}`, dùng địa chỉ client xác định qua `TRUSTED_PROXIES` (gateway
+cũng đọc biến này), không bao giờ tin header do client tự gửi; khóa hết hạn
+hoặc bị thu hồi vẫn là 401. `api_key_max_lifetime_days` trong chính sách bảo
+mật (1 đến 3650, null là không giới hạn) chặn `expires_at` của mọi khóa mới và
+tự điền khi tạo khóa không có hạn; khóa đang có không đổi.
+`POST .../api-keys/{prefix}/rotate` `{"overlap_hours": 24}` (0 đến 720) tạo khóa
+kế thừa cùng bí danh, dự án, giới hạn và địa chỉ (trả về một lần), khóa cũ hết
+hạn khi hết thời gian chuyển tiếp (`rotated_to`, `rotated_at` trong danh sách).
+Ghi nhật ký `api_key.rotated`.
+
+**Báo cáo.** `GET /v1/organizations/{id}/reports/requests.csv?window=7d` (hoặc
+`?from=...&to=...` tối đa 92 ngày; `project_id` thu hẹp) trả về nhật ký yêu cầu
+theo giờ (đến 48 giờ) hoặc ngày (UTC) dạng dài:
+`period_start,period_end,section,key,requests,blocked` với các mục `total`,
+`action`, `reason` (lý do chặn: `policy:<tên luật>`, nhãn của bộ phát hiện, hoặc
+`other`), `project` và `api_key`. Chỉ có số đếm, không có nội dung; mỗi lần tải
+ghi `report.downloaded`. Nút **Tải CSV** trên Bảng điều khiển lấy đúng khoảng và
+dự án đang xem. Control plane không có bộ lập lịch theo tổ chức, nên báo cáo
+định kỳ là một cron job gọi `curl`.
+
 ### Giao diện quản trị
 
 Control plane phục vụ giao diện quản trị tại `/ui/` (với compose:
@@ -609,8 +854,44 @@ hành động, bước và cạnh đều có dấu **?** giải thích ý nghĩa
 khi nào dùng. Phạm vi chưa có luật nào sẽ gợi ý các luật mẫu thêm bằng một cú
 bấm. Ngoài ra
 có các trang Upstream, Cấu hình dạng mã (YAML: kiểm tra, xem khác biệt, áp
-dụng), Thiết lập bảo vệ, Khóa API, Dự án, Mẫu tham chiếu và Nhật ký kiểm tra.
-Chi tiết ở mục [Admin UI](README.md#admin-ui).
+dụng), Thiết lập bảo vệ, Khóa API (giới hạn địa chỉ, xoay khóa), Dự án, Mẫu
+tham chiếu, Nhật ký kiểm tra, Lịch sử chính sách (phiên bản, so sánh, khôi
+phục) và Phê duyệt (yêu cầu chờ quản trị viên thứ hai; với quản trị viên hệ
+thống, cả yêu cầu xóa tổ chức của mọi tổ chức); trang Luồng chỉ cho xóa chính
+sách đã tắt; Bảng điều khiển tải
+được CSV. Chi tiết ở mục [Admin UI](README.md#admin-ui).
+
+- **Bắt đầu** liệt kê các bước thiết lập kèm trạng thái thực tế: nhà cung cấp
+  mô hình (và request được chuyển tiếp gần nhất trong 7 ngày có được trả lời
+  không), API key, policy đang bật, các lớp phát hiện gateway báo về (bắt
+  buộc), kênh cảnh báo và cài đặt đầu vào riêng của tổ chức (khuyến nghị).
+  Mỗi bước dẫn tới trang thiết lập bước đó. Tổ chức còn thiếu nhà cung cấp,
+  key hoặc policy sẽ mở trang này sau khi đăng nhập cho tới khi xong hoặc khi
+  ẩn trang (theo tổ chức, trên trình duyệt này).
+- **Tổng quan bảo mật**: request bị từ chối và xu hướng tấn công trong 24 giờ,
+  7 hoặc 30 ngày, API key và dự án bị tấn công nhiều nhất, các phát hiện
+  nhiều nhất, tình trạng mô hình phát hiện và phiên bản gateway, control plane
+  đang chạy, kèm báo cáo CSV.
+- **Xử lý chặn nhầm một chạm**: phần chi tiết của request cho thấy điểm của
+  từng lớp phát hiện đã chạy và các luật đã kích hoạt (gateway từ 0.7 ghi chúng
+  thành tag `detector:*`, không ghi văn bản), rồi cho thêm **exemplar cho
+  phép** hoặc **báo cáo chặn nhầm** ngay trên trang. Văn bản chỉ được điền sẵn
+  từ nội dung bạn đã đọc (tổ chức lưu nội dung, đúng vai trò, có lý do được
+  ghi log); nếu không, bạn tự nhập. Bảng xem trước tác động đếm các request
+  giống hệt (cùng mã băm), số request luật đó đã quyết định, hoặc số request
+  bị bộ phát hiện từ chối có điểm không cao hơn; nó nói rõ không thể biết
+  chính xác exemplar sẽ đổi kết quả của request nào khi không có văn bản và
+  mô hình.
+- **Policy từ mẫu** tạo cả một policy bằng một cú bấm: **Dữ liệu cá nhân**,
+  **OTP và KYC**, **Ngân hàng**; policy bắt đầu ở chế độ chỉ ghi log. Bộ mô
+  phỏng có ô **Thử một câu mẫu**: chấm điểm câu, điền các trường và cho biết
+  luật nào khớp.
+- **Ctrl+K** (⌘K trên Mac) mở hộp tìm kiếm để đi tới trang, policy, dự án,
+  nhà cung cấp hoặc API key bằng bàn phím. Nhật ký yêu cầu lưu được bộ lọc
+  và tải CSV theo khoảng thời gian.
+- Mọi trang được kiểm tra bằng axe-core ở cả tiếng Anh và tiếng Việt
+  (`e2e/a11y.spec.ts`): lỗi WCAG 2.1 A hoặc AA mức nghiêm trọng làm build
+  thất bại.
 
 ![Luồng xử lý, giao diện tối](docs/images/admin-flow-dark-vi.png)
 
@@ -802,12 +1083,15 @@ Guard Spec **không** bảo vệ trước:
   còn 8–15% kết quả tool là mã/log vô hại bị chặn khi có lớp mô hình; dùng
   `INDIRECT_ACTION=redact` để agent chạy tiếp.
 - Yêu cầu độc hại nhưng không phải injection (không phải bộ lọc nội dung).
-- Nội dung gateway không đọc được: ảnh, file (PDF và các loại khác) và âm
-  thanh trong request được chuyển tới model mà không được chấm điểm, nên
-  injection bên trong không bị phát hiện; gateway không trích văn bản hay chạy
-  OCR. Nhưng chúng không còn vô hình: mặc định (`UNSCANNED_PARTS=log`) dòng
-  audit đếm chúng (`input:unscanned_<loại>=<số>`), `block` từ chối các request
-  đó, và luật có thể dựa vào `input.unscanned.kinds`
+- Nội dung gateway không đọc được: ảnh, âm thanh và file trong request được
+  chuyển tới model mà không được chấm điểm, nên injection bên trong không bị
+  phát hiện. PDF gửi kèm trong request thì được đọc (`PDF_EXTRACT`, mặc định
+  bật), trừ khi không có lớp văn bản (gateway không chạy OCR), bị mã hoá,
+  hỏng, vượt giới hạn, hoặc chỉ được tham chiếu bằng URL hay file id. Nhưng
+  chúng không vô hình: mặc định (`UNSCANNED_PARTS=log`) dòng audit đếm chúng
+  (`input:unscanned_<loại>=<số>`, `input:pdf_unscanned_<lý do>=<số>`),
+  `block` từ chối các request đó, và luật có thể dựa vào
+  `input.unscanned.kinds` và `input.pdf.reasons`
   ([Phần gateway không đọc được](#phần-gateway-không-đọc-được)). Khi có thể,
   hãy gửi văn bản đã trích thay cho file
   ([File, PDF và ảnh](docs/integrations.vi.md#file-pdf-và-ảnh)).

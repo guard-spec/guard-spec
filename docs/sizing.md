@@ -213,6 +213,64 @@ the score distribution, false positives and latency of your texts (it has no
 attacks, so no detection rate). Pin cores with `taskset -c 0,1` and set
 `INFERENCE_MAX_CONCURRENCY` to match, as the 2 vCPU row does.
 
+### PDF documents
+
+A PDF sent inline is read by the gateway (`PDF_EXTRACT`, on by default) and
+its text is scanned like any long document, so a PDF costs the extraction
+plus the scan of its text at the rates above. Measured with
+`BenchmarkPDFDocument` (L1 only) and `BenchmarkPDFDocumentML` (the models
+behind `ml.Live`, as the gateway runs them; `cmd/gateway/pdf_bench_test.go`):
+a generated 100-page PDF with about 840 KB of benign text (207,629 tokens;
+92 KiB of compressed PDF in base64) through the gateway to a fake upstream,
+on `/v1/messages`, chat completions and `/v1/responses`, with
+`MAX_SCAN_TOKENS=250000` and `INDIRECT_ACTION=redact` so that every window
+is scored, no scan cache, one request at a time, 3 requests per API shape.
+Apple M3 Max (14 cores, 36 GB), macOS 15.4.1, Go 1.26, commit e637c60,
+2026-11-11, local and indicative. Every number here is measured; nothing is
+estimated.
+
+| Step | L1 only | With the models (L1+L2 on 256-token windows, `INFERENCE_INTRA_OP_THREADS=1`) |
+|---|---:|---:|
+| Extract the text (PDFium in wazero) | 0.65 to 1.1 s | 0.95 to 1.2 s |
+| Whole request (extract, sanitize, scan, forward) | 0.93 to 1.6 s | 41.5 to 47.2 s |
+| Windows scored | 479 chunks of 2 KiB, 0 skipped | 1,093 windows, 0 skipped |
+| Peak RSS growth over the 3 requests | 0.2 MB | 95 MB |
+| Redacted (benign document taken for an injection) | 0 of 3 | 0 of 3 |
+
+- The three API shapes give the same numbers within noise (with the models 41.5 s on `/v1/responses`, 45.8 s on `/v1/messages`, 47.2 s on chat completions; L1 only 1.52 to 1.61 s);
+  the table shows `/v1/messages`.
+- Cold start: compiling the PDFium WebAssembly module took 1.5 to 2.4 s and
+  the first document through a fresh runtime 0.66 to 1.1 s, with 50 to 150 MB
+  of resident memory for the runtime. The gateway compiles the module in the
+  background at start-up (`/readyz` does not wait for it), so a request pays
+  it only when it arrives before the compile is done.
+- The scan dominates: extraction is 2 to 3% of the request with the models.
+  The scan ran at about 4,500 tokens/s: the large-input lane's default of
+  `INFERENCE_LARGE_MAX_CONCURRENCY` = CPUs / 4 (3 here) model runs at once,
+  against K = 4 in the long-input table above; raise it to scan one document
+  faster. On 2 to 4 cloud vCPUs expect 3 to 4 times longer per core, as that
+  table says: a 200k-token PDF is minutes, not seconds, there.
+- Run-to-run spread on this laptop was large (extraction 0.65 s in one run
+  and 1.1 s in another, the same code and document); read every figure as a
+  range, as the ones above are written.
+- Memory: each document is parsed in a fresh PDFium instance whose linear
+  memory (up to `PDF_EXTRACT_MEMORY`, 512 MiB) is returned afterwards; with a
+  warm runtime the process grew by up to about 95 MB over the first three
+  200k-token requests and not at all over the later ones (the Go runtime
+  keeps the memory). Count `PDF_EXTRACT_MAX_CONCURRENCY` × `PDF_EXTRACT_MEMORY` as the
+  worst case on top of the figures in "Measured resource use".
+- A long benign PDF may still be blocked by the classifier (long-document
+  false positives, RF-895d3533); run document-heavy applications with
+  `INDIRECT_ACTION=redact` until that lands.
+
+Reproduce (the second form needs the models and `make onnx-deps`):
+
+```bash
+go test ./cmd/gateway -run '^$' -bench 'PDFDocument$' -benchtime 3x
+CGO_ENABLED=1 CGO_LDFLAGS=-L$PWD/.onnx/lib ONNXRUNTIME_LIB=$PWD/.onnx/lib/libonnxruntime.dylib \
+  go test -tags onnx ./cmd/gateway -run '^$' -bench 'PDFDocumentML' -benchtime 3x
+```
+
 ## Disk
 
 - Models: about 135 MB (light) or 270 MB (full) per version kept, plus older

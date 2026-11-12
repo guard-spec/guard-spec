@@ -96,4 +96,29 @@ func TestOrgGuardSettings(t *testing.T) {
 	if err == nil {
 		t.Error("a non-object guard_settings was stored")
 	}
+
+	// Input settings (migration 030) come with the guard settings: none for
+	// an org without a row (the instance's behaviour), the row otherwise.
+	if s, err := load(ctx, plain); err != nil || s.Input != nil {
+		t.Errorf("org without input settings: %+v %v", s.Input, err)
+	}
+	err = tenant.WithOrg(ctx, db, org, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `INSERT INTO org_input_settings (org_id, input_mode, max_input_tokens, allowed_file_types, unreadable_file_action)
+			VALUES ($1, 'hybrid', 5000, '{pdf}', 'pass')`, org)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err = load(ctx, org)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if in := s.Input; in == nil || in.InputMode != indirect.InputHybrid || in.MaxInputTokens == nil || *in.MaxInputTokens != 5000 ||
+		len(in.AllowedFileTypes) != 1 || in.UnreadableFileAction != indirect.UnreadablePass {
+		t.Errorf("input settings = %+v", s.Input)
+	}
+	if roles, _ := s.Apply(indirect.DefaultRoles, indirect.ModeOff); !roles.System {
+		t.Error("guard settings lost next to input settings")
+	}
 }

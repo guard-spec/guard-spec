@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -671,6 +672,42 @@ func TestScanStillLogged(t *testing.T) {
 	h := startGateway(t, "", nil)
 	h.post(t, "/guardrail/scan", `{"text":"hello"}`, nil)
 	if row := h.oneRow(t); row.OrgID != devOrg || row.Action != "allow" {
+		t.Errorf("row = %+v", row)
+	}
+}
+
+// A log-only policy records what it would have decided in the request log
+// (policy:would_block=<rule id>) and lets the request through; a live
+// policy after it still decides.
+func TestLogOnlyPolicyRecordsWithoutBlocking(t *testing.T) {
+	wouldBlock := rule(policy.ActionBlock, "request.model", "=", "m")
+	up := newFakeUpstream(t, okUpstream)
+	shadow := policy.Policy{ID: uuid.New(), Version: 1, LogOnly: true, Rules: []policy.Rule{wouldBlock}}
+	h := startGateway(t, up.URL, func(gw *gateway) {
+		gw.policies = func(context.Context, uuid.UUID, uuid.UUID) ([]policy.Policy, error) {
+			return []policy.Policy{shadow}, nil
+		}
+	})
+	if resp, body := h.post(t, "/v1/chat/completions", clean, nil); resp.StatusCode != 200 {
+		t.Fatalf("status = %d %s", resp.StatusCode, body)
+	}
+	row := h.oneRow(t)
+	if row.Action != "allow" || row.RuleID != wouldBlock.ID {
+		t.Errorf("row = %+v", row)
+	}
+	if tags := inputAuditTags(row); !slices.Contains(tags, "policy:would_block="+wouldBlock.ID.String()) {
+		t.Errorf("tags = %v", tags)
+	}
+
+	live := rule(policy.ActionBlock, "request.model", "=", "m")
+	h = startGateway(t, up.URL, func(gw *gateway) {
+		gw.policies = func(context.Context, uuid.UUID, uuid.UUID) ([]policy.Policy, error) {
+			return []policy.Policy{shadow, {ID: uuid.New(), Version: 1, Rules: []policy.Rule{live}}}, nil
+		}
+	})
+	resp, body := h.post(t, "/v1/chat/completions", clean, nil)
+	assertBlocked(t, resp, body)
+	if row := h.oneRow(t); row.RuleID != live.ID || len(row.LogOnly) != 1 {
 		t.Errorf("row = %+v", row)
 	}
 }

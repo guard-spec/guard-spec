@@ -207,7 +207,7 @@ func TestPIIVarsAndTags(t *testing.T) {
 	if kinds, n := piiVars(nil); kinds != nil || n != 0 {
 		t.Errorf("nil: %v %d", kinds, n)
 	}
-	tags := auditTags(requestEntry{InputPII: counts, Output: outputguard.Counts{"email": 1}})
+	tags := inputAuditTags(requestEntry{InputPII: counts, Output: outputguard.Counts{"email": 1}})
 	want := []string{"output:email=1", "input:pii_email=2", "input:pii_cccd=1", "input:pii_ipv4=1"}
 	if !slices.Equal(tags, want) {
 		t.Errorf("tags = %v, want %v", tags, want)
@@ -323,7 +323,7 @@ func TestInputPIIRulesThroughGateway(t *testing.T) {
 					if !maps.Equal(row.InputPII, wantPII) || (wantPII == nil) != (row.InputPII == nil) {
 						t.Errorf("row pii = %v, want %v", row.InputPII, wantPII)
 					}
-					tags := auditTags(row)
+					tags := inputAuditTags(row)
 					if on && (!slices.Contains(tags, "input:pii_email=1") || !slices.Contains(tags, "input:pii_phone=1")) {
 						t.Errorf("tags = %v", tags)
 					}

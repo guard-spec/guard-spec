@@ -22,6 +22,25 @@ Hugging Face tokenizers (libtokenizers.a, linked statically)
   Zhanguzin, MIT License).
 
 ------------------------------------------------------------------------------
+Bundled WebAssembly module (binaries that link internal/pdftext)
+------------------------------------------------------------------------------
+
+PDFium, compiled to WebAssembly (pdfium.wasm, embedded by
+github.com/klippa-app/go-pdfium 1.21.4, Klippa App BV, MIT License, and run
+by github.com/tetratelabs/wazero 1.12.0, Apache License 2.0; both are also
+listed in THIRD_PARTY_LICENSES.md). The module is not a Go package, so
+go-licenses does not see it.
+  Copyright 2014 The PDFium Authors
+  Apache License 2.0; the LICENSE file of PDFium also carries the
+  BSD-3-Clause terms of its earlier releases.
+  https://pdfium.googlesource.com/pdfium/
+  Built from https://github.com/jerbob92/pdfium-binaries (branch
+  wasm-standalone). The module statically includes PDFium's third-party
+  libraries, among them FreeType (FreeType License), libjpeg-turbo 3.1.0
+  (IJG, BSD-3-Clause and zlib licenses), OpenJPEG (BSD-2-Clause), zlib
+  (zlib license), ICU 78 (Unicode License) and Abseil (Apache License 2.0).
+
+------------------------------------------------------------------------------
 Bundled datasets (eval/ and train/data/)
 ------------------------------------------------------------------------------
 

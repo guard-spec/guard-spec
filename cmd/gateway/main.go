@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"os"
 	"os/signal"
 	"sort"
@@ -21,6 +22,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/google/uuid"
+	"github.com/guard-spec/guard-spec/internal/clientip"
 	appconfig "github.com/guard-spec/guard-spec/internal/config"
 	"github.com/guard-spec/guard-spec/internal/datakey"
 	"github.com/guard-spec/guard-spec/internal/events"
@@ -183,6 +185,14 @@ func main() {
 	slog.Info("scan config", "roles", cfg.Scan.Roles.String(), "spotlight", cfg.Scan.Spotlight,
 		"indirect_threshold", cfg.Scan.IndirectThreshold, "tool_prefixes", cfg.Scan.ToolPrefixes)
 	lane := largeLaneFor(cfg.Scan.MaxScanTokens, cfg.Large)
+	var pdf *pdfExtractor
+	if cfg.PDF.Enabled {
+		pdf = newPDFExtractor(base, cfg.PDF.Limits, cfg.Large.QueueTimeout)
+		pdf.warm() // in the background: readiness never waits for it
+		logPDFLimits(cfg.PDF, cfg.Large.MaxRequestBytes)
+	} else {
+		slog.Info("pdf extraction off: PDFs are unscanned parts")
+	}
 	gw := gateway{
 		detector:         newLiveStatus(detector, live, cfg.Detector.RequireML),
 		live:             live,
@@ -206,8 +216,10 @@ func main() {
 		limits:   newRateLimiter(ops.RateLimit, dbKeyLimits(db)),
 		cache:    cache,
 		large:    lane,
+		pdf:      pdf,
 
 		maxRequestBytes: cfg.Large.MaxRequestBytes,
+		trustedProxies:  cfg.TrustedProxies,
 
 		waitOnHalfClose: cfg.WaitOnHalfClose,
 	}
@@ -290,6 +302,9 @@ type gateway struct {
 	// maxRequestBytes is MAX_REQUEST_BYTES, the body limit; 0: Fiber's
 	// default (4 MiB).
 	maxRequestBytes int
+	// pdf extracts the text of PDF parts (pdf_extract.go); nil:
+	// PDF_EXTRACT=off.
+	pdf *pdfExtractor
 
 	// detector is what /readyz reports: the active detection layers.
 	detector detectorStatus
@@ -301,6 +316,8 @@ type gateway struct {
 	// adminSeparate: ADMIN_LISTEN_ADDR is set, and the /admin routes are
 	// served only there, over mutual TLS (admin_listener.go).
 	adminSeparate bool
+	// trustedProxies is TRUSTED_PROXIES (config.TrustedProxies).
+	trustedProxies []*net.IPNet
 }
 
 // newApp builds the Fiber app with all gateway routes.
@@ -311,6 +328,7 @@ func newApp(gw gateway, lookup tenant.LookupFn) *fiber.App {
 	})
 
 	app.Use(observe()) // metrics and the request span; first, so it sees every response
+	app.Use(clientip.Middleware(gw.trustedProxies))
 	app.Use(cors.New())
 
 	registerProbes(app, gw)
@@ -407,10 +425,20 @@ type requestEntry struct {
 	// UNSCANNED_PARTS is allow (UnscannedQuiet).
 	Unscanned      map[string]int
 	UnscannedQuiet bool
+	// PDF counts the PDF parts: scanned, and unscanned by reason
+	// (pdf_extract.go): input.pdf.* for policies and the input:pdf_* tags.
+	PDF pdfCounts
+	// Input is what the org's input settings did (input_settings.go):
+	// input.files.types for policies, and the input:file_* and
+	// input:refused tags when the org has settings.
+	Input inputAudit
 	// PIIAction and PIIProtected: what the org's input_pii_action replaced
 	// before the request went upstream, by kind (input_pii_protect.go).
 	PIIAction    string
 	PIIProtected outputguard.Counts
+	// LogOnly lists what the org's log-only policies would have decided
+	// (tags policy:would_<action>=<rule id>); nothing was done about it.
+	LogOnly []policy.LogOnlyMatch
 	// RouteTarget is the named upstream the request went to, or was meant to
 	// go to when it failed closed; "" for UPSTREAM_LLM_URL and the stub.
 	RouteTarget string
@@ -540,13 +568,16 @@ func outputTags(counts outputguard.Counts) []string {
 // "input:signal=conversation" when a request refused by the detector or a
 // policy had its strongest finding in the conversation window, and
 // "input:pii_<kind>=<n>" for the personal data found in the request text
-// (input_pii.go): kinds and counts, never the values.
+// (input_pii.go): kinds and counts, never the values, and last
+// "detector:l<n>=<score>" and "detector:rule=<id>" (detector_tags.go).
 func auditTags(e requestEntry) []string {
 	tags := outputTags(e.Output)
 	tags = append(tags, piiTags(e.InputPII)...)
 	if !e.UnscannedQuiet {
 		tags = append(tags, unscannedTags(e.Unscanned)...)
 	}
+	tags = append(tags, pdfTags(e.PDF, e.UnscannedQuiet)...)
+	tags = append(tags, inputTags(e.Input)...)
 	tags = append(tags, piiProtectTags(e.PIIAction, e.PIIProtected)...)
 	if e.Redacted > 0 {
 		tags = append(tags, fmt.Sprintf("input:redacted=%d", e.Redacted))
@@ -558,7 +589,38 @@ func auditTags(e requestEntry) []string {
 		// The conversation window decided; the row's label and score are its.
 		tags = append(tags, "input:signal="+sourceConversation)
 	}
+	for _, m := range e.LogOnly {
+		tags = append(tags, logOnlyTag(m))
+	}
+	// The detector's per-layer scores and fired rules (detector_tags.go).
+	tags = append(tags, detectorTags(e.Scores.Injection.Detail)...)
 	return tags
+}
+
+// logOnlyTag is how a log-only policy's match appears in the request log:
+// "policy:would_block=<rule id>" for a rule that would have blocked.
+func logOnlyTag(m policy.LogOnlyMatch) string {
+	return "policy:would_" + string(m.Action) + "=" + m.RuleID.String()
+}
+
+// recordPolicyMatches keeps the rule the row names: the deciding rule, else
+// the first rule a log-only policy would have decided with, else the first
+// log rule; and every log-only match for the tags.
+func recordPolicyMatches(entry *requestEntry, decision policy.Decision) {
+	entry.RuleID = decision.RuleID
+	entry.LogOnly = decision.LogOnly
+	if len(decision.LogOnly) > 0 {
+		slog.Info("log-only policy rules matched", "rules", decision.LogOnly)
+		if entry.RuleID == uuid.Nil {
+			entry.RuleID = decision.LogOnly[0].RuleID
+		}
+	}
+	if len(decision.Logged) > 0 {
+		slog.Info("policy log rules matched", "rules", decision.Logged)
+		if entry.RuleID == uuid.Nil {
+			entry.RuleID = decision.Logged[0] // the row has room for one rule
+		}
+	}
 }
 
 // logRequest writes one requests row without content encryption, logging a
@@ -698,6 +760,18 @@ type textGuard struct {
 	// limits is what the request may scan (MAX_SCAN_TOKENS, large_input.go);
 	// zero: today's byte limits, no long path.
 	limits scanLimits
+	// pdf extracts the text of PDF parts so they are scanned as documents
+	// (pdf_extract.go); nil: PDF_EXTRACT=off, they are unscanned parts.
+	// pdfs counts them: scanned, and unscanned by reason.
+	pdf  *pdfExtractor
+	pdfs pdfCounts
+	// input is the org's input settings (input_settings.go); nil: the
+	// instance's behaviour. files counts the image, file and audio parts by
+	// detected type, and passed the unreadable files forwarded under
+	// unreadable_file_action pass, in the turns the gateway scans.
+	input  *indirect.InputSettings
+	files  map[string]int
+	passed int
 }
 
 func (g *textGuard) toolSchemaKey() string {
@@ -787,9 +861,25 @@ func (g *textGuard) guardContent(m map[string]any) error {
 			}
 			raw, present := p["text"]
 			if !present {
-				// An image, a file or audio: forwarded, never read.
+				// An image, a file or audio: forwarded, never read, except
+				// a PDF sent inline, whose text is scanned (pdf_extract.go).
 				kind, _ := p["type"].(string)
-				g.noteUnscanned(kind)
+				if err := g.checkFile(kind, p); err != nil {
+					return err // the org's input settings (input_settings.go)
+				}
+				if kind == "file" {
+					if err := rejectShadowKeys(p, "file"); err != nil {
+						return err
+					}
+					file, _ := p["file"].(map[string]any)
+					if err := g.guardFilePart(kind, file, func() { replaceWithText(p, "text") }); err != nil {
+						return err
+					}
+					continue
+				}
+				if err := g.unreadPart(kind); err != nil {
+					return err
+				}
 				continue
 			}
 			// Anything but a string would reach the upstream unscanned.
@@ -895,6 +985,9 @@ func guardError(c *fiber.Ctx, err error) error {
 		return c.Status(400).JSON(fiber.Map{"error": err.Error()})
 	case errors.As(err, &refused):
 		return c.Status(fiber.StatusBadRequest).JSON(errorBody(refused.message, "invalid_request_error", refused.code))
+	case errors.Is(err, errScanBusy):
+		// No PDF extractor within LARGE_SCAN_QUEUE_TIMEOUT (pdf_extract.go).
+		return scanError(c, err)
 	default:
 		return c.Status(422).JSON(fiber.Map{"error": "sanitize failed: " + err.Error()})
 	}
@@ -969,13 +1062,19 @@ func proxyHandler(gw gateway, f apiFormat) fiber.Handler {
 			latest: f.history && scanCfg.History == historyLatest, useCache: f.history,
 			allowServerState: scanCfg.ServerState == serverStateAllow,
 			windowTurns:      scanCfg.WindowTurns, windowBytes: scanCfg.WindowBytes, detectPII: scanCfg.InputPII,
-			pseudo: outputguard.NewPseudonymizer(scanCfg.PIIAction, scanCfg.PIIKinds), limits: gw.limitsFor(scanCfg)}
+			pseudo: outputguard.NewPseudonymizer(scanCfg.PIIAction, scanCfg.PIIKinds), limits: gw.limitsFor(scanCfg),
+			pdf: gw.pdf, input: scanCfg.Input}
 		_, endSpan := tracing.Start(tctx, "sanitize")
 		err = f.guardBody(&guard, body)
 		endSpan(err)
 		entry.Report, entry.ServerState, entry.InputPII = guard.report, guard.serverState, guard.pii
 		if guard.pseudo != nil {
 			entry.PIIAction, entry.PIIProtected = scanCfg.PIIAction, guard.pseudo.Counts
+		}
+		entry.Input = inputAudit{Settings: scanCfg.Input != nil, Types: guard.files, Passed: guard.passed}
+		var refused *inputRefusal
+		if errors.As(err, &refused) {
+			return refuseInput(c, &entry, refused)
 		}
 		if err != nil {
 			if errors.Is(err, errBlocked) {
@@ -986,6 +1085,7 @@ func proxyHandler(gw gateway, f apiFormat) fiber.Handler {
 		}
 		countUnscanned(scanCfg.Unscanned, guard.unscanned)
 		entry.Unscanned, entry.UnscannedQuiet = guard.unscanned, scanCfg.Unscanned == indirect.UnscannedAllow
+		entry.PDF = guard.pdfs
 		if scanCfg.Unscanned == indirect.UnscannedBlock && len(guard.unscanned) > 0 {
 			kinds, n := unscannedVars(guard.unscanned)
 			slog.Info("blocked unscanned content", "kinds", kinds, "parts", n)
@@ -993,6 +1093,13 @@ func proxyHandler(gw gateway, f apiFormat) fiber.Handler {
 			entry.Scores.Injection.Label = "unscanned_content" // the refusal's reason in the request log
 			return c.Status(fiber.StatusBadRequest).
 				JSON(errorBody(unscannedMessage(guard.unscanned), "invalid_request_error", "unscanned_content"))
+		}
+		// The org's max_input_tokens, before anything is scored.
+		if err := gw.checkInputTokens(&guard); err != nil {
+			if errors.As(err, &refused) {
+				return refuseInput(c, &entry, refused)
+			}
+			return scanError(c, err)
 		}
 
 		// Classify: user, system and tool-call text together, each tool result
@@ -1057,13 +1164,7 @@ func proxyHandler(gw gateway, f apiFormat) fiber.Handler {
 			slog.Error("policy evaluation failed", "org", entry.OrgID, "err", err)
 			return policyUnavailable(c)
 		}
-		entry.RuleID = decision.RuleID
-		if len(decision.Logged) > 0 {
-			slog.Info("policy log rules matched", "rules", decision.Logged)
-			if entry.RuleID == uuid.Nil {
-				entry.RuleID = decision.Logged[0] // the row has room for one rule
-			}
-		}
+		recordPolicyMatches(&entry, decision)
 		switch decision.Action {
 		case policy.ActionAllow, policy.ActionRoute:
 		case policy.ActionBlock:
@@ -1464,6 +1565,8 @@ func policyVars(entry requestEntry, body map[string]any, bodyBytes int) *policy.
 	}
 	vars.InputPIIKinds, vars.InputPIICount = piiVars(entry.InputPII)
 	vars.UnscannedKinds, vars.UnscannedCount = unscannedVars(entry.Unscanned)
+	vars.PDFCount, vars.PDFScanned, vars.PDFReasons = pdfVars(entry.PDF)
+	vars.FileTypes = fileTypesVar(entry.Input.Types)
 	vars.ScoreL1, vars.ScoreL2, vars.ScoreL3 = vars.InjectionScore, -1, -1
 	if d := entry.Scores.Injection.Detail; d != nil {
 		vars.ScoreL1, vars.ScoreL2, vars.ScoreL3, vars.InjectionCat = d.L1, d.L2, d.L3, d.Category
@@ -1535,6 +1638,10 @@ func upstreamError(c *fiber.Ctx, err error) error {
 
 type config struct {
 	ListenAddr string
+	// TrustedProxies is TRUSTED_PROXIES: the reverse proxies whose
+	// X-Forwarded-For names the client (internal/clientip), for API keys
+	// limited to addresses. Empty: the TCP peer is the client.
+	TrustedProxies []*net.IPNet
 	// Detector is DETECTOR_*, MODEL_DIR (or MODELS_PATH), L2_MODEL / L2_MODEL_DIR and L3_MODEL / L3_MODEL_DIR.
 	Detector        ml.Config
 	DatabaseURL     string
@@ -1578,6 +1685,8 @@ type config struct {
 	AuditDedupeWindow time.Duration
 	// Large is the large-input lane and MAX_REQUEST_BYTES (large_input.go).
 	Large largeConfig
+	// PDF is PDF_EXTRACT and its limits (pdf_extract.go).
+	PDF pdfConfig
 }
 
 func loadConfig() (config, error) {
@@ -1640,15 +1749,24 @@ func loadConfig() (config, error) {
 	if err != nil {
 		return config{}, err
 	}
+	pdf, err := loadPDFConfig(os.Getenv, scan.MaxScanTokens)
+	if err != nil {
+		return config{}, err
+	}
 	provider := strings.ToLower(strings.TrimSpace(getenv("UPSTREAM_LLM_PROVIDER", providerOpenAICompatible)))
 	if provider != providerOpenAICompatible && provider != providerAnthropic {
 		return config{}, errors.New("UPSTREAM_LLM_PROVIDER must be openai_compatible or anthropic")
+	}
+	proxies, err := clientip.ParseTrustedProxies(os.Getenv("TRUSTED_PROXIES"))
+	if err != nil {
+		return config{}, err
 	}
 	cfg := config{
 		UpstreamProvider:     provider,
 		ScanCacheSize:        cacheSize,
 		ScanCache:            scanCache,
 		ListenAddr:           getenv("LISTEN_ADDR", ":8080"),
+		TrustedProxies:       proxies,
 		Detector:             detector,
 		DatabaseURL:          getenv("DATABASE_URL", ""),
 		UpstreamURL:          os.Getenv("UPSTREAM_LLM_URL"),
@@ -1664,6 +1782,7 @@ func loadConfig() (config, error) {
 		AdminToken:           strings.TrimSpace(secretsrc.Getenv("GATEWAY_ADMIN_TOKEN")),
 		AuditDedupeWindow:    dedupeWindow,
 		Large:                large,
+		PDF:                  pdf,
 	}
 	// Refuse a default or weak database password unless GUARD_ENV=dev.
 	var secrets appconfig.Checker
@@ -1746,20 +1865,23 @@ func getenv(key, fallback string) string {
 	return fallback
 }
 
-// dbKeyLookup resolves an API key hash to its org and project.
+// dbKeyLookup resolves an API key hash to its org, project and allowed
+// addresses (lookup_api_key, migration 028): live keys only.
 func dbKeyLookup(db *pgxpool.Pool) tenant.LookupFn {
-	return func(ctx context.Context, keyHash string) (uuid.UUID, uuid.UUID, error) {
-		var orgID uuid.UUID
+	return func(ctx context.Context, keyHash string) (tenant.KeyInfo, error) {
+		var key tenant.KeyInfo
 		var projectID *uuid.UUID
-		err := db.QueryRow(ctx, `SELECT org_id, project_id FROM lookup_api_key($1)`, keyHash).
-			Scan(&orgID, &projectID)
+		var cidrs []string
+		err := db.QueryRow(ctx, `SELECT org_id, project_id, allowed_cidrs FROM lookup_api_key($1)`, keyHash).
+			Scan(&key.OrgID, &projectID, &cidrs)
 		if err != nil {
-			return uuid.Nil, uuid.Nil, err
+			return tenant.KeyInfo{}, err
 		}
-		if projectID == nil {
-			return orgID, uuid.Nil, nil
+		if projectID != nil {
+			key.ProjectID = *projectID
 		}
-		return orgID, *projectID, nil
+		key.AllowedCIDRs = tenant.ParseCIDRs(cidrs)
+		return key, nil
 	}
 }
 

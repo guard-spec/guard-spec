@@ -121,6 +121,52 @@ curl -s localhost:8080/readyz | jq .detector        # 6. or https://<GATEWAY_HOS
   also fails on warnings, `-json` for scripts). See
   [README, Kubernetes](../README.md#kubernetes).
 
+### Migration notes
+
+What a release's migrations do beyond adding tables, and what to check
+after them. The [CHANGELOG](../CHANGELOG.md) has the full upgrade notes of
+every version.
+
+- **026 (policy versions).** Adds `policies.log_only` and `policy_versions`,
+  and writes one version row for every existing policy (its state at the
+  upgrade), so the first edit after the upgrade can be rolled back. Down:
+  the history is dropped and a log-only policy becomes live, so disable
+  such policies first.
+- **027 (two-person approval).** Adds `approval_requests` and two
+  `org_security` columns; off for every organization. Down: pending
+  requests are dropped.
+- **028 (API key policy).** Replaces `lookup_api_key` so it also returns a
+  key's allowed addresses. Gateways from before 0.7.0 keep working against
+  the new function (they read the first two columns); a 0.7.0 gateway
+  needs the migration, so apply it before the gateway starts, as the
+  compose `migrate` job does. Set `TRUSTED_PROXIES` on the **gateway** when
+  it runs behind a reverse proxy and you use `allowed_cidrs`: without it
+  the proxy's address is the client. Down: keys limited to addresses work
+  from anywhere again; revoke them first if that matters. Expiries set by
+  rotations or the maximum lifetime stay.
+- **029 (approval consistency).** Adds the `cancelled` status, a partial
+  unique index that allows one pending request per organization, kind and
+  target, and lets instance administrators read pending organization
+  deletions. It cancels pending `policy.delete` requests (deleting a policy
+  no longer needs approval; only a disabled policy can be deleted) and,
+  where a change was pending twice, every request but the oldest. After
+  it: API clients and config files that delete an **enabled** policy get
+  409 `policy_enabled` (422 for a file): disable it first. Deleting an
+  organization always becomes a request another owner or an instance
+  administrator approves, two-person approval on or off. Down: cancelled
+  requests read as expired and duplicates are allowed again.
+- **030 (input settings).** Adds `org_input_settings` (one row per
+  organization that sets its own input mode, token limit, file types and
+  unreadable-file action) and the approval kind `input_settings.loosen`.
+  No organization has a row after it, so every one keeps the instance's
+  behaviour (`PDF_EXTRACT`, `UNSCANNED_PARTS`, `MAX_SCAN_TOKENS`) until an
+  admin sets them. A 0.7.0 gateway reads the table with each request's
+  guard settings: apply the migration before it starts, or requests fail
+  closed with 503. Set `GATEWAY_URL` on the control plane so that it checks
+  `max_input_tokens` against the gateway's `MAX_SCAN_TOKENS` (without it,
+  40,000). Down: the settings and pending loosening requests are dropped,
+  and every organization is back to the instance's behaviour.
+
 ## Rolling back
 
 ### Images, no schema change

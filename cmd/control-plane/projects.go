@@ -181,38 +181,3 @@ func (o *optUUID) UnmarshalJSON(b []byte) error {
 }
 
 // updateAPIKey changes a key's rate limits. keyId is the key prefix, as in revoke.
-func updateAPIKey(db *pgxpool.Pool) fiber.Handler {
-	return func(c *fiber.Ctx) error {
-		org := orgID(c)
-		var req struct {
-			RPMLimit optLimit `json:"rpm_limit"`
-			TPMLimit optLimit `json:"tpm_limit"`
-		}
-		if err := json.Unmarshal(c.Body(), &req); err != nil {
-			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
-		}
-		if !req.RPMLimit.Set && !req.TPMLimit.Set {
-			return c.Status(400).JSON(fiber.Map{"error": "rpm_limit or tpm_limit is required"})
-		}
-		var rpm *int64
-		var tpm *int64
-		err := tenant.WithOrg(c.Context(), db, org, func(tx pgx.Tx) error {
-			return tx.QueryRow(c.Context(),
-				`UPDATE api_keys SET
-				   rpm_limit = CASE WHEN $1 THEN $2::int ELSE rpm_limit END,
-				   tpm_limit = CASE WHEN $3 THEN $4::bigint ELSE tpm_limit END
-				 WHERE key_prefix = $5 AND org_id = $6 AND revoked_at IS NULL
-				 RETURNING rpm_limit::bigint, tpm_limit`,
-				req.RPMLimit.Set, req.RPMLimit.Value, req.TPMLimit.Set, req.TPMLimit.Value,
-				c.Params("keyId"), org).Scan(&rpm, &tpm)
-		})
-		if errors.Is(err, pgx.ErrNoRows) {
-			return c.Status(404).JSON(fiber.Map{"error": "not found"})
-		}
-		if err != nil {
-			return serverError(c, err)
-		}
-		logActivity(c, db, &org, "api_key.updated", c.Params("keyId"), map[string]any{"rpm_limit": rpm, "tpm_limit": tpm})
-		return c.JSON(fiber.Map{"key_prefix": c.Params("keyId"), "rpm_limit": rpm, "tpm_limit": tpm})
-	}
-}

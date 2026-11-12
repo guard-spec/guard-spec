@@ -34,6 +34,10 @@ export const FALLBACK_SCHEMA: PolicySchema = {
     { name: 'input.pii.count', type: 'int' },
     { name: 'input.unscanned.kinds', type: 'list', values: ['image', 'file', 'audio', 'other'] },
     { name: 'input.unscanned.count', type: 'int' },
+    { name: 'input.pdf.count', type: 'int' },
+    { name: 'input.pdf.scanned', type: 'int' },
+    { name: 'input.pdf.reasons', type: 'list', values: ['no_text', 'encrypted', 'damaged', 'timeout', 'over_limit', 'internal', 'remote'] },
+    { name: 'input.files.types', type: 'list', values: ['pdf', 'png', 'jpeg', 'gif', 'webp', 'docx', 'xlsx', 'pptx', 'zip', 'wav', 'mp3', 'ogg', 'flac', 'unknown', 'remote'] },
   ],
   operators: {
     double: ['=', '!=', '>', '>=', '<', '<='],

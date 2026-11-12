@@ -16,6 +16,8 @@ export interface SaveResult {
   ruleErrors: Record<string, string>;
   /** Local versions of the policies that were not saved, to keep editing. */
   keep: EditablePolicy[];
+  /** Policies whose disabling waits for a second admin (two-person approval). */
+  pending: string[];
 }
 
 /**
@@ -25,14 +27,15 @@ export interface SaveResult {
  * created is never posted again (it is in the server's list with its id).
  */
 export async function savePolicies(api: SaveApi, orgId: string, policies: EditablePolicy[]): Promise<SaveResult> {
-  const out: SaveResult = { errors: [], ruleErrors: {}, keep: [] };
+  const out: SaveResult = { errors: [], ruleErrors: {}, keep: [], pending: [] };
   for (const p of policies.filter((x) => x.dirty)) {
     try {
       const rules = toWireRules(p.rules);
       if (p.id) {
-        await api.updatePolicy(orgId, p.id, { name: p.name, rules, enabled: p.enabled });
+        const r = await api.updatePolicy(orgId, p.id, { name: p.name, rules, enabled: p.enabled, log_only: p.log_only });
+        if ('approval_required' in r) out.pending.push(p.name);
       } else {
-        await api.createPolicy(orgId, { name: p.name, rules, project_id: p.project_id, enabled: p.enabled });
+        await api.createPolicy(orgId, { name: p.name, rules, project_id: p.project_id, enabled: p.enabled, log_only: p.log_only });
       }
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
@@ -53,4 +56,15 @@ export async function savePolicies(api: SaveApi, orgId: string, policies: Editab
 export function mergeAfterSave(fresh: EditablePolicy[], keep: EditablePolicy[]): EditablePolicy[] {
   const byId = new Map(keep.filter((k) => k.id).map((k) => [k.id, k]));
   return [...fresh.map((f) => byId.get(f.id) ?? f), ...keep.filter((k) => !k.id)];
+}
+
+/**
+ * Whether the Flow page offers to delete a policy: a draft always; a saved
+ * policy only while it is disabled as saved, since the server deletes only a
+ * disabled policy (disabling is the step two-person approval guards).
+ */
+export function deletable(p: Pick<EditablePolicy, 'id'>, saved: readonly EditablePolicy[] | null): boolean {
+  if (!p.id) return true;
+  const s = saved?.find((x) => x.id === p.id);
+  return s !== undefined && !s.enabled;
 }

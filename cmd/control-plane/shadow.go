@@ -17,6 +17,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"github.com/guard-spec/guard-spec/internal/tenant"
+	"github.com/guard-spec/guard-spec/internal/version"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -301,6 +302,9 @@ type gatewayModels struct {
 	// GatewayVersion is the gateway's version from /readyz; empty when it
 	// does not say. The admin UI puts it in bypass and false-positive reports.
 	GatewayVersion string `json:"gateway_version,omitempty"`
+	// ControlPlaneVersion is this control plane's version, for the
+	// security overview's running versions.
+	ControlPlaneVersion string `json:"control_plane_version"`
 }
 
 type gwShadow struct {
@@ -340,20 +344,38 @@ type gatewayReadyz struct {
 			} `json:"reload"`
 		} `json:"models"`
 	} `json:"detector"`
+	// Input is the gateway's input limits (input_settings.go); nil from
+	// gateways before 0.7.0.
+	Input *gatewayInput `json:"input"`
+}
+
+// gatewayInput is the input part of the gateway's /readyz: the instance
+// limits an organization's input settings stay within.
+type gatewayInput struct {
+	MaxScanTokens         int      `json:"max_scan_tokens"`
+	MaxInputTokensCeiling int      `json:"max_input_tokens_ceiling"`
+	PDFExtract            bool     `json:"pdf_extract"`
+	UnscannedParts        string   `json:"unscanned_parts"`
+	ReadableFileTypes     []string `json:"readable_file_types"`
 }
 
 // gatewayStatusTimeout bounds the /readyz call.
 const gatewayStatusTimeout = 3 * time.Second
 
-func getGatewayModels(settings *appSettings) fiber.Handler {
-	client := settings.gatewayClient
-	if client == nil {
-		client = &http.Client{Timeout: gatewayStatusTimeout,
-			// /readyz never redirects; following one could reach another host.
-			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+// gatewayStatusClient is the client that reads the gateway's /readyz.
+func gatewayStatusClient(settings *appSettings) *http.Client {
+	if settings.gatewayClient != nil {
+		return settings.gatewayClient
 	}
+	return &http.Client{Timeout: gatewayStatusTimeout,
+		// /readyz never redirects; following one could reach another host.
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+}
+
+func getGatewayModels(settings *appSettings) fiber.Handler {
+	client := gatewayStatusClient(settings)
 	return func(c *fiber.Ctx) error {
-		out := gatewayModels{CheckedAt: time.Now().UTC(), Installed: []string{}}
+		out := gatewayModels{CheckedAt: time.Now().UTC(), Installed: []string{}, ControlPlaneVersion: version.String()}
 		if settings.gatewayURL == "" {
 			return c.JSON(out)
 		}

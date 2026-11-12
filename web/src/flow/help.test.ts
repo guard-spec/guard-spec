@@ -125,7 +125,15 @@ describe('help metadata', () => {
     expect(filterFields(FALLBACK_SCHEMA.fields, 'bidirectional', describe).map((f) => f.name)).toEqual(['anomaly.has_bidi']);
     expect(filterFields(FALLBACK_SCHEMA.fields, 'L2', describe).map((f) => f.name)).toContain('scores.l2');
     expect(filterFields(FALLBACK_SCHEMA.fields, '', describe)).toHaveLength(FALLBACK_SCHEMA.fields.length);
-    expect(groups.find((g) => g.group === 'unscanned')?.fields.map((f) => f.name)).toEqual(['input.unscanned.kinds', 'input.unscanned.count']);
+    expect(groups.find((g) => g.group === 'unscanned')?.fields.map((f) => f.name)).toEqual([
+      'input.unscanned.kinds',
+      'input.unscanned.count',
+      'input.pdf.count',
+      'input.pdf.scanned',
+      'input.pdf.reasons',
+      'input.files.types',
+    ]);
+    expect(FALLBACK_SCHEMA.fields.find((f) => f.name === 'input.pdf.reasons')?.values).toEqual(['no_text', 'encrypted', 'damaged', 'timeout', 'over_limit', 'internal', 'remote']);
     expect(FALLBACK_SCHEMA.fields.find((f) => f.name === 'input.unscanned.kinds')?.values).toEqual(['image', 'file', 'audio', 'other']);
   });
 });

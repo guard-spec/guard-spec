@@ -51,8 +51,8 @@ Các hướng dẫn này không lặp lại README. Chúng giả định bạn �
 | PostgreSQL | Compose và CI dùng bản 17. Hai role: một role owner chạy migration (`ps` trong compose) và `guardspec_app`, được migration 004 tạo ra không có mật khẩu. Role có phạm vi toàn cluster, nên 004 sẽ lỗi trên server đã có sẵn `guardspec_app` (của một database hoặc một bản cài khác): hãy cho mỗi bản cài một server riêng |
 | Migration | `migrations/` của tag bản phát hành, chạy bằng `migrate` dưới role owner, trước khi các service khởi động. Bản thân các service không bao giờ chạy migration; Helm chart chạy khi `migrations.enabled=true` (một hook pre-install / pre-upgrade), nếu không thì bạn tự chạy |
 | Mật khẩu ứng dụng | `GUARDSPEC_APP_PASSWORD` được đặt cho `guardspec_app` sau mỗi lần chạy migration: bằng `deploy/postgres/set-app-password.sh` hoặc job `dbRoles` của chart |
-| Gateway | `ghcr.io/guard-spec/guard-spec-gateway:0.5.0` (model được mount ở `/models`) hoặc `-gateway-full:0.5.0` (model nằm sẵn trong image). Port 8080 cho client, 9090 cho metrics |
-| Control plane | `ghcr.io/guard-spec/guard-spec-control-plane:0.5.0`. Port 8081 cho API và giao diện quản trị ở `/ui/`, 9091 cho metrics |
+| Gateway | `ghcr.io/guard-spec/guard-spec-gateway:0.6.0` (model được mount ở `/models`) hoặc `-gateway-full:0.6.0` (model nằm sẵn trong image). Port 8080 cho client, 9090 cho metrics |
+| Control plane | `ghcr.io/guard-spec/guard-spec-control-plane:0.6.0`. Port 8081 cho API và giao diện quản trị ở `/ui/`, 9091 cho metrics |
 | Secret | `GUARDSPEC_APP_PASSWORD` (cả hai service, dưới dạng `PGPASSWORD`), `JWT_SECRET`, `MFA_ENC_KEY` và `ADMIN_PASSWORD` (control plane), mật khẩu owner (chỉ dùng cho migration), `UPSTREAM_LLM_KEY` / `UPSTREAM_KEY_*` (gateway) |
 | TLS | Các service chỉ nói HTTP thường. Hãy terminate TLS ở load balancer hoặc reverse proxy đứng trước chúng |
 
