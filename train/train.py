@@ -22,6 +22,10 @@ finished epoch (<run_dir>/resume.pt).
 v6 (RF-895d3533): --v6-dir does the same with a data/build_v6.py output
 (v6_train to training, v6_val + val_v6 to validation; val_v6_holdout is never
 read). The rows have the v5 shape, so nothing else changes.
+
+v7 (RF-895d3533 R6): --v7-dir adds a data/build_v7.py output's v7_train.jsonl (benign windows of long
+text, kinds v7_long, v7_hardneg and v7_gen) to training. Validation is unchanged (the v6 files), so the
+v7 arms select their epoch on the same validation as the v6 reference.
 """
 
 from __future__ import annotations
@@ -50,6 +54,7 @@ V5_TRAIN = "v5_train.jsonl"
 V5_VAL = ["v5_val.jsonl", "val_v5.jsonl"]  # val_v5_holdout.jsonl is never read here
 V6_TRAIN = "v6_train.jsonl"
 V6_VAL = ["v6_val.jsonl", "val_v6.jsonl"]  # val_v6_holdout.jsonl is never read here
+V7_TRAIN = "v7_train.jsonl"
 
 
 def make_augment(cfg_aug, seed):
@@ -160,6 +165,8 @@ def main():
                     "training, v5_val.jsonl and val_v5.jsonl to validation; val_v5_holdout.jsonl is never read")
     ap.add_argument("--v6-dir", help="v6: a data/build_v6.py output: v6_train.jsonl is added to training, v6_val.jsonl "
                     "and val_v6.jsonl to validation; val_v6_holdout.jsonl is never read")
+    ap.add_argument("--v7-dir", help="v7: a data/build_v7.py output: v7_train.jsonl is added to training "
+                    "(validation unchanged)")
     ap.add_argument("--oversample-kind", action="append", default=[], metavar="KIND=FACTOR",
                     help="v5: repeat training rows of a v5 `kind` (repeatable), e.g. log_vi_repeat=2 (arm C); "
                          "v6: twin=2 (arm B), secdoc_en=2 (arm C)")
@@ -195,6 +202,8 @@ def main():
     if a.v6_dir:
         train_files.append(f"{a.v6_dir}/{V6_TRAIN}")
         cfg["data"]["val"] = cfg["data"]["val"] + [f"{a.v6_dir}/{v}" for v in V6_VAL]
+    if a.v7_dir:
+        train_files.append(f"{a.v7_dir}/{V7_TRAIN}")
     cfg["data"]["train_files"] = train_files
     seed_everything(cfg["seed"])
     labels = cfg["labels"]
