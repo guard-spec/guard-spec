@@ -52,6 +52,7 @@ type options struct {
 	available, required         bool
 	refs                        []string
 	manifestSet                 bool
+	provider                    onnx.Provider
 }
 
 func main() {
@@ -94,6 +95,8 @@ func parseArgs(cmd string, args []string) (options, error) {
 	fset.StringVar(&o.only, "models", "", "comma-separated model references, name or name@version (default: the recommended version of every non-optional model)")
 	fset.StringVar(&o.mirror, "mirror", os.Getenv("MODELS_MIRROR"), "base URL tried before Hugging Face: <mirror>/<name>/<version>/<file> (env MODELS_MIRROR)")
 	fset.BoolVar(&o.available, "available", false, "list: the models in the manifest instead of the installed ones")
+	provider := fset.String("provider", string(onnx.ManifestProvider(os.Getenv)),
+		"execution provider whose files to pull and verify: cpu, or cuda/auto to add the GPU model (model_fp16.onnx) (env INFERENCE_PROVIDER)")
 	fset.BoolVar(&o.required, "required", envTrue("DETECTOR_REQUIRE_ML") || envTrue("MODELS_REQUIRED"),
 		"init: exit 1 when a model cannot be pulled (env DETECTOR_REQUIRE_ML or MODELS_REQUIRED)")
 	for {
@@ -106,6 +109,10 @@ func parseArgs(cmd string, args []string) (options, error) {
 		}
 		o.refs = append(o.refs, args[0])
 		args = args[1:]
+	}
+	var err error
+	if o.provider, err = onnx.ParseProvider(*provider); err != nil {
+		return o, fmt.Errorf("-provider: %w", err)
 	}
 	fset.Visit(func(f *flag.Flag) {
 		if f.Name == "manifest" {
@@ -198,7 +205,10 @@ func run(ctx context.Context, cmd string, o options, m *onnx.Manifest, out io.Wr
 			if mod.Optional && !explicit {
 				continue
 			}
-			for _, f := range mod.Files {
+			for _, f := range mod.FilesFor(o.provider) {
+				if f.SkipIfAbsent(mod.Dir(o.dir)) && o.provider != onnx.ProviderCUDA {
+					continue
+				}
 				path := filepath.Join(mod.Dir(o.dir), f.Dest)
 				if err := onnx.VerifyFile(path, f); err != nil {
 					_, _ = fmt.Fprintf(out, "%s: %v\n", path, err)
@@ -231,6 +241,8 @@ func pull(ctx context.Context, o options, m *onnx.Manifest, refs []string, out i
 		Token:  token,
 		Mirror: o.mirror,
 		Log:    func(f string, a ...any) { _, _ = fmt.Fprintf(out, f+"\n", a...) },
+		// cuda and auto also fetch the GPU model where the manifest has one.
+		Provider: o.provider,
 	}
 	failed := false
 	for _, mod := range sel {
@@ -285,7 +297,7 @@ func envTrue(name string) bool { return strings.EqualFold(strings.TrimSpace(os.G
 
 func modelSize(mod *onnx.ManifestModel) int64 {
 	var size int64
-	for _, f := range mod.Files {
+	for _, f := range mod.FilesFor(onnx.ProviderCPU) {
 		size += f.Size
 	}
 	return size
@@ -368,14 +380,15 @@ func listInstalled(m *onnx.Manifest, dir string, out io.Writer) {
 // installState is "installed", "incomplete" or "" (nothing there).
 func installState(mod *onnx.ManifestModel, d string) string {
 	have := 0
-	for _, f := range mod.Files {
+	files := mod.FilesFor(onnx.ProviderCPU) // a GPU-only file is listed by the gpu flag
+	for _, f := range files {
 		fi, err := os.Stat(filepath.Join(d, f.Dest))
 		if err == nil && fi.Mode().IsRegular() && (f.Size == 0 || fi.Size() == f.Size) {
 			have++
 		}
 	}
 	switch {
-	case have == len(mod.Files):
+	case have == len(files):
 		return "installed"
 	case have > 0:
 		return "incomplete (run pull)"
@@ -399,7 +412,9 @@ flags:
   -manifest FILE  manifest (default models/manifest.yaml, else the built-in copy)
   -models a,b@v   same as naming them as arguments
   -mirror URL     tried before Hugging Face: URL/<name>/<version>/<file> (env MODELS_MIRROR)
-  -required       init: exit 1 when a model cannot be pulled`)
+  -required       init: exit 1 when a model cannot be pulled
+  -provider P     cpu (default), or cuda/auto to also pull and verify the GPU model
+                  (model_fp16.onnx) where the manifest lists one (env INFERENCE_PROVIDER)`)
 }
 
 func fatal(err error) {

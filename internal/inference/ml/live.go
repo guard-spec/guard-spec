@@ -372,7 +372,7 @@ func (l *Live) verify(dir string) (*onnx.ManifestModel, error) {
 		return nil, err
 	}
 	for _, f := range mod.Files {
-		if f.SHA256 == "" && f.GitSHA1 == "" {
+		if f.SHA256 == "" && f.GitSHA1 == "" || f.SkipIfAbsent(dir) {
 			continue
 		}
 		if err := onnx.VerifyFile(filepath.Join(dir, f.Dest), f); err != nil {

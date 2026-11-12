@@ -25,6 +25,13 @@
 # small files of gated repos, whose content (and so SHA-256) cannot be read
 # without a token. `pull` verifies it and prints the SHA-256 so it can be pinned.
 #
+# A file with `provider: cuda` (model_fp16.onnx, the classifier for the GPU
+# option, INFERENCE_PROVIDER=cuda) is only pulled with `models pull -provider
+# cuda` or when INFERENCE_PROVIDER is cuda or auto; a CPU install never
+# downloads it, and when present it is verified like the other files. It is
+# listed with the model version it was exported from, once that file is
+# published (signed and on Hugging Face), like any model file.
+#
 # optional: true models are only pulled when named. gated: true models need
 # HF_TOKEN (after accepting the terms on the model page) and are skipped
 # without it. The ProtectAI models below are optional comparison baselines.

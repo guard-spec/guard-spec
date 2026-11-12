@@ -16,6 +16,19 @@
    - per-label thresholds (max F1 on validation, one-vs-rest).
 5. Writes model_int8.onnx, tokenizer.json, config.json and thresholds.json to
    export.out_dir and prints the SHA-256 of each file.
+
+--fp16 (GPU model, RF-b74de2b9) instead writes model_fp16.onnx, for the
+ONNX Runtime CUDA execution provider (INFERENCE_PROVIDER=cuda):
+
+    uv run python export.py --fp16 --run-dir <run> --out-dir <dir> [--fp32 <run>/model_fp32.onnx]
+
+The FP32 export of step 1 (or --fp32, an existing export of the same
+checkpoint) is converted to FP16 with FP32 inputs and outputs
+(onnxruntime.transformers.float16, keep_io_types), so the gateway feeds it
+and reads it exactly like the INT8 model. Nothing else is written: no INT8
+model, no thresholds, no calibration (those of the INT8 release apply unless
+the agreement check of train/reports/fp16_agreement_*.md says otherwise).
+Parity against FP32 is measured on the first validation windows, on CPU.
 """
 
 from __future__ import annotations
@@ -63,6 +76,66 @@ def sha256(path):
     return h.hexdigest()
 
 
+def export_fp32(model, tok, path, opset):
+    """torch.onnx.export of the classifier logits (FP32, dynamic batch and sequence axes)."""
+    dummy = tok(["export example", "a second, slightly longer export example"], padding=True, return_tensors="pt")
+
+    class Wrapper(torch.nn.Module):
+        def __init__(self, m):
+            super().__init__()
+            self.m = m
+
+        def forward(self, input_ids, attention_mask):
+            return self.m(input_ids=input_ids, attention_mask=attention_mask).logits
+
+    # dynamo=False: the TorchScript exporter, as for every shipped model (torch >= 2.9 defaults to dynamo=True).
+    torch.onnx.export(Wrapper(model), (dummy["input_ids"], dummy["attention_mask"]), str(path),
+                      input_names=["input_ids", "attention_mask"], output_names=["logits"],
+                      dynamic_axes={"input_ids": {0: "batch", 1: "seq"}, "attention_mask": {0: "batch", 1: "seq"},
+                                    "logits": {0: "batch"}},
+                      opset_version=opset, do_constant_folding=True, dynamo=False)
+
+
+def export_fp16(a, cfg, tok, model, gtok, examples, pt, out_dir):
+    """--fp16: model_fp16.onnx in out_dir, converted from the FP32 export of the same checkpoint."""
+    import tempfile
+
+    import onnx
+    from onnxruntime.transformers.float16 import convert_float_to_float16
+
+    with tempfile.TemporaryDirectory(dir=out_dir) as tmp:
+        fp32 = Path(a.fp32) if a.fp32 else Path(tmp) / "model_fp32.onnx"
+        if not a.fp32:
+            export_fp32(model, tok, fp32, cfg["export"]["opset"])
+        fp16 = out_dir / "model_fp16.onnx"
+        # keep_io_types: input_ids/attention_mask stay int64 and logits float32, as the gateway expects.
+        m16 = convert_float_to_float16(onnx.load(str(fp32)), keep_io_types=True)
+        onnx.save(m16, str(fp16))
+
+        so = ort.SessionOptions()
+        so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        s32 = ort.InferenceSession(str(fp32), so, providers=["CPUExecutionProvider"])
+        s16 = ort.InferenceSession(str(fp16), so, providers=["CPUExecutionProvider"])
+        sub = examples[:a.fp16_parity_windows]
+        t = time.time()
+        w32 = sigmoid(onnx_logits(s32, gtok, sub, tok.pad_token_id))
+        w16 = sigmoid(onnx_logits(s16, gtok, sub, tok.pad_token_id))
+        benign_ix = cfg["labels"].index("benign")
+        r32, r16 = 1 - w32[:, benign_ix], 1 - w16[:, benign_ix]
+        report = dict(
+            source=str(fp32.name if a.fp32 else "export of " + str(Path(cfg["export"]["run_dir"]) / "best")),
+            windows=len(sub),
+            torch_vs_onnx_fp16_max_abs=float(np.abs(pt - w16[:len(pt)]).max()),
+            fp16_vs_fp32_max_abs=float(np.abs(w16 - w32).max()),
+            fp16_vs_fp32_mean_abs=float(np.abs(w16 - w32).mean()),
+            risk_fp16_vs_fp32_max_abs=float(np.abs(r16 - r32).max()),
+            seconds=time.time() - t,
+        )
+    (out_dir / "fp16_export_report.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps(report, indent=2))
+    print(f"{sha256(fp16)}  {fp16.name}  ({fp16.stat().st_size / 1e6:.1f} MB)")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--run-dir", help="override export.run_dir (relative to train/)")
@@ -70,6 +143,12 @@ def main():
                     "directory instead of data/, e.g. a GUARD_BUILD_OUT build with external rows")
     ap.add_argument("--out-dir", help="override export.out_dir (relative to train/)")
     ap.add_argument("--v5-dir", help="v5: also calibrate on v5_val.jsonl and val_v5.jsonl of this build (as train.py)")
+    ap.add_argument("--fp16", action="store_true", help="write model_fp16.onnx (GPU, CUDA execution provider) to "
+                    "--out-dir instead of the INT8 model and its calibration")
+    ap.add_argument("--fp32", help="--fp16: convert this FP32 ONNX export of the same checkpoint instead of "
+                    "exporting <run_dir>/best again")
+    ap.add_argument("--fp16-parity-windows", type=int, default=1024,
+                    help="--fp16: validation windows scored with FP32 and FP16 on CPU for the parity report")
     a = ap.parse_args()
     cfg = load_config()
     if a.run_dir:
@@ -100,24 +179,13 @@ def main():
         ids, mask = WD.pad_batch([e.ids for e in examples[:64]], gtok.prefix, gtok.suffix, tok.pad_token_id)
         pt = torch.sigmoid(model(input_ids=torch.from_numpy(ids), attention_mask=torch.from_numpy(mask)).logits).numpy()
 
+    if a.fp16:
+        export_fp16(a, cfg, tok, model, gtok, examples, pt, out_dir)
+        return
+
     # 1. FP32 ONNX ---------------------------------------------------------------------
     fp32 = run_dir / "model_fp32.onnx"
-    dummy = tok(["export example", "a second, slightly longer export example"], padding=True, return_tensors="pt")
-
-    class Wrapper(torch.nn.Module):
-        def __init__(self, m):
-            super().__init__()
-            self.m = m
-
-        def forward(self, input_ids, attention_mask):
-            return self.m(input_ids=input_ids, attention_mask=attention_mask).logits
-
-    # dynamo=False: the TorchScript exporter, as for every shipped model (torch >= 2.9 defaults to dynamo=True).
-    torch.onnx.export(Wrapper(model), (dummy["input_ids"], dummy["attention_mask"]), str(fp32),
-                      input_names=["input_ids", "attention_mask"], output_names=["logits"],
-                      dynamic_axes={"input_ids": {0: "batch", 1: "seq"}, "attention_mask": {0: "batch", 1: "seq"},
-                                    "logits": {0: "batch"}},
-                      opset_version=cfg["export"]["opset"], do_constant_folding=True, dynamo=False)
+    export_fp32(model, tok, fp32, cfg["export"]["opset"])
 
     # 2. INT8 dynamic quantization ------------------------------------------------------
     int8 = out_dir / "model_int8.onnx"
