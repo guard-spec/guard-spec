@@ -20,7 +20,7 @@ binary luôn biết các model nó khuyến nghị.
 | `guardspec-classifier` | `v3b` | L2 | có | Hugging Face (chưa công bố), sau đó là GitHub Release `model-guardspec-classifier-v3b` |
 | `guardspec-classifier` | `v4` | L2 | không: bản ứng viên, [so sánh ở shadow mode](#guardspec-classifier-v4-bản-ứng-viên) | GitHub Release `model-guardspec-classifier-v4` (khi chủ dự án công bố) |
 | `guardspec-classifier` | `v5` | L2 | không: bản ứng viên cho code, log và tài liệu dài, [shadow mode trước](#guardspec-classifier-v5-bản-ứng-viên) | Hugging Face `guard-spec/guardspec-classifier` (nhánh `v5`), sau đó là GitHub Release `model-guardspec-classifier-v5` |
-| `guardspec-classifier` | `v6` | L2 | không: bản ứng viên cho tài liệu dài, có file FP16 cho tùy chọn GPU, [shadow mode trước](#guardspec-classifier-v6-bản-ứng-viên) | GitHub Release `model-guardspec-classifier-v6` (khi chủ dự án công bố), sau đó là Hugging Face (nhánh `v6`, ghim revision sau khi tải lên) |
+| `guardspec-classifier` | `v6` | L2 | không: bản ứng viên cho tài liệu dài, có file FP16 cho tùy chọn GPU, [shadow mode trước](#guardspec-classifier-v6-bản-ứng-viên) | Hugging Face `guard-spec/guardspec-classifier` (nhánh `v6`), sau đó là GitHub Release `model-guardspec-classifier-v6` |
 | `multilingual-e5-small` | `614241f` | L3 | có | Hugging Face `intfloat/multilingual-e5-small` |
 | `protectai-deberta-v3-small-pi-v2` | `d7c8842` | baseline | tùy chọn, cần xin quyền truy cập | Hugging Face |
 | `protectai-deberta-v3-base-pi-v2` | `90c9989` | baseline | tùy chọn | Hugging Face |
@@ -230,8 +230,7 @@ ký trước, nên nó là bản ứng viên cho shadow mode chứ không phải
 
 `guardspec-classifier@v5` có trong manifest nhưng **không** phải phiên bản
 khuyến nghị: v3b vẫn là mặc định cho đến khi v5 chạy ở shadow mode ít nhất 7
-ngày và chủ dự án quyết định (không ở v0.6.0: sau đợt
-chạy shadow, RF-895d3533). v5 dùng cùng kiến trúc, công
+ngày và chủ dự án quyết định (không ở v0.6.0 hay v0.7.0). v5 dùng cùng kiến trúc, công
 thức train và nhãn của v3b, nhưng train theo từng cửa sổ (các cửa sổ 256 token
 của gateway thay vì một dòng bị cắt ngắn) trên dữ liệu v4 cộng thêm code,
 cấu hình, log, stack trace và văn xuôi dài vô hại làm hard negative, cùng các
@@ -288,8 +287,9 @@ v5 loại bỏ phần lớn false positive trên tool output vô hại và bắt
 tấn công giấu trong code và log hơn; trên `eval/data` nó ngang v3b; trên
 owner hold-out nó bắt được nhiều tấn công hơn với cái giá là chặn thêm 4
 dòng vô hại (8 trên 272 so với 4). Hạn chế đã biết: với tài liệu 100k-200k
-token, mục tiêu false positive chưa đạt (cần vòng dữ liệu thứ ba, văn xuôi vô
-hại nhúng trong các host code và log); nó bắt được ít tấn công sinh tự động
+token, mục tiêu false positive chưa đạt (các vòng sau của đợt làm việc với
+tài liệu dài, RF-895d3533, cũng không đạt; xem
+[train/MODEL_CARD.md](../train/MODEL_CARD.md), mục "v6"); nó bắt được ít tấn công sinh tự động
 của `val_v3_holdout` hơn ở ngưỡng chặn (0.887 so với 0.953); và trên đường
 tool, cap giữ các tấn công nhúng mà chỉ classifier nhận ra ở dưới ngưỡng chặn
 (`val_v5_holdout`: 0.623 so với 0.665 ở 0.85, dù xếp hạng tốt hơn nhiều). Quy
@@ -318,10 +318,10 @@ trong manifest). Quyết định ở ngưỡng 0.85 của nó trùng với file 
 Khoảng 1% quyết định gần ngưỡng sẽ khác nhau giữa gateway chạy GPU và gateway
 chạy CPU.
 
-**Chưa công bố.** Các file đã được ghim SHA-256, nhưng GitHub Release
-`model-guardspec-classifier-v6` và bản tải lên Hugging Face do chủ dự án thực
-hiện; trước khi tải lên, manifest mang revision chưa ghim và release là nguồn
-duy nhất. Cho đến lúc đó lệnh pull sẽ thất bại.
+**Đã công bố** ngày 2026-11-13: nhánh `v6` trên Hugging Face (revision
+`c44ec1d2`, đã ghim trong manifest) và GitHub Release đã ký
+`model-guardspec-classifier-v6` làm bản sao dự phòng. Mọi file được kiểm tra
+theo SHA-256 trong manifest.
 
 ```bash
 # 1. Install it next to v3b (files checked against the manifest's SHA-256).

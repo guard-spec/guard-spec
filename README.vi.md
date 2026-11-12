@@ -30,7 +30,7 @@ câu trả lời của model (link rò rỉ dữ liệu, dữ liệu cá nhân, 
 trước khi đến người dùng. Viết bằng Go, chạy thành hai service cạnh Postgres,
 được xây dựng và đánh giá cho **tiếng Anh và tiếng Việt**.
 
-Trạng thái: **v0.6.0, trước 1.0.** API và schema cơ sở dữ liệu còn có thể
+Trạng thái: **v0.7.0, trước 1.0.** API và schema cơ sở dữ liệu còn có thể
 thay đổi. Hãy đọc phần [Mô hình bảo mật và giới hạn](#mô-hình-bảo-mật-và-giới-hạn)
 trước khi dùng.
 
@@ -737,7 +737,8 @@ lành tính dài có nhiều cửa sổ, mỗi cửa sổ là một cơ hội b�
 lành tính dài có thể bị chặn nhiều hơn tài liệu ngắn. Trần classifier cho nội
 dung không tin cậy (`l2_untrusted_max`, do calibration của bản ứng viên v5 đặt,
 hiện chạy shadow mode) giảm việc này cho tool result và tài liệu; mục tiêu tối
-đa 1% với tài liệu 100k–200k token chưa đạt (task RF-895d3533). Hãy thử với tài
+đa 1% với tài liệu 100k–200k token chưa đạt (task RF-895d3533 kết thúc mà
+không đạt; lần thử tiếp theo là task nháp RF-3a9ce3f9). Hãy thử với tài
 liệu của bạn và xem điểm trong
 nhật ký yêu cầu trước. Quét một tài liệu 200k token mất vài chục giây trên vài
 lõi CPU. `POST /guardrail/scan` và `/v1/embeddings` giữ giới hạn hiện tại.

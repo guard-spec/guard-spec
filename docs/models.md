@@ -20,7 +20,7 @@ tool, so the binary always knows its recommended models.
 | `guardspec-classifier` | `v3b` | L2 | yes | Hugging Face (not published yet), then the GitHub Release `model-guardspec-classifier-v3b` |
 | `guardspec-classifier` | `v4` | L2 | no: candidate, [compare in shadow mode](#guardspec-classifier-v4-candidate) | the GitHub Release `model-guardspec-classifier-v4` (once the owner publishes it) |
 | `guardspec-classifier` | `v5` | L2 | no: candidate for code, logs and long documents, [shadow mode first](#guardspec-classifier-v5-candidate) | Hugging Face `guard-spec/guardspec-classifier` (branch `v5`), then the GitHub Release `model-guardspec-classifier-v5` |
-| `guardspec-classifier` | `v6` | L2 | no: candidate for long documents, with an FP16 file for the GPU option, [shadow mode first](#guardspec-classifier-v6-candidate) | the GitHub Release `model-guardspec-classifier-v6` (once the owner publishes it), then Hugging Face (branch `v6`, revision pinned after the upload) |
+| `guardspec-classifier` | `v6` | L2 | no: candidate for long documents, with an FP16 file for the GPU option, [shadow mode first](#guardspec-classifier-v6-candidate) | Hugging Face `guard-spec/guardspec-classifier` (branch `v6`), then the GitHub Release `model-guardspec-classifier-v6` |
 | `multilingual-e5-small` | `614241f` | L3 | yes | Hugging Face `intfloat/multilingual-e5-small` |
 | `protectai-deberta-v3-small-pi-v2` | `d7c8842` | baseline | optional, gated | Hugging Face |
 | `protectai-deberta-v3-base-pi-v2` | `90c9989` | baseline | optional | Hugging Face |
@@ -230,8 +230,7 @@ table.
 
 `guardspec-classifier@v5` is listed in the manifest but is **not** the
 recommended version: v3b stays the default until v5 has run in shadow mode
-for at least 7 days and the owner decides (not in v0.6.0: after the shadow
-run, RF-895d3533). v5 is v3b's architecture, recipe and labels, trained window by window (the gateway's
+for at least 7 days and the owner decides (not in v0.6.0 or v0.7.0). v5 is v3b's architecture, recipe and labels, trained window by window (the gateway's
 256-token windows instead of a truncated row) on the v4 data plus benign
 code, configuration, logs, stack traces and long prose as hard negatives and
 attacks embedded in such text (`train/DATA_CARD.md`, "v5 data"). It targets
@@ -287,8 +286,9 @@ v5 removes most false positives on benign tool output and catches more
 attacks hidden in code and logs, on `eval/data` it is level with v3b, and on
 the owner hold-outs it catches more attacks at the cost of 4 more blocked
 benign rows (8 of 272 vs 4). Its known limitations: on documents of 100k to
-200k tokens the false-positive goal is not met yet (that needs a third round
-of data, benign prose inside code and log hosts); it catches fewer of the
+200k tokens the false-positive goal is not met (the later rounds of the
+long-document work, RF-895d3533, did not meet it either; see
+[train/MODEL_CARD.md](../train/MODEL_CARD.md), "v6"); it catches fewer of the
 generated `val_v3_holdout` attacks at the block threshold (0.887 vs 0.953);
 and on the tool path the cap keeps embedded attacks that only the classifier
 recognises below the block threshold (`val_v5_holdout`: 0.623 vs 0.665 at
@@ -317,10 +317,10 @@ which applies only when the classifier is loaded from `model_fp16.onnx`
 Expect about 1% of decisions near the threshold to differ between a GPU and
 a CPU gateway.
 
-**Not published yet.** The files are pinned by SHA-256, but the GitHub
-Release `model-guardspec-classifier-v6` and the Hugging Face upload come
-from the owner; until the upload the manifest carries the unpinned
-revision and the release is the only source. A pull fails until then.
+**Published** on 2026-11-13: Hugging Face branch `v6` (revision
+`c44ec1d2`, pinned in the manifest) and the signed GitHub Release
+`model-guardspec-classifier-v6` as the mirror. Every file is checked
+against its SHA-256 in the manifest.
 
 ```bash
 # 1. Install it next to v3b (files checked against the manifest's SHA-256).

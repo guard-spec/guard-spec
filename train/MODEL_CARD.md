@@ -19,7 +19,7 @@ targets v5's known limitation: benign documents of 100k to 200k tokens still rea
 classifier scores high. The recipe, the arms and the decision rule below were committed before any v6
 training run; the results were added after the runs, under "Results": **v6 is arm A**, the v5 recipe
 on the v6 data, the first arm to block no benign bench/long document of 100k to 200k tokens on the dev
-slice (`guardspec-classifier@v6` in `models/manifest.yaml`, not recommended and not published yet;
+slice (`guardspec-classifier@v6` in `models/manifest.yaml`, not recommended, published as a pre-release;
 v3b stays the default). The later rounds R3, R5 and R6 (below) did not meet the long-document target
 either, so v6 is the shadow-mode candidate of this work, with an FP16 file for the GPU option. Same architecture, base model
 and revision, tokenizer, labels, window-level training, augmentation, seed (20261105) and settings as
@@ -372,7 +372,7 @@ against 0.929) with the same G6; its hold-outs were not scored, and whether the 
 negatives twice per epoch should go into a v7 recipe is the owner's call.
 
 **Files** (the publish package `guardspec-data/v6/publish/guardspec-classifier-v6/`, outside the
-repository; pinned in `models/manifest.yaml` and `train/hf/v6/SHA256SUMS`, not published yet):
+repository; pinned in `models/manifest.yaml` and `train/hf/v6/SHA256SUMS`; published on 2026-11-13):
 
 ```
 be5fba5b2c94fdbb20a628002cadde2857349dbb6092e3690ba41d6bcd347f29  model_int8.onnx   (118,466,001 bytes)
@@ -411,11 +411,11 @@ against INT8's 0.9283 and 0.9479. Expect about 1% of decisions near the threshol
 and a CPU gateway. Details: [`reports/fp16_agreement_v6.md`](reports/fp16_agreement_v6.md); CUDA against
 CPU on the same FP16 file and the GPU timings are in `docs/sizing.md`.
 
-**Not the default, not published yet.** v6 is a shadow-mode candidate (pre-release), as v5 is:
+**Not the default; published as a pre-release.** v6 is a shadow-mode candidate, as v5 is:
 `guardspec-classifier@v6` is in `models/manifest.yaml` without `recommended`, with every file's SHA-256
-(`model_fp16.onnx` marked `provider: cuda`) and the unpinned revision until the owner publishes the
-GitHub Release `model-guardspec-classifier-v6` and the Publish model workflow uploads it to the Hugging
-Face branch `v6` (`train/hf/v6/`: model card, `calibration.json`, `SHA256SUMS`). The shadow-mode plan of
+(`model_fp16.onnx` marked `provider: cuda`) and the Hugging Face branch `v6` pinned at revision
+`c44ec1d2b25b5732023acfa974802b045ffd4774` (2026-11-13; model card from `train/hf/v6/`), mirrored by
+the signed GitHub Release `model-guardspec-classifier-v6`. The shadow-mode plan of
 v5 applies to it unchanged.
 
 ### Reproduce
@@ -441,7 +441,7 @@ the fused model layers detect fewer than L1 alone. The recipe and the decision r
 before any v5 training run; the results ("Results", at the end of this section) were added after two
 rounds of arms. **v5 is round 2 arm B with the untrusted-content cap** (`guardspec-classifier@v5` in
 `models/manifest.yaml`, not recommended). **v3b stays the default**: v5 runs in shadow mode for at least
-7 days first, then the owner decides (after the shadow run, RF-895d3533; not in v0.6.0).
+7 days first, then the owner decides (not in v0.6.0 or v0.7.0).
 
 Same architecture, base model and revision, tokenizer, labels and recipe as v3b and v4
 (`intfloat/multilingual-e5-small` @ `614241f`, sigmoid head over the 8 labels, risk = 1 − p(benign),
@@ -653,7 +653,7 @@ embedded attacks of `val_v5_holdout` at 0.85 than v3b (0.623 vs 0.665) while ran
 
 **Not the default.** `models/manifest.yaml` lists `guardspec-classifier@v5` without `recommended`; v3b
 stays the default. v5 runs in shadow mode (`SHADOW_L2_MODEL=guardspec-classifier@v5`, `docs/models.md`)
-for at least 7 days; switching is the owner's decision after the shadow run (RF-895d3533), not in v0.6.0.
+for at least 7 days; switching is the owner's decision after the shadow run, not in v0.6.0 or v0.7.0.
 
 **Files** (outside the repository until the owner publishes them; SHA-256 also in `models/manifest.yaml`
 and `hf/v5/SHA256SUMS`):

@@ -361,7 +361,7 @@ jobs:
       - name: The GPU option renders the user's GPU image, one GPU and INFERENCE_PROVIDER=cuda
         run: |
           out=$(helm template gs "$CHART" -f "$CHART/ci/gpu-values.yaml")
-          grep -q 'image: registry.example.com/guard-spec-gateway:0.6.0-gpu$' <<< "$out"
+          grep -q 'image: registry.example.com/guard-spec-gateway:0.7.0-gpu$' <<< "$out"
           grep -q 'nvidia.com/gpu: 1' <<< "$out"
           grep -A1 'name: INFERENCE_PROVIDER' <<< "$out" | grep -q 'value: "cuda"'
           if helm template gs "$CHART" | grep -E -e '-gpu$|nvidia.com/gpu|INFERENCE_PROVIDER'; then

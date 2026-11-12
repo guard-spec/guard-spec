@@ -9,6 +9,8 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-13
+
 ### Added
 
 - Classifier **v6 candidate** (`guardspec-classifier@v6` in
@@ -29,9 +31,9 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   `model_fp16.onnx` (`provider: cuda`), the first FP16 file for the GPU
   option, with its own `fp16` calibration block (decisions agree with
   INT8 on about 99%; `train/reports/fp16_agreement_v6.md`). The built-in
-  calibration is the published `calibration.json` byte for byte. Not
-  published yet: the GitHub Release `model-guardspec-classifier-v6` and
-  the Hugging Face revision follow (`train/MODEL_CARD.md`, "v6";
+  calibration is the published `calibration.json` byte for byte. Published on
+  Hugging Face (branch `v6`, revision `c44ec1d2`) and as the signed GitHub
+  Release `model-guardspec-classifier-v6` (`train/MODEL_CARD.md`, "v6";
   `docs/models.md`). `train/hf/stage.sh` stages `model_fp16.onnx` where
   a version's pins list it, and the *Sign model release* workflow verifies
   and signs GPU-only files too.
@@ -62,7 +64,9 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   (`train/export.py --fp16`; manifest files marked `provider: cuda` are
   pulled only by `models pull -provider cuda` or a cuda/auto gateway),
   `INFERENCE_BATCH_SIZE` (new, short and long path) defaults to 8 and
-  `INFERENCE_MAX_CONCURRENCY` to 2. No GPU image is published: build one
+  `INFERENCE_MAX_CONCURRENCY` to 2. A classifier version without
+  `model_fp16.onnx` in the manifest (v3b, the default, has none) runs as
+  INT8 on CUDA, slowly, and `doctor` warns. No GPU image is published: build one
   from `build/gateway-gpu.Dockerfile` (linux/amd64, CUDA 12 + cuDNN 9;
   built in CI, not pushed). Helm `gateway.gpu.enabled` runs your image
   (`gateway.gpu.image`, required), one `nvidia.com/gpu` and
@@ -201,6 +205,15 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ### Changed
 
+- The long-document work (RF-895d3533) ended without meeting its target of
+  at most 1% of benign 100k–200k-token documents blocked: the document-level
+  rule (R3) and the stricter long-path decision (R5) are not shipped, the
+  R5 L1 rules are (see Added), and the v7 training round (R6) blocked no
+  benign `long6` document but caught 9 points fewer embedded attacks than
+  v6, so there is no v7 (`train/reports/v7_holdout.md`). v3b stays the
+  default and v5 stays a shadow-mode candidate. A further attempt is the
+  draft task RF-3a9ce3f9 (R7), not planned for a release. Keep
+  `INDIRECT_ACTION=redact` for document-heavy applications.
 - Only a disabled policy can be deleted: `DELETE .../policies/{pid}` on an
   enabled policy answers 409 `policy_enabled` ("disable the policy before
   deleting it"), and a config-as-code file that leaves out an enabled
@@ -221,6 +234,13 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 - Request log rows of a 0.7.0 gateway carry `detector:*` tags after the
   other tags; clients that compare the whole `pii_entities` list should
   ignore them.
+
+### Security
+
+- The gateway and gateway-full images are built on Chainguard
+  `glibc-dynamic` `sha256:cb7aa468…` (glibc 2.44-r16 on amd64 and arm64),
+  which fixes CVE-2026-84243 in glibc; the 0.6.0 base (`sha256:041dfc2e…`)
+  has glibc 2.44-r15, which the Trivy image scan reports. Upgrade.
 
 ### Upgrade notes
 
@@ -1510,7 +1530,8 @@ First release.
 - List endpoints still answer the older `{"data": [...]}` shape when called
   without `limit` and `cursor`; use the paginated form.
 
-[Unreleased]: https://github.com/guard-spec/guard-spec/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/guard-spec/guard-spec/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/guard-spec/guard-spec/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/guard-spec/guard-spec/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/guard-spec/guard-spec/compare/v0.4.2...v0.5.0
 [0.4.2]: https://github.com/guard-spec/guard-spec/compare/v0.4.1...v0.4.2

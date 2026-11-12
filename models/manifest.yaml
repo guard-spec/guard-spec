@@ -112,7 +112,7 @@ models:
 
   # v5 candidate (train/MODEL_CARD.md, "v5"): not recommended; v3b stays the
   # default until v5 has run in shadow mode for at least 7 days and the owner
-  # decides (after the shadow run, RF-895d3533; not in v0.6.0). Window-level
+  # decides (not in v0.6.0 or v0.7.0). Window-level
   # training on code, configuration, log and long-prose hard negatives and
   # attacks embedded in them; calibration.json carries the classifier's cap for untrusted content (l2_untrusted_max,
   # applied on the tool path by gateways that know it). Hugging Face branch
@@ -158,15 +158,13 @@ models:
   # later rounds (R3, R5, R6/v7) did not meet it either. model_fp16.onnx is
   # the same checkpoint in FP16 for the GPU option (provider: cuda), with its
   # own block in calibration.json (train/reports/fp16_agreement_v6.md).
-  # REVISION_PENDING: not on Hugging Face yet, so the revision is the
-  # unpinned placeholder and the GitHub Release
-  # model-guardspec-classifier-v6 is the only source until the Publish model
-  # workflow has run and its commit is pinned here.
+  # Published 2026-11-13: Hugging Face branch v6 at the revision below, and
+  # the signed GitHub Release model-guardspec-classifier-v6 as the mirror.
   - name: guardspec-classifier
     version: v6
     kind: classifier
     repo: guard-spec/guardspec-classifier
-    revision: "0000000000000000000000000000000000000000"
+    revision: "c44ec1d2b25b5732023acfa974802b045ffd4774"
     mirrors:
       - https://github.com/guard-spec/guard-spec/releases/download/model-guardspec-classifier-v6/{file}
     license: Apache-2.0

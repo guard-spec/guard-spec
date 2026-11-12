@@ -183,7 +183,7 @@ and attached to the release as `guard-spec_<version>.intoto.jsonl`, a
 Sigstore bundle on one JSON line. v0.3.0 and earlier have none.
 
 ```bash
-VERSION=0.6.0
+VERSION=0.7.0
 gh release download "v$VERSION" -R guard-spec/guard-spec \
   -p "guard-spec_${VERSION}.intoto.jsonl" -p "guard-spec_${VERSION}_linux_amd64.tar.gz"
 gh attestation verify "guard-spec_${VERSION}_linux_amd64.tar.gz" -R guard-spec/guard-spec \
