@@ -3,7 +3,8 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Stages the guardspec-classifier Hugging Face repository in a local
-# directory: the four model files, calibration.json and the model card. It
+# directory: the four model files, calibration.json and the model card (and
+# model_fp16.onnx, the GPU option's model, when the version's pins list it). It
 # uploads nothing; publish the directory yourself, for example:
 #
 #   train/hf/stage.sh /tmp/guardspec-classifier
@@ -45,6 +46,14 @@ for f in model_int8.onnx tokenizer.json config.json thresholds.json; do
   [ -f "$src/$f" ] || { echo "stage.sh: missing $src/$f" >&2; exit 1; }
   cp "$src/$f" "$dest/$f"
 done
+# model_fp16.onnx (provider: cuda in models/manifest.yaml) only where the
+# pins list it, so it is staged and checked like the other files.
+files="model_int8.onnx tokenizer.json config.json thresholds.json"
+if grep -q '[[:space:]]model_fp16\.onnx$' "$pins"; then
+  [ -f "$src/model_fp16.onnx" ] || { echo "stage.sh: missing $src/model_fp16.onnx" >&2; exit 1; }
+  cp "$src/model_fp16.onnx" "$dest/model_fp16.onnx"
+  files="$files model_fp16.onnx"
+fi
 cp "$meta/calibration.json" "$dest/calibration.json"
 cp "$meta/README.md" "$dest/README.md"
 
@@ -54,4 +63,5 @@ cp "$meta/README.md" "$dest/README.md"
 }
 
 echo "Staged in $dest (nothing uploaded). SHA-256:"
-(cd "$dest" && sha model_int8.onnx tokenizer.json config.json thresholds.json calibration.json README.md)
+# shellcheck disable=SC2086 # $files is a list of plain file names
+(cd "$dest" && sha $files calibration.json README.md)

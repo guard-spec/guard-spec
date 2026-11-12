@@ -20,6 +20,7 @@ binary luôn biết các model nó khuyến nghị.
 | `guardspec-classifier` | `v3b` | L2 | có | Hugging Face (chưa công bố), sau đó là GitHub Release `model-guardspec-classifier-v3b` |
 | `guardspec-classifier` | `v4` | L2 | không: bản ứng viên, [so sánh ở shadow mode](#guardspec-classifier-v4-bản-ứng-viên) | GitHub Release `model-guardspec-classifier-v4` (khi chủ dự án công bố) |
 | `guardspec-classifier` | `v5` | L2 | không: bản ứng viên cho code, log và tài liệu dài, [shadow mode trước](#guardspec-classifier-v5-bản-ứng-viên) | Hugging Face `guard-spec/guardspec-classifier` (nhánh `v5`), sau đó là GitHub Release `model-guardspec-classifier-v5` |
+| `guardspec-classifier` | `v6` | L2 | không: bản ứng viên cho tài liệu dài, có file FP16 cho tùy chọn GPU, [shadow mode trước](#guardspec-classifier-v6-bản-ứng-viên) | GitHub Release `model-guardspec-classifier-v6` (khi chủ dự án công bố), sau đó là Hugging Face (nhánh `v6`, ghim revision sau khi tải lên) |
 | `multilingual-e5-small` | `614241f` | L3 | có | Hugging Face `intfloat/multilingual-e5-small` |
 | `protectai-deberta-v3-small-pi-v2` | `d7c8842` | baseline | tùy chọn, cần xin quyền truy cập | Hugging Face |
 | `protectai-deberta-v3-base-pi-v2` | `90c9989` | baseline | tùy chọn | Hugging Face |
@@ -48,6 +49,8 @@ dạng FP16 cho CUDA execution provider của ONNX Runtime (`train/export.py
 --fp16`). Manifest đánh dấu file này `provider: cuda`: `models pull -provider
 cuda` (hoặc `INFERENCE_PROVIDER=cuda`/`auto`, như trong image GPU) sẽ tải
 nó, bản cài cho CPU không bao giờ tải, và CPU vẫn nạp `model_int8.onnx`.
+Hiện chỉ `guardspec-classifier@v6` có file này; với phiên bản khác (kể cả
+v3b, bản mặc định) CUDA chạy file INT8, chậm, và `doctor` cảnh báo.
 
 ## Tải model
 
@@ -292,6 +295,76 @@ tool, cap giữ các tấn công nhúng mà chỉ classifier nhận ra ở dư�
 (`val_v5_holdout`: 0.623 so với 0.665 ở 0.85, dù xếp hạng tốt hơn nhiều). Quy
 tắc chọn, mọi bảng số và dữ liệu nằm trong
 [train/MODEL_CARD.md](../train/MODEL_CARD.md) (mục "v5").
+
+### guardspec-classifier v6 (bản ứng viên)
+
+`guardspec-classifier@v6` có trong manifest nhưng **không** phải phiên bản
+khuyến nghị: v3b vẫn là mặc định, và v6 chạy ở shadow mode trước, như v5. Đây
+là bản ứng viên của đợt làm việc với tài liệu dài (RF-895d3533, vòng 2 arm A):
+công thức train của v5 trên dữ liệu mới, trong đó mỗi tấn công nhúng trong
+code, log hay văn xuôi đều có một "bản sinh đôi" vô hại với văn xuôi bình
+thường thay vào chỗ payload, có thêm hard negative *nói về* prompt injection,
+và kho bench/long được giữ ngoài dữ liệu train (`train/DATA_CARD.md`, mục "v6
+data"). `calibration.json` của nó có cùng loại cap như v5 (`l2_untrusted_max`
+0.88).
+
+v6 cũng là phiên bản đầu tiên có `model_fp16.onnx`, cùng checkpoint ở dạng
+FP16 cho [tùy chọn GPU](deploy/README.vi.md#gpu-tùy-chọn) (`provider: cuda`
+trong manifest). Quyết định ở ngưỡng 0.85 của nó trùng với file INT8 trên
+98.8% đến 99.9% số dòng, dưới mức 99.5% yêu cầu ở hai bộ, nên
+`calibration.json` có thêm khối `fp16`, fit trên cùng các dòng validation, chỉ
+áp dụng khi classifier được nạp từ `model_fp16.onnx`
+([train/reports/fp16_agreement_v6.md](../train/reports/fp16_agreement_v6.md)).
+Khoảng 1% quyết định gần ngưỡng sẽ khác nhau giữa gateway chạy GPU và gateway
+chạy CPU.
+
+**Chưa công bố.** Các file đã được ghim SHA-256, nhưng GitHub Release
+`model-guardspec-classifier-v6` và bản tải lên Hugging Face do chủ dự án thực
+hiện; trước khi tải lên, manifest mang revision chưa ghim và release là nguồn
+duy nhất. Cho đến lúc đó lệnh pull sẽ thất bại.
+
+```bash
+# 1. Install it next to v3b (files checked against the manifest's SHA-256).
+docker compose --profile models run --rm models-pull guardspec-classifier@v6
+#    (GPU: models pull -provider cuda guardspec-classifier@v6 also fetches
+#    model_fp16.onnx.)
+# 2. .env: keep v3b deciding, let v6 score the same traffic.
+L2_MODEL=guardspec-classifier@v3b
+SHADOW_L2_MODEL=guardspec-classifier@v6
+SHADOW_SAMPLE=1
+# 3. Restart the gateway (or POST /admin/models/reload), then watch the
+#    Models page for at least 7 days, long documents and tool results
+#    included.
+```
+
+#### v3b so với v5 và v6
+
+Điểm của gateway (chặn ở 0.85), nửa hold-out của các eval set, owner hold-out
+(đợt 1 + 2) và hold-out của bench/long, mỗi bộ chỉ chấm một lần. v3b dùng
+calibration đi kèm; v5 và v6 dùng `calibration.json` của chúng cùng cap; INT8
+trên CPU.
+
+| | v3b | v5 | v6 |
+|---|---|---|---|
+| `eval/data` (tin nhắn người dùng): TPR ở FPR ≤ 1% / TPR và FPR ở 0.85 | 0.942 / 0.9435 và 1.57% | 0.940 / 0.9435 và 1.17% | 0.964 / 0.9452 và 0.39% |
+| `eval/codelog` (tool output vô hại): FPR, corroboration tắt / bật | 20.99% / 7.41% | 0.62% / 0.62% | 1.23% / 1.23% |
+| `eval/embedded`, corroboration tắt: TPR / FPR | 0.779 / 15.1% | 0.861 / 4.7% | 0.857 / 5.1% |
+| owner hold-out (276 tấn công / 184 vô hại): TPR / FPR ở 0.85 | 0.714 / 1.6% | 0.823 / 4.3% | 0.779 / 1.1% |
+| `val_v6_holdout` (văn xuôi và bản sinh đôi trong host code và log, đường tool): FPR ở 0.85 / TPR ở FPR ≤ 1% | 3.4% / 0.561 | 1.5% / 0.530 | 0.5% / 0.982 |
+| `val_v3_holdout`: FPR / TPR ở 0.85 | 0.5% / 0.953 | 0.5% / 0.887 | 0.8% / 0.899 |
+| profile `long` của bench/long, tỉ lệ tài liệu vô hại 100k-200k token bị chặn | 80% | 45% | 24% đến 26% |
+| hold-out bench/long, tấn công nhúng bị bắt (mọi biến thể) | 53.6% | 89.6% | 86.7% |
+
+v6 chặn số tài liệu dài vô hại chỉ bằng khoảng một nửa v5 và xếp hạng tin
+nhắn người dùng cũng như host code và log tốt hơn, nhưng **mục tiêu cho tài
+liệu dài (chặn tối đa 1% tài liệu vô hại 100k-200k token) chưa đạt**, và các
+vòng sau cũng không đạt: một quy tắc cấp tài liệu trên đường dài (R3), siết
+quy tắc L1 cùng một cách quyết định chặt hơn (R5: 6.6% tài liệu mới bị chặn;
+các thay đổi quy tắc đã vào gateway, cách quyết định thì không), và một vòng
+train v7 (R6), chặn không tài liệu vô hại nào nhưng bắt ít hơn 9 điểm tấn công
+nhúng nên không được phát hành. Khả năng phát hiện tấn công nhúng thấp hơn v5
+một chút, và `val_v3_holdout` cùng `val_realistic_holdout` vẫn dưới v3b. Mọi
+bảng số nằm trong [train/MODEL_CARD.md](../train/MODEL_CARD.md) (mục "v6").
 
 ## Nạp lại không cần khởi động lại
 
