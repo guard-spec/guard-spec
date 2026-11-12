@@ -227,8 +227,7 @@ ký trước, nên nó là bản ứng viên cho shadow mode chứ không phải
 
 `guardspec-classifier@v5` có trong manifest nhưng **không** phải phiên bản
 khuyến nghị: v3b vẫn là mặc định cho đến khi v5 chạy ở shadow mode ít nhất 7
-ngày và chủ dự án quyết định (không ở v0.6.0: sau đợt
-chạy shadow, RF-895d3533). v5 dùng cùng kiến trúc, công
+ngày và chủ dự án quyết định (không ở v0.6.0 hay v0.7.0). v5 dùng cùng kiến trúc, công
 thức train và nhãn của v3b, nhưng train theo từng cửa sổ (các cửa sổ 256 token
 của gateway thay vì một dòng bị cắt ngắn) trên dữ liệu v4 cộng thêm code,
 cấu hình, log, stack trace và văn xuôi dài vô hại làm hard negative, cùng các
@@ -285,8 +284,9 @@ v5 loại bỏ phần lớn false positive trên tool output vô hại và bắt
 tấn công giấu trong code và log hơn; trên `eval/data` nó ngang v3b; trên
 owner hold-out nó bắt được nhiều tấn công hơn với cái giá là chặn thêm 4
 dòng vô hại (8 trên 272 so với 4). Hạn chế đã biết: với tài liệu 100k-200k
-token, mục tiêu false positive chưa đạt (cần vòng dữ liệu thứ ba, văn xuôi vô
-hại nhúng trong các host code và log); nó bắt được ít tấn công sinh tự động
+token, mục tiêu false positive chưa đạt (các vòng sau của đợt làm việc với
+tài liệu dài, RF-895d3533, cũng không đạt; xem
+[train/MODEL_CARD.md](../train/MODEL_CARD.md), mục "v6"); nó bắt được ít tấn công sinh tự động
 của `val_v3_holdout` hơn ở ngưỡng chặn (0.887 so với 0.953); và trên đường
 tool, cap giữ các tấn công nhúng mà chỉ classifier nhận ra ở dưới ngưỡng chặn
 (`val_v5_holdout`: 0.623 so với 0.665 ở 0.85, dù xếp hạng tốt hơn nhiều). Quy

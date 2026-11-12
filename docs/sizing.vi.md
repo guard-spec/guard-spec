@@ -305,8 +305,8 @@ máy local, chỉ mang tính tham khảo. Mọi con số ở đây đều là s�
   nhớ). Hãy tính `PDF_EXTRACT_MAX_CONCURRENCY` × `PDF_EXTRACT_MEMORY` là
   trường hợp xấu nhất cộng thêm vào các số ở "Mức dùng tài nguyên đo được".
 - PDF dài vô hại vẫn có thể bị classifier chặn (chặn nhầm tài liệu dài,
-  RF-895d3533); ứng dụng xử lý nhiều tài liệu nên chạy với
-  `INDIRECT_ACTION=redact` cho tới khi việc đó xong.
+  mục tiêu 1% của RF-895d3533 chưa đạt); ứng dụng xử lý nhiều tài liệu nên
+  chạy với `INDIRECT_ACTION=redact`.
 
 Chạy lại (dạng thứ hai cần các model và `make onnx-deps`):
 

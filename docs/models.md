@@ -227,8 +227,7 @@ table.
 
 `guardspec-classifier@v5` is listed in the manifest but is **not** the
 recommended version: v3b stays the default until v5 has run in shadow mode
-for at least 7 days and the owner decides (not in v0.6.0: after the shadow
-run, RF-895d3533). v5 is v3b's architecture, recipe and labels, trained window by window (the gateway's
+for at least 7 days and the owner decides (not in v0.6.0 or v0.7.0). v5 is v3b's architecture, recipe and labels, trained window by window (the gateway's
 256-token windows instead of a truncated row) on the v4 data plus benign
 code, configuration, logs, stack traces and long prose as hard negatives and
 attacks embedded in such text (`train/DATA_CARD.md`, "v5 data"). It targets
@@ -284,8 +283,9 @@ v5 removes most false positives on benign tool output and catches more
 attacks hidden in code and logs, on `eval/data` it is level with v3b, and on
 the owner hold-outs it catches more attacks at the cost of 4 more blocked
 benign rows (8 of 272 vs 4). Its known limitations: on documents of 100k to
-200k tokens the false-positive goal is not met yet (that needs a third round
-of data, benign prose inside code and log hosts); it catches fewer of the
+200k tokens the false-positive goal is not met (the later rounds of the
+long-document work, RF-895d3533, did not meet it either; see
+[train/MODEL_CARD.md](../train/MODEL_CARD.md), "v6"); it catches fewer of the
 generated `val_v3_holdout` attacks at the block threshold (0.887 vs 0.953);
 and on the tool path the cap keeps embedded attacks that only the classifier
 recognises below the block threshold (`val_v5_holdout`: 0.623 vs 0.665 at

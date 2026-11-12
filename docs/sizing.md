@@ -307,8 +307,8 @@ estimated.
   keeps the memory). Count `PDF_EXTRACT_MAX_CONCURRENCY` × `PDF_EXTRACT_MEMORY` as the
   worst case on top of the figures in "Measured resource use".
 - A long benign PDF may still be blocked by the classifier (long-document
-  false positives, RF-895d3533); run document-heavy applications with
-  `INDIRECT_ACTION=redact` until that lands.
+  false positives: the 1% target of RF-895d3533 was not met); run
+  document-heavy applications with `INDIRECT_ACTION=redact`.
 
 Reproduce (the second form needs the models and `make onnx-deps`):
 

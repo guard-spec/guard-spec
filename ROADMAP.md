@@ -51,9 +51,11 @@ Release and operations
 
 ## Not planned
 
-Model routing, ClickHouse, GPU/Triton serving and LLM-judge models
+Model routing, ClickHouse, Triton serving and LLM-judge models
 (Qwen3Guard, Granite Guardian) appeared in an early design draft. They are not
-planned for now; see [DESIGN.md](DESIGN.md).
+planned for now; see [DESIGN.md](DESIGN.md). GPU inference is an option since
+0.7.0 (ONNX Runtime's CUDA execution provider in the gateway; no GPU image is
+published, see [docs/deploy/README.md](docs/deploy/README.md#gpu-optional)).
 
 Toxicity and topic classification on requests or answers are not planned:
 they are content moderation, not prompt-injection defence, and need their own
