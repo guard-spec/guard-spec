@@ -13,6 +13,30 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ### Added
 
+- Classifier **v6 candidate** (`guardspec-classifier@v6` in
+  `models/manifest.yaml`, not recommended; v3b stays the default and v6
+  runs in shadow mode first, as v5 does) (RF-895d3533, RF-b74de2b9). The v5
+  recipe on the v6 data: every embedded attack has a benign twin with prose
+  in its place, hard negatives talk about prompt injection, and bench/long
+  is kept out of training (`train/DATA_CARD.md`, "v6 data"). Hold-outs,
+  scored once, v5 → v6: `eval/data` TPR at FPR ≤ 1% 0.940 → 0.964 (FPR at
+  0.85 1.17% → 0.39%), `val_v6_holdout` FPR 1.5% → 0.5%, owner hold-out
+  FPR 4.3% → 1.1%, benign 100k–200k-token documents blocked on the
+  bench/long `long` profile 45% → about 25%; embedded attacks caught in
+  long documents 89.6% → 86.7%. **The long-document target (at most 1%) is
+  not met**, and neither did the later rounds meet it: a document-level
+  rule (R3), the R5 rules with a stricter decision (6.6% of new documents),
+  and a v7 training round that blocked none but caught 9 points fewer
+  embedded attacks than v6 and is not released (R6). v6 also ships
+  `model_fp16.onnx` (`provider: cuda`), the first FP16 file for the GPU
+  option, with its own `fp16` calibration block (decisions agree with
+  INT8 on about 99%; `train/reports/fp16_agreement_v6.md`). The built-in
+  calibration is the published `calibration.json` byte for byte. Published on
+  Hugging Face (branch `v6`, revision `c44ec1d2`) and as the signed GitHub
+  Release `model-guardspec-classifier-v6` (`train/MODEL_CARD.md`, "v6";
+  `docs/models.md`). `train/hf/stage.sh` stages `model_fp16.onnx` where
+  a version's pins list it, and the *Sign model release* workflow verifies
+  and signs GPU-only files too.
 - `cmd/benchlong -long on` measures the gateway's long path itself
   (`MAX_SCAN_TOKENS`: 256-token windows fused with L1, the classifier's cap
   and code corroboration, as documents get them) as the layer `long`, next to

@@ -3,7 +3,8 @@ name: Sign model release
 # Manual, from main. Signs the files of a model release (tag
 # model-guardspec-classifier-<version>, attached by hand, docs/models.md):
 # downloads them, checks every file against the size and SHA-256 pinned for
-# that version in models/manifest.yaml (go run ./cmd/models verify), writes
+# that version in models/manifest.yaml (go run ./cmd/models verify, GPU-only
+# files included), writes
 # SHA256SUMS for the files that matched, signs it with cosign keyless (GitHub
 # OIDC, no long-lived key) and attaches SHA256SUMS and
 # SHA256SUMS.sigstore.json to the release. A file that does not match its pin
@@ -49,7 +50,9 @@ jobs:
           case "$VERSION" in ""|*[!a-z0-9.-]*) echo "::error::bad version: $VERSION"; exit 1 ;; esac
           dir="$RUNNER_TEMP/m/guardspec-classifier/$VERSION"
           gh release download "model-guardspec-classifier-$VERSION" -R "$GITHUB_REPOSITORY" -D "$dir"
-          go run ./cmd/models verify -dir "$RUNNER_TEMP/m" "guardspec-classifier@$VERSION" | tee "$RUNNER_TEMP/verify.txt"
+          # -provider cuda: a GPU-only file (model_fp16.onnx, provider: cuda)
+          # the manifest pins for this version must be there and is signed too.
+          go run ./cmd/models verify -dir "$RUNNER_TEMP/m" -provider cuda "guardspec-classifier@$VERSION" | tee "$RUNNER_TEMP/verify.txt"
           # Only the files the manifest pins and that matched ("<path>: ok").
           sed -n 's|^.*/\([^/]*\): ok$|\1|p' "$RUNNER_TEMP/verify.txt" | LC_ALL=C sort > "$RUNNER_TEMP/files.txt"
           [ -s "$RUNNER_TEMP/files.txt" ] || { echo "::error::no verified files"; exit 1; }

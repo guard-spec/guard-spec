@@ -20,6 +20,7 @@ tool, so the binary always knows its recommended models.
 | `guardspec-classifier` | `v3b` | L2 | yes | Hugging Face (not published yet), then the GitHub Release `model-guardspec-classifier-v3b` |
 | `guardspec-classifier` | `v4` | L2 | no: candidate, [compare in shadow mode](#guardspec-classifier-v4-candidate) | the GitHub Release `model-guardspec-classifier-v4` (once the owner publishes it) |
 | `guardspec-classifier` | `v5` | L2 | no: candidate for code, logs and long documents, [shadow mode first](#guardspec-classifier-v5-candidate) | Hugging Face `guard-spec/guardspec-classifier` (branch `v5`), then the GitHub Release `model-guardspec-classifier-v5` |
+| `guardspec-classifier` | `v6` | L2 | no: candidate for long documents, with an FP16 file for the GPU option, [shadow mode first](#guardspec-classifier-v6-candidate) | Hugging Face `guard-spec/guardspec-classifier` (branch `v6`), then the GitHub Release `model-guardspec-classifier-v6` |
 | `multilingual-e5-small` | `614241f` | L3 | yes | Hugging Face `intfloat/multilingual-e5-small` |
 | `protectai-deberta-v3-small-pi-v2` | `d7c8842` | baseline | optional, gated | Hugging Face |
 | `protectai-deberta-v3-base-pi-v2` | `90c9989` | baseline | optional | Hugging Face |
@@ -47,7 +48,9 @@ version may also have `model_fp16.onnx`, the same checkpoint in FP16 for
 ONNX Runtime's CUDA execution provider (`train/export.py --fp16`). The
 manifest marks it `provider: cuda`: `models pull -provider cuda` (or
 `INFERENCE_PROVIDER=cuda`/`auto`, as in the GPU image) fetches it, a CPU
-install never does, and the CPU keeps loading `model_int8.onnx`.
+install never does, and the CPU keeps loading `model_int8.onnx`. So far only
+`guardspec-classifier@v6` has one; with another version (v3b, the default,
+included) CUDA runs the INT8 file, slowly, and `doctor` warns.
 
 ## Pulling
 
@@ -291,6 +294,77 @@ and on the tool path the cap keeps embedded attacks that only the classifier
 recognises below the block threshold (`val_v5_holdout`: 0.623 vs 0.665 at
 0.85, although it ranks them far better). The selection rule, every table
 and the data are in [train/MODEL_CARD.md](../train/MODEL_CARD.md) ("v5").
+
+### guardspec-classifier v6 (candidate)
+
+`guardspec-classifier@v6` is listed in the manifest but is **not** the
+recommended version: v3b stays the default, and v6 runs in shadow mode
+first, as v5 does. It is the release candidate of the long-document work
+(RF-895d3533, round 2 arm A): v5's recipe on new data in which every attack
+embedded in code, logs or prose has a benign twin with ordinary prose in its
+place, with hard negatives that *talk about* prompt injection and with the
+bench/long corpus kept out of training (`train/DATA_CARD.md`, "v6 data").
+Its `calibration.json` carries the same kind of cap as v5's
+(`l2_untrusted_max` 0.88).
+
+v6 is also the first version with `model_fp16.onnx`, the same checkpoint in
+FP16 for the [GPU option](deploy/README.md#gpu-optional) (`provider: cuda`
+in the manifest). Its decisions at 0.85 agree with the INT8 file's on 98.8%
+to 99.9% of rows, under the 99.5% asked for on two sets, so
+`calibration.json` has an `fp16` block, fitted on the same validation rows,
+which applies only when the classifier is loaded from `model_fp16.onnx`
+([train/reports/fp16_agreement_v6.md](../train/reports/fp16_agreement_v6.md)).
+Expect about 1% of decisions near the threshold to differ between a GPU and
+a CPU gateway.
+
+**Published** on 2026-11-13: Hugging Face branch `v6` (revision
+`c44ec1d2`, pinned in the manifest) and the signed GitHub Release
+`model-guardspec-classifier-v6` as the mirror. Every file is checked
+against its SHA-256 in the manifest.
+
+```bash
+# 1. Install it next to v3b (files checked against the manifest's SHA-256).
+docker compose --profile models run --rm models-pull guardspec-classifier@v6
+#    (GPU: models pull -provider cuda guardspec-classifier@v6 also fetches
+#    model_fp16.onnx.)
+# 2. .env: keep v3b deciding, let v6 score the same traffic.
+L2_MODEL=guardspec-classifier@v3b
+SHADOW_L2_MODEL=guardspec-classifier@v6
+SHADOW_SAMPLE=1
+# 3. Restart the gateway (or POST /admin/models/reload), then watch the
+#    Models page for at least 7 days, long documents and tool results
+#    included.
+```
+
+#### v3b vs v5 vs v6
+
+Gateway scores (block at 0.85), hold-out halves of the eval sets, the owner
+hold-out (batch 1 + 2) and the bench/long hold-out, each scored once. v3b
+with its shipped calibration; v5 and v6 with their `calibration.json` and
+the cap; INT8 on the CPU.
+
+| | v3b | v5 | v6 |
+|---|---|---|---|
+| `eval/data` (user messages): TPR at FPR ≤ 1% / TPR and FPR at 0.85 | 0.942 / 0.9435 and 1.57% | 0.940 / 0.9435 and 1.17% | 0.964 / 0.9452 and 0.39% |
+| `eval/codelog` (benign tool output): FPR, corroboration off / on | 20.99% / 7.41% | 0.62% / 0.62% | 1.23% / 1.23% |
+| `eval/embedded`, corroboration off: TPR / FPR | 0.779 / 15.1% | 0.861 / 4.7% | 0.857 / 5.1% |
+| owner hold-out (276 attacks / 184 benign): TPR / FPR at 0.85 | 0.714 / 1.6% | 0.823 / 4.3% | 0.779 / 1.1% |
+| `val_v6_holdout` (prose and twins in code and log hosts, tool path): FPR at 0.85 / TPR at FPR ≤ 1% | 3.4% / 0.561 | 1.5% / 0.530 | 0.5% / 0.982 |
+| `val_v3_holdout`: FPR / TPR at 0.85 | 0.5% / 0.953 | 0.5% / 0.887 | 0.8% / 0.899 |
+| bench/long `long` profile, benign documents of 100k to 200k tokens blocked | 80% | 45% | 24% to 26% |
+| bench/long hold-out, embedded attacks caught (all variants) | 53.6% | 89.6% | 86.7% |
+
+v6 blocks about half as many benign long documents as v5 and ranks user
+messages and code and log hosts better, but **the long-document target (at
+most 1% of benign 100k to 200k-token documents blocked) is not met**, and
+the later rounds did not meet it either: a document-level rule on the long
+path (R3), tightened L1 rules with a stricter decision (R5: 6.6% blocked on
+new documents; the rule changes are in the gateway, the decision is not),
+and a v7 training round (R6), which blocked no benign document but caught
+9 points fewer embedded attacks and so is not released. Embedded-attack
+detection is a little under v5's, and `val_v3_holdout` and
+`val_realistic_holdout` stay under v3b. Every table is in
+[train/MODEL_CARD.md](../train/MODEL_CARD.md) ("v6").
 
 ## Reloading without a restart
 

@@ -116,7 +116,7 @@ func TestResolveOrder(t *testing.T) {
 }
 
 // TestShippedCalibrationFile: the calibration.json published with each
-// guardspec-classifier version of the manifest (v3b, v4, v5) is the built-in
+// guardspec-classifier version of the manifest (v3b, v4, v5, v6) is the built-in
 // calibration of that version, marshalled as `cmd/calibrate fit -write` does
 // (two-space indent, trailing newline). To recreate it:
 // json.MarshalIndent(BuiltinCalibrations["guardspec-classifier-<version>"], "", "  ") + "\n".
@@ -125,7 +125,7 @@ func TestShippedCalibrationFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, version := range []string{"v3b", "v4", "v5"} {
+	for _, version := range []string{"v3b", "v4", "v5", "v6"} {
 		mod, err := m.Lookup("guardspec-classifier@" + version)
 		if err != nil {
 			t.Fatal(err)

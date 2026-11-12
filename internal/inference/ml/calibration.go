@@ -21,15 +21,17 @@ import (
 // by layer set ("l1,l2", "l1,l2,l3"). `cmd/calibrate fit -write` stores one
 // as calibration.json next to the classifier; it overrides the built-in one.
 type CalibrationFile struct {
-	Model    string                   `json:"model"`
+	// Model is empty (and left out) in an FP16 block, which belongs to the
+	// model of the file it is in.
+	Model    string                   `json:"model,omitempty"`
 	FittedOn string                   `json:"fitted_on"`
 	Platt    fusion.Calibration       `json:"platt"`
 	LogReg   map[string]fusion.LogReg `json:"logreg,omitempty"`
 	// L2UntrustedMax caps the classifier's calibrated score on untrusted
 	// content (tool results and documents, on the short and the long path):
 	// above it L2 alone cannot block, L1 or L3 must add lift (CapL2). 0 or
-	// absent: no cap, which is how every built-in calibration but v5's and the
-	// shipped v3b file behave. `cmd/calibrate fit` derives it from the
+	// absent: no cap, which is how every built-in calibration but v5's and v6's
+	// and the shipped v3b file behave. `cmd/calibrate fit` derives it from the
 	// combiners (see untrustedMax there).
 	L2UntrustedMax float64 `json:"l2_untrusted_max,omitempty"`
 	// LongDoc is the long document rule of the long path (MAX_SCAN_TOKENS):
@@ -86,6 +88,32 @@ type LongDoc struct {
 
 // BuiltinCalibrations are the calibrations of the classifiers we ship.
 var BuiltinCalibrations = map[string]CalibrationFile{
+	// v6 (a shadow candidate; v3b stays the default): the calibration.json
+	// published with the model, byte for byte. Fitted on the v4 validation
+	// splits plus the v6 validation rows (12,785 rows; the owner-supplied
+	// and OTP/KYC rows are not in this repository), cap derived as for v5.
+	// FP16 is the calibration of model_fp16.onnx (the GPU option), fitted
+	// on the same rows scored with that file
+	// (train/reports/fp16_agreement_v6.md).
+	"guardspec-classifier-v6": {
+		Model:    "guardspec-classifier-v6",
+		FittedOn: "v4-A build val.jsonl + val_hard.jsonl + val_vi_variants.jsonl + val_v3.jsonl + val_v4.jsonl, with the owner-supplied and OTP/KYC validation rows, plus v6_val.jsonl + val_v6.jsonl of the v6 build (12785 rows), 2026-11-10",
+		Platt:    fusion.Calibration{A: 0.8581871793481138, B: -0.2525855985537059},
+		LogReg: map[string]fusion.LogReg{
+			"l1,l2":    {W: [3]float64{0.49634216040569346, 0.9434276630660696, 0}, B: 0.4418358920564427},
+			"l1,l2,l3": {W: [3]float64{0.4714392321060368, 0.9147602271798444, 0.3855094131066027}, B: 0.6130776603918126},
+		},
+		L2UntrustedMax: 0.88,
+		FP16: &CalibrationFile{
+			FittedOn: "the rows of the top-level calibration (12785 rows), scored with model_fp16.onnx, 2026-11-12 (train/reports/fp16_agreement_v6.md)",
+			Platt:    fusion.Calibration{A: 0.8633807855140544, B: -0.4518201292003398},
+			LogReg: map[string]fusion.LogReg{
+				"l1,l2":    {W: [3]float64{0.49687685320573277, 0.9413528192084426, 0}, B: 0.4278049159046161},
+				"l1,l2,l3": {W: [3]float64{0.47049245336423534, 0.9126597833349739, 0.3594275182836088}, B: 0.5754656653333854},
+			},
+			L2UntrustedMax: 0.88,
+		},
+	},
 	// v5 (a shadow candidate; v3b stays the default): the calibration.json
 	// published with the model, byte for byte. Fitted on the v4 validation
 	// splits plus the v5 validation rows (12,775 rows; the owner-supplied

@@ -19,8 +19,9 @@ targets v5's known limitation: benign documents of 100k to 200k tokens still rea
 classifier scores high. The recipe, the arms and the decision rule below were committed before any v6
 training run; the results were added after the runs, under "Results": **v6 is arm A**, the v5 recipe
 on the v6 data, the first arm to block no benign bench/long document of 100k to 200k tokens on the dev
-slice (`guardspec-data/v6/release/guardspec-classifier-v6`; not in `models/manifest.yaml`, not published,
-v3b stays the default). Same architecture, base model
+slice (`guardspec-classifier@v6` in `models/manifest.yaml`, not recommended, published as a pre-release;
+v3b stays the default). The later rounds R3, R5 and R6 (below) did not meet the long-document target
+either, so v6 is the shadow-mode candidate of this work, with an FP16 file for the GPU option. Same architecture, base model
 and revision, tokenizer, labels, window-level training, augmentation, seed (20261105) and settings as
 v5 (`config.yaml`; MPS on the Apple M3 Max, one run at a time).
 
@@ -341,6 +342,26 @@ were committed before the holdout was scored, once (`reports/r5_holdout.{json,md
   minutes per benign pass and 62 to 67 minutes per attack pass, holdout 13 to 18 and 41 to 42 minutes. The
   homograph pass adds one scan of the text's words before L1.
 
+**R6: v7, benign long text in training (2026-11-12, not met).** Todo R6 retrained the classifier with
+benign long text that trips the R5 rules. Arms, data, the selection rule and the `long6` holdout were
+committed in [`reports/v7_preregistration.md`](reports/v7_preregistration.md) before any v7 training run;
+the dev result ([`reports/v7_dev.md`](reports/v7_dev.md), on `long5`) was committed before `long6` was
+scored, once ([`reports/v7_holdout.md`](reports/v7_holdout.md)).
+
+- **Dev.** No arm qualified: every arm that met the document target lost too much embedded detection. The
+  pre-registered fallback, arm C (the mined hard negatives three times per epoch), was scored on the
+  holdout next to `ref` (v6 arm A retrained on a Colab L4) and the released v6.
+- **Holdout, once** (R5 rules on the long path, `strong75`, n0 30, each model's calibration;
+  two-sided Clopper–Pearson 95%): C blocks **0 / 89** benign `long6` documents (0 / 46 at 100k, 0 / 43 at
+  200k; upper bounds 7.7% and 8.2%), the released v6 4 / 89 (4.5%), `ref` 6 / 89. Detection of embedded
+  attacks: C **247 / 326 (75.8%)** against 42 / 48 (87.5%) for the payloads alone, −11.7 points; v6
+  277 / 326 (85.0%). eval/data hold-out TPR at FPR ≤ 1%: C 0.9385 against `ref` 0.9618 (CP95 low 0.9432).
+  The detection criteria fail; **there is no v7**, and nothing from R6 is packaged.
+- **Reading.** Training with benign long text reaches the document target as a point estimate, but this
+  recipe teaches the classifier to discount instructions inside long prose (random placement −13 points,
+  split payloads −18). A recipe meeting both criteria needs a new pre-registration and a new holdout
+  (`long6` is spent); that is the draft task RF-3a9ce3f9 (R7).
+
 **Known weaknesses.** G6 rests on 15 dev documents: with none blocked, the Clopper-Pearson 95% upper bound
 of the false-positive rate is 0.218, so the gate shows the rate is not large, not that it is under 1%;
 the hold-out slice (2 of 18 blocked at 100k / 200k, both at 200k, one per language) is the honest
@@ -350,18 +371,22 @@ against A's 0.9420, one attack of 569), was better on G2 (1.35% against 2.70%), 
 against 0.929) with the same G6; its hold-outs were not scored, and whether the security hard
 negatives twice per epoch should go into a v7 recipe is the owner's call.
 
-**Files** (`guardspec-data/v6/release/guardspec-classifier-v6/`, outside the repository; not in
-`models/manifest.yaml`, not published):
+**Files** (the publish package `guardspec-data/v6/publish/guardspec-classifier-v6/`, outside the
+repository; pinned in `models/manifest.yaml` and `train/hf/v6/SHA256SUMS`; published on 2026-11-13):
 
 ```
 be5fba5b2c94fdbb20a628002cadde2857349dbb6092e3690ba41d6bcd347f29  model_int8.onnx   (118,466,001 bytes)
+fd7a676767cf8cfc98154cb87f60b1168b74a8a0e726c723c658974a0db06162  model_fp16.onnx   (235,629,184 bytes; GPU option, provider: cuda)
 6879d3648d0329c894b1cbb0c89096430e24d3c7cf5d359d4ccc87ce585c4ae4  tokenizer.json    (17,082,955 bytes; the same file as v5)
 a74903e3d5f0f21799228d520b0b08aa2a2ac9c779bafd78c2d800f9e8a29d7a  config.json       (same as v4 and v5)
 c1ae128e5868f85028ac1f686a07b9e51387d971ccc8a1e967e6a1a434b751a8  thresholds.json
-9e2630df4daebf73fbad5864f65a65e780ee23b9abdab2e44d3c6fb3d7bf229b  calibration.json
+ab7281b6b442c2fd970a5c7cb4f232cba37766cd3548ef4f7530aec44617625d  calibration.json  (1,337 bytes; with the fp16 block)
 ```
 
-`SHA256SUMS` next to them (`shasum -a 256 -c` passes). INT8 vs FP32 (`export.py --v6-dir`, 13,621
+`SHA256SUMS` next to them (`shasum -a 256 -c` passes). The first package (2026-11-11,
+`guardspec-data/v6/release/`) had the same INT8 files and a `calibration.json` without the `fp16` block
+(`9e2630df…`); the published one is that file with the block added, the top-level fields unchanged, and
+is the built-in `guardspec-classifier-v6` calibration byte for byte (`TestShippedCalibrationFile`). INT8 vs FP32 (`export.py --v6-dir`, 13,621
 validation windows): ΔAUC +0.0001, mean |Δp| 0.0024, p99 |Δrisk| 0.077, max |Δrisk| 0.87 (112 windows
 above 0.1), decision agreement at the stand-alone threshold 0.9960; PyTorch vs ONNX FP32 max |Δp| 2.4e-6
 (`<work>/A/export_report.json`). Stand-alone `risk_threshold` 0.2546 (benign FPR ≤ 1% on the 12,785
@@ -372,9 +397,26 @@ B −0.2526; logreg(L1,L2,L3) W (0.4714, 0.9148, 0.3855), B 0.6131; logreg(L1,L2
 `calibration.json` carry `"model": "guardspec-classifier-v6"` and a readable `fitted_on`, as v5's do;
 the model files are byte-identical to the gate run's.
 
-**Not the default, not published.** v6 is a candidate for the owner's decision: it is not in
-`models/manifest.yaml`, has no Hugging Face revision and no `train/hf/v6/` staging files yet. The
-shadow-mode plan of v5 applies to it unchanged.
+**FP16 for the GPU option (2026-11-12, RF-b74de2b9).** `model_fp16.onnx` is exported from the same FP32
+model as the INT8 file (`train/export.py --fp16`; inputs and `logits` stay FP32; FP16 vs FP32 max |Δp|
+0.0045 on 1,024 validation windows). Its decisions at 0.85 agree with the INT8 model's on 98.81% (`l2`) and
+99.45% (`l1,l2,l3`) of `eval/data`, 99.21% of `val_v3` and 99.76% to 99.89% of the bench/long dev windows and
+chunks: below the 99.5% asked for on `eval/data` and `val_v3`, so it has its own calibration, the `fp16`
+block of `calibration.json` (Platt A 0.8634, B −0.4518; logreg(L1,L2,L3) W (0.4705, 0.9127, 0.3594), B
+0.5755; logreg(L1,L2) W (0.4969, 0.9414), B 0.4278; `l2_untrusted_max` 0.88), fitted by `cmd/calibrate
+fit -write -fp16` on the same 12,785 validation rows; refitting the INT8 model the same way reproduces the
+shipped values. With it, agreement is 99.03% / 99.40% on `eval/data`, 99.21% / 99.61% on `val_v3`. On
+`eval/data` (reporting only) the FP16 model's TPR at FPR ≤ 1% is 0.9325 (`l2`) and 0.9530 (`l1,l2,l3`)
+against INT8's 0.9283 and 0.9479. Expect about 1% of decisions near the threshold to differ between a GPU
+and a CPU gateway. Details: [`reports/fp16_agreement_v6.md`](reports/fp16_agreement_v6.md); CUDA against
+CPU on the same FP16 file and the GPU timings are in `docs/sizing.md`.
+
+**Not the default; published as a pre-release.** v6 is a shadow-mode candidate, as v5 is:
+`guardspec-classifier@v6` is in `models/manifest.yaml` without `recommended`, with every file's SHA-256
+(`model_fp16.onnx` marked `provider: cuda`) and the Hugging Face branch `v6` pinned at revision
+`c44ec1d2b25b5732023acfa974802b045ffd4774` (2026-11-13; model card from `train/hf/v6/`), mirrored by
+the signed GitHub Release `model-guardspec-classifier-v6`. The shadow-mode plan of
+v5 applies to it unchanged.
 
 ### Reproduce
 

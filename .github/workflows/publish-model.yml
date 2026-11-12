@@ -4,7 +4,7 @@ name: Publish model
 # from its GitHub Release mirror (tag model-guardspec-classifier-<version>),
 # after train/hf/stage.sh checks every file against its pins
 # (build/gateway-full.l2.sha256 for v3b, train/hf/<version>/SHA256SUMS
-# otherwise). Needs the repository
+# otherwise; model_fp16.onnx too where those pins list it). Needs the repository
 # secret HF_TOKEN with write access to the Hugging Face org. The job summary
 # shows the Hugging Face commit to pin as `revision` in models/manifest.yaml
 # and in the GATEWAY_FULL_L2_SOURCE variable.
