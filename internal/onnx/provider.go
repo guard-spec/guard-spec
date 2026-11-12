@@ -66,11 +66,11 @@ const (
 const ModelFP16File = "model_fp16.onnx"
 
 const (
-	// DefaultCUDABatchSize is the windows per run on CUDA when
-	// INFERENCE_BATCH_SIZE is unset: a GPU needs larger batches than a CPU
-	// core to be busy. Provisional until the GPU measurements
-	// (docs/sizing.md) are in.
-	DefaultCUDABatchSize = 64
+	// DefaultCUDABatchSize is the windows per run on CUDA, short and long
+	// path, when INFERENCE_BATCH_SIZE is unset. On an L4 with the FP16
+	// classifier, 8 was the fastest of 8/32/64/128 (1.2 ms per window
+	// against 1.7 to 1.9; docs/sizing.md, "GPU option").
+	DefaultCUDABatchSize = 8
 	// defaultCUDAMaxConcurrency is INFERENCE_MAX_CONCURRENCY on CUDA when
 	// unset: one GPU runs a few large batches at a time better than many.
 	defaultCUDAMaxConcurrency = 2

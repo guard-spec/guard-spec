@@ -158,8 +158,8 @@ pull request, without pushing, to keep it working. It needs:
 | `cuda` | CUDA execution provider on `INFERENCE_CUDA_DEVICE_ID` (default 0), FP16 model. If CUDA cannot start (no GPU, no driver, the CPU image) the gateway exits at start with an error that says what is missing, rather than running slowly on the CPU. |
 | `auto` | CUDA when it starts, else the CPU with a warning (and the reason in `/readyz`). |
 
-On CUDA, `INFERENCE_BATCH_SIZE` defaults to 64 windows per run (the short and
-the long path) and `INFERENCE_MAX_CONCURRENCY` to 2; tune them with the GPU
+On CUDA, `INFERENCE_BATCH_SIZE` defaults to 8 windows per run (the short and
+the long path; the fastest on an L4) and `INFERENCE_MAX_CONCURRENCY` to 2; tune them with the GPU
 numbers in [sizing](../sizing.md). `GET /readyz` reports
 `detector.inference` (requested and active provider, GPU, driver, CUDA and
 ONNX Runtime versions, batch size, `l2_model_file`), and `./doctor` checks

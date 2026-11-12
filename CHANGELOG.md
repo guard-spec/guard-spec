@@ -18,7 +18,7 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   to the CPU with a warning. On CUDA the classifier is `model_fp16.onnx`
   (`train/export.py --fp16`; manifest files marked `provider: cuda` are
   pulled only by `models pull -provider cuda` or a cuda/auto gateway),
-  `INFERENCE_BATCH_SIZE` (new, short and long path) defaults to 64 and
+  `INFERENCE_BATCH_SIZE` (new, short and long path) defaults to 8 and
   `INFERENCE_MAX_CONCURRENCY` to 2. No GPU image is published: build one
   from `build/gateway-gpu.Dockerfile` (linux/amd64, CUDA 12 + cuDNN 9;
   built in CI, not pushed). Helm `gateway.gpu.enabled` runs your image

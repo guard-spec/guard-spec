@@ -13,7 +13,12 @@
 #   fp16/   the v6 classifier with model_fp16.onnx (tokenizer.json,
 #           config.json, thresholds.json, calibration.json with its fp16 block)
 #   quick/  bench/long corpus, profile quick (docs.jsonl), for parity
-#   long/   .txt files of about 20k, 100k and 200k tokens, for timing
+#   long/   .txt files of about 20k, 100k and 200k tokens, for timing, built
+#           from the quick/full profiles' wiki-en-* documents (a 200k text:
+#           concatenate them). Never from the long5/long6 profiles: their
+#           documents are a model task's hold-out (the 2026-11-12 run used
+#           long6-wiki-en-200000-2 by mistake; only its timing is reported).
+#           The script refuses such files.
 #
 # Writes to $OUT_DIR:
 #   env.txt              GPU, driver, CUDA runtime and cuDNN wheels, ORT, Go
@@ -41,6 +46,15 @@ step() { echo; echo "=== $* ($(date -u +%H:%M:%S))"; }
 REPO=$PWD
 
 step setup
+# Hold-out documents (bench/long profiles long5, long6) are never scored here.
+for f in "$DATA_DIR"/long/* "$DATA_DIR"/quick/*; do
+  case "$(basename "$f")" in
+    long5*|long6*) echo "refusing hold-out input $f" >&2; exit 1 ;;
+  esac
+done
+if grep -lqE '"id": ?"long[56]-' "$DATA_DIR"/quick/docs.jsonl 2>/dev/null; then
+  echo "refusing a corpus with long5/long6 documents" >&2; exit 1
+fi
 # Go (pinned) and the GPU build of ONNX Runtime (build/onnx-deps.sh gpu).
 if ! command -v go >/dev/null || [ "$(go env GOVERSION)" != "go$GO_VERSION" ]; then
   curl -fsSL -o /tmp/go.tgz "https://go.dev/dl/go$GO_VERSION.linux-amd64.tar.gz"

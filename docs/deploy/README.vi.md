@@ -157,8 +157,8 @@ mọi pull request, không đẩy lên đâu, để giữ nó luôn chạy đư�
 | `cuda` | CUDA execution provider trên `INFERENCE_CUDA_DEVICE_ID` (mặc định 0), model FP16. Nếu CUDA không khởi động được (không có GPU, không có driver, dùng nhầm image CPU) thì gateway dừng ngay lúc khởi động với lỗi nói rõ thiếu gì, thay vì âm thầm chạy chậm trên CPU. |
 | `auto` | Dùng CUDA nếu khởi động được, nếu không thì chạy CPU kèm cảnh báo (lý do có trong `/readyz`). |
 
-Trên CUDA, `INFERENCE_BATCH_SIZE` mặc định là 64 cửa sổ mỗi lượt chạy (cả
-đường ngắn lẫn đường dài) và `INFERENCE_MAX_CONCURRENCY` là 2; chỉnh theo số
+Trên CUDA, `INFERENCE_BATCH_SIZE` mặc định là 8 cửa sổ mỗi lượt chạy (cả
+đường ngắn lẫn đường dài; nhanh nhất trên L4) và `INFERENCE_MAX_CONCURRENCY` là 2; chỉnh theo số
 đo GPU trong [sizing](../sizing.vi.md). `GET /readyz` báo `detector.inference`
 (provider yêu cầu và đang chạy, GPU, driver, phiên bản CUDA và ONNX Runtime,
 batch size, `l2_model_file`), và `./doctor` kiểm tra cùng các điều đó trước
