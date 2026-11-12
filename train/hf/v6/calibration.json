@@ -1,0 +1,53 @@
+{
+  "model": "guardspec-classifier-v6",
+  "fitted_on": "v4-A build val.jsonl + val_hard.jsonl + val_vi_variants.jsonl + val_v3.jsonl + val_v4.jsonl, with the owner-supplied and OTP/KYC validation rows, plus v6_val.jsonl + val_v6.jsonl of the v6 build (12785 rows), 2026-11-10",
+  "platt": {
+    "A": 0.8581871793481138,
+    "B": -0.2525855985537059
+  },
+  "logreg": {
+    "l1,l2": {
+      "W": [
+        0.49634216040569346,
+        0.9434276630660696,
+        0
+      ],
+      "B": 0.4418358920564427
+    },
+    "l1,l2,l3": {
+      "W": [
+        0.4714392321060368,
+        0.9147602271798444,
+        0.3855094131066027
+      ],
+      "B": 0.6130776603918126
+    }
+  },
+  "l2_untrusted_max": 0.88,
+  "fp16": {
+    "fitted_on": "the rows of the top-level calibration (12785 rows), scored with model_fp16.onnx, 2026-11-12 (train/reports/fp16_agreement_v6.md)",
+    "platt": {
+      "A": 0.8633807855140544,
+      "B": -0.4518201292003398
+    },
+    "logreg": {
+      "l1,l2": {
+        "W": [
+          0.49687685320573277,
+          0.9413528192084426,
+          0
+        ],
+        "B": 0.4278049159046161
+      },
+      "l1,l2,l3": {
+        "W": [
+          0.47049245336423534,
+          0.9126597833349739,
+          0.3594275182836088
+        ],
+        "B": 0.5754656653333854
+      }
+    },
+    "l2_untrusted_max": 0.88
+  }
+}
