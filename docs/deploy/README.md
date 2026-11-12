@@ -127,7 +127,7 @@ the CPU numbers; for long documents (100k+ tokens) the CPU path needs many
 cores, and a GPU is the option.
 
 The GPU option is a separate image, `ghcr.io/guard-spec/guard-spec-gateway:<version>-gpu`
-(linux/amd64 only, about 3-4 GB, signed with cosign like the others): the same
+(linux/amd64 only, about 5.7 GB unpacked, signed with cosign like the others): the same
 gateway binary with ONNX Runtime's CUDA 12 build on NVIDIA's CUDA 12 + cuDNN 9
 runtime image (`build/gateway-gpu.Dockerfile`). It needs:
 

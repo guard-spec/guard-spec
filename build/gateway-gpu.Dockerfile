@@ -17,7 +17,7 @@
 #   docker buildx build --platform linux/amd64 -f build/gateway-gpu.Dockerfile -t guard-spec-gateway:dev-gpu .
 #
 # The base image carries NVIDIA's CUDA and cuDNN runtime libraries under
-# NVIDIA's license terms (THIRD_PARTY_LICENSES.md); the image is about 3-4 GB.
+# NVIDIA's license terms (THIRD_PARTY_LICENSES.md); the image is about 5.7 GB unpacked.
 # Models are mounted at /models as for the CPU image; the GPU loads
 # model_fp16.onnx (`models pull -provider cuda`), else the INT8 model.
 

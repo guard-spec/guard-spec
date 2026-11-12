@@ -154,10 +154,16 @@ func runFit(args []string) int {
 				fmt.Fprintln(os.Stderr, err)
 				return 2
 			}
-			f.Model, top.FP16 = "", &f
+			block := f
+			block.Model = ""
+			top.FP16 = &block
 			f = top
 		}
-		data, _ := json.MarshalIndent(f, "", "  ")
+		data, err := json.MarshalIndent(f, "", "  ")
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 2
+		}
 		if err := os.WriteFile(path, append(data, '\n'), 0o644); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return 2

@@ -126,7 +126,7 @@ với tài liệu dài (từ 100k token) đường CPU cần nhiều core, và G
 chọn.
 
 Tùy chọn GPU là một image riêng, `ghcr.io/guard-spec/guard-spec-gateway:<version>-gpu`
-(chỉ linux/amd64, khoảng 3-4 GB, ký bằng cosign như các image khác): cùng
+(chỉ linux/amd64, khoảng 5,7 GB khi giải nén, ký bằng cosign như các image khác): cùng
 binary gateway, với bản CUDA 12 của ONNX Runtime trên image runtime CUDA 12 +
 cuDNN 9 của NVIDIA (`build/gateway-gpu.Dockerfile`). Cần:
 
