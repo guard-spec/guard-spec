@@ -294,18 +294,28 @@ def stage_pool(args) -> int:
             raise SystemExit(f"{name}: extracted text has SHA-256 {got}, sources_v7.yaml pins {src['sha256']}")
         if not src.get("sha256"):
             report["unpinned"][name] = got
-        kept, dropped = [], []
+        kept, dropped, trimmed = [], [], 0
+
+        def hit(t):
+            return ix.check(t)[1] or short.check(t)[1]
+
         for i, u in enumerate(units):
-            _, hits = ix.check(u)
+            hits = hit(u)
             if not hits:
-                _, hits = short.check(u)
-            if hits:
-                dropped.append([i, hits[:3]])
-            else:
                 kept.append(u)
-        report["sources"][name] = {"units": len(units), "dropped": len(dropped), "kept": len(kept), "sha256": got,
-                                   "dropped_examples": dropped[:10]}
-        log(f"  {name}: {len(units)} units, {len(dropped)} dropped by the guard")
+                continue
+            # Keep the paragraphs that share no run with the index (RFC boilerplate, licence and template
+            # text repeat across documents); the rows are checked again as a whole in the `check` stage.
+            paras = [b for b in u.split("\n\n") if b.strip()]
+            good = [b for b in paras if not hit(b)]
+            if good and sum(map(len, good)) >= 0.3 * len(u) and not hit("\n\n".join(good)):
+                kept.append("\n\n".join(good))
+                trimmed += 1
+            else:
+                dropped.append([i, hits[:3]])
+        report["sources"][name] = {"units": len(units), "dropped": len(dropped), "trimmed": trimmed, "kept": len(kept),
+                                   "sha256": got, "dropped_examples": dropped[:10]}
+        log(f"  {name}: {len(units)} units, {trimmed} trimmed to their clean paragraphs, {len(dropped)} dropped by the guard")
         pools.setdefault((src["genre"], src["lang"]), []).append((name, kept, src["license"]))
 
     docs = []

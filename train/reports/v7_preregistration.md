@@ -160,3 +160,29 @@ parameter, arm or criterion changes after that.
 Nothing is published, tagged, released or uploaded: a chosen v7 is packaged under
 `guardspec-data/v7/release` only, not added to `models/manifest.yaml`; switching the default stays the owner's
 decision. The rule set and the long-path decision in the code are unchanged by R6.
+
+## Recorded before the first v7 arm (2026-11-12)
+
+- **Code change after c21d7d3, before any v7 row was written:** the first `pool` run dropped whole units on any
+  hit (97 of the 112 RFC units shared the RFC boilerplate with `long` documents; Kubernetes files shared code
+  with the long5 kubelet). `build_v7.py` now keeps the paragraphs of such a unit that share no run with the
+  index (when they are at least 30% of it and clean together) and drops the rest; the final `check` stage is
+  unchanged and decides. No score was read in between.
+- **Pool** (`pool/docs.jsonl` SHA-256 `d7c22598e5c9033d06064189c2fad63c4f292f78dea341492b68bbf83ff7c282`): 475
+  documents, 15.49M tokens (EN wiki 1.67M, prose 4.00M, docs 1.00M, RFC 0.81M, legal 1.50M, code 1.28M; VI wiki
+  5.00M, prose 0.19M, docs 0.04M). Guard index: 201.6M shingles of 1,626 bench/long and attack documents and
+  15,710 hold-out rows (6,653 shorter rows on 12-token runs); units dropped / trimmed per source in
+  `pool_report.json` (U.S. Code 365 / 511, RFC 46 / 51, Kubernetes code 2 / 85, VI Wikipedia 17 / 90, ...).
+- **Mining** (v6 release, INT8, M3 Max CPU, `cmd/benchlong -long on`, 16 min): windows with fused ≥ 0.5 or L2 ≥
+  0.3: 440 English (prose 277, docs 67, RFC 54, legal 18, code 13, wiki 11) and 279 Vietnamese (wiki 193, docs
+  72, prose 14), all kept (under the cap).
+- **`v7_train.jsonl`** SHA-256 `87bbf5b95e5122f36f419fdf1bd83a0f6566466b5c46c4225d0cdf523b9754ab`: 11,270 rows,
+  all benign: `v7_hardneg` 719 (EN 440, VI 279), `v7_long` 9,591 (EN 6,000: wiki 900, prose 1,500, docs 1,500,
+  RFC 1,000, legal 500, code 600; VI 3,591: wiki 2,600, prose 900, docs 91, all there was), `v7_gen` 960.
+  `check`: 0 of 11,270 rows share a 50-token run with any bench/long or attack document or hold-out row, 0
+  share a 12-token run with a shorter hold-out row (`guard_v7.json`).
+- **GPU reference trained** before this record (it does not read v7 data): job `v7-ref`, Colab L4 (driver
+  580.82.07, CUDA 13.0), torch 2.13.0+cu130, transformers 5.10.2, Python 3.13.16 (the project pins 3.12),
+  commit c21d7d3, seed 20261105, best epoch 5 of 5 (validation loss 0.0241; MPS v6 arm A 0.0232), 32.5 min of
+  training, 1.45 compute units (399.96 → 398.51); the owner rows of the v4-A build were uploaded under the
+  owner's approval of 2026-11-12, `/content/job/v7-ref/data` deleted before the VM stopped.
