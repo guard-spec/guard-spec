@@ -358,15 +358,20 @@ jobs:
           if helm template gs "$CHART" | grep -E '^kind: (Job|HorizontalPodAutoscaler|PodDisruptionBudget|NetworkPolicy|Ingress|Route|ServiceAccount)$'; then
             echo "an optional resource is rendered with the default values" >&2; exit 1
           fi
-      - name: The GPU option renders the -gpu image, one GPU and INFERENCE_PROVIDER=cuda
+      - name: The GPU option renders the user's GPU image, one GPU and INFERENCE_PROVIDER=cuda
         run: |
           out=$(helm template gs "$CHART" -f "$CHART/ci/gpu-values.yaml")
-          grep -q 'image: ghcr.io/guard-spec/guard-spec-gateway:.*-gpu$' <<< "$out"
+          grep -q 'image: registry.example.com/guard-spec-gateway:0.6.0-gpu$' <<< "$out"
           grep -q 'nvidia.com/gpu: 1' <<< "$out"
           grep -A1 'name: INFERENCE_PROVIDER' <<< "$out" | grep -q 'value: "cuda"'
           if helm template gs "$CHART" | grep -E -e '-gpu$|nvidia.com/gpu|INFERENCE_PROVIDER'; then
             echo "the default values render GPU settings" >&2; exit 1
           fi
+          # No GPU image is published: gpu.enabled without the user's image fails.
+          if err=$(helm template gs "$CHART" --set gateway.gpu.enabled=true 2>&1); then
+            echo "gpu.enabled rendered without gateway.gpu.image" >&2; exit 1
+          fi
+          grep -q 'needs gateway.gpu.image.repository and gateway.gpu.image.tag' <<< "$err"
       - name: No models volume without a claim (gateway-full keeps its models)
         run: |
           if helm template gs "$CHART" -f "$CHART/ci/gateway-full-values.yaml" | grep -q 'mountPath: /models'; then

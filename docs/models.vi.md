@@ -46,7 +46,7 @@ Với tùy chọn GPU ([triển khai, GPU](deploy/README.vi.md#gpu-tùy-chọn))
 phiên bản bộ phân loại có thể có thêm `model_fp16.onnx`: cùng checkpoint ở
 dạng FP16 cho CUDA execution provider của ONNX Runtime (`train/export.py
 --fp16`). Manifest đánh dấu file này `provider: cuda`: `models pull -provider
-cuda` (hoặc `INFERENCE_PROVIDER=cuda`/`auto`, như trong image `-gpu`) sẽ tải
+cuda` (hoặc `INFERENCE_PROVIDER=cuda`/`auto`, như trong image GPU) sẽ tải
 nó, bản cài cho CPU không bao giờ tải, và CPU vẫn nạp `model_int8.onnx`.
 
 ## Tải model

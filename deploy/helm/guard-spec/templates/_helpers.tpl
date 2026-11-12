@@ -32,18 +32,19 @@ app.kubernetes.io/component: {{ .component }}
 {{- $ref -}}
 {{- end -}}
 
-{{/* The gateway container's image: gateway.image, with gateway.gpu.tagSuffix
-("-gpu") appended to its tag when gateway.gpu.enabled (unless the tag
-already ends with it). */}}
+{{/* The gateway container's image: gateway.image, or with gateway.gpu.enabled
+the user's own GPU build, gateway.gpu.image (no GPU image is published). */}}
 {{- define "guard-spec.gatewayImage" -}}
-{{- $img := .Values.gateway.image -}}
-{{- $tag := default .Chart.AppVersion $img.tag -}}
 {{- $gpu := .Values.gateway.gpu | default dict -}}
 {{- if $gpu.enabled -}}
-{{- $suffix := $gpu.tagSuffix | default "-gpu" -}}
-{{- if not (hasSuffix $suffix $tag) }}{{ $tag = printf "%s%s" $tag $suffix }}{{ end -}}
+{{- $gi := $gpu.image | default dict -}}
+{{- if not (and $gi.repository $gi.tag) -}}
+{{- fail "gateway.gpu.enabled needs gateway.gpu.image.repository and gateway.gpu.image.tag: no GPU image is published. Build one with `docker build --platform linux/amd64 -f build/gateway-gpu.Dockerfile -t <registry>/guard-spec-gateway:<version>-gpu .`, push it and set both values (docs/deploy/README.md, \"GPU\")" -}}
 {{- end -}}
-{{- printf "%s:%s" $img.repository $tag -}}
+{{- printf "%s:%s" $gi.repository $gi.tag -}}
+{{- else -}}
+{{- include "guard-spec.image" (dict "root" . "image" .Values.gateway.image) -}}
+{{- end -}}
 {{- end -}}
 
 {{/* An image whose empty repository and tag fall back to the gateway's. */}}

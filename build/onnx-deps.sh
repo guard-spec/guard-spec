@@ -11,8 +11,8 @@
 #
 # os is linux or darwin, arch is amd64 or arm64 (default: this machine).
 #
-# flavor is cpu (default) or gpu. gpu (linux amd64 only, the -gpu image,
-# build/gateway-gpu.Dockerfile) takes ONNX Runtime's CUDA 12 build instead:
+# flavor is cpu (default) or gpu. gpu (linux amd64 only, for the GPU image
+# users build from build/gateway-gpu.Dockerfile) takes ONNX Runtime's CUDA 12 build instead:
 # libonnxruntime.so with libonnxruntime_providers_cuda.so and
 # libonnxruntime_providers_shared.so next to it (ONNX Runtime loads the
 # providers from the directory of libonnxruntime.so; TensorRT is left out),
@@ -61,7 +61,7 @@ case "$os-$arch" in
   *) echo "unsupported platform: $os-$arch" >&2; exit 1 ;;
 esac
 if [ "$flavor" = gpu ]; then
-  # ONNX Runtime GPU, CUDA 12 build (cuDNN 9), for the -gpu image.
+  # ONNX Runtime GPU, CUDA 12 build (cuDNN 9), for build/gateway-gpu.Dockerfile.
   ort_pkg=onnxruntime-linux-x64-gpu_cuda12-$ORT_VERSION
   ort_sha=57cd51f677eca19a269cdba31b0c16c15d73a8feea41f170aa8b750447ab1f70
 fi

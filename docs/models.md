@@ -46,7 +46,7 @@ For the GPU option ([deploy, GPU](deploy/README.md#gpu-optional)) a classifier
 version may also have `model_fp16.onnx`, the same checkpoint in FP16 for
 ONNX Runtime's CUDA execution provider (`train/export.py --fp16`). The
 manifest marks it `provider: cuda`: `models pull -provider cuda` (or
-`INFERENCE_PROVIDER=cuda`/`auto`, as in the `-gpu` image) fetches it, a CPU
+`INFERENCE_PROVIDER=cuda`/`auto`, as in the GPU image) fetches it, a CPU
 install never does, and the CPU keeps loading `model_int8.onnx`.
 
 ## Pulling

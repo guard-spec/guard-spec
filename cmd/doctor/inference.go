@@ -83,7 +83,7 @@ func (d *doctor) checkInference(context.Context) Result {
 		detail += "; " + strings.Join(problems, "; ")
 		if cfg.Provider == onnx.ProviderCUDA {
 			return Result{Status: Fail, Detail: detail,
-				Hint: "INFERENCE_PROVIDER=cuda: the gateway refuses to start without CUDA. Use the -gpu image on a node with an NVIDIA GPU " +
+				Hint: "INFERENCE_PROVIDER=cuda: the gateway refuses to start without CUDA. Use an image built from build/gateway-gpu.Dockerfile on a node with an NVIDIA GPU " +
 					"(driver 525 or newer) and the NVIDIA container runtime, or set INFERENCE_PROVIDER=cpu (the default)"}
 		}
 		return Result{Status: Warn, Detail: detail, Hint: "INFERENCE_PROVIDER=auto: the gateway will run on the CPU"}

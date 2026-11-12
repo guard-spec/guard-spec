@@ -120,15 +120,26 @@ rồi chạy `kubectl kustomize <dir> | kubectl apply -f -`. Khi đó các hook 
 
 ## GPU (tùy chọn)
 
-CPU là mặc định: image gateway chạy bộ phân loại INT8 trên CPU provider của
-ONNX Runtime và không cần gì thêm. [Sizing](../sizing.vi.md) có số đo CPU;
-với tài liệu dài (từ 100k token) đường CPU cần nhiều core, và GPU là một tùy
-chọn.
+CPU là mặc định: image gateway được phát hành chạy bộ phân loại INT8 trên
+CPU provider của ONNX Runtime và không cần gì thêm. [Sizing](../sizing.vi.md)
+có số đo CPU; với tài liệu dài (từ 100k token) đường CPU cần nhiều core, và
+GPU là một tùy chọn.
 
-Tùy chọn GPU là một image riêng, `ghcr.io/guard-spec/guard-spec-gateway:<version>-gpu`
-(chỉ linux/amd64, khoảng 5,7 GB khi giải nén, ký bằng cosign như các image khác): cùng
-binary gateway, với bản CUDA 12 của ONNX Runtime trên image runtime CUDA 12 +
-cuDNN 9 của NVIDIA (`build/gateway-gpu.Dockerfile`). Cần:
+Đường GPU được hỗ trợ trong code và đã được đo (các dòng GPU trong
+[sizing](../sizing.vi.md)), nhưng **không có image GPU phát hành sẵn**: hãy tự
+build từ `build/gateway-gpu.Dockerfile` (linux/amd64; cùng binary gateway với
+bản CUDA 12 của ONNX Runtime trên image runtime CUDA 12 + cuDNN 9 của NVIDIA,
+khoảng 5,7 GB khi giải nén) rồi đẩy lên registry của bạn:
+
+```sh
+docker build --platform linux/amd64 -f build/gateway-gpu.Dockerfile \
+  -t <registry>/guard-spec-gateway:<version>-gpu .
+docker push <registry>/guard-spec-gateway:<version>-gpu
+```
+
+Khi build và chạy image này, bạn chấp nhận điều khoản của NVIDIA cho các thư
+viện CUDA và cuDNN trong image nền (xem NOTICE). CI build Dockerfile này ở
+mọi pull request, không đẩy lên đâu, để giữ nó luôn chạy được. Cần:
 
 - GPU NVIDIA với driver 525 trở lên;
 - NVIDIA container runtime (`docker run --gpus all ...`), hoặc trên
@@ -138,7 +149,7 @@ cuDNN 9 của NVIDIA (`build/gateway-gpu.Dockerfile`). Cần:
   khi bật `gateway.gpu.enabled`). Nếu thiếu, CUDA chạy model INT8, chậm, và
   `doctor` cảnh báo.
 
-`INFERENCE_PROVIDER` chọn provider (image `-gpu` đặt sẵn `cuda`):
+`INFERENCE_PROVIDER` chọn provider (image GPU đặt sẵn `cuda`):
 
 | Giá trị | Hành vi |
 |---|---|
@@ -153,13 +164,17 @@ Trên CUDA, `INFERENCE_BATCH_SIZE` mặc định là 64 cửa sổ mỗi lượt
 batch size, `l2_model_file`), và `./doctor` kiểm tra cùng các điều đó trước
 khi gateway khởi động (`inference`).
 
-Với Helm chart:
+Với Helm chart, hãy chỉ ra image của bạn; chart từ chối `gpu.enabled` nếu
+thiếu:
 
 ```yaml
 gateway:
   gpu:
-    enabled: true     # image -gpu, resources.limits["nvidia.com/gpu"]: 1, INFERENCE_PROVIDER=cuda
+    enabled: true     # image của bạn, resources.limits["nvidia.com/gpu"]: 1, INFERENCE_PROVIDER=cuda
     # provider: auto  # chạy CPU thay vì từ chối khởi động
+    image:
+      repository: <registry>/guard-spec-gateway
+      tag: <version>-gpu
   nodeSelector:
     nvidia.com/gpu.present: "true"
   tolerations:
@@ -169,10 +184,10 @@ models:
     enabled: true     # tải thêm model_fp16.onnx
 ```
 
-`ci/gpu-values.yaml` của chart được render và kiểm schema trong CI. Bản thân
-image GPU được build trong CI trên máy không có GPU, nơi nó phải từ chối khởi
-động với `cuda` và chuyển sang CPU với `auto`; số đo GPU được đo riêng và ghi
-rõ trong [sizing](../sizing.vi.md).
+`ci/gpu-values.yaml` của chart được render và kiểm schema trong CI. Trong CI,
+image chạy trên máy không có GPU, nơi nó phải từ chối khởi động với `cuda` và
+chuyển sang CPU với `auto`; số đo GPU được đo riêng và ghi rõ trong
+[sizing](../sizing.vi.md).
 
 ## Đóng góp
 

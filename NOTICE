@@ -15,28 +15,25 @@ ONNX Runtime 1.31.1
   MIT License. https://github.com/microsoft/onnxruntime
   The license ships in the gateway image at /usr/share/doc/onnxruntime/LICENSE.
 
-ONNX Runtime 1.31.1, GPU build for CUDA 12 (guard-spec-gateway:<version>-gpu
-only): libonnxruntime.so with libonnxruntime_providers_cuda.so and
-libonnxruntime_providers_shared.so
-  Copyright (c) Microsoft Corporation
-  MIT License. https://github.com/microsoft/onnxruntime
-  Its license and ThirdPartyNotices.txt ship in the -gpu image at
-  /usr/share/doc/onnxruntime/.
-
-NVIDIA CUDA 12 runtime libraries and cuDNN 9 (guard-spec-gateway:<version>-gpu
-only, from the nvidia/cuda:12.9.2-cudnn-runtime-ubuntu24.04 base image)
-  Copyright (c) NVIDIA Corporation. Redistributed as part of the base image
-  under the NVIDIA CUDA Toolkit End User License Agreement
-  (https://docs.nvidia.com/cuda/eula/index.html) and the NVIDIA cuDNN
-  Software License Agreement
-  (https://docs.nvidia.com/deeplearning/cudnn/latest/reference/eula.html).
-  The CPU images contain no NVIDIA software.
-
 Hugging Face tokenizers (libtokenizers.a, linked statically)
   The HuggingFace Inc. team. Apache License 2.0.
   https://github.com/huggingface/tokenizers
   Built and wrapped by github.com/daulet/tokenizers 1.27.0 (Daulet
   Zhanguzin, MIT License).
+
+------------------------------------------------------------------------------
+GPU option (not distributed)
+------------------------------------------------------------------------------
+
+No GPU image is published. build/gateway-gpu.Dockerfile, which users build
+themselves, starts from NVIDIA's nvidia/cuda CUDA 12 + cuDNN 9 runtime image
+and adds ONNX Runtime's GPU build (MIT, Microsoft Corporation). Whoever
+builds or runs that image accepts NVIDIA's terms for the CUDA and cuDNN
+libraries in it (NVIDIA CUDA Toolkit EULA,
+https://docs.nvidia.com/cuda/eula/index.html; NVIDIA cuDNN Software License
+Agreement,
+https://docs.nvidia.com/deeplearning/cudnn/latest/reference/eula.html).
+Guard Spec's own releases contain no NVIDIA software.
 
 ------------------------------------------------------------------------------
 Bundled WebAssembly module (binaries that link internal/pdftext)

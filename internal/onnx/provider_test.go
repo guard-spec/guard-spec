@@ -80,7 +80,7 @@ func TestResolveProviderCUDAWithoutGPU(t *testing.T) {
 	if !errors.Is(err, ErrProviderUnavailable) {
 		t.Fatalf("err = %v, want ErrProviderUnavailable", err)
 	}
-	for _, want := range []string{"INFERENCE_PROVIDER=cuda", "device 0", "no CUDA-capable device", "-gpu image", "INFERENCE_PROVIDER=cpu"} {
+	for _, want := range []string{"INFERENCE_PROVIDER=cuda", "device 0", "no CUDA-capable device", "build/gateway-gpu.Dockerfile", "INFERENCE_PROVIDER=cpu"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q does not say %q", err, want)
 		}

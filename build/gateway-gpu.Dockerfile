@@ -2,7 +2,9 @@
 # Copyright 2026 The Guard Spec Authors
 # SPDX-License-Identifier: Apache-2.0
 #
-# Gateway, GPU option: guard-spec-gateway:<version>-gpu, linux/amd64 only.
+# Gateway, GPU option, linux/amd64 only. This image is not published: build
+# it yourself (below) and push it to your own registry. CI builds it on every
+# pull request (not pushed) to keep this file working.
 #
 # The CPU image (build/gateway.Dockerfile) stays the default and is not
 # changed by this file. This image runs the same gateway binary, built the
@@ -14,10 +16,11 @@
 # runtime (docker run --gpus all, or the Kubernetes device plugin:
 # deploy/helm/guard-spec gateway.gpu.enabled).
 #
-#   docker buildx build --platform linux/amd64 -f build/gateway-gpu.Dockerfile -t guard-spec-gateway:dev-gpu .
+#   docker build --platform linux/amd64 -f build/gateway-gpu.Dockerfile -t <registry>/guard-spec-gateway:<version>-gpu .
 #
-# The base image carries NVIDIA's CUDA and cuDNN runtime libraries under
-# NVIDIA's license terms (THIRD_PARTY_LICENSES.md); the image is about 5.7 GB unpacked.
+# The base image carries NVIDIA's CUDA and cuDNN runtime libraries; by
+# building and using it you accept NVIDIA's license terms for them (NOTICE).
+# The result is about 5.7 GB unpacked.
 # Models are mounted at /models as for the CPU image; the GPU loads
 # model_fp16.onnx (`models pull -provider cuda`), else the INT8 model.
 

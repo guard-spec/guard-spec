@@ -24,7 +24,8 @@ import (
 // Execution providers. The CPU is the default and needs nothing else: the
 // INT8 model on ONNX Runtime's CPU provider, as in every release so far. The
 // CUDA execution provider is an option for hosts with an NVIDIA GPU: the same
-// gateway binary, with the ONNX Runtime GPU build (the -gpu image) and the
+// gateway binary, with the ONNX Runtime GPU build (an image built from
+// build/gateway-gpu.Dockerfile; none is published) and the
 // FP16 model (model_fp16.onnx). INFERENCE_PROVIDER selects it:
 //
 //	cpu   (default) the CPU provider; nothing changes.
@@ -220,7 +221,7 @@ func resolveProvider(get func(string) string, probe func(device int) error,
 	if err := probe(cfg.DeviceID); err != nil {
 		if cfg.Provider == ProviderCUDA {
 			return cfg, st, fmt.Errorf("%w: %s=cuda, but the CUDA execution provider cannot start on device %d: %v. "+
-				"The GPU option needs the -gpu image (ONNX Runtime GPU, CUDA 12), an NVIDIA GPU with driver 525 or newer "+
+				"The GPU option needs an image built from build/gateway-gpu.Dockerfile (ONNX Runtime GPU, CUDA 12), an NVIDIA GPU with driver 525 or newer "+
 				"and the NVIDIA container runtime; set %s=cpu (the default) or auto to run on the CPU",
 				ErrProviderUnavailable, EnvProvider, cfg.DeviceID, strings.TrimRight(err.Error(), ". "), EnvProvider)
 		}

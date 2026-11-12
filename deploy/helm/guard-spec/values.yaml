@@ -241,20 +241,27 @@ gateway:
     requests: {cpu: 500m, memory: 1Gi}
     limits: {memory: 2Gi}
   # GPU option (docs/deploy/README.md, "GPU"). The CPU is the default and
-  # needs nothing here. Enabled: the gateway runs the -gpu image
-  # (<tag>-gpu: ONNX Runtime with the CUDA execution provider, linux/amd64),
-  # asks for nvidia.com/gpu in resources.limits (the NVIDIA device plugin or
-  # GPU Operator must run on the cluster) and sets INFERENCE_PROVIDER. With
-  # "cuda" a pod that lands without a usable GPU stops at start rather than
-  # running slowly on the CPU; "auto" falls back to the CPU with a warning.
-  # Put the pods on GPU nodes with nodeSelector and tolerations above (for
-  # example nvidia.com/gpu.present: "true" and the nvidia.com/gpu taint).
-  # models.pull also fetches the FP16 model (model_fp16.onnx) when enabled.
+  # needs nothing here. No GPU image is published: build one from
+  # build/gateway-gpu.Dockerfile (ONNX Runtime with the CUDA execution
+  # provider, linux/amd64), push it to your registry and name it in
+  # gpu.image; the chart refuses gpu.enabled without it. Enabled: the gateway
+  # runs that image, asks for nvidia.com/gpu in resources.limits (the NVIDIA
+  # device plugin or GPU Operator must run on the cluster) and sets
+  # INFERENCE_PROVIDER. With "cuda" a pod that lands without a usable GPU
+  # stops at start rather than running slowly on the CPU; "auto" falls back
+  # to the CPU with a warning. Put the pods on GPU nodes with nodeSelector
+  # and tolerations above (for example nvidia.com/gpu.present: "true" and the
+  # nvidia.com/gpu taint). models.pull also fetches the FP16 model
+  # (model_fp16.onnx) when enabled.
   gpu:
     enabled: false
     count: 1          # resources.limits["nvidia.com/gpu"]
     provider: cuda    # INFERENCE_PROVIDER: cuda or auto
-    tagSuffix: "-gpu" # appended to the gateway tag (appVersion when empty)
+    # Your GPU image (required with enabled: true), e.g.
+    # repository: registry.example.com/guard-spec-gateway, tag: 0.7.0-gpu
+    image:
+      repository: ""
+      tag: ""
   nodeSelector: {}
   tolerations: []
   affinity: {}

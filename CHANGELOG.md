@@ -19,10 +19,11 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   (`train/export.py --fp16`; manifest files marked `provider: cuda` are
   pulled only by `models pull -provider cuda` or a cuda/auto gateway),
   `INFERENCE_BATCH_SIZE` (new, short and long path) defaults to 64 and
-  `INFERENCE_MAX_CONCURRENCY` to 2. New image
-  `guard-spec-gateway:<version>-gpu` (linux/amd64, CUDA 12 + cuDNN 9,
-  signed), Helm `gateway.gpu.enabled` (the `-gpu` image, one
-  `nvidia.com/gpu`, `INFERENCE_PROVIDER=cuda`). `/readyz`
+  `INFERENCE_MAX_CONCURRENCY` to 2. No GPU image is published: build one
+  from `build/gateway-gpu.Dockerfile` (linux/amd64, CUDA 12 + cuDNN 9;
+  built in CI, not pushed). Helm `gateway.gpu.enabled` runs your image
+  (`gateway.gpu.image`, required), one `nvidia.com/gpu` and
+  `INFERENCE_PROVIDER=cuda`. `/readyz`
   (`detector.inference`) and `doctor` (`inference`) report the provider,
   GPU, CUDA and ONNX Runtime versions and the model file. `cmd/benchlong`
   gains `-split` and `-units`. See docs/deploy/README.md, "GPU".
