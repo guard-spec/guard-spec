@@ -205,3 +205,5 @@ Reported by the lead, recorded before any model of R6 scored a `long6` document:
   is the 89-document file, its `attack` the unchanged attack documents).
 - The attack documents are unchanged (the instruction covers the benign holdout): 3 of the 336 embedded
   documents use this document as their host; their scores were never seen either.
+- Lead decision (2026-11-12): the 3 attack documents stay, because the exposure touched only v6-FP16 scores of
+  the benign host text, seen as aggregates; it says nothing about payload detection, and no v7 arm or `ref` scored it.
