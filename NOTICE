@@ -22,6 +22,20 @@ Hugging Face tokenizers (libtokenizers.a, linked statically)
   Zhanguzin, MIT License).
 
 ------------------------------------------------------------------------------
+GPU option (not distributed)
+------------------------------------------------------------------------------
+
+No GPU image is published. build/gateway-gpu.Dockerfile, which users build
+themselves, starts from NVIDIA's nvidia/cuda CUDA 12 + cuDNN 9 runtime image
+and adds ONNX Runtime's GPU build (MIT, Microsoft Corporation). Whoever
+builds or runs that image accepts NVIDIA's terms for the CUDA and cuDNN
+libraries in it (NVIDIA CUDA Toolkit EULA,
+https://docs.nvidia.com/cuda/eula/index.html; NVIDIA cuDNN Software License
+Agreement,
+https://docs.nvidia.com/deeplearning/cudnn/latest/reference/eula.html).
+Guard Spec's own releases contain no NVIDIA software.
+
+------------------------------------------------------------------------------
 Bundled WebAssembly module (binaries that link internal/pdftext)
 ------------------------------------------------------------------------------
 

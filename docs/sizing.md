@@ -138,7 +138,7 @@ for each run.
 | Apple M3 Max, 14 cores | M3 Max, local, indicative (2026-11-09, quick profile) | 61.8 | 9,209 | 17,551 | about 175,000 | 0.42 (intra 1), 0.57 (default) | 1.1 to 1.2 s |
 | 8 vCPU (x86) | estimated | | about 6,000 | | about 60,000 | | about 3 s |
 | 16 vCPU (x86) | estimated | | about 12,000 | | about 120,000 | | about 1.5 s |
-| GPU | not measured (task RF-b74de2b9) | | | | | | |
+| NVIDIA L4 (GPU option, FP16 model) | Colab (shared VM), NVIDIA L4, driver 580.82.07, CUDA 12.9, ORT 1.31.1 gpu_cuda12, 12 vCPU Xeon 2.2 GHz, `INFERENCE_BATCH_SIZE=8`, 2026-11-12; median of 3 runs | 1.2 (L2 alone, batch 8) | | | about 640,000 (L1+L2); about 1,500,000 (L2 alone) | | 0.30 s (L1+L2); 0.12 s (L2 alone) |
 
 - The two runner rows are measured, but on different CPUs (GitHub assigns
   the host): the 2 vCPU job got a newer EPYC 9V74, the 4 vCPU job an EPYC
@@ -153,7 +153,8 @@ for each run.
   own run.
 - For a 10 s scanning budget this means roughly 30k to 50k tokens per
   request on 2 to 4 vCPU, 60k on 8 and 120k on 16 (estimated); 200k tokens
-  in 10 s needs about 32 dedicated vCPUs or a GPU (not measured yet).
+  in 10 s needs about 32 dedicated vCPUs or a GPU (an L4 takes about 3 s,
+  see [GPU](#gpu-option) below).
 - CPU per token barely changes with K or intra: more parallelism cuts the
   wall time of one document, not its cost. A server scanning documents for
   several users at once gets the same total throughput from intra 1 and
@@ -164,6 +165,52 @@ for each run.
   and [`long-gh-ubuntu-24.04-2vcpu.md`](../bench/results/long-gh-ubuntu-24.04-2vcpu.md).
   The runner runs predate the 0.4.2 code/log fixes, so their false-positive
   tables show the 0.4.1 detector; latency is unaffected.
+
+### GPU option
+
+The CPU is the default; the GPU is an option (`INFERENCE_PROVIDER=cuda`, an
+image you build from `build/gateway-gpu.Dockerfile`, the FP16 classifier;
+[deploy, GPU](deploy/README.md#gpu-optional)). Measured with
+`bench/gpu/colab_gpu_bench.sh` (`cmd/benchlong`, `l1,l2`, one document at a
+time) on **Colab (shared VM), NVIDIA L4, driver 580.82.07, CUDA 12.9, ORT 1.31.1 gpu_cuda12**, 12 vCPU Intel Xeon 2.2 GHz, 2026-11-12. Each figure is the median of 3
+runs; a shared VM varies, read them as indicative. The documents are English
+Wikipedia texts of 20k, 100k and 200k tokens.
+
+| `INFERENCE_BATCH_SIZE` | ms per window (L2) | Tokens/s (L2) | 20k doc, L2 | 100k doc, L2 | 200k doc, L2 | 200k doc, L1+L2 |
+|---:|---:|---:|---:|---:|---:|---:|
+| 8 (default on CUDA) | 1.21 | 156,000 | 0.12 s | 0.64 s | 1.29 s | 3.1 s |
+| 32 | 1.71 | 111,000 | 0.18 s | 0.90 s | 1.81 s | 3.1 s |
+| 64 | 1.79 | 106,000 | 0.19 s | 0.92 s | 1.91 s | 3.1 s |
+| 128 | 1.90 | 100,000 | 0.19 s | 0.97 s | 2.05 s | 3.1 s |
+
+- "L2" is the classifier on every 256-token window of the document, as the
+  long path runs it; "L1+L2" is the gateway's fused score per 2 KiB chunk.
+  With the classifier on the GPU, L1 (the rules, on the CPU) takes most of
+  the fused time: about 3.1 s for 200k tokens at every batch size, against
+  1.3 s for L2 alone. The 100k document takes 1.5 to 1.6 s and the 20k one
+  0.30 s with L1+L2.
+- Batch 8 was the fastest, so it is the CUDA default for the short and the
+  long path (`INFERENCE_BATCH_SIZE`); larger batches were slower per window
+  on the L4.
+- Against the CPU rows above, which were measured on CPU machines: a
+  200k-token document takes about 11 s on the M3 Max with every core
+  (17,551 tokens/s), about 64 s on the 4 vCPU runner (3,106 tokens/s), and
+  41 to 47 s through the gateway's large-input lane with its default
+  concurrency ([PDF documents](#pdf-documents)). The L4 takes about 3 s
+  (L1+L2), so the 10 s budget fits about 640k tokens.
+- Parity, CUDA against the CPU on the same FP16 file and calibration
+  (eval/data, and the bench/long quick dev documents: 2,176 rows, 2,456
+  chunks, 5,341 windows): the decisions at 0.85 are 100% identical and the
+  mean absolute score difference is at most 7.1e-5; the largest difference
+  is 7.6e-3 to 9.5e-3, because FP16 kernels differ between CUDA and the CPU.
+  The parity criterion for FP16 is: decisions 100% identical, mean
+  difference at most 1e-4, largest difference at most 1e-2 (1e-3 applies
+  to FP32). The FP16 model itself differs
+  from the INT8 CPU model on about 1% of decisions near the threshold
+  ([train/reports/fp16_agreement_v6.md](../train/reports/fp16_agreement_v6.md)).
+- The gateway on the same VM (PostgreSQL 17, the CUDA provider) reported
+  `"provider":"cuda"` on `/readyz` and blocked an injection request.
+- T4 was not measured.
 
 ### Measure long inputs on your hardware
 

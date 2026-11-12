@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/guard-spec/guard-spec/internal/onnx"
 )
 
 func writeReport(rep *Report, out string) error {
@@ -55,6 +57,12 @@ func markdown(rep *Report) string {
 	w("- Model: `%s` (SHA-256 `%.12s`), ONNX Runtime %s\n", h.Model, h.ModelSHA256, h.ORT)
 	w("- CPU: %s, %d vCPU (%s/%s); INFERENCE_MAX_CONCURRENCY=%d, INFERENCE_INTRA_OP_THREADS=%q\n",
 		h.CPU, h.VCPU, h.GOOS, h.GOARCH, h.MaxConcurrency, h.IntraOp)
+	if p := h.Provider; p.Active == onnx.ProviderCUDA {
+		w("- GPU: %s (CUDA device %d, driver %s, CUDA %s), ONNX Runtime CUDA execution provider; model file `%s`, INFERENCE_BATCH_SIZE=%d\n",
+			p.GPU, p.DeviceID, p.Driver, p.CUDA, h.ModelFile, h.BatchSize)
+	} else if h.ModelFile != "" {
+		w("- Execution provider: %s; model file `%s`, INFERENCE_BATCH_SIZE=%d\n", p.Active, h.ModelFile, h.BatchSize)
+	}
 	w("- Commit: `%s`; date %s\n", h.Commit, h.Date)
 	if h.Profile != "" {
 		w("- Corpus: profile `%s`, %d documents, docs.jsonl SHA-256 `%.16s`\n", h.Profile, h.Docs, h.CorpusSHA256)

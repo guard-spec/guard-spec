@@ -108,7 +108,7 @@ func ScoreLong(ctx context.Context, f *fusion.Fuser, l2 *ClassifierLayer, in []i
 		}, in, o)
 	}
 	if o.BatchSize <= 0 {
-		o.BatchSize = inference.DefaultLongBatch
+		o.BatchSize = onnx.LongBatchSize(inference.DefaultLongBatch)
 	}
 	workers := 1
 	if o.Limiter != nil {

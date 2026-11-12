@@ -300,3 +300,29 @@ func TestShadowRecordedWithAuditEntry(t *testing.T) {
 		t.Fatalf("readyz shadow %+v", st.Shadow)
 	}
 }
+
+// /readyz reports the execution provider: the CPU by default, with the
+// classifier's model file.
+func TestReadyzInference(t *testing.T) {
+	t.Setenv(onnx.EnvProvider, "")
+	gw, _ := modelTestGateway(t, false, 0, nil)
+	app := newApp(gw, testLookup)
+	resp, err := app.Test(httptest.NewRequest("GET", "/readyz", nil), -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	var out struct {
+		Detector struct {
+			Inference map[string]any `json:"inference"`
+		} `json:"detector"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	inf := out.Detector.Inference
+	if inf["provider"] != "cpu" || inf["requested"] != "cpu" || inf["l2_model_file"] != onnx.ModelFile ||
+		inf["batch_size"] != float64(8) || inf["gpu"] != nil {
+		t.Fatalf("inference %v", inf)
+	}
+}

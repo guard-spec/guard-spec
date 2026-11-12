@@ -141,7 +141,7 @@ mỗi lần chạy.
 | Apple M3 Max, 14 core | M3 Max, máy local, chỉ mang tính tham khảo (2026-11-09, profile quick) | 61.8 | 9,209 | 17,551 | khoảng 175,000 | 0.42 (intra 1), 0.57 (mặc định) | 1.1 đến 1.2 s |
 | 8 vCPU (x86) | ước tính | | khoảng 6,000 | | khoảng 60,000 | | khoảng 3 s |
 | 16 vCPU (x86) | ước tính | | khoảng 12,000 | | khoảng 120,000 | | khoảng 1.5 s |
-| GPU | chưa đo (task RF-b74de2b9) | | | | | | |
+| NVIDIA L4 (tùy chọn GPU, model FP16) | Colab (máy dùng chung), NVIDIA L4, driver 580.82.07, CUDA 12.9, ORT 1.31.1 gpu_cuda12, 12 vCPU Xeon 2.2 GHz, `INFERENCE_BATCH_SIZE=8`, 2026-11-12; trung vị của 3 lần chạy | 1.2 (chỉ L2, batch 8) | | | khoảng 640,000 (L1+L2); khoảng 1,500,000 (chỉ L2) | | 0.30 s (L1+L2); 0.12 s (chỉ L2) |
 
 - Hai dòng runner là số đo, nhưng trên CPU khác nhau (GitHub tự chọn máy):
   job 2 vCPU được EPYC 9V74 đời mới hơn, job 4 vCPU được EPYC 7763 và còn chạy
@@ -155,7 +155,8 @@ mỗi lần chạy.
   `INFERENCE_MAX_CONCURRENCY` tăng theo số core. Hãy thay bằng lần đo của bạn.
 - Với ngân sách quét 10 s: khoảng 30k đến 50k token mỗi request trên 2 đến 4
   vCPU, 60k trên 8 và 120k trên 16 (ước tính); 200k token trong 10 s cần khoảng
-  32 vCPU riêng hoặc GPU (chưa đo).
+  32 vCPU riêng hoặc GPU (một L4 mất khoảng 3 s, xem [Tùy chọn GPU](#tùy-chọn-gpu)
+  bên dưới).
 - CPU cho mỗi token gần như không đổi theo K hay intra: song song nhiều hơn
   rút ngắn thời gian của một tài liệu, không giảm chi phí của nó. Một server
   quét tài liệu cho nhiều người cùng lúc đạt cùng tổng throughput với intra 1
@@ -166,6 +167,48 @@ mỗi lần chạy.
   và [`long-gh-ubuntu-24.04-2vcpu.md`](../bench/results/long-gh-ubuntu-24.04-2vcpu.md).
   Các lần chạy trên runner diễn ra trước bản sửa code/log của 0.4.2, nên bảng
   chặn nhầm trong đó là của detector 0.4.1; latency không bị ảnh hưởng.
+
+### Tùy chọn GPU
+
+CPU là mặc định; GPU là tùy chọn (`INFERENCE_PROVIDER=cuda`, image tự build
+từ `build/gateway-gpu.Dockerfile`, bộ phân loại FP16;
+[triển khai, GPU](deploy/README.vi.md#gpu-tùy-chọn)). Đo bằng
+`bench/gpu/colab_gpu_bench.sh` (`cmd/benchlong`, `l1,l2`, mỗi lần một tài
+liệu) trên **Colab (máy dùng chung), NVIDIA L4, driver 580.82.07, CUDA 12.9, ORT 1.31.1 gpu_cuda12**, 12 vCPU Intel Xeon 2.2 GHz, 2026-11-12. Mỗi số là trung vị của 3
+lần chạy; máy dùng chung dao động, hãy đọc như số tham khảo. Tài liệu là văn
+bản Wikipedia tiếng Anh 20k, 100k và 200k token.
+
+| `INFERENCE_BATCH_SIZE` | ms mỗi cửa sổ (L2) | Token/s (L2) | Tài liệu 20k, L2 | Tài liệu 100k, L2 | Tài liệu 200k, L2 | Tài liệu 200k, L1+L2 |
+|---:|---:|---:|---:|---:|---:|---:|
+| 8 (mặc định trên CUDA) | 1.21 | 156,000 | 0.12 s | 0.64 s | 1.29 s | 3.1 s |
+| 32 | 1.71 | 111,000 | 0.18 s | 0.90 s | 1.81 s | 3.1 s |
+| 64 | 1.79 | 106,000 | 0.19 s | 0.92 s | 1.91 s | 3.1 s |
+| 128 | 1.90 | 100,000 | 0.19 s | 0.97 s | 2.05 s | 3.1 s |
+
+- "L2" là bộ phân loại trên mọi cửa sổ 256 token của tài liệu, như đường dài
+  chạy; "L1+L2" là điểm hợp nhất của gateway trên mỗi đoạn 2 KiB. Khi bộ phân
+  loại chạy trên GPU, L1 (các luật, chạy trên CPU) chiếm phần lớn thời gian:
+  khoảng 3.1 s cho 200k token ở mọi batch, so với 1.3 s nếu chỉ L2. Tài liệu
+  100k mất 1.5 đến 1.6 s và tài liệu 20k mất 0.30 s với L1+L2.
+- Batch 8 nhanh nhất, nên là mặc định trên CUDA cho cả đường ngắn lẫn đường
+  dài (`INFERENCE_BATCH_SIZE`); batch lớn hơn chậm hơn trên mỗi cửa sổ ở L4.
+- So với các dòng CPU ở trên (đo trên máy CPU): tài liệu 200k token mất khoảng
+  11 s trên M3 Max khi dùng hết core (17,551 token/s), khoảng 64 s trên runner
+  4 vCPU (3,106 token/s), và 41 đến 47 s qua làn input lớn của gateway với độ
+  song song mặc định ([Tài liệu PDF](#tài-liệu-pdf)). L4 mất khoảng 3 s
+  (L1+L2), nên ngân sách 10 s chứa được khoảng 640k token.
+- Độ khớp, CUDA so với CPU trên cùng file FP16 và cùng calibration (eval/data
+  và các tài liệu dev quick của bench/long: 2,176 dòng, 2,456 đoạn, 5,341 cửa
+  sổ): quyết định ở 0.85 giống hệt 100% và chênh lệch điểm tuyệt đối trung
+  bình tối đa 7.1e-5; chênh lệch lớn nhất là 7.6e-3 đến 9.5e-3 vì kernel FP16
+  khác nhau giữa CUDA và CPU. Tiêu chí độ khớp cho FP16: quyết định giống hệt
+  100%, chênh lệch trung bình tối đa 1e-4, chênh lệch lớn nhất tối đa 1e-2
+  (mức 1e-3 dành cho FP32). Bản thân model
+  FP16 khác model INT8 trên CPU ở khoảng 1% quyết định gần ngưỡng
+  ([train/reports/fp16_agreement_v6.md](../train/reports/fp16_agreement_v6.md)).
+- Gateway trên cùng VM (PostgreSQL 17, CUDA provider) báo `"provider":"cuda"`
+  trên `/readyz` và chặn một request injection.
+- Chưa đo T4.
 
 ### Đo input dài trên phần cứng của bạn
 

@@ -3,6 +3,13 @@
 {{- $models := include "guard-spec.modelsVolume" . -}}
 {{- $claim := include "guard-spec.modelsClaimUsed" . -}}
 {{- $pull := .Values.models.pull -}}
+{{- $gpu := .Values.gateway.gpu | default dict -}}
+{{- $resources := deepCopy (.Values.gateway.resources | default dict) -}}
+{{- if $gpu.enabled -}}
+{{- $limits := deepCopy ($resources.limits | default dict) -}}
+{{- $_ := set $limits "nvidia.com/gpu" ($gpu.count | default 1) -}}
+{{- $_ := set $resources "limits" $limits -}}
+{{- end -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -60,6 +67,11 @@ spec:
               value: {{ $pull.required | toString | quote }}
             - name: MODELS_MIRROR
               value: {{ $pull.mirror | quote }}
+            {{- if $gpu.enabled }}
+            # Also the GPU model (model_fp16.onnx) where the manifest lists one.
+            - name: INFERENCE_PROVIDER
+              value: {{ $gpu.provider | default "cuda" | quote }}
+            {{- end }}
             {{- if $pull.hfToken.secretName }}
             - name: HF_TOKEN
               valueFrom:
@@ -77,7 +89,7 @@ spec:
       {{- end }}
       containers:
         - name: gateway
-          image: {{ include "guard-spec.image" (dict "root" . "image" .Values.gateway.image) }}
+          image: {{ include "guard-spec.gatewayImage" . }}
           imagePullPolicy: {{ .Values.gateway.image.pullPolicy }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
@@ -96,6 +108,11 @@ spec:
               value: ":8080"
             - name: METRICS_ADDR
               value: {{ printf ":%v" .Values.gateway.metricsPort | quote }}
+            {{- if $gpu.enabled }}
+            # The GPU option: CUDA execution provider (docs/deploy/README.md, "GPU").
+            - name: INFERENCE_PROVIDER
+              value: {{ $gpu.provider | default "cuda" | quote }}
+            {{- end }}
             {{- if $models }}
             - name: MODELS_PATH
               value: /models
@@ -212,7 +229,7 @@ spec:
             periodSeconds: 5
             timeoutSeconds: 3
           resources:
-            {{- toYaml .Values.gateway.resources | nindent 12 }}
+            {{- toYaml $resources | nindent 12 }}
       volumes:
         {{- if $claim }}
         - name: models

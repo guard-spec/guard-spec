@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/guard-spec/guard-spec/internal/inference/fusion"
+	"github.com/guard-spec/guard-spec/internal/onnx"
 )
 
 // Calibrations below are fitted by `go run -tags onnx ./cmd/calibrate fit` on
@@ -31,6 +32,28 @@ type CalibrationFile struct {
 	// shipped v3b file behave. `cmd/calibrate fit` derives it from the
 	// combiners (see untrustedMax there).
 	L2UntrustedMax float64 `json:"l2_untrusted_max,omitempty"`
+	// FP16 is the calibration of the same classifier's model_fp16.onnx (the
+	// GPU option, INFERENCE_PROVIDER=cuda), fitted the same way on the same
+	// rows, for a model whose FP16 decisions differ from the INT8 ones by
+	// more than 0.5% (train/reports/fp16_agreement_*.md). It applies when
+	// the classifier was loaded from model_fp16.onnx; absent, that file uses
+	// the fields above.
+	FP16 *CalibrationFile `json:"fp16,omitempty"`
+}
+
+// forModelFile is the calibration of the classifier loaded from file (a
+// base name): the FP16 block for model_fp16.onnx when there is one.
+func (c CalibrationFile) forModelFile(file string) (CalibrationFile, bool) {
+	if file == onnx.ModelFP16File && c.FP16 != nil && c.FP16.Platt.A != 0 {
+		f := *c.FP16
+		if f.Model == "" {
+			f.Model = c.Model
+		}
+		f.FP16 = nil
+		return f, true
+	}
+	c.FP16 = nil
+	return c, false
 }
 
 // BuiltinCalibrations are the calibrations of the classifiers we ship.
@@ -138,16 +161,28 @@ func LayerKey(active [3]bool) string {
 
 // calibrationFor is dir/calibration.json, else the built-in calibration for
 // the model name; src is "" when there is none.
+// For a classifier loaded from model_fp16.onnx (CUDA) it is that file's FP16
+// block when it has one (src then ends in "#fp16").
 func calibrationFor(dir, name string) (cal CalibrationFile, src string) {
+	file := filepath.Base(onnx.ResolveModelFile(dir, onnx.Options{}))
 	if data, err := os.ReadFile(filepath.Join(dir, calibrationFile)); err == nil {
 		var f CalibrationFile
 		if err := json.Unmarshal(data, &f); err == nil && f.Platt.A != 0 {
-			return f, filepath.Join(dir, calibrationFile)
+			src = filepath.Join(dir, calibrationFile)
+			cal, fp16 := f.forModelFile(file)
+			if fp16 {
+				src += "#fp16"
+			}
+			return cal, src
 		}
 		slog.Warn("L2: ignoring unreadable calibration file", "dir", dir)
 	}
 	if c, ok := BuiltinCalibrations[name]; ok {
-		return c, "built-in"
+		cal, fp16 := c.forModelFile(file)
+		if fp16 {
+			return cal, "built-in#fp16"
+		}
+		return cal, "built-in"
 	}
 	return CalibrationFile{Platt: fusion.Identity}, ""
 }

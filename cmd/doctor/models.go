@@ -136,6 +136,9 @@ func verifyLayer(lm *layerModel, man *onnx.Manifest, cache string) {
 // sizesMatch reports whether every file of mod is in dir with its manifest size.
 func sizesMatch(mod *onnx.ManifestModel, dir string) bool {
 	for _, f := range mod.Files {
+		if f.SkipIfAbsent(dir) {
+			continue
+		}
 		fi, err := os.Stat(filepath.Join(dir, f.Dest))
 		if err != nil || !fi.Mode().IsRegular() || (f.Size > 0 && fi.Size() != f.Size) {
 			return false
@@ -147,7 +150,12 @@ func sizesMatch(mod *onnx.ManifestModel, dir string) bool {
 // checkFiles verifies every file of mod in dir against the manifest.
 func checkFiles(mod *onnx.ManifestModel, dir string) (modelState, string) {
 	var missing, bad []string
+	files := 0
 	for _, f := range mod.Files {
+		if f.SkipIfAbsent(dir) {
+			continue // a GPU-only file (model_fp16.onnx) of a CPU install
+		}
+		files++
 		err := onnx.VerifyFile(filepath.Join(dir, f.Dest), f)
 		switch {
 		case err == nil:
@@ -158,7 +166,7 @@ func checkFiles(mod *onnx.ManifestModel, dir string) (modelState, string) {
 		}
 	}
 	switch {
-	case len(missing) == len(mod.Files):
+	case len(missing) == files:
 		return modelMissing, "no files in " + dir
 	case len(bad) > 0:
 		return modelBad, strings.Join(bad, "; ")
