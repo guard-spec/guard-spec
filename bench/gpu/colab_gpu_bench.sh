@@ -34,7 +34,9 @@ GO_SHA256=9849f4e04ee35303714e34fbc3ac8ab44ea3e448a95aa182f91e3b9b79c710ec
 RUNS=${RUNS:-3}
 BATCHES=${BATCHES:-"8 32 64 128"}
 STEPS=${STEPS:-"parity timing smoke"}
-mkdir -p "$OUT_DIR"
+# Tools and caches go to $WORK, results only to $OUT_DIR (small, quick to fetch).
+WORK=${JOB_DIR:-$OUT_DIR/..}/work
+mkdir -p "$OUT_DIR" "$WORK"
 step() { echo; echo "=== $* ($(date -u +%H:%M:%S))"; }
 REPO=$PWD
 
@@ -46,26 +48,26 @@ if ! command -v go >/dev/null || [ "$(go env GOVERSION)" != "go$GO_VERSION" ]; t
   rm -rf /tmp/go && tar -C /tmp -xzf /tmp/go.tgz
   export PATH=/tmp/go/bin:$PATH
 fi
-sh build/onnx-deps.sh "$OUT_DIR/onnx" linux amd64 gpu > "$OUT_DIR/onnx-deps.log" 2>&1 || { cat "$OUT_DIR/onnx-deps.log"; exit 1; }
-export ONNXRUNTIME_LIB=$OUT_DIR/onnx/lib/libonnxruntime.so CGO_ENABLED=1 CGO_LDFLAGS=-L$OUT_DIR/onnx/lib
+sh build/onnx-deps.sh "$WORK/onnx" linux amd64 gpu > "$OUT_DIR/onnx-deps.log" 2>&1 || { cat "$OUT_DIR/onnx-deps.log"; exit 1; }
+export ONNXRUNTIME_LIB=$WORK/onnx/lib/libonnxruntime.so CGO_ENABLED=1 CGO_LDFLAGS=-L$WORK/onnx/lib
 # CUDA 12 runtime libraries for ONNX Runtime's gpu_cuda12 build, from NVIDIA's
 # pip wheels (the VM's own torch may use another CUDA major).
-python3 -m pip install -q --target "$OUT_DIR/cu12" nvidia-cuda-runtime-cu12 nvidia-cublas-cu12 \
+python3 -m pip install -q --target "$WORK/cu12" nvidia-cuda-runtime-cu12 nvidia-cublas-cu12 \
   nvidia-cudnn-cu12 nvidia-cufft-cu12 nvidia-curand-cu12 > "$OUT_DIR/pip.log" 2>&1 || { tail -20 "$OUT_DIR/pip.log"; exit 1; }
-LD_LIBRARY_PATH=$(find "$OUT_DIR/cu12/nvidia" -maxdepth 2 -name lib -type d | paste -sd: -)${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+LD_LIBRARY_PATH=$(find "$WORK/cu12/nvidia" -maxdepth 2 -name lib -type d | paste -sd: -)${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
 export LD_LIBRARY_PATH
-CUDA_VERSION=$(ls -d "$OUT_DIR"/cu12/nvidia_cuda_runtime_cu12-*.dist-info | sed 's/.*cu12-\(.*\)\.dist-info/\1/')
+CUDA_VERSION=$(ls -d "$WORK"/cu12/nvidia_cuda_runtime_cu12-*.dist-info | sed 's/.*cu12-\(.*\)\.dist-info/\1/')
 export CUDA_VERSION
 E=$(printf 'ev%sl' a) # the command directory's name
-BIN=$OUT_DIR/bin
+BIN=$WORK/bin
 mkdir -p "$BIN"
 for c in benchlong gateway doctor; do go build -tags onnx -o "$BIN/$c" "./cmd/$c" || exit 1; done
 go build -tags onnx -o "$BIN/scores" "./cmd/$E" || exit 1
 {
   nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv
   nvidia-smi | sed -n 3p
-  ls -d "$OUT_DIR"/cu12/*.dist-info | xargs -n1 basename
-  cat "$OUT_DIR/onnx/lib/VERSION.onnxruntime"
+  ls -d "$WORK"/cu12/*.dist-info | xargs -n1 basename
+  cat "$WORK/onnx/lib/VERSION.onnxruntime"
   go version
   nproc; grep -m1 'model name' /proc/cpuinfo
 } | tee "$OUT_DIR/env.txt"
@@ -73,7 +75,7 @@ go build -tags onnx -o "$BIN/scores" "./cmd/$E" || exit 1
 FP16=$DATA_DIR/fp16
 # The CPU reference: the same FP16 file named model.onnx (the CPU's choice)
 # and its fp16 calibration block as the top-level one.
-CPU=$OUT_DIR/fp16cpu
+CPU=$WORK/fp16cpu
 mkdir -p "$CPU"
 ln -sf "$FP16/model_fp16.onnx" "$CPU/model.onnx"
 for f in tokenizer.json config.json thresholds.json; do ln -sf "$FP16/$f" "$CPU/$f"; done
@@ -90,11 +92,11 @@ parity() {
       -data "$E/data" -json "$OUT_DIR/parity-$E-$p.json" -scores "$OUT_DIR/parity-$E-$p.scores" 2>&1 | grep -E '^(detector|all )'
     INFERENCE_PROVIDER=$p L2_MODEL_DIR=$dir "$BIN/benchlong" -corpus "$DATA_DIR/quick" -profile quick \
       -split dev -layers "l1,l2" -skip-latency -workers "$( [ $p = cuda ] && echo 2 || nproc )" -host "colab-$p" \
-      -out "$OUT_DIR/parity-long-$p.json" -units "$OUT_DIR/parity-long-$p.units.jsonl" 2>&1 | tail -2
+      -out "$WORK/parity-long-$p.json" -units "$WORK/parity-long-$p.units.jsonl" 2>&1 | tail -2
   done
   python3 bench/gpu/compare_scores.py "$OUT_DIR/parity-$E-cpu.scores" "$OUT_DIR/parity-$E-cuda.scores" \
     --json "$OUT_DIR/parity-$E.json"
-  python3 bench/gpu/compare_scores.py "$OUT_DIR/parity-long-cpu.units.jsonl" "$OUT_DIR/parity-long-cuda.units.jsonl" \
+  python3 bench/gpu/compare_scores.py "$WORK/parity-long-cpu.units.jsonl" "$WORK/parity-long-cuda.units.jsonl" \
     --json "$OUT_DIR/parity-long.json"
 }
 
@@ -108,6 +110,7 @@ timing() {
       nvidia-smi --query-gpu=utilization.gpu,memory.used --format=csv,noheader
     done
   done
+  python3 bench/gpu/summarize_timing.py "$OUT_DIR" > "$OUT_DIR/timing_summary.json"
 }
 
 smoke() {
@@ -132,7 +135,7 @@ smoke() {
     -c "INSERT INTO api_keys (key_hash, key_prefix, org_id) VALUES ('$hash', '${key:0:11}', '$org')"
   INFERENCE_PROVIDER=cuda L2_MODEL_DIR=$FP16 DETECTOR_LAYERS=l1,l2 GUARD_ENV=dev LISTEN_ADDR=127.0.0.1:18080 \
     METRICS_ADDR=127.0.0.1:19090 DATABASE_URL="postgres://guardspec_app:$app@127.0.0.1:5432/guardspec?sslmode=disable" \
-    "$BIN/gateway" > "$OUT_DIR/gateway.log" 2>&1 &
+    "$BIN/gateway" > "$WORK/gateway.log" 2>&1 &
   local pid=$!
   for _ in $(seq 1 120); do curl -fsS http://127.0.0.1:18080/readyz >/dev/null 2>&1 && break; sleep 1; done
   {
@@ -148,7 +151,7 @@ smoke() {
     echo "--- doctor inference"
     INFERENCE_PROVIDER=cuda L2_MODEL_DIR=$FP16 DETECTOR_LAYERS=l1,l2 MODEL_DIR=$DATA_DIR "$BIN/doctor" \
       -skip database,migrations,upstream,security,secrets,encryption,advisories,models | grep -E 'inference|layers'
-    echo "--- gateway log (provider lines)"; grep -E '"inference provider"|L2 classifier loaded' "$OUT_DIR/gateway.log"
+    echo "--- gateway log (provider lines)"; grep -E '"inference provider"|L2 classifier loaded' "$WORK/gateway.log"
   } 2>&1 | tee "$OUT_DIR/smoke.txt"
   kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
 }
@@ -157,4 +160,5 @@ for s in $STEPS; do
   "$s" || echo "STEP FAILED: $s"
   cd "$REPO" || exit 1
 done
+du -sh "$OUT_DIR"
 echo "done: $OUT_DIR"
