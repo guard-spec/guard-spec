@@ -1,0 +1,128 @@
+{
+  "what": "v7 arms trained on Colab L4 (RF-895d3533 R6, reports/v7_preregistration.md); aggregate numbers only",
+  "gpu": "NVIDIA L4 (Colab, shared VM), driver 580.82.07, CUDA 13.0",
+  "torch": "2.13.0+cu130",
+  "transformers": "5.10.2",
+  "python": "3.13.16 (project pins 3.12)",
+  "seed": 20261105,
+  "owner_data": "v4-A train.jsonl (1,016 owner rows) and val.jsonl (124) uploaded under the owner's approval of 2026-11-12; /content/job/<name>/data deleted before each VM stopped; no hold-out file uploaded",
+  "arms": {
+    "ref": {
+      "colab_job": "v7-ref",
+      "commit": "c21d7d3a8699",
+      "data_sha256": {
+        "data-v4A/train.jsonl": "7f47970fc4074a7aea4dc6acc2e46edef2e2785effb2d51866233634cb78b5fc",
+        "data-v4A/val_hard.jsonl": "0b85dd1414a412b1233675201a529de1f84f8bdf67c0c3f7517f37ccc36d29d2",
+        "data-v4A/val_v3.jsonl": "750d93625ff0ec4bb4c007109ba701c7cdb2aa3e133b986f783f2b32a22dc27c",
+        "data-v4A/val_v4.jsonl": "1c0d27b6c2e35bf5cbfd873079cf3b5a02c3340ce3ba61e1bd51d0f504003768",
+        "data-v4A/val_vi_variants.jsonl": "de9c7b94dd3ccb45e220b4de11985d1b2e9dc992f8a95e7caa0d8611be16c9c6",
+        "data-v4A/val.jsonl": "62edd29aa4980f4c443fdfb6110d6391bf5d2e803a679ad8f20972e3569cd94e",
+        "out-full/v6_train.jsonl": "20f5ddadb634add3556a946ea64631f1d4d9801c7c1af5c4b88dccd4a4de48f5",
+        "out-full/v6_val.jsonl": "84dd0cfb448486dee0b43dee8d892cac8bbf42c4683e99db35236335a4e72ef1",
+        "out-full/val_v6.jsonl": "f70e0617946da98e15430c0a0548f9eafe9903271de953ee3b4670fc5e1f44d1"
+      },
+      "best_epoch": 5,
+      "val_loss": [
+        0.0794,
+        0.0439,
+        0.0294,
+        0.027,
+        0.0241
+      ],
+      "train_minutes": 32.5,
+      "n_train_rows": 50099,
+      "n_train_windows": 52373,
+      "oversample_kind": null,
+      "train_files": [
+        "train.jsonl",
+        "v6_train.jsonl"
+      ],
+      "device": "cuda",
+      "compute_units": {
+        "before": 399.96,
+        "after": 398.51,
+        "used": 1.45
+      }
+    },
+    "B": {
+      "colab_job": "v7-B",
+      "commit": "a760b77a29f6",
+      "data_sha256": {
+        "data-v4A/train.jsonl": "7f47970fc4074a7aea4dc6acc2e46edef2e2785effb2d51866233634cb78b5fc",
+        "data-v4A/val_hard.jsonl": "0b85dd1414a412b1233675201a529de1f84f8bdf67c0c3f7517f37ccc36d29d2",
+        "data-v4A/val_v3.jsonl": "750d93625ff0ec4bb4c007109ba701c7cdb2aa3e133b986f783f2b32a22dc27c",
+        "data-v4A/val_v4.jsonl": "1c0d27b6c2e35bf5cbfd873079cf3b5a02c3340ce3ba61e1bd51d0f504003768",
+        "data-v4A/val_vi_variants.jsonl": "de9c7b94dd3ccb45e220b4de11985d1b2e9dc992f8a95e7caa0d8611be16c9c6",
+        "data-v4A/val.jsonl": "62edd29aa4980f4c443fdfb6110d6391bf5d2e803a679ad8f20972e3569cd94e",
+        "out-full/v6_train.jsonl": "20f5ddadb634add3556a946ea64631f1d4d9801c7c1af5c4b88dccd4a4de48f5",
+        "out-full/v6_val.jsonl": "84dd0cfb448486dee0b43dee8d892cac8bbf42c4683e99db35236335a4e72ef1",
+        "out-full/val_v6.jsonl": "f70e0617946da98e15430c0a0548f9eafe9903271de953ee3b4670fc5e1f44d1",
+        "v7/v7_train.jsonl": "87bbf5b95e5122f36f419fdf1bd83a0f6566466b5c46c4225d0cdf523b9754ab"
+      },
+      "best_epoch": 5,
+      "val_loss": [
+        0.0789,
+        0.0391,
+        0.0297,
+        0.0246,
+        0.0226
+      ],
+      "train_minutes": 41.8,
+      "n_train_rows": 61369,
+      "n_train_windows": 64964,
+      "oversample_kind": null,
+      "train_files": [
+        "train.jsonl",
+        "v6_train.jsonl",
+        "v7_train.jsonl"
+      ],
+      "device": "cuda",
+      "compute_units": {
+        "before": 398.51,
+        "after": 396.97,
+        "used": 1.54
+      }
+    },
+    "C": {
+      "colab_job": "v7-C",
+      "commit": "a760b77a29f64ded78aae528c73b78a80a1b60d1",
+      "data_sha256": {
+        "data-v4A/train.jsonl": "7f47970fc4074a7aea4dc6acc2e46edef2e2785effb2d51866233634cb78b5fc",
+        "data-v4A/val_hard.jsonl": "0b85dd1414a412b1233675201a529de1f84f8bdf67c0c3f7517f37ccc36d29d2",
+        "data-v4A/val_v3.jsonl": "750d93625ff0ec4bb4c007109ba701c7cdb2aa3e133b986f783f2b32a22dc27c",
+        "data-v4A/val_v4.jsonl": "1c0d27b6c2e35bf5cbfd873079cf3b5a02c3340ce3ba61e1bd51d0f504003768",
+        "data-v4A/val_vi_variants.jsonl": "de9c7b94dd3ccb45e220b4de11985d1b2e9dc992f8a95e7caa0d8611be16c9c6",
+        "data-v4A/val.jsonl": "62edd29aa4980f4c443fdfb6110d6391bf5d2e803a679ad8f20972e3569cd94e",
+        "out-full/v6_train.jsonl": "20f5ddadb634add3556a946ea64631f1d4d9801c7c1af5c4b88dccd4a4de48f5",
+        "out-full/v6_val.jsonl": "84dd0cfb448486dee0b43dee8d892cac8bbf42c4683e99db35236335a4e72ef1",
+        "out-full/val_v6.jsonl": "f70e0617946da98e15430c0a0548f9eafe9903271de953ee3b4670fc5e1f44d1",
+        "v7/v7_train.jsonl": "87bbf5b95e5122f36f419fdf1bd83a0f6566466b5c46c4225d0cdf523b9754ab"
+      },
+      "best_epoch": 5,
+      "val_loss": [
+        0.0757,
+        0.0339,
+        0.0257,
+        0.0217,
+        0.0212
+      ],
+      "train_minutes": 42.6,
+      "n_train_rows": 62807,
+      "n_train_windows": 66544,
+      "oversample_kind": {
+        "v7_hardneg": 3
+      },
+      "train_files": [
+        "train.jsonl",
+        "v6_train.jsonl",
+        "v7_train.jsonl"
+      ],
+      "device": "cuda",
+      "compute_units": {
+        "before": 396.97,
+        "after": 395.52,
+        "used": 1.45
+      }
+    }
+  }
+}
