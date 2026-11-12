@@ -325,6 +325,7 @@ jobs:
       - run: helm lint "$CHART" --strict -f "$CHART/ci/all-options-values.yaml"
       - run: helm lint "$CHART" --strict -f "$CHART/ci/gateway-full-values.yaml"
       - run: helm lint "$CHART" --strict -f "$CHART/ci/models-pull-values.yaml"
+      - run: helm lint "$CHART" --strict -f "$CHART/ci/gpu-values.yaml"
       - run: helm lint "$CHART" --strict -f "$CHART/examples/values-eks.yaml"
       - run: helm lint "$CHART" --strict -f "$CHART/examples/values-aks.yaml"
       - run: helm lint "$CHART" --strict -f "$CHART/examples/values-gke.yaml"
@@ -338,6 +339,7 @@ jobs:
           helm template gs "$CHART" --set models.persistence.enabled=false | kc
           helm template gs "$CHART" -f "$CHART/ci/gateway-full-values.yaml" | kc
           helm template gs "$CHART" -f "$CHART/ci/models-pull-values.yaml" | kc
+          helm template gs "$CHART" -f "$CHART/ci/gpu-values.yaml" | kc
           helm template gs "$CHART" -f "$CHART/ci/all-options-values.yaml" \
             --api-versions security.openshift.io/v1 | kc
           helm template gs "$CHART" -f "$CHART/examples/values-eks.yaml" | kc
@@ -355,6 +357,15 @@ jobs:
         run: |
           if helm template gs "$CHART" | grep -E '^kind: (Job|HorizontalPodAutoscaler|PodDisruptionBudget|NetworkPolicy|Ingress|Route|ServiceAccount)$'; then
             echo "an optional resource is rendered with the default values" >&2; exit 1
+          fi
+      - name: The GPU option renders the -gpu image, one GPU and INFERENCE_PROVIDER=cuda
+        run: |
+          out=$(helm template gs "$CHART" -f "$CHART/ci/gpu-values.yaml")
+          grep -q 'image: ghcr.io/guard-spec/guard-spec-gateway:.*-gpu$' <<< "$out"
+          grep -q 'nvidia.com/gpu: 1' <<< "$out"
+          grep -A1 'name: INFERENCE_PROVIDER' <<< "$out" | grep -q 'value: "cuda"'
+          if helm template gs "$CHART" | grep -E -e '-gpu$|nvidia.com/gpu|INFERENCE_PROVIDER'; then
+            echo "the default values render GPU settings" >&2; exit 1
           fi
       - name: No models volume without a claim (gateway-full keeps its models)
         run: |
@@ -438,6 +449,71 @@ jobs:
       - run: tests/kind/e2e.sh
         env:
           ONNX_DEPS_CACHE: ${{ runner.temp }}/dl/onnx-deps
+
+  # Not a required check: builds the GPU option's image
+  # (build/gateway-gpu.Dockerfile, linux/amd64, not pushed) and checks it on
+  # this runner, which has no GPU: INFERENCE_PROVIDER=cuda (the image's
+  # default) must stop the gateway with the CUDA error, auto must fall back
+  # to the CPU, and doctor must report the missing GPU. Real GPU runs are
+  # measured separately (docs/sizing.md).
+  gateway-gpu-image:
+    name: GPU image (build, no GPU smoke)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+      # ONNX Runtime GPU (450 MB) and libtokenizers, cached like the CPU archives.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: onnx-cache
+        with:
+          path: ${{ runner.temp }}/dl/onnx-deps-gpu
+          key: onnx-deps-gpu-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('build/onnx-deps.sh') }}
+      - name: ONNX archives for the GPU image
+        run: sh build/onnx-deps.sh "$RUNNER_TEMP/onnx" linux amd64 gpu
+        env:
+          ONNX_DEPS_CACHE: ${{ runner.temp }}/dl/onnx-deps-gpu
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: steps.onnx-cache.outputs.cache-hit != 'true'
+        with:
+          path: ${{ runner.temp }}/dl/onnx-deps-gpu
+          key: ${{ steps.onnx-cache.outputs.cache-primary-key }}
+      - name: Build
+        env:
+          ONNX_DEPS_CACHE: ${{ runner.temp }}/dl/onnx-deps-gpu
+        run: |
+          docker build --platform linux/amd64 --build-context "onnx-cache=$ONNX_DEPS_CACHE" \
+            --build-arg ONNX_DEPS_CACHE=/onnx-cache -f build/gateway-gpu.Dockerfile -t guard-spec-gateway:ci-gpu .
+          docker image ls guard-spec-gateway:ci-gpu
+      - name: Without a GPU, cuda refuses to start and auto falls back
+        run: |
+          img=guard-spec-gateway:ci-gpu
+          docker run --rm "$img" --version
+          env=(-e DATABASE_URL=postgres://x@127.0.0.1:1/x -e GUARD_ENV=dev)
+          set +e
+          docker run --rm "${env[@]}" "$img" > cuda.log 2>&1
+          code=$?
+          set -e
+          cat cuda.log
+          test "$code" -ne 0
+          grep -q 'INFERENCE_PROVIDER=cuda, but the CUDA execution provider cannot start' cuda.log
+          docker run --rm "${env[@]}" -e INFERENCE_PROVIDER=auto "$img" > auto.log 2>&1 || true
+          cat auto.log
+          grep -q '"msg":"inference provider","requested":"auto","provider":"cpu"' auto.log
+          set +e
+          docker run --rm --entrypoint /app/doctor -e INFERENCE_PROVIDER=cuda "$img" \
+            -skip database,migrations,upstream,security,secrets,encryption,advisories > doctor.log 2>&1
+          code=$?
+          set -e
+          cat doctor.log
+          test "$code" -eq 1
+          grep -q 'inference .*no NVIDIA GPU 0 found' doctor.log
+          docker image rm guard-spec-gateway:ci-gpu
 
   terraform:
     name: Terraform AWS reference (fmt, validate, test)

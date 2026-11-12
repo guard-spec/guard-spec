@@ -118,6 +118,62 @@ release: ghi output của `helm template` vào resources của một kustomizati
 rồi chạy `kubectl kustomize <dir> | kubectl apply -f -`. Khi đó các hook như
 `dbRoles` chạy như Job bình thường, không còn chạy trước các service.
 
+## GPU (tùy chọn)
+
+CPU là mặc định: image gateway chạy bộ phân loại INT8 trên CPU provider của
+ONNX Runtime và không cần gì thêm. [Sizing](../sizing.vi.md) có số đo CPU;
+với tài liệu dài (từ 100k token) đường CPU cần nhiều core, và GPU là một tùy
+chọn.
+
+Tùy chọn GPU là một image riêng, `ghcr.io/guard-spec/guard-spec-gateway:<version>-gpu`
+(chỉ linux/amd64, khoảng 3-4 GB, ký bằng cosign như các image khác): cùng
+binary gateway, với bản CUDA 12 của ONNX Runtime trên image runtime CUDA 12 +
+cuDNN 9 của NVIDIA (`build/gateway-gpu.Dockerfile`). Cần:
+
+- GPU NVIDIA với driver 525 trở lên;
+- NVIDIA container runtime (`docker run --gpus all ...`), hoặc trên
+  Kubernetes là NVIDIA device plugin hay GPU Operator;
+- bộ phân loại FP16, `model_fp16.onnx`, đặt cạnh bản INT8:
+  `./models pull -provider cuda` (init container `models.pull` làm việc này
+  khi bật `gateway.gpu.enabled`). Nếu thiếu, CUDA chạy model INT8, chậm, và
+  `doctor` cảnh báo.
+
+`INFERENCE_PROVIDER` chọn provider (image `-gpu` đặt sẵn `cuda`):
+
+| Giá trị | Hành vi |
+|---|---|
+| `cpu` | Mặc định. CPU provider, model INT8; không có gì thay đổi. |
+| `cuda` | CUDA execution provider trên `INFERENCE_CUDA_DEVICE_ID` (mặc định 0), model FP16. Nếu CUDA không khởi động được (không có GPU, không có driver, dùng nhầm image CPU) thì gateway dừng ngay lúc khởi động với lỗi nói rõ thiếu gì, thay vì âm thầm chạy chậm trên CPU. |
+| `auto` | Dùng CUDA nếu khởi động được, nếu không thì chạy CPU kèm cảnh báo (lý do có trong `/readyz`). |
+
+Trên CUDA, `INFERENCE_BATCH_SIZE` mặc định là 64 cửa sổ mỗi lượt chạy (cả
+đường ngắn lẫn đường dài) và `INFERENCE_MAX_CONCURRENCY` là 2; chỉnh theo số
+đo GPU trong [sizing](../sizing.vi.md). `GET /readyz` báo `detector.inference`
+(provider yêu cầu và đang chạy, GPU, driver, phiên bản CUDA và ONNX Runtime,
+batch size, `l2_model_file`), và `./doctor` kiểm tra cùng các điều đó trước
+khi gateway khởi động (`inference`).
+
+Với Helm chart:
+
+```yaml
+gateway:
+  gpu:
+    enabled: true     # image -gpu, resources.limits["nvidia.com/gpu"]: 1, INFERENCE_PROVIDER=cuda
+    # provider: auto  # chạy CPU thay vì từ chối khởi động
+  nodeSelector:
+    nvidia.com/gpu.present: "true"
+  tolerations:
+    - {key: nvidia.com/gpu, operator: Exists, effect: NoSchedule}
+models:
+  pull:
+    enabled: true     # tải thêm model_fp16.onnx
+```
+
+`ci/gpu-values.yaml` của chart được render và kiểm schema trong CI. Bản thân
+image GPU được build trong CI trên máy không có GPU, nơi nó phải từ chối khởi
+động với `cuda` và chuyển sang CPU với `auto`; số đo GPU được đo riêng và ghi
+rõ trong [sizing](../sizing.vi.md).
+
 ## Đóng góp
 
 Nếu bạn chạy Guard Spec trên một trong các nền tảng này, một báo cáo ngắn

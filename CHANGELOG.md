@@ -11,6 +11,22 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ### Added
 
+- **GPU option** (RF-b74de2b9). The CPU stays the default and unchanged.
+  `INFERENCE_PROVIDER=cuda` runs the models with ONNX Runtime's CUDA
+  execution provider (`INFERENCE_CUDA_DEVICE_ID`); when CUDA cannot start
+  the gateway exits at start with an error that says why. `auto` falls back
+  to the CPU with a warning. On CUDA the classifier is `model_fp16.onnx`
+  (`train/export.py --fp16`; manifest files marked `provider: cuda` are
+  pulled only by `models pull -provider cuda` or a cuda/auto gateway),
+  `INFERENCE_BATCH_SIZE` (new, short and long path) defaults to 64 and
+  `INFERENCE_MAX_CONCURRENCY` to 2. New image
+  `guard-spec-gateway:<version>-gpu` (linux/amd64, CUDA 12 + cuDNN 9,
+  signed), Helm `gateway.gpu.enabled` (the `-gpu` image, one
+  `nvidia.com/gpu`, `INFERENCE_PROVIDER=cuda`). `/readyz`
+  (`detector.inference`) and `doctor` (`inference`) report the provider,
+  GPU, CUDA and ONNX Runtime versions and the model file. `cmd/benchlong`
+  gains `-split` and `-units`. See docs/deploy/README.md, "GPU".
+
 - **Policy history** (RF-5f318378). Every save of a policy (API, admin UI,
   config as code) is kept as a version with its author, time and an
   optional `reason` (migration 026, `policy_versions`).

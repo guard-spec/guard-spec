@@ -2,7 +2,7 @@
 # Downloads the native libraries that the `onnx` build tag needs and checks
 # their SHA-256 values. Used by build/gateway.Dockerfile and `make onnx-deps`.
 #
-#   build/onnx-deps.sh <dest-dir> [os] [arch]
+#   build/onnx-deps.sh <dest-dir> [os] [arch] [flavor]
 #
 # <dest-dir>/lib gets:
 #   libonnxruntime.{so,dylib}*  ONNX Runtime CPU (MIT), loaded at run time via dlopen
@@ -10,6 +10,14 @@
 #                               github.com/daulet/tokenizers (MIT), linked statically
 #
 # os is linux or darwin, arch is amd64 or arm64 (default: this machine).
+#
+# flavor is cpu (default) or gpu. gpu (linux amd64 only, the -gpu image,
+# build/gateway-gpu.Dockerfile) takes ONNX Runtime's CUDA 12 build instead:
+# libonnxruntime.so with libonnxruntime_providers_cuda.so and
+# libonnxruntime_providers_shared.so next to it (ONNX Runtime loads the
+# providers from the directory of libonnxruntime.so; TensorRT is left out),
+# and VERSION.onnxruntime for `doctor`. The CUDA and cuDNN libraries come
+# from the image's nvidia/cuda base, not from here.
 #
 # ONNX_DEPS_CACHE=<dir> (CI only: a directory restored by actions/cache, or
 # mounted into the gateway image build): an archive there named
@@ -23,13 +31,18 @@ set -eu
 ORT_VERSION=1.31.1
 TOKENIZERS_VERSION=1.27.0
 
-dest=${1:?usage: onnx-deps.sh <dest-dir> [os] [arch]}
+dest=${1:?usage: onnx-deps.sh <dest-dir> [os] [arch] [cpu|gpu]}
 os=${2:-$(uname -s | tr '[:upper:]' '[:lower:]')}
 arch=${3:-$(uname -m)}
+flavor=${4:-cpu}
 case "$arch" in
   x86_64|amd64) arch=amd64 ;;
   aarch64|arm64) arch=arm64 ;;
   *) echo "unsupported arch: $arch" >&2; exit 1 ;;
+esac
+case "$flavor-$os-$arch" in
+  cpu-*|gpu-linux-amd64) ;;
+  *) echo "unsupported flavor: $flavor on $os-$arch (gpu is linux amd64 only)" >&2; exit 1 ;;
 esac
 
 case "$os-$arch" in
@@ -47,6 +60,11 @@ case "$os-$arch" in
     tok_sha=fb84b8b2e349a5952767ffe80ccd862fc44084de47f3b0cc3f0b7c9d4e649cf7 ;;
   *) echo "unsupported platform: $os-$arch" >&2; exit 1 ;;
 esac
+if [ "$flavor" = gpu ]; then
+  # ONNX Runtime GPU, CUDA 12 build (cuDNN 9), for the -gpu image.
+  ort_pkg=onnxruntime-linux-x64-gpu_cuda12-$ORT_VERSION
+  ort_sha=57cd51f677eca19a269cdba31b0c16c15d73a8feea41f170aa8b750447ab1f70
+fi
 
 sha256() {
   if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1
@@ -93,9 +111,16 @@ case "$os" in
 esac
 cp -L "$tmp/$ort_pkg/lib/$ort_lib" "$dest/lib/$ort_lib"
 cp "$tmp/$ort_pkg/LICENSE" "$dest/LICENSE.onnxruntime"
+if [ "$flavor" = gpu ]; then
+  for p in libonnxruntime_providers_cuda.so libonnxruntime_providers_shared.so; do
+    cp -L "$tmp/$ort_pkg/lib/$p" "$dest/lib/$p"
+  done
+  cp "$tmp/$ort_pkg/ThirdPartyNotices.txt" "$dest/ThirdPartyNotices.onnxruntime.txt"
+  echo "$ORT_VERSION (gpu_cuda12)" > "$dest/lib/VERSION.onnxruntime"
+fi
 
 fetch "https://github.com/daulet/tokenizers/releases/download/v$TOKENIZERS_VERSION/libtokenizers.$os-$arch.tar.gz" "$tok_sha" "$tmp/tok.tgz"
 tar -xzf "$tmp/tok.tgz" -C "$dest/lib" libtokenizers.a
 
-echo "onnx deps ($os-$arch, ORT $ORT_VERSION, tokenizers $TOKENIZERS_VERSION) in $dest/lib:"
+echo "onnx deps ($os-$arch, ORT $ORT_VERSION $flavor, tokenizers $TOKENIZERS_VERSION) in $dest/lib:"
 ls -l "$dest/lib"

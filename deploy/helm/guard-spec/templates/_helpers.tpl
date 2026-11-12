@@ -32,6 +32,20 @@ app.kubernetes.io/component: {{ .component }}
 {{- $ref -}}
 {{- end -}}
 
+{{/* The gateway container's image: gateway.image, with gateway.gpu.tagSuffix
+("-gpu") appended to its tag when gateway.gpu.enabled (unless the tag
+already ends with it). */}}
+{{- define "guard-spec.gatewayImage" -}}
+{{- $img := .Values.gateway.image -}}
+{{- $tag := default .Chart.AppVersion $img.tag -}}
+{{- $gpu := .Values.gateway.gpu | default dict -}}
+{{- if $gpu.enabled -}}
+{{- $suffix := $gpu.tagSuffix | default "-gpu" -}}
+{{- if not (hasSuffix $suffix $tag) }}{{ $tag = printf "%s%s" $tag $suffix }}{{ end -}}
+{{- end -}}
+{{- printf "%s:%s" $img.repository $tag -}}
+{{- end -}}
+
 {{/* An image whose empty repository and tag fall back to the gateway's. */}}
 {{- define "guard-spec.gatewayDerivedImage" -}}
 {{- $img := dict "repository" (default .root.Values.gateway.image.repository .image.repository) "tag" (default .root.Values.gateway.image.tag .image.tag) -}}

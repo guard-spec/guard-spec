@@ -1,0 +1,17 @@
+# Used by CI (helm lint and template): the GPU option. The gateway runs the
+# -gpu image with INFERENCE_PROVIDER=cuda and one nvidia.com/gpu, on GPU
+# nodes picked with the usual nodeSelector and tolerations keys, and the
+# models-pull init container also fetches the FP16 model. Not a deployment
+# example: see docs/deploy/README.md, "GPU".
+gateway:
+  gpu:
+    enabled: true
+  nodeSelector:
+    nvidia.com/gpu.present: "true"
+  tolerations:
+    - key: nvidia.com/gpu
+      operator: Exists
+      effect: NoSchedule
+models:
+  pull:
+    enabled: true

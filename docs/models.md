@@ -42,6 +42,13 @@ models/cache/
 Several versions of one model can sit side by side; that is what makes a
 rollback a restart.
 
+For the GPU option ([deploy, GPU](deploy/README.md#gpu-optional)) a classifier
+version may also have `model_fp16.onnx`, the same checkpoint in FP16 for
+ONNX Runtime's CUDA execution provider (`train/export.py --fp16`). The
+manifest marks it `provider: cuda`: `models pull -provider cuda` (or
+`INFERENCE_PROVIDER=cuda`/`auto`, as in the `-gpu` image) fetches it, a CPU
+install never does, and the CPU keeps loading `model_int8.onnx`.
+
 ## Pulling
 
 ```bash
@@ -343,7 +350,10 @@ For maintainers. The example releases `guardspec-classifier` `v4`.
    in the model card. Do not go back to step 1 because of them; a model
    that fails the eval set is not released (as with v3).
 4. **Hash** the files: `shasum -a 256 model_int8.onnx tokenizer.json config.json thresholds.json calibration.json`
-   and note the sizes.
+   and note the sizes. For the GPU option, also export `model_fp16.onnx`
+   from the same checkpoint (`train/export.py --fp16`), check that its
+   decisions at 0.85 agree with the INT8 model (a report in
+   `train/reports/`, as for v6), and list it with `provider: cuda`.
 5. **Upload** the same files to Hugging Face (the repo in the manifest) and
    note the commit sha; then attach them as assets of a GitHub Release
    tagged `model-guardspec-classifier-v4` (a model release, not a `v*`

@@ -119,6 +119,62 @@ post-renderer plugin, or render and apply without a Helm release: write
 `kubectl kustomize <dir> | kubectl apply -f -`. Hooks such as `dbRoles` then
 run as ordinary Jobs, not before the services.
 
+## GPU (optional)
+
+The CPU is the default: the gateway image runs the INT8 classifier on ONNX
+Runtime's CPU provider and needs nothing else. [Sizing](../sizing.md) gives
+the CPU numbers; for long documents (100k+ tokens) the CPU path needs many
+cores, and a GPU is the option.
+
+The GPU option is a separate image, `ghcr.io/guard-spec/guard-spec-gateway:<version>-gpu`
+(linux/amd64 only, about 3-4 GB, signed with cosign like the others): the same
+gateway binary with ONNX Runtime's CUDA 12 build on NVIDIA's CUDA 12 + cuDNN 9
+runtime image (`build/gateway-gpu.Dockerfile`). It needs:
+
+- an NVIDIA GPU with driver 525 or newer;
+- the NVIDIA container runtime (`docker run --gpus all ...`), or on
+  Kubernetes the NVIDIA device plugin or GPU Operator;
+- the FP16 classifier, `model_fp16.onnx`, next to the INT8 one:
+  `./models pull -provider cuda` (the `models.pull` init container does
+  this when `gateway.gpu.enabled`). Without it CUDA runs the INT8 model,
+  slowly, and `doctor` warns.
+
+`INFERENCE_PROVIDER` picks the provider (the `-gpu` image sets `cuda`):
+
+| Value | Behaviour |
+|---|---|
+| `cpu` | The default. CPU provider, INT8 model; nothing changes. |
+| `cuda` | CUDA execution provider on `INFERENCE_CUDA_DEVICE_ID` (default 0), FP16 model. If CUDA cannot start (no GPU, no driver, the CPU image) the gateway exits at start with an error that says what is missing, rather than running slowly on the CPU. |
+| `auto` | CUDA when it starts, else the CPU with a warning (and the reason in `/readyz`). |
+
+On CUDA, `INFERENCE_BATCH_SIZE` defaults to 64 windows per run (the short and
+the long path) and `INFERENCE_MAX_CONCURRENCY` to 2; tune them with the GPU
+numbers in [sizing](../sizing.md). `GET /readyz` reports
+`detector.inference` (requested and active provider, GPU, driver, CUDA and
+ONNX Runtime versions, batch size, `l2_model_file`), and `./doctor` checks
+the same before the gateway starts (`inference`).
+
+With the Helm chart:
+
+```yaml
+gateway:
+  gpu:
+    enabled: true     # the -gpu image, resources.limits["nvidia.com/gpu"]: 1, INFERENCE_PROVIDER=cuda
+    # provider: auto  # fall back to the CPU instead of refusing to start
+  nodeSelector:
+    nvidia.com/gpu.present: "true"
+  tolerations:
+    - {key: nvidia.com/gpu, operator: Exists, effect: NoSchedule}
+models:
+  pull:
+    enabled: true     # also fetches model_fp16.onnx
+```
+
+The chart's `ci/gpu-values.yaml` is rendered and schema-checked in CI. The
+GPU image itself is built in CI on a runner without a GPU, where it must
+refuse to start with `cuda` and fall back with `auto`; GPU numbers are
+measured separately and marked as such in [sizing](../sizing.md).
+
 ## Contributing
 
 If you run Guard Spec on one of these platforms, a short report helps more
