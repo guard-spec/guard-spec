@@ -1,0 +1,69 @@
+{
+  "what": "v8 arms on Colab L4 (RF-3a9ce3f9 R7, reports/v8_preregistration.md): the plan, written before any v8 job; results are filled in from each job's train_log.json, aggregate numbers only",
+  "seed": 20261105,
+  "owner_data": "v4-A train.jsonl (1,016 owner rows) and val.jsonl (124) go to Colab only after the owner approves in chat for v8-D and v8-E; /content/job/<name>/data deleted before each VM stops; no hold-out file uploaded",
+  "budget_compute_units": {
+    "estimate": 3.6,
+    "max": 5.0,
+    "stop_one_job_at": 2.5
+  },
+  "arms": {
+    "ref": {
+      "status": "reused: R6's GPU reference (train_arms_v7.json arms.ref, job v7-ref, commit c21d7d3a8699), not retrained",
+      "colab_job": null,
+      "compute_units": 0
+    },
+    "D": {
+      "status": "planned (not trained)",
+      "colab_job": "v8-D",
+      "gpu": "L4",
+      "cmd": "cd train && python3 train.py --data-dir \"$DATA_DIR/data-v4A\" --v6-dir \"$DATA_DIR/out-full\" --v8-dir \"$DATA_DIR/v8\" --seed 20261105 --run-dir \"$OUT_DIR/D\"",
+      "data_sha256": {
+        "data-v4A/train.jsonl": "7f47970fc4074a7aea4dc6acc2e46edef2e2785effb2d51866233634cb78b5fc",
+        "data-v4A/val_hard.jsonl": "0b85dd1414a412b1233675201a529de1f84f8bdf67c0c3f7517f37ccc36d29d2",
+        "data-v4A/val_v3.jsonl": "750d93625ff0ec4bb4c007109ba701c7cdb2aa3e133b986f783f2b32a22dc27c",
+        "data-v4A/val_v4.jsonl": "1c0d27b6c2e35bf5cbfd873079cf3b5a02c3340ce3ba61e1bd51d0f504003768",
+        "data-v4A/val_vi_variants.jsonl": "de9c7b94dd3ccb45e220b4de11985d1b2e9dc992f8a95e7caa0d8611be16c9c6",
+        "data-v4A/val.jsonl": "62edd29aa4980f4c443fdfb6110d6391bf5d2e803a679ad8f20972e3569cd94e",
+        "out-full/v6_train.jsonl": "20f5ddadb634add3556a946ea64631f1d4d9801c7c1af5c4b88dccd4a4de48f5",
+        "out-full/v6_val.jsonl": "84dd0cfb448486dee0b43dee8d892cac8bbf42c4683e99db35236335a4e72ef1",
+        "out-full/val_v6.jsonl": "f70e0617946da98e15430c0a0548f9eafe9903271de953ee3b4670fc5e1f44d1",
+        "v8/v8_train.jsonl": "1305e50f756c9f3ad375518976953845ab2d3519a1ce2571998dc8177ea9320e"
+      },
+      "upload_mb": 74.3,
+      "est_train_windows": 77181,
+      "est_train_minutes": 51,
+      "est_compute_units": 1.9,
+      "best_epoch": null,
+      "val_loss": null,
+      "train_minutes": null,
+      "compute_units": null
+    },
+    "E": {
+      "status": "planned (not trained)",
+      "colab_job": "v8-E",
+      "gpu": "L4",
+      "cmd": "cd train && python3 train.py --data-dir \"$DATA_DIR/data-v4A\" --v6-dir \"$DATA_DIR/out-full\" --v8-dir \"$DATA_DIR/v8\" --v8-file v8e_train.jsonl --seed 20261105 --run-dir \"$OUT_DIR/E\"",
+      "data_sha256": {
+        "data-v4A/train.jsonl": "7f47970fc4074a7aea4dc6acc2e46edef2e2785effb2d51866233634cb78b5fc",
+        "data-v4A/val_hard.jsonl": "0b85dd1414a412b1233675201a529de1f84f8bdf67c0c3f7517f37ccc36d29d2",
+        "data-v4A/val_v3.jsonl": "750d93625ff0ec4bb4c007109ba701c7cdb2aa3e133b986f783f2b32a22dc27c",
+        "data-v4A/val_v4.jsonl": "1c0d27b6c2e35bf5cbfd873079cf3b5a02c3340ce3ba61e1bd51d0f504003768",
+        "data-v4A/val_vi_variants.jsonl": "de9c7b94dd3ccb45e220b4de11985d1b2e9dc992f8a95e7caa0d8611be16c9c6",
+        "data-v4A/val.jsonl": "62edd29aa4980f4c443fdfb6110d6391bf5d2e803a679ad8f20972e3569cd94e",
+        "out-full/v6_train.jsonl": "20f5ddadb634add3556a946ea64631f1d4d9801c7c1af5c4b88dccd4a4de48f5",
+        "out-full/v6_val.jsonl": "84dd0cfb448486dee0b43dee8d892cac8bbf42c4683e99db35236335a4e72ef1",
+        "out-full/val_v6.jsonl": "f70e0617946da98e15430c0a0548f9eafe9903271de953ee3b4670fc5e1f44d1",
+        "v8/v8e_train.jsonl": "7f51cdb409fa4af9121b30ddc8708e7aa1cac186d33f668fa7a614b433195550"
+      },
+      "upload_mb": 66.4,
+      "est_train_windows": 70897,
+      "est_train_minutes": 46,
+      "est_compute_units": 1.7,
+      "best_epoch": null,
+      "val_loss": null,
+      "train_minutes": null,
+      "compute_units": null
+    }
+  }
+}
