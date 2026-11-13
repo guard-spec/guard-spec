@@ -53,7 +53,7 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
 # 24.04, by digest of the multi-arch index (Dependabot bumps it). It sets
 # NVIDIA_VISIBLE_DEVICES=all and NVIDIA_DRIVER_CAPABILITIES=compute,utility,
 # so the NVIDIA runtime mounts the driver and nvidia-smi.
-FROM nvidia/cuda:12.9.2-cudnn-runtime-ubuntu24.04@sha256:070f8f2672df1b05b84c0409a5fd1d54ddfd646e5b9d8dee7878131271b563fc
+FROM nvidia/cuda:13.5.0-cudnn-runtime-ubuntu24.04@sha256:0490edd1b0d88388497dfbe3762d0deab0ded3baf4828616636c17cbd44723e3
 
 # ONNX Runtime GPU (MIT): libonnxruntime.so and its CUDA provider, which it
 # loads from the same directory. Loaded by internal/onnx via dlopen.
