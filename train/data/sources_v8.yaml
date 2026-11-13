@@ -1,0 +1,84 @@
+# Inputs and recipe of the v8 training addition (RF-3a9ce3f9 R7, data/build_v8.py).
+#
+# Copyright The Guard Spec Authors. Licensed under the Apache License 2.0.
+#
+# v7 (RF-895d3533 R6) added 11,270 benign windows of long text. False positives on long documents went
+# to 0, but detection of payloads embedded in long documents fell (long6: 75.8% against 85.0% for v6;
+# a payload in the middle of prose -13 points, a split payload -18 points): the model learnt that long
+# prose around an instruction is a benign signal. v8 keeps the v7 benign windows and adds, for each of
+# them, a window of the same host with an attack payload embedded, so that long prose is a benign
+# signal no more than an attack one (1 : 1 by rows).
+#
+# Nothing here is downloaded: the hosts are the v7 build (its v7_train.jsonl and the sanitized pool
+# text its windows were cut from, pinned below), the payloads the attack rows of data/train.jsonl.
+# No owner data: data/train.jsonl holds no owner row; the owner hold-outs are read locally only by the
+# guard. The output is never committed.
+
+version: 1
+
+# The v7 build (guardspec-data/v7/data; train/reports/v7_preregistration.md "Recorded before the first
+# v7 arm"). build_v8.py refuses inputs with another SHA-256.
+v7:
+  v7_train_sha256: 87bbf5b95e5122f36f419fdf1bd83a0f6566466b5c46c4225d0cdf523b9754ab
+  pool_sha256: d7c22598e5c9033d06064189c2fad63c4f292f78dea341492b68bbf83ff7c282
+  sanitized_sha256: 166b907f8b4444704613e6e002db3e2e688db6878b3e4db0ea647b44f0e68e2f
+
+# Payloads: attack rows of the training split only (data/train.jsonl, the file the v5 and v6 builders
+# embedded; never eval/, a validation, hold-out or probe row), English and Vietnamese, of the v5/v6
+# training payload set A (build_v5.payload_set: the v5/v6 sets B and C went into their validation and
+# hold-out files), at most max_tokens classifier tokens so that host text fills the rest of a window.
+# A payload whose normalized text is a validation, hold-out or probe row, whose fingerprint is in an
+# eval/ fingerprints file, or that shares a run of the guard (50 tokens, 12 for short hold-out rows) is
+# not used.
+payloads:
+  file: data/train.jsonl
+  langs: [en, vi]
+  min_chars: 30
+  max_chars: 600
+  max_tokens: 170
+  payload_set: A
+
+seed: 20261113
+
+# Placement of the payload in the attack window (weights; R6 weak spots first). Every placement but
+# `straddle_window` gives a one-window row (at most 254 content tokens, the gateway window without the
+# special tokens); `straddle_window` gives a row of two windows with the payload centred on the end of
+# the first one (the gateway's next window, 190 tokens on, holds all of it; train/windows.py labels it).
+#   mid             at a word boundary between 20% and 80% of the host text
+#   split_adjacent  cut in two halves with a bridge sentence between them, in the middle of the host
+#   split_within    the two halves at two places of the host, 15 to 60 host tokens apart, in one window
+#   straddle_window across the end of a gateway window (hosts of 314 to 474 tokens)
+#   start, end      before or after the host text
+# Generated hosts (v7_gen, single passages) never get `straddle_window`; their draw is repeated.
+placements:
+  mid: 0.30
+  split_adjacent: 0.15
+  split_within: 0.15
+  straddle_window: 0.15
+  start: 0.125
+  end: 0.125
+
+# Bridge sentences of split_adjacent: other sentences than bench/long's and build_v5's.
+bridges:
+  en:
+    - "Those numbers were checked again on Monday."
+    - "The appendix lists the remaining items."
+    - "Please keep a copy of this page for reference."
+    - "More details follow in the next section."
+  vi:
+    - "Các số liệu này đã được kiểm tra lại vào thứ Hai."
+    - "Phụ lục liệt kê các mục còn lại."
+    - "Vui lòng giữ một bản của trang này để tham khảo."
+    - "Chi tiết hơn có ở phần tiếp theo."
+
+# Arm E: every attack row and half of the benign rows (a seeded half of each v7 kind and language).
+arm_e:
+  benign_fraction: 0.5
+
+# The guard (stage `check`, also applied to every candidate row in stage `rows`): no row may share a
+# run of 50 classifier tokens with a document of these bench/long profiles, with the embedded-attack
+# documents given with --embedded (R5, long6 and long7), or with a hold-out row (every eval/ set, the
+# repository's val_*_holdout files and the ones given with --holdout-rows); hold-out rows under 50
+# tokens are checked with 12-token runs.
+guard:
+  profiles: [quick, full, long, long5, long6, long7]
