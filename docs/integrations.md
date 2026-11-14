@@ -684,7 +684,9 @@ have is skipped, so list every field the backend reads, or use
    `max_input_tokens`, input personal-data check and policies as a chat
    request. A refused request gets the usual 400 `content_filter` and
    **never reaches the backend**. Route rules do not apply here: the URL
-   names the backend.
+   names the backend. Query parameter *names* are not scanned, only their
+   values; a query string Go cannot parse strictly (a `;` separator, a bad
+   `%` escape) is refused (400 `invalid_query`).
 6. The request is forwarded **byte for byte**: same body, method, path and
    query. The one exception is the organization's `input_pii_action`
    (`redact` or `tokenize`): only the string values it changed are
@@ -701,12 +703,21 @@ have is skipped, so list every field the backend reads, or use
    go with them; `ETag` is dropped when the guard changed the body). 401
    and 407 are about the gateway's key and become 502
    `upstream_auth_failed`; 5xx become 502; redirects are never followed
-   (502). In a JSON answer the declared fields go through the output guard:
-   links, and personal data per the organization's `output_pii_action` and
-   `output_pii_kinds`. An event stream and any other content type pass as
-   they come, unchecked.
+   (502). A backend's own 403 is relayed as is: with the gateway's key it
+   is a business refusal, not a credential failure. In a JSON answer the
+   declared fields go through the output guard: links, and personal data per
+   the organization's `output_pii_action` and `output_pii_kinds`. Any other
+   content type passes as it comes, unchecked (text too with `raw_text`
+   off).
 
-Each request writes one row of the request log (route label `backend`,
+**Event streams are not guarded.** A `text/event-stream` answer is relayed
+as it arrives, without the output guard: no link check, no personal data
+redaction, and, with `input_pii_action: tokenize`, the tokens the backend
+received (`⟦EMAIL_1⟧`) are **not** put back, since a token is often split
+across events. An organization that tokenizes personal data should not
+stream from that backend, or use `redact`.
+
+Each request writes one row of the request log (route label `/v1/backend`,
 route target the upstream's name), with the same metrics and alert events
 as the other routes. Body size (`MAX_REQUEST_BYTES`) and the upstream's
 `timeout_ms` apply; retries are off for custom backends, since a business

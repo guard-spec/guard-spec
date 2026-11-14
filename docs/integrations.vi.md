@@ -691,7 +691,9 @@ cầu không có thì bỏ qua, nên hãy khai báo mọi trường backend đ�
    `max_input_tokens`, kiểm tra dữ liệu cá nhân đầu vào và chính sách như
    yêu cầu chat. Yêu cầu bị từ chối nhận 400 `content_filter` như thường lệ
    và **không bao giờ tới backend**. Quy tắc định tuyến không áp dụng ở đây:
-   URL đã chỉ định backend.
+   URL đã chỉ định backend. *Tên* tham số trên query không được quét, chỉ
+   quét giá trị; query string mà Go không phân tích chặt chẽ được (dấu phân
+   cách `;`, mã `%` sai) bị từ chối (400 `invalid_query`).
 6. Yêu cầu được chuyển tiếp **nguyên từng byte**: cùng nội dung, phương
    thức, đường dẫn và query. Ngoại lệ duy nhất là `input_pii_action` của tổ
    chức (`redact` hoặc `tokenize`): chỉ những giá trị chuỗi bị thay đổi được
@@ -708,12 +710,22 @@ cầu không có thì bỏ qua, nên hãy khai báo mọi trường backend đ�
    `Cache-Control`, `Content-Language`, `ETag`, `Last-Modified`, `Expires` và
    `Retry-After`; bỏ `ETag` khi bộ lọc đã sửa nội dung). 401 và 407 là lỗi
    khóa của gateway nên thành 502 `upstream_auth_failed`; 5xx thành 502;
-   chuyển hướng không bao giờ được theo (502). Trong phản hồi JSON, các
-   trường đã khai báo đi qua bộ lọc đầu ra: liên kết, và dữ liệu cá nhân theo
-   `output_pii_action` và `output_pii_kinds` của tổ chức. Event stream và mọi
-   kiểu nội dung khác đi qua nguyên trạng, không kiểm tra.
+   chuyển hướng không bao giờ được theo (502). Lỗi 403 của chính backend
+   được trả về nguyên trạng: với khóa của gateway, đó là từ chối nghiệp vụ,
+   không phải lỗi thông tin xác thực. Trong phản hồi JSON, các trường đã khai
+   báo đi qua bộ lọc đầu ra: liên kết, và dữ liệu cá nhân theo
+   `output_pii_action` và `output_pii_kinds` của tổ chức. Mọi kiểu nội dung
+   khác đi qua nguyên trạng, không kiểm tra (kể cả văn bản khi tắt
+   `raw_text`).
 
-Mỗi yêu cầu ghi một dòng nhật ký yêu cầu (route `backend`, đích định tuyến là
+**Event stream không được kiểm tra.** Phản hồi `text/event-stream` được
+chuyển tiếp ngay khi tới, không qua bộ lọc đầu ra: không kiểm tra liên kết,
+không che dữ liệu cá nhân, và với `input_pii_action: tokenize`, các token mà
+backend nhận được (`⟦EMAIL_1⟧`) **không** được thay lại giá trị gốc, vì một
+token thường bị tách qua nhiều event. Tổ chức dùng tokenize cho dữ liệu cá
+nhân không nên stream từ backend đó, hoặc nên dùng `redact`.
+
+Mỗi yêu cầu ghi một dòng nhật ký yêu cầu (route `/v1/backend`, đích định tuyến là
 tên upstream), cùng metric và sự kiện cảnh báo như các route khác. Giới hạn
 kích thước nội dung (`MAX_REQUEST_BYTES`) và `timeout_ms` của upstream vẫn áp
 dụng; backend tùy chỉnh không thử lại, vì một yêu cầu nghiệp vụ có thể không an

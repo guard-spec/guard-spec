@@ -24,11 +24,13 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   request never reaches the backend, an allowed one is forwarded byte for
   byte (only the values `input_pii_action` replaced are rewritten). The
   answer's declared fields get the output guard with the organization's
-  personal data settings; event streams pass unchecked. The key comes from
+  personal data settings; event streams pass unchecked (no output guard,
+  and tokenized values are not restored in them). The key comes from
   `api_key_env` under `UPSTREAM_KEY_ORGS`; the client's credentials,
   hop-by-hop and client-address headers are not forwarded, redirects are not
   followed, and the base URL follows the upstream address rules. A custom
-  backend cannot be a default upstream or a route target. Admin UI: Model
+  backend cannot be a default upstream or a route target, and config as code
+  carries it (`provider: custom` and `backend`) without losing it. Admin UI: Model
   providers → Custom backend. Example: `examples/custom-backend`. Docs:
   [integrations](docs/integrations.md#custom-backend).
 

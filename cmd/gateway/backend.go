@@ -55,8 +55,9 @@ import (
 // is guarded whole with raw_text. An event stream, and any other answer, is
 // relayed unchecked.
 
-// routeBackend is the route label of /v1/backend/...
-const routeBackend = "backend"
+// routeBackend is the route label of /v1/backend/..., path-style like the
+// other labels.
+const routeBackend = "/v1/backend"
 
 const backendPrefix = "/v1/backend/"
 
