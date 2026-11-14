@@ -1106,6 +1106,331 @@ sources:
     terms: Dataset card license field; used locally for measurement, never redistributed.
     sha256: 5772a9c76ed04ee296e78fd452fa3792072a62da0bccf3bbb77f3a0c626d2c14
 
+  # ---------------------------------------------------------------------
+  # Sources of the `long7` profile (2026-11-13, RF-3a9ce3f9 R7): the holdout
+  # of the v8 classifier, pinned and committed before any v8 training run and
+  # never scored by a model or rule layer before the v8 holdout stage. Its
+  # text is in no other profile and in no v7 or v8 training row: another
+  # English Wikipedia and Wikisource file, Vietnamese Wikipedia row groups
+  # after the ones `long6` holds, U.S. Code titles no profile or training
+  # source uses, further RFCs, the Istio documentation and blog, the Docker
+  # guides, AI, extensions and get-started pages (manuals no profile or v7
+  # source reads), and containerd Go code. exclude.json lists the units that
+  # share a 50-token run with a v4-A, v6 or v7 training or validation row or
+  # with the v7 training pool (the v8 hosts), or near-duplicate (20% of their
+  # 50-token shingles) a quick, full, long, long5 or long6 document.
+  wikipedia-l7-en:
+    lang: en
+    genre: wiki
+    kind: hf-parquet
+    repo: wikimedia/wikipedia
+    revision: b04c8d1ceb2f5cd4588862100d08de323dccfbaa
+    file: 20231101.en/train-00004-of-00041.parquet
+    file_sha256: 1424300f113c13ee022b7929185fa4f7e20c6195ba563d728e8a3dc47c8e9aba
+    row_group_range: [0, 8] # row groups 0 to 7
+    license: CC-BY-SA-3.0 / GFDL
+    terms: Dataset card license field; used locally for measurement, never redistributed.
+    sha256: db2391ff941768397d0f7fbef1c9c9cab89c24a0a26b35d6a51bc139204d1415
+  wikipedia-l7-vi:
+    lang: vi
+    genre: wiki
+    kind: hf-parquet
+    repo: wikimedia/wikipedia
+    revision: b04c8d1ceb2f5cd4588862100d08de323dccfbaa
+    file: 20231101.vi/train-00003-of-00004.parquet
+    file_sha256: 0f5c15b2c8836c02547c796a817dd85b980897916259ed9e8f76580482f0cb77
+    row_group_range: [216, 256] # row groups 216 to 255 (long6 holds 196 to 215)
+    license: CC-BY-SA-3.0 / GFDL
+    terms: Dataset card license field; used locally for measurement, never redistributed.
+    sha256: 9d4c69a6a2b572568809e892aaa39f2eabbd8595e74b1166f9b4df970eb1cc57
+  wikisource-l7-en:
+    lang: en
+    genre: prose
+    kind: hf-parquet
+    repo: wikimedia/wikisource
+    revision: f31a033f5f3d2107b3e864e578710df104a00baa
+    file: 20231201.en/train-00004-of-00005.parquet
+    file_sha256: 642d829eae0b3e320cff48102718bea4243da4571b0cca52a49fdbef58f52756
+    row_groups: [0, 1, 2]
+    license: CC-BY-SA-3.0 / GFDL
+    terms: Dataset card license field; used locally for measurement, never redistributed.
+    sha256: 75ffa85822b0804246f54f753e9548a08efc56e916f9b87a335605b519909ac1
+  uscode-l7-en:
+    lang: en
+    genre: legal
+    kind: http-html
+    # United States Code, 2023 main edition (GovInfo), titles no profile or
+    # training source uses: 14 (Coast Guard), 25 (Indians), 39 (Postal
+    # Service), 41 (Public Contracts), 43 (Public Lands), 51 (National and
+    # Commercial Space Programs), 52 (Voting and Elections), 54 (National
+    # Park Service and Related Programs).
+    urls:
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title14/html/USCODE-2023-title14.htm
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title25/html/USCODE-2023-title25.htm
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title39/html/USCODE-2023-title39.htm
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title41/html/USCODE-2023-title41.htm
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title43/html/USCODE-2023-title43.htm
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title51/html/USCODE-2023-title51.htm
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title52/html/USCODE-2023-title52.htm
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title54/html/USCODE-2023-title54.htm
+    license: Public domain (17 U.S.C. 105)
+    terms: GovInfo content is public domain U.S. Government work; bulk use is allowed.
+    sha256: 20a3e156b1fc9b410405c10c7c77e344fc3531a67f423d0f39d3f36720b64e86
+  rfc-l7-en:
+    lang: en
+    genre: rfc
+    kind: http-text
+    # RFCs that no profile and no training source uses (IETF Trust Legal
+    # Provisions, BCP 78).
+    base: https://www.rfc-editor.org/rfc/
+    file_header: ""
+    strip: rfc
+    max_unit_chars: 60000
+    paths:
+      - rfc1001.txt
+      - rfc1002.txt
+      - rfc1812.txt
+      - rfc1928.txt
+      - rfc1950.txt
+      - rfc1951.txt
+      - rfc2205.txt
+      - rfc2474.txt
+      - rfc2516.txt
+      - rfc2578.txt
+      - rfc3022.txt
+      - rfc3031.txt
+      - rfc3168.txt
+      - rfc3209.txt
+      - rfc3227.txt
+      - rfc3394.txt
+      - rfc3411.txt
+      - rfc3418.txt
+      - rfc3588.txt
+      - rfc3711.txt
+      - rfc3748.txt
+      - rfc3768.txt
+      - rfc4106.txt
+      - rfc4303.txt
+      - rfc4364.txt
+      - rfc4443.txt
+      - rfc4492.txt
+      - rfc4541.txt
+      - rfc4632.txt
+      - rfc4732.txt
+      - rfc4760.txt
+      - rfc4918.txt
+      - rfc5036.txt
+      - rfc5348.txt
+      - rfc5405.txt
+      - rfc5480.txt
+      - rfc5764.txt
+      - rfc5925.txt
+      - rfc6146.txt
+      - rfc6147.txt
+      - rfc6206.txt
+      - rfc6275.txt
+      - rfc6298.txt
+      - rfc6886.txt
+      - rfc6887.txt
+      - rfc7323.txt
+      - rfc7432.txt
+      - rfc7541.txt
+      - rfc7568.txt
+      - rfc7807.txt
+      - rfc7914.txt
+      - rfc8174.txt
+      - rfc8216.txt
+      - rfc8285.txt
+      - rfc8288.txt
+      - rfc8305.txt
+      - rfc8312.txt
+      - rfc8336.txt
+      - rfc8441.txt
+      - rfc8471.txt
+      - rfc8478.txt
+      - rfc8482.txt
+      - rfc8499.txt
+      - rfc8590.txt
+      - rfc8628.txt
+      - rfc8659.txt
+      - rfc8707.txt
+      - rfc8724.txt
+      - rfc8812.txt
+      - rfc8890.txt
+      - rfc9081.txt
+      - rfc9106.txt
+      - rfc9147.txt
+      - rfc9162.txt
+      - rfc9176.txt
+      - rfc9200.txt
+      - rfc9325.txt
+      - rfc9334.txt
+    license: IETF Trust Legal Provisions (BCP 78)
+    terms: RFC Editor text files; used locally for measurement, never redistributed.
+    sha256: 047ea08def78f2efe26314b8f0ff2b0b3b2ff16f8516b6a254aa8218dc3fe532
+  istio-docs-l7-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    # The Istio documentation and blog (istio/istio.io, Apache-2.0) at a
+    # pinned commit, front matter stripped; with the Docker pages below one
+    # `docs` pool.
+    repo: istio/istio.io
+    commit: 0f8bcb5a728d3af18cb2373181676873ab62d1e5
+    prefix: content/en/docs
+    tree_sha: db898763ed45be39d91aa4a79f7446de4f512700
+    suffixes: [.md]
+    min_bytes: 2000
+    strip: front-matter
+    max_unit_chars: 60000
+    license: Apache-2.0 (istio/istio.io LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 71d2318250d426951009664896fd2aa4645bb095b3916f647dc20537690a0d48
+  istio-blog-l7-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    repo: istio/istio.io
+    commit: 0f8bcb5a728d3af18cb2373181676873ab62d1e5
+    prefix: content/en/blog
+    tree_sha: 71acacc2f01de4d75a120395a52dd7ebc08b0315
+    suffixes: [.md]
+    min_bytes: 2000
+    strip: front-matter
+    max_unit_chars: 60000
+    license: Apache-2.0 (istio/istio.io LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: eb4effa3ed7014dfbbe52ded55e9f1c1a0a2a64ee8265ffce45fc36b893a295c
+  docker-guides-l7-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    # Docker documentation (docker/docs, Apache-2.0) at the commit pinned
+    # above: the guides, which no profile or training source reads.
+    repo: docker/docs
+    commit: 61cbfdc1e72d0ac62dbac59ceaf7b94dcbe69c80
+    prefix: content/guides
+    tree_sha: d89a8fa95c40a186732bb010c3f29e9777869141
+    suffixes: [.md]
+    min_bytes: 2000
+    strip: front-matter
+    max_unit_chars: 60000
+    license: Apache-2.0 (docker/docs LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 25918138d4bb4c9b7d06212ed48215b8a2496f7a998893b9c834aae6b7962714
+  docker-ai-l7-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    repo: docker/docs
+    commit: 61cbfdc1e72d0ac62dbac59ceaf7b94dcbe69c80
+    prefix: content/manuals/ai
+    tree_sha: db4bc07408d58dcc7548169297f1121e59ecc29d
+    suffixes: [.md]
+    min_bytes: 2000
+    strip: front-matter
+    max_unit_chars: 60000
+    license: Apache-2.0 (docker/docs LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: b38c56833a9f374c2078bcc628269d872097adf59354e9f160d8dc0e54c29430
+  docker-extensions-l7-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    repo: docker/docs
+    commit: 61cbfdc1e72d0ac62dbac59ceaf7b94dcbe69c80
+    prefix: content/manuals/extensions
+    tree_sha: 8f2b32a183183e0e1e0cb6189ed26721fe827fbe
+    suffixes: [.md]
+    min_bytes: 2000
+    strip: front-matter
+    max_unit_chars: 60000
+    license: Apache-2.0 (docker/docs LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: cbc91bbfcb27b59b3a77d365ac510bdcbf4970ff67e591c871c6751878d381ef
+  docker-get-started-l7-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    repo: docker/docs
+    commit: 61cbfdc1e72d0ac62dbac59ceaf7b94dcbe69c80
+    prefix: content/get-started
+    tree_sha: 7aaa2a7582aa0e340416d96d964889ac0c8938b1
+    suffixes: [.md]
+    min_bytes: 2000
+    strip: front-matter
+    max_unit_chars: 60000
+    license: Apache-2.0 (docker/docs LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: f6341a4a77d65481696633905b6ea8af24a0b9ad61e935ec43303a8ae3475ee5
+  containerd-core-l7-en:
+    lang: en
+    genre: code
+    kind: github-tree
+    # Go source of containerd (containerd/containerd at the v2.0.0 tag,
+    # Apache-2.0): the core, internal, plugins and pkg directories, one `code`
+    # pool; the licence comment at the top of every file is stripped.
+    repo: containerd/containerd
+    commit: 207ad711eabd375a01713109a8a197d197ff6542
+    prefix: core
+    tree_sha: 139dfe66d6d5648310c70cd03bdb22e862b5a3b5
+    suffixes: [.go]
+    min_bytes: 2000
+    strip: license-header
+    file_header: "// File: {path}\n"
+    max_unit_chars: 60000
+    license: Apache-2.0 (containerd/containerd LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 11619c895169b062af80ab71def2447f657cdf0b66de74acf45f18e495811da9
+  containerd-internal-l7-en:
+    lang: en
+    genre: code
+    kind: github-tree
+    repo: containerd/containerd
+    commit: 207ad711eabd375a01713109a8a197d197ff6542
+    prefix: internal
+    tree_sha: 1f86f57780ec8d8499029371fc9a51dea83c0111
+    suffixes: [.go]
+    min_bytes: 2000
+    strip: license-header
+    file_header: "// File: {path}\n"
+    max_unit_chars: 60000
+    license: Apache-2.0 (containerd/containerd LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: cfaba62644567c83dba2b8d96ab5d2a960f403f6b2e8e4fad4f60d3526cdea66
+  containerd-plugins-l7-en:
+    lang: en
+    genre: code
+    kind: github-tree
+    repo: containerd/containerd
+    commit: 207ad711eabd375a01713109a8a197d197ff6542
+    prefix: plugins
+    tree_sha: 9239d39376b40c2b8c911d0dc0e56b5490a58a87
+    suffixes: [.go]
+    min_bytes: 2000
+    strip: license-header
+    file_header: "// File: {path}\n"
+    max_unit_chars: 60000
+    license: Apache-2.0 (containerd/containerd LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: ec31984f3d328587490f83f243f4f70c43cae8d460e961ac200934974f47546a
+  containerd-pkg-l7-en:
+    lang: en
+    genre: code
+    kind: github-tree
+    repo: containerd/containerd
+    commit: 207ad711eabd375a01713109a8a197d197ff6542
+    prefix: pkg
+    tree_sha: e637c31f41d4d2751fb95ca2460319a8207cd1a4
+    suffixes: [.go]
+    min_bytes: 2000
+    strip: license-header
+    file_header: "// File: {path}\n"
+    max_unit_chars: 60000
+    license: Apache-2.0 (containerd/containerd LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: c5fee234a06acc53cab9a81b1f76b0c9640cd70b7e2b543db714f5a7226facbd
+
 # Synthetic genres: generated by build.py from a fixed seed (project-written,
 # Apache-2.0). "hardneg" is benign text about prompt injection and security.
 synthetic:
@@ -1277,6 +1602,58 @@ profiles:
     host_tokens: 2000
     segment_host_bytes: 28000
 
+  long7:
+    # The holdout of v8 (RF-3a9ce3f9 R7): benign documents of 100k and 200k
+    # tokens from the `long7` sources and the synthetic genres with their own
+    # seed, about 45 per language and size (sizes a pool has too little text
+    # for are skipped). Every document is holdout (the `split` field still
+    # follows the hash rule). The embedded attack documents are built from
+    # these hosts by bench/long/embed_long.py with eval/ dev-half payloads no
+    # earlier profile used (--eval-payloads 24 --eval-skip 96). Ids carry the
+    # prefix `long7-`.
+    # Built on 2026-11-13: 180 documents (EN wiki 12, prose 9, legal 7, rfc 4,
+    # docs 4, code 3 and one per synthetic genre; VI wiki 33 and two per
+    # synthetic genre; per size). Attack documents (embed_long.py, --split dev
+    # and --split holdout concatenated): 48 payloads (eval/ dev-half attack
+    # rows 96 to 119 of each language in build.py's seeded order; full took 0
+    # to 31, R5 32 to 71, long6 72 to 95), 48 controls and 336 embedded
+    # documents, 51.9M tokens, SHA-256
+    # 81bebe98e85a01af0f062dd911890d2b9d8535ba8dbec0e5fa48e4a657594ede.
+    sources: [wikipedia-l7-en, wikisource-l7-en, uscode-l7-en, rfc-l7-en, istio-docs-l7-en, istio-blog-l7-en,
+              docker-guides-l7-en, docker-ai-l7-en, docker-extensions-l7-en, docker-get-started-l7-en,
+              containerd-core-l7-en, containerd-internal-l7-en, containerd-plugins-l7-en, containerd-pkg-l7-en,
+              wikipedia-l7-vi]
+    synthetic: [logs, json, csv, email, chat, hardneg]
+    synthetic_seed: 20261115
+    id_prefix: long7-
+    sizes:
+      default: [100000, 200000]
+      synthetic: [100000, 200000]
+    docs_per_size:
+      default: 0
+      wiki-en: 12
+      prose-en: 9
+      legal-en: 7
+      rfc-en: 4
+      docs-en: 4
+      code-en: 3
+      wiki-vi: 33
+      logs-en: 1
+      json-en: 1
+      csv-en: 1
+      email-en: 1
+      chat-en: 1
+      hardneg-en: 1
+      logs-vi: 2
+      json-vi: 2
+      csv-vi: 2
+      email-vi: 2
+      chat-vi: 2
+      hardneg-vi: 2
+    payloads_per_lang: 0
+    host_tokens: 2000
+    segment_host_bytes: 28000
+
 # Dev/holdout split of every document (build.py split_of, the eval/ convention):
 # the last hex digit of SHA-256(key) is 0-7 for dev and 8-f for holdout, with
 # key the payload id of an attack or control document (every variant of a
@@ -1308,6 +1685,10 @@ outputs:
   # 13.38M tokens (EN 26 + 24, VI 20 + 20 at 100k + 200k), after exclude.json.
   # The v7 holdout: scored once, at the end (train/reports/v7_preregistration.md).
   long6: b87e52e7d6b8d8526c12e379dc5ed868e29a7d9968ae3733b7b9ef913afe94b8
+  # long7: pinned on 2026-11-13 (R7), before any v8 training run; 180 benign documents,
+  # 26.96M tokens (EN 45 + 45, VI 45 + 45 at 100k + 200k), after exclude.json.
+  # The v8 holdout: never scored by a model or rule layer before the v8 holdout stage.
+  long7: 3123957ce5bef40da71d5cc18d57516af0f260b8fe677fe0c532f8c22329229d
 
 dropped:
   - source: Project Gutenberg (gutenberg.org)

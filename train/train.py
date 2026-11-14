@@ -26,6 +26,11 @@ read). The rows have the v5 shape, so nothing else changes.
 v7 (RF-895d3533 R6): --v7-dir adds a data/build_v7.py output's v7_train.jsonl (benign windows of long
 text, kinds v7_long, v7_hardneg and v7_gen) to training. Validation is unchanged (the v6 files), so the
 v7 arms select their epoch on the same validation as the v6 reference.
+
+v8 (RF-3a9ce3f9 R7): --v8-dir adds a data/build_v8.py output to training: v8_train.jsonl (the v7 benign
+windows, kind v8_benign, and one attack window of the same host each, kind v8_attack, with payload spans
+that windows.label_windows reads) or, with --v8-file v8e_train.jsonl, the arm E file (every attack row,
+half of the benign rows). Validation is unchanged (the v6 files).
 """
 
 from __future__ import annotations
@@ -55,6 +60,7 @@ V5_VAL = ["v5_val.jsonl", "val_v5.jsonl"]  # val_v5_holdout.jsonl is never read 
 V6_TRAIN = "v6_train.jsonl"
 V6_VAL = ["v6_val.jsonl", "val_v6.jsonl"]  # val_v6_holdout.jsonl is never read here
 V7_TRAIN = "v7_train.jsonl"
+V8_TRAIN = "v8_train.jsonl"
 
 
 def make_augment(cfg_aug, seed):
@@ -167,6 +173,8 @@ def main():
                     "and val_v6.jsonl to validation; val_v6_holdout.jsonl is never read")
     ap.add_argument("--v7-dir", help="v7: a data/build_v7.py output: v7_train.jsonl is added to training "
                     "(validation unchanged)")
+    ap.add_argument("--v8-dir", help="v8: a data/build_v8.py output: --v8-file is added to training (validation unchanged)")
+    ap.add_argument("--v8-file", default=V8_TRAIN, help="v8: v8_train.jsonl (default) or v8e_train.jsonl (arm E)")
     ap.add_argument("--oversample-kind", action="append", default=[], metavar="KIND=FACTOR",
                     help="v5: repeat training rows of a v5 `kind` (repeatable), e.g. log_vi_repeat=2 (arm C); "
                          "v6: twin=2 (arm B), secdoc_en=2 (arm C)")
@@ -204,6 +212,8 @@ def main():
         cfg["data"]["val"] = cfg["data"]["val"] + [f"{a.v6_dir}/{v}" for v in V6_VAL]
     if a.v7_dir:
         train_files.append(f"{a.v7_dir}/{V7_TRAIN}")
+    if a.v8_dir:
+        train_files.append(f"{a.v8_dir}/{a.v8_file}")
     cfg["data"]["train_files"] = train_files
     seed_everything(cfg["seed"])
     labels = cfg["labels"]

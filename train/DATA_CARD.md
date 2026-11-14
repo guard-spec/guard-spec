@@ -6,7 +6,8 @@ Apache-2.0. Source rows keep their own licenses (`DATA_LICENSES.md`).
 v4 (2026-11-07) builds on v3, v2 and v1; the sections below still describe the
 base. The v5 builder (code, config, logs, long prose and embedded attacks; data outside the repository)
 is in [v5 data](#v5-data-code-config-logs-long-prose-and-embedded-attacks); the v6 builder (round 3:
-benign twins, security hard negatives, the bench/long guard) in [v6 data](#v6-data-benign-twins-security-hard-negatives-and-the-benchlong-guard).
+benign twins, security hard negatives, the bench/long guard) in [v6 data](#v6-data-benign-twins-security-hard-negatives-and-the-benchlong-guard);
+the v8 addition (the v7 long benign windows with an attack window of the same host each) in [v8 data](#v8-data-balanced-long-benign-and-embedded-attack-windows).
 What changed is in [v4 changes](#v4-changes), [v3 changes](#v3-changes) and [v2 changes](#v2-changes).
 
 ## Purpose
@@ -261,6 +262,67 @@ project-written); `secdoc_en` windows are raw Markdown / reStructuredText / YAML
 lists or directives rather than prose; a filler of a code docstring in a Vietnamese law host (and the
 reverse) is "foreign" by design but not always natural; B and C keep v5's small-catalog repetitiveness,
 and the straddle positions still skip 84 positives for lack of a long enough host.
+
+## v8 data: balanced long benign and embedded-attack windows
+
+v8 (2026-11-13, task RF-3a9ce3f9, R7-1) answers the v7 result (`reports/v7_holdout.md`): 11,270 benign windows of
+long text removed every blocked long document, but detection of payloads embedded in long documents fell (long6:
+75.8% against 85.0% for v6; a payload in the middle of prose -13 points, a split payload -18 points). The model
+learnt that prose around an instruction is a benign signal. v8 keeps every v7 benign window and adds one attack
+window of the same host for each, so long prose is not a benign signal by itself. No model is trained here.
+
+```sh
+cd train && GUARD_V8_OUT=<dir> GUARD_V7_DIR=<v7 build> BENCH_CACHE=<bench cache> uv run --frozen python data/build_v8.py rows \
+    --embedded <R5 attack docs> --embedded <long6 attack docs> --embedded <long7 attack docs> --holdout-rows <extra hold-outs> ...
+... data/build_v8.py check   # same options
+```
+
+| file (in `$GUARD_V8_OUT`, not in git) | rows | use |
+|---|---|---|
+| `v8_train.jsonl` | 22,540: 11,270 `v8_benign` + 11,270 `v8_attack` (EN 6,920 + 6,920, VI 4,350 + 4,350) | added to training with `train.py --v8-dir` |
+| `v8e_train.jsonl` | 16,906: the 11,270 attack rows + 5,636 benign rows (a seeded half of each v7 kind and language) | arm E, `--v8-file v8e_train.jsonl` |
+| `stats_v8.json` (copied to `data/stats_v8.json`) | - | counts per kind, language, placement, host kind and genre; gateway windows per label; ratios; payloads; input and output SHA-256 |
+| `guard_v8.json` | - | the guard of stage `check` |
+
+**Hosts.** The v7 build (`sources_v8.yaml` pins `v7_train.jsonl` `87bbf5b9…`, the pool `d7c22598…` and the
+sanitized pool text `166b907f…`): every v7 row is kept as `v8_benign` (`host_kind` v7_long 9,591, v7_hardneg 719,
+v7_gen 960). Its attack partner is cut from the same host: a part of the window's own text sized so that host and
+payload fit one gateway window (254 content tokens), or for `straddle_window` 314 to 474 tokens of the sanitized pool
+text from the window's start on (generated v7_gen passages never get `straddle_window`).
+
+**Payloads.** Attack rows of `data/train.jsonl` only (the training split the v5 and v6 builders embedded; no owner
+row, never eval/, a validation, hold-out or probe row), English and Vietnamese, 30 to 600 characters, at most 170
+tokens, of the v5/v6 payload set A (`build_v5.payload_set`; sets B and C went into those builds' validation and
+hold-out files). Of 11,015 attack rows 8,240 are usable (EN 3,069, VI 5,171): 2,053 are not in set A, 480 too short
+or long, 10 over 170 tokens, 232 share a run with the guard index (below); 7,419 are used, each at most 3 times.
+Labels: the payload's labels plus `indirect_injection`, with `spans` / `byte_spans`, `position`, `payload_id`,
+`payload_labels`, `host_id`.
+
+**Placements** (`sources_v8.yaml`, weighted to the R6 weak spots), attack rows: mid-prose 3,464 (30.7%),
+split_within 1,701 (15.1%: the two halves 15 to 60 host tokens apart in one window), split_adjacent 1,625 (14.4%:
+a bridge sentence between the halves, other sentences than bench/long's and v5's), straddle_window 1,532 (13.6%:
+centred on the end of the first gateway window), start 1,470 (13.0%), end 1,478 (13.1%).
+
+**Balance.** Rows 11,270 : 11,270 = 1.00 (benign : attack). Gateway windows (`windows.label_windows`, base-model
+tokenizer): 13,307 benign (12,591 of benign rows, some v7 windows retokenize to two windows, and 716 host windows of
+straddle rows) : 11,501 attack = 1.16; 1,301 windows dropped (the first window of a straddle row holds about half of
+the payload). Arm E: 5,636 : 11,270 rows = 0.50, 7,023 : 11,501 windows = 0.61.
+
+**Leakage guard** (stage `check`, `guard_v8.json`; applied to every payload and candidate row in stage `rows` as
+well, a hit is replaced by the next payload): 50-token runs against every document of bench/long quick, full, long,
+long5, long6 and long7, the R5, long6 and long7 embedded-attack documents (1,408), and every hold-out row (eval/
+data, codelog and embedded; `val_*_holdout`; `val_v5_holdout`, `val_v6_holdout`; the owner hold-outs and the probes,
+read locally); 280.5M shingles; hold-out rows under 50 tokens with 12-token runs. Result: **0 of 22,540** `v8_train`
+rows and **0 of 16,906** `v8e_train` rows share a run; 0 share a 12-token run with a short hold-out row.
+
+**Reproducible.** Seed 20261113; two runs give byte-identical files: `v8_train.jsonl` SHA-256
+`1305e50f756c9f3ad375518976953845ab2d3519a1ce2571998dc8177ea9320e`, `v8e_train.jsonl`
+`7f51cdb409fa4af9121b30ddc8708e7aa1cac186d33f668fa7a614b433195550`.
+
+**Holdout.** `long7` (bench/long/corpus.yaml, `outputs.long7` `3123957c…`; 180 benign documents of 100k and 200k
+tokens, 45 per language and size, and 336 embedded-attack documents with eval/ dev-half payloads 96 to 119 per
+language) was committed before this data was built and is not scored by any model or rule layer before the v8
+holdout stage.
 
 ## v4 changes
 

@@ -361,7 +361,11 @@ the later rounds did not meet it either: a document-level rule on the long
 path (R3), tightened L1 rules with a stricter decision (R5: 6.6% blocked on
 new documents; the rule changes are in the gateway, the decision is not),
 and a v7 training round (R6), which blocked no benign document but caught
-9 points fewer embedded attacks and so is not released. Embedded-attack
+9 points fewer embedded attacks and so is not released, and a v8 round (R7),
+which blocked 2 of 180 benign documents and caught more embedded attacks
+but lost precision on short prompts, so is not released either. On R7's
+new holdout (`long7`, scored once) **the released v6 blocks 10 of 180
+benign documents of 100k and 200k tokens (5.6%)** under `strong75`. Embedded-attack
 detection is a little under v5's, and `val_v3_holdout` and
 `val_realistic_holdout` stay under v3b. Every table is in
 [train/MODEL_CARD.md](../train/MODEL_CARD.md) ("v6").

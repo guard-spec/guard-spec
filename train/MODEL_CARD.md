@@ -20,7 +20,7 @@ classifier scores high. The recipe, the arms and the decision rule below were co
 training run; the results were added after the runs, under "Results": **v6 is arm A**, the v5 recipe
 on the v6 data, the first arm to block no benign bench/long document of 100k to 200k tokens on the dev
 slice (`guardspec-classifier@v6` in `models/manifest.yaml`, not recommended, published as a pre-release;
-v3b stays the default). The later rounds R3, R5 and R6 (below) did not meet the long-document target
+v3b stays the default). The later rounds R3, R5, R6 and R7 (below) did not meet the long-document target
 either, so v6 is the shadow-mode candidate of this work, with an FP16 file for the GPU option. Same architecture, base model
 and revision, tokenizer, labels, window-level training, augmentation, seed (20261105) and settings as
 v5 (`config.yaml`; MPS on the Apple M3 Max, one run at a time).
@@ -361,6 +361,29 @@ scored, once ([`reports/v7_holdout.md`](reports/v7_holdout.md)).
   recipe teaches the classifier to discount instructions inside long prose (random placement −13 points,
   split payloads −18). A recipe meeting both criteria needs a new pre-registration and a new holdout
   (`long6` is spent); that is the draft task RF-3a9ce3f9 (R7).
+
+**R7: v8, long benign and embedded-attack windows of the same hosts (2026-11-13, not met).** Todo R7
+paired every benign long window with an attack window cut from the same host (1:1, placements weighted to
+mid-prose and split payloads), so that long prose alone stops being a benign signal. Arms, data, the rule
+and a new holdout, `long7` (180 benign documents of 100k and 200k tokens, EN and VI, and 336 embedded
+documents), were committed in [`reports/v8_preregistration.md`](reports/v8_preregistration.md) before any
+v8 training; the dev result ([`reports/v8_dev.md`](reports/v8_dev.md), on `long5`) was committed before
+`long7` was scored, once ([`reports/v8_holdout.md`](reports/v8_holdout.md)).
+
+- **Dev.** No arm qualified. D (ref data + v8, 1:1) failed G8 (eval/data dev TPR 0.9086 against ref's CP95
+  low 0.9256); E (half of the benign v8 rows) failed G6 (3 of 15 full-profile documents blocked). Both met
+  the two long-document gates R6 failed. D, the pre-registered fallback, blocked 0 of 150 `long5`
+  documents (ref 13, v6 9).
+- **Holdout, once** (`strong75`, two-sided Clopper–Pearson 95%): D blocks **2 / 180** benign `long7`
+  documents (1 / 90 at 100k and 1 / 90 at 200k, both English), `ref` 12 / 180 and **the released v6
+  10 / 180 (5.6%)**. Embedded detection: D **311 / 327 (95.1%)** against 93.8% for the payloads alone;
+  `ref` 91.7%, v6 92.4%. eval/data hold-out TPR at FPR ≤ 1%: D 0.9352 against `ref` 0.9618 (CP95 low
+  0.9432); D's FPR at 0.85 there is 1.57% against `ref`'s 0.59%. Criteria 1 and 3 fail; **there is no
+  v8**, and nothing from R7 is packaged.
+- **Reading.** Same-host pairing fixed R6's loss on embedded attacks (D beats `ref` on mid-prose and split
+  payloads) and cut blocked long documents about sixfold, but it costs precision on short prompts. A ratio
+  between D and E, with more short benign prompts, is the candidate for a next round; it needs its own
+  pre-registration and a new holdout (`long7` is spent).
 
 **Known weaknesses.** G6 rests on 15 dev documents: with none blocked, the Clopper-Pearson 95% upper bound
 of the false-positive rate is 0.218, so the gate shows the rate is not large, not that it is under 1%;

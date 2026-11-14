@@ -9,6 +9,18 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ## [Unreleased]
 
+### Research
+
+- **R7, classifier training on data v8: not met, no new model** (RF-3a9ce3f9).
+  Pre-registered round pairing benign long text with embedded attacks from
+  the same hosts. On the new `long7` holdout, scored once, the candidate
+  blocked 2 of 180 benign long documents (the released v6: 10) and caught
+  95.1% of embedded attacks, but lost precision on short prompts. The
+  released model is unchanged. Reports:
+  [`train/reports/v8_holdout.md`](train/reports/v8_holdout.md),
+  [`train/MODEL_CARD.md`](train/MODEL_CARD.md) ("R7"), and the v6 long-document
+  numbers in [`docs/models.md`](docs/models.md).
+
 ### Added
 
 - **Personal data in responses per organization** (RF-e9ac5935). Guard
