@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"path"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -46,7 +47,11 @@ type Config struct {
 	LinkAllowlist []string
 	RedactPII     bool // email, phone, CCCD and card numbers
 	RedactIPv4    bool // also IPv4 addresses; needs RedactPII
-	Canary        CanaryMode
+	// PIIKinds, when not empty, are the kinds RedactPII redacts (of the
+	// package's PIIKinds) in place of the default set above: an
+	// organization's output_pii_kinds (WithPII). RedactIPv4 is then ignored.
+	PIIKinds []string
+	Canary   CanaryMode
 	// DropReasoning removes the reasoning fields some upstreams (Ollama, vLLM)
 	// send next to the content, instead of guarding them like the content.
 	DropReasoning bool
@@ -82,6 +87,8 @@ type Guard struct {
 	hosts []string
 	// passthrough: the guard only restores tokens (RestoreOnly).
 	passthrough bool
+	// pii holds the kinds of personal data redacted; nil without RedactPII.
+	pii map[string]bool
 }
 
 // New returns a Guard for cfg.
@@ -95,8 +102,51 @@ func New(cfg Config) *Guard {
 	if cfg.Canary == "" {
 		g.cfg.Canary = CanaryOff
 	}
+	if cfg.RedactPII {
+		g.pii = map[string]bool{}
+		if len(cfg.PIIKinds) > 0 {
+			for _, k := range cfg.PIIKinds {
+				g.pii[k] = true
+			}
+		} else {
+			g.pii[KindEmail], g.pii[KindPhone], g.pii[KindCard], g.pii[KindCCCD] = true, true, true, true
+			g.pii[KindIPv4] = cfg.RedactIPv4
+		}
+	}
 	return g
 }
+
+// WithPII returns the guard with an organization's override of personal-data
+// redaction (guard settings output_pii_action and output_pii_kinds): action
+// off stops it, redact starts it, "" keeps the guard's own setting; kinds,
+// when not empty, replace the kinds redacted. With neither set it returns g
+// itself, so an org without an override is guarded exactly as before. g is
+// not changed. The override only changes personal data: links, images, the
+// canary and token restoring (Scanner.WithTokens) stay as they are.
+func (g *Guard) WithPII(action string, kinds []string) *Guard {
+	if action == "" && len(kinds) == 0 {
+		return g
+	}
+	cfg := g.cfg
+	switch action {
+	case PIIOff:
+		cfg.RedactPII = false
+	case PIIRedact:
+		cfg.RedactPII = true
+	}
+	if len(kinds) > 0 {
+		cfg.PIIKinds = kinds
+	}
+	out := New(cfg)
+	out.passthrough = g.passthrough
+	return out
+}
+
+// isPIIKind reports whether kind is one of PIIKinds.
+func isPIIKind(kind string) bool { return slices.Contains(PIIKinds, kind) }
+
+// RedactsPII reports whether the guard redacts personal data of kind.
+func (g *Guard) RedactsPII(kind string) bool { return g.pii[kind] }
 
 // Config returns the guard's configuration.
 func (g *Guard) Config() Config { return g.cfg }
@@ -396,31 +446,43 @@ func (s *Scanner) inlineMatchesAcross(text string, from int, joins []int) []span
 		}
 	}
 	if s.g.cfg.RedactPII {
-		for _, m := range emailMatches(text) {
-			if !emailCharAt(text, m[0]-1) {
-				add(m[0], m[1], KindEmail)
+		// With an org's own kinds every detector runs, so a stretch is
+		// claimed by the detector it belongs to as without the override;
+		// the kinds left out are then let through (below).
+		want := func(kind string) bool { return s.g.pii[kind] || len(s.g.cfg.PIIKinds) > 0 }
+		if want(KindEmail) {
+			for _, m := range emailMatches(text) {
+				if !emailCharAt(text, m[0]-1) {
+					add(m[0], m[1], KindEmail)
+				}
 			}
 		}
 		if hasDigit(text) {
-			for start := 0; ; {
-				run, end := nextDigitRun(text, start)
-				if run < 0 {
-					break
+			if want(KindCard) {
+				for start := 0; ; {
+					run, end := nextDigitRun(text, start)
+					if run < 0 {
+						break
+					}
+					for _, card := range findCards(text, run, end) {
+						add(card[0], card[1], KindCard)
+					}
+					start = end
 				}
-				for _, card := range findCards(text, run, end) {
-					add(card[0], card[1], KindCard)
+			}
+			if want(KindCCCD) {
+				for _, m := range allBounded(cccdRe, text, digitAt) {
+					add(m[0], m[1], KindCCCD)
 				}
-				start = end
 			}
-			for _, m := range allBounded(cccdRe, text, digitAt) {
-				add(m[0], m[1], KindCCCD)
+			if want(KindPhone) {
+				for _, m := range allBounded(phoneRe, text, func(t string, i int) bool {
+					return digitAt(t, i) || (i >= 0 && i < len(t) && t[i] == '+')
+				}) {
+					add(m[0], m[1], KindPhone)
+				}
 			}
-			for _, m := range allBounded(phoneRe, text, func(t string, i int) bool {
-				return digitAt(t, i) || (i >= 0 && i < len(t) && t[i] == '+')
-			}) {
-				add(m[0], m[1], KindPhone)
-			}
-			if s.g.cfg.RedactIPv4 {
+			if want(KindIPv4) {
 				for _, m := range allBounded(ipv4Re, text, func(t string, i int) bool {
 					return digitAt(t, i) || (i >= 0 && i < len(t) && t[i] == '.' &&
 						(digitAt(t, i-1) || digitAt(t, i+1)))
@@ -442,6 +504,9 @@ func (s *Scanner) inlineMatchesAcross(text string, from int, joins []int) []span
 		if !overlaps {
 			out = append(out, c)
 		}
+	}
+	if len(s.g.cfg.PIIKinds) > 0 {
+		out = slices.DeleteFunc(out, func(sp span) bool { return isPIIKind(sp.kind) && !s.g.pii[sp.kind] })
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].start < out[j].start })
 	return out
