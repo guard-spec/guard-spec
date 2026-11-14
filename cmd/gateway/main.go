@@ -379,6 +379,10 @@ func newApp(gw gateway, lookup tenant.LookupFn) *fiber.App {
 	app.Post("/guardrail/scan/tools", scanToolsHandler(gw))
 	app.Post("/guardrail/sanitize", sanitizeHandler())
 
+	// An organization's own JSON APIs, upstreams of provider custom (backend.go)
+	app.All("/v1/backend/:upstream", backendHandler(gw))
+	app.All("/v1/backend/:upstream/*", backendHandler(gw))
+
 	return app
 }
 
@@ -802,6 +806,17 @@ func (g *textGuard) merge(rep sanitizer.Report) {
 }
 
 func (g *textGuard) clean(text string) (string, error) {
+	cleaned, err := g.sanitizeCollect(text)
+	if err != nil {
+		return "", err
+	}
+	// Classified and counted as sent; forwarded without its personal data.
+	return g.pseudonymize(cleaned), nil
+}
+
+// sanitizeCollect sanitizes text and collects it for classification, without
+// replacing its personal data; it returns the sanitized text.
+func (g *textGuard) sanitizeCollect(text string) (string, error) {
 	cleaned, rep, err := sanitizer.Sanitize(text)
 	if err != nil {
 		return "", err
@@ -815,8 +830,7 @@ func (g *textGuard) clean(text string) (string, error) {
 	}
 	g.texts = append(g.texts, cleaned)
 	g.collect(cleaned)
-	// Classified and counted as sent; forwarded without its personal data.
-	return g.pseudonymize(cleaned), nil
+	return cleaned, nil
 }
 
 // rejectShadowKeys refuses a key that differs from a guarded one only in case.

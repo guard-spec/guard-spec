@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/guard-spec/guard-spec/internal/backend"
 	appconfig "github.com/guard-spec/guard-spec/internal/config"
 	"github.com/guard-spec/guard-spec/internal/metrics"
 	"github.com/guard-spec/guard-spec/internal/policy"
@@ -64,6 +65,9 @@ type upstreamRow struct {
 	APIVersion   string
 	MaxTokensCap *int
 	Retries      int
+	// Backend is a custom backend's configuration (migration 031), as
+	// stored: the gateway validates it before use. nil for model providers.
+	Backend *backend.Config
 }
 
 // errNoSuchUpstream means a route rule names an upstream the org does not have.
@@ -97,12 +101,12 @@ func (s *routeSnapshot) lookup(target string) (*upstreamRow, string, error) {
 type policyRouteLoader func(ctx context.Context, orgID, projectID uuid.UUID) ([]policy.Policy, *routeSnapshot, error)
 
 const upstreamColumns = `u.id, u.name, u.base_url, u.model, COALESCE(u.api_key_env, ''), u.timeout_ms, u.enabled, u.updated_at,
-	u.provider, u.models, u.headers, u.api_version, u.max_tokens_cap, u.retries`
+	u.provider, u.models, u.headers, u.api_version, u.max_tokens_cap, u.retries, u.backend`
 
 func scanUpstream(row pgx.Row, extra ...any) (*upstreamRow, error) {
 	u := &upstreamRow{}
 	dest := append(extra, &u.ID, &u.Name, &u.BaseURL, &u.Model, &u.KeyEnv, &u.TimeoutMs, &u.Enabled, &u.UpdatedAt,
-		&u.Provider, &u.Models, &u.Headers, &u.APIVersion, &u.MaxTokensCap, &u.Retries)
+		&u.Provider, &u.Models, &u.Headers, &u.APIVersion, &u.MaxTokensCap, &u.Retries, &u.Backend)
 	if err := row.Scan(dest...); err != nil {
 		return nil, err
 	}
@@ -309,8 +313,11 @@ func (p *upstreamPool) get(org uuid.UUID, u *upstreamRow) (*proxy.Proxy, error) 
 		return nil, err
 	}
 	keyHeader := ""
-	if u.Provider == "azure_openai" {
+	switch {
+	case u.Provider == "azure_openai":
 		keyHeader = "api-key" // Azure OpenAI keys are not bearer tokens
+	case u.Provider == backend.Provider && u.Backend != nil:
+		keyHeader = u.Backend.KeyHeader // "": Authorization: Bearer
 	}
 	px, err := proxy.New(proxy.Config{
 		BaseURL:     u.BaseURL,
@@ -464,6 +471,10 @@ func (gw gateway) resolveRoute(entry requestEntry, decision policy.Decision, sna
 			provider: up.Provider}
 		if !up.Enabled {
 			return fail(r, errors.New("upstream is disabled"))
+		}
+		if up.Provider == backend.Provider {
+			// Refused when saved; a stored row must not get chat requests.
+			return fail(r, errors.New("a custom backend serves only /v1/backend"))
 		}
 		if gw.pool == nil {
 			return fail(r, errors.New("no upstream pool"))

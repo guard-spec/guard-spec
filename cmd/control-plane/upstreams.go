@@ -711,7 +711,7 @@ func checkUpstream(ctx context.Context, tx pgx.Tx, org uuid.UUID, id *uuid.UUID)
 
 // errBackendDefault refuses a custom backend as a default upstream: chat
 // requests would go to it.
-var errBackendDefault = errors.New("a custom backend cannot be a default upstream; it serves only /v1/backend/{name}/...")
+var errBackendDefault = errors.New("a custom backend cannot be a default upstream; it serves only /v1/backend/{name}/{path}")
 
 func putOrgDefaultUpstream(db *pgxpool.Pool) fiber.Handler {
 	return func(c *fiber.Ctx) error {
