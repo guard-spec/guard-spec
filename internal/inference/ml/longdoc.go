@@ -25,6 +25,11 @@ import (
 // by its strongest window, now as the rule sees it. Texts of at most
 // MinWindows windows, the short path and calibrations without long_doc are
 // unchanged.
+//
+// R8a (RF-35fd836c) adds two options: a stronger corroboration bar
+// (CorroborateL1, the raw weight 0.75 of strong75) and a calibrated L2 bar
+// (MinL2, 0.95). Together they are strong75_l2, the decision measured on
+// the long8 holdout (train/reports/r8a_holdout.md).
 
 // corroborationL1Raw is the raw L1 score of a fired rule that corroborates a
 // window (the bar of code corroboration, indirect.CorroborateCode).
@@ -37,22 +42,39 @@ var corroborationL1 = fusion.DefaultL1Calibration.Apply(corroborationL1Raw)
 // fired a rule with a raw score of at least 0.5 (every decisive rule does),
 // or a floor applied.
 func L1Corroborates(s inference.Score) bool {
+	return l1CorroboratesAt(s, corroborationL1)
+}
+
+// l1CorroboratesAt: the window's calibrated L1 is at least bar, or a floor
+// applied.
+func l1CorroboratesAt(s inference.Score, bar float64) bool {
 	d := s.Detail
 	if d == nil {
 		return false
 	}
-	return d.L1 >= corroborationL1 || d.Floor > 0
+	return d.L1 >= bar || d.Floor > 0
 }
 
+// defaultBase is the block threshold the rule assumes when LongDoc.Base is
+// unset (the gateway's 0.85).
+const defaultBase = 0.85
+
 // LongDocRule is the inference.LongDocRule of a calibration's LongDoc.
-type LongDocRule struct{ p LongDoc }
+type LongDocRule struct {
+	p     LongDoc
+	l1Bar float64 // the corroboration bar on the calibrated L1 scale
+}
 
 // NewLongDocRule returns the rule of p; nil when p is nil.
 func NewLongDocRule(p *LongDoc) *LongDocRule {
 	if p == nil {
 		return nil
 	}
-	return &LongDocRule{p: *p}
+	r := &LongDocRule{p: *p, l1Bar: corroborationL1}
+	if p.CorroborateL1 > 0 {
+		r.l1Bar = fusion.DefaultL1Calibration.Apply(p.CorroborateL1)
+	}
+	return r
 }
 
 // Params are the rule's parameters.
@@ -91,17 +113,27 @@ func (r *LongDocRule) Apply(n int, s inference.Score) inference.Score {
 	if r == nil || n <= r.p.MinWindows {
 		return s
 	}
-	if r.p.Corroborate && L1Corroborates(s) {
-		return s
-	}
+	corroborate := r.p.Corroborate || r.p.CorroborateL1 > 0
 	score := float64(s.Confidence)
-	switch {
-	case len(r.p.Threshold) > 0:
-		score = sigmoid(logit(score) - r.shift(n))
-	case r.p.Corroborate && s.Detail != nil && s.Detail.L1 != fusion.Missing:
-		score = min(score, s.Detail.L1)
-	default:
-		return s
+	if !corroborate || !l1CorroboratesAt(s, r.l1Bar) {
+		switch {
+		case len(r.p.Threshold) > 0:
+			score = sigmoid(logit(score) - r.shift(n))
+		case corroborate && s.Detail != nil && s.Detail.L1 != fusion.Missing:
+			score = min(score, s.Detail.L1)
+		case r.p.CorroborateL1 > 0 && s.Detail != nil: // no L1 score: nothing corroborates it
+			score = 0
+		}
+	}
+	if r.p.MinL2 > 0 && s.Detail != nil {
+		l2 := max(s.Detail.L2, 0) // fusion.Missing: L2 did not score the window
+		if l2 < r.p.MinL2 {
+			base := r.p.Base
+			if base <= 0 || base >= 1 {
+				base = defaultBase
+			}
+			score = min(score, l2*base/r.p.MinL2)
+		}
 	}
 	if score >= float64(s.Confidence)-1e-6 { // Confidence is a float32
 		return s

@@ -74,6 +74,19 @@ type LongDoc struct {
 	// calibrated L1 score, or to the length-aware threshold's scale when
 	// Threshold is set.
 	Corroborate bool `json:"corroborate,omitempty"`
+	// CorroborateL1 is the raw L1 rule weight that corroborates a window
+	// (0: corroborationL1Raw, 0.5). A value turns Corroborate on. 0.75 is
+	// the strong75 decision of train/longdoc_r5.py (R5, RF-35fd836c R8a).
+	CorroborateL1 float64 `json:"corroborate_l1,omitempty"`
+	// MinL2: in a longer text a window keeps its score only when its
+	// calibrated L2 score is at least MinL2 (a window L2 did not score has
+	// 0); otherwise its score is at most L2 * Base / MinL2, under Base
+	// (0.85 when Base is unset). 0.95 with CorroborateL1 0.75 is the R8a
+	// decision strong75_l2 (train/reports/r8a_preregistration.md). With
+	// MinL2 at least 0.5, strong75's condition that a floor counts only when
+	// L2 agrees (L2 at least 0.5) holds for every window that keeps its
+	// score, so it needs no field of its own.
+	MinL2 float64 `json:"min_l2,omitempty"`
 	// Threshold is the length-aware threshold T(n) as points [n, T]: in a
 	// text of n windows a window scoring s counts as s would against Base
 	// in a text within MinWindows, i.e. its logit is lowered by
