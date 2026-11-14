@@ -9,6 +9,18 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ## [Unreleased]
 
+### Research
+
+- **R8a, R7's arm E under a stricter long-path decision: met, no release**
+  (RF-35fd836c). No training. On the new `long8` holdout, scored once, R7's
+  arm E with `strong75_l2` (an L2 bar of 0.95 on long texts) blocked 1 of 602
+  benign documents of 100k and 200k tokens (the released v6 under
+  `strong75`: 24). It caught 88.0% of embedded attacks against 91.7% for the
+  same payloads alone, and kept the short-prompt hold-out TPR of `ref`. The
+  released model and the gateway are unchanged. Reports:
+  [`train/reports/r8a_holdout.md`](train/reports/r8a_holdout.md) and
+  [`train/MODEL_CARD.md`](train/MODEL_CARD.md) ("R8a").
+
 ## [0.8.0] - 2026-11-14
 
 ### Added
