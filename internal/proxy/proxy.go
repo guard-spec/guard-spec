@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"syscall"
@@ -256,6 +257,14 @@ func (p *Proxy) Forward(ctx context.Context, path string, body []byte) (*Respons
 	return p.Do(ctx, path, body, Call{})
 }
 
+// backendPathRe and backendQueryRe bound Call.URLPath and Call.RawQuery:
+// printable ASCII without spaces or a fragment, the path absolute and
+// without a query or backslash, so neither can change the URL's host.
+var (
+	backendPathRe  = regexp.MustCompile(`^/[!-"$-/0-9:-;=>@-\[\]-~]*$`)
+	backendQueryRe = regexp.MustCompile(`^[!-"$-~]*$`)
+)
+
 // Call holds the settings of one request that differ from the proxy's.
 type Call struct {
 	// Method is the HTTP method; "" is POST. A GET sends no body.
@@ -268,6 +277,18 @@ type Call struct {
 	// are dropped, and the upstream's configured headers and the credentials
 	// win over them.
 	Header http.Header
+
+	// For a custom backend (the gateway's /v1/backend): URLPath, when set,
+	// is appended to the base URL instead of the path argument, which stays
+	// the metric label; RawQuery is added after it as is; ContentType is
+	// sent instead of application/json; an empty body is not sent at all.
+	URLPath     string
+	RawQuery    string
+	ContentType string
+	// PassClientErrors returns a 4xx answer as a Response, for the caller
+	// to relay, except 401 and 407, which are about the gateway's own
+	// credentials and stay an *Error.
+	PassClientErrors bool
 }
 
 // Do sends a request to base+path with the settings of call. Like Forward, it
@@ -388,17 +409,35 @@ func (p *Proxy) forwardOnce(ctx context.Context, path string, body []byte, call 
 		method = call.Method
 	}
 	var reader io.Reader
-	if method != http.MethodGet {
+	if method != http.MethodGet && (call.URLPath == "" || len(body) > 0) {
 		reader = bytes.NewReader(body)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, p.url(path), reader)
+	target := p.url(path)
+	if call.URLPath != "" {
+		// The caller checked the path (backend.CleanPath and the prefixes);
+		// this is the last line: only a path and a query that cannot leave
+		// the base URL's host reach the URL.
+		if !backendPathRe.MatchString(call.URLPath) || !backendQueryRe.MatchString(call.RawQuery) {
+			cancel()
+			return nil, &Error{Status: http.StatusBadRequest, Code: "invalid_path", Message: "invalid backend path or query"}
+		}
+		target = p.base + call.URLPath
+		if call.RawQuery != "" {
+			target += "?" + call.RawQuery
+		}
+	}
+	req, err := http.NewRequestWithContext(ctx, method, target, reader)
 	if err != nil {
 		cancel()
 		return nil, classify(err)
 	}
 	p.setCallHeaders(req, call)
 	if reader != nil {
-		req.Header.Set("Content-Type", "application/json")
+		contentType := "application/json"
+		if call.ContentType != "" {
+			contentType = call.ContentType
+		}
+		req.Header.Set("Content-Type", contentType)
 	}
 	if p.propagate {
 		otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(req.Header))
@@ -413,11 +452,16 @@ func (p *Proxy) forwardOnce(ctx context.Context, path string, body []byte, call 
 	r := &Response{
 		Status:      resp.StatusCode,
 		ContentType: resp.Header.Get("Content-Type"),
+		Header:      resp.Header,
 		body:        resp.Body,
 		cancel:      cancel,
 		idle:        p.timeout,
 	}
 
+	if call.PassClientErrors && resp.StatusCode >= 400 && resp.StatusCode <= 499 &&
+		resp.StatusCode != http.StatusUnauthorized && resp.StatusCode != http.StatusProxyAuthRequired {
+		return r, nil
+	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		defer r.Close()
 		return nil, statusError(resp, r)
@@ -429,6 +473,9 @@ func (p *Proxy) forwardOnce(ctx context.Context, path string, body []byte, call 
 type Response struct {
 	Status      int
 	ContentType string
+	// Header is the upstream's response headers; the caller picks what it
+	// relays.
+	Header http.Header
 
 	body   io.ReadCloser
 	cancel context.CancelFunc

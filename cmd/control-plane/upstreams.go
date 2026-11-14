@@ -15,6 +15,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"github.com/guard-spec/guard-spec/internal/auth"
+	"github.com/guard-spec/guard-spec/internal/backend"
 	"github.com/guard-spec/guard-spec/internal/config"
 	"github.com/guard-spec/guard-spec/internal/policy"
 	"github.com/guard-spec/guard-spec/internal/proxy"
@@ -57,13 +58,16 @@ type upstream struct {
 	MaxTokensCap *int              `json:"max_tokens_cap"`
 	Retries      int               `json:"retries"`
 	Tags         []string          `json:"tags"`
-	CreatedAt    time.Time         `json:"created_at"`
-	UpdatedAt    time.Time         `json:"updated_at"`
+	// Backend is a custom backend's configuration (migration 031); null for
+	// every other provider.
+	Backend   *backend.Config `json:"backend"`
+	CreatedAt time.Time       `json:"created_at"`
+	UpdatedAt time.Time       `json:"updated_at"`
 }
 
 var (
 	providers = map[string]bool{"openai": true, "anthropic": true, "azure_openai": true, "gemini": true,
-		"ollama": true, "vllm": true, "openai_compatible": true}
+		"ollama": true, "vllm": true, "openai_compatible": true, backend.Provider: true}
 	apiVersionRe = regexp.MustCompile(`^[A-Za-z0-9.-]{1,32}$`)
 	tagRe        = regexp.MustCompile(`^[a-z0-9][a-z0-9_.-]{0,31}$`)
 )
@@ -104,7 +108,10 @@ func (u *upstream) validate() error {
 		u.Provider = "openai_compatible"
 	}
 	if !providers[u.Provider] {
-		return errors.New("provider must be openai, anthropic, azure_openai, gemini, ollama, vllm or openai_compatible")
+		return errors.New("provider must be openai, anthropic, azure_openai, gemini, ollama, vllm, openai_compatible or custom")
+	}
+	if err := u.validateBackend(); err != nil {
+		return err
 	}
 	u.DisplayName = strings.TrimSpace(u.DisplayName)
 	if utf8.RuneCountInString(u.DisplayName) > maxDisplayName || strings.IndexFunc(u.DisplayName, unicode.IsControl) >= 0 {
@@ -164,7 +171,7 @@ func (u *upstream) validate() error {
 }
 
 const upstreamColumnsCP = `id, name, base_url, model, COALESCE(api_key_env, ''), timeout_ms, enabled,
-	provider, display_name, models, headers, api_version, max_tokens_cap, retries, tags, created_at, updated_at`
+	provider, display_name, models, headers, api_version, max_tokens_cap, retries, tags, backend, created_at, updated_at`
 
 const upstreamSelect = `SELECT ` + upstreamColumnsCP + ` FROM upstreams`
 
@@ -172,7 +179,7 @@ func scanUpstreamRow(row pgx.Row) (upstream, error) {
 	var u upstream
 	err := row.Scan(&u.ID, &u.Name, &u.BaseURL, &u.Model, &u.APIKeyEnv, &u.TimeoutMs, &u.Enabled,
 		&u.Provider, &u.DisplayName, &u.Models, &u.Headers, &u.APIVersion, &u.MaxTokensCap, &u.Retries, &u.Tags,
-		&u.CreatedAt, &u.UpdatedAt)
+		&u.Backend, &u.CreatedAt, &u.UpdatedAt)
 	u.DefaultModel = u.Model
 	return u, err
 }
@@ -324,11 +331,11 @@ func createUpstream(db *pgxpool.Pool, settings *appSettings) fiber.Handler {
 			var err error
 			u, err = scanUpstreamRow(tx.QueryRow(c.Context(),
 				`INSERT INTO upstreams (org_id, name, base_url, model, api_key_env, timeout_ms, enabled,
-				   provider, display_name, models, headers, api_version, max_tokens_cap, retries, tags)
-				 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+				   provider, display_name, models, headers, api_version, max_tokens_cap, retries, tags, backend)
+				 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 				 RETURNING `+upstreamColumnsCP,
 				org, u.Name, u.BaseURL, u.Model, nullString(u.APIKeyEnv), u.TimeoutMs, u.Enabled,
-				u.Provider, u.DisplayName, u.Models, u.Headers, u.APIVersion, u.MaxTokensCap, u.Retries, u.Tags))
+				u.Provider, u.DisplayName, u.Models, u.Headers, u.APIVersion, u.MaxTokensCap, u.Retries, u.Tags, u.Backend))
 			return err
 		})
 		if isUniqueViolation(err) {
@@ -360,6 +367,19 @@ type upstreamPatch struct {
 	MaxTokensCap optInt             `json:"max_tokens_cap"`
 	Retries      *int               `json:"retries"`
 	Tags         *[]string          `json:"tags"`
+	Backend      optBackend         `json:"backend"`
+}
+
+// optBackend is a nullable backend in a request body: absent leaves the
+// stored value alone, null clears it.
+type optBackend struct {
+	Set   bool
+	Value *backend.Config
+}
+
+func (o *optBackend) UnmarshalJSON(b []byte) error {
+	o.Set = true
+	return json.Unmarshal(b, &o.Value)
 }
 
 // optInt is a nullable number in a request body: absent leaves the stored
@@ -417,6 +437,12 @@ func (p upstreamPatch) apply(u *upstream) {
 	}
 	if p.Enabled != nil {
 		u.Enabled = *p.Enabled
+	}
+	if p.Backend.Set {
+		u.Backend = p.Backend.Value
+	}
+	if u.Provider != backend.Provider && p.Provider != nil && !p.Backend.Set {
+		u.Backend = nil // no longer a custom backend
 	}
 }
 
@@ -534,14 +560,14 @@ func updateUpstream(db *pgxpool.Pool, settings *appSettings) fiber.Handler {
 			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
 		}
 		var u upstream
-		var oldName string
+		var oldName, oldProvider string
 		var invalid error
 		err = tenant.WithOrg(c.Context(), db, org, func(tx pgx.Tx) error {
 			var err error
 			if u, err = lockUpstream(c.Context(), tx, org, id); err != nil {
 				return err
 			}
-			oldName = u.Name
+			oldName, oldProvider = u.Name, u.Provider
 			patch.apply(&u)
 			if invalid = u.validate(); invalid != nil {
 				return invalid
@@ -552,6 +578,16 @@ func updateUpstream(db *pgxpool.Pool, settings *appSettings) fiber.Handler {
 			if patch.APIKeyEnv != nil || patch.BaseURL != nil {
 				if invalid = settings.keyOrgs.Check(u.APIKeyEnv, org); invalid != nil {
 					return invalid
+				}
+			}
+			if u.Provider == backend.Provider && oldProvider != backend.Provider {
+				// A default or a route rule would send chat requests to it.
+				refs, err := upstreamRefs(c.Context(), tx, org, id, oldName)
+				if err != nil {
+					return err
+				}
+				if len(refs) > 0 {
+					return &upstreamInUse{refs: refs}
 				}
 			}
 			if u.Name != oldName {
@@ -573,11 +609,11 @@ func updateUpstream(db *pgxpool.Pool, settings *appSettings) fiber.Handler {
 			u, err = scanUpstreamRow(tx.QueryRow(c.Context(),
 				`UPDATE upstreams SET name = $3, base_url = $4, model = $5, api_key_env = $6, timeout_ms = $7,
 				   enabled = $8, provider = $9, display_name = $10, models = $11, headers = $12, api_version = $13,
-				   max_tokens_cap = $14, retries = $15, tags = $16, updated_at = NOW()
+				   max_tokens_cap = $14, retries = $15, tags = $16, backend = $17, updated_at = NOW()
 				 WHERE id = $1 AND org_id = $2
 				 RETURNING `+upstreamColumnsCP,
 				id, org, u.Name, u.BaseURL, u.Model, nullString(u.APIKeyEnv), u.TimeoutMs, u.Enabled,
-				u.Provider, u.DisplayName, u.Models, u.Headers, u.APIVersion, u.MaxTokensCap, u.Retries, u.Tags))
+				u.Provider, u.DisplayName, u.Models, u.Headers, u.APIVersion, u.MaxTokensCap, u.Retries, u.Tags, u.Backend))
 			return err
 		})
 		var inUse *upstreamInUse
@@ -662,13 +698,20 @@ func checkUpstream(ctx context.Context, tx pgx.Tx, org uuid.UUID, id *uuid.UUID)
 	if id == nil {
 		return nil
 	}
-	var found uuid.UUID
-	err := tx.QueryRow(ctx, `SELECT id FROM upstreams WHERE id = $1 AND org_id = $2 FOR SHARE`, *id, org).Scan(&found)
+	var provider string
+	err := tx.QueryRow(ctx, `SELECT provider FROM upstreams WHERE id = $1 AND org_id = $2 FOR SHARE`, *id, org).Scan(&provider)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return errUnknownUpstream
 	}
+	if err == nil && provider == backend.Provider {
+		return errBackendDefault
+	}
 	return err
 }
+
+// errBackendDefault refuses a custom backend as a default upstream: chat
+// requests would go to it.
+var errBackendDefault = errors.New("a custom backend cannot be a default upstream; it serves only /v1/backend/{name}/{path}")
 
 func putOrgDefaultUpstream(db *pgxpool.Pool) fiber.Handler {
 	return func(c *fiber.Ctx) error {
@@ -685,7 +728,7 @@ func putOrgDefaultUpstream(db *pgxpool.Pool) fiber.Handler {
 				`UPDATE organizations SET default_upstream_id = $1, updated_at = NOW() WHERE id = $2`, id, org)
 			return err
 		})
-		if errors.Is(err, errUnknownUpstream) {
+		if errors.Is(err, errUnknownUpstream) || errors.Is(err, errBackendDefault) {
 			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
 		}
 		if err != nil {
@@ -718,7 +761,7 @@ func putProjectDefaultUpstream(db *pgxpool.Pool) fiber.Handler {
 			updated = tag.RowsAffected()
 			return err
 		})
-		if errors.Is(err, errUnknownUpstream) {
+		if errors.Is(err, errUnknownUpstream) || errors.Is(err, errBackendDefault) {
 			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
 		}
 		if err != nil {
@@ -734,9 +777,15 @@ func putProjectDefaultUpstream(db *pgxpool.Pool) fiber.Handler {
 }
 
 // unknownTargetError is a route rule naming an upstream the org does not have.
-type unknownTargetError struct{ name string }
+type unknownTargetError struct {
+	name    string
+	backend bool // the upstream is a custom backend, which serves no chat request
+}
 
 func (e *unknownTargetError) Error() string {
+	if e.backend {
+		return fmt.Sprintf("route_target %q is a custom backend; route rules can only name model providers", e.name)
+	}
 	return fmt.Sprintf("route_target %q does not name an upstream of this organization", e.name)
 }
 
@@ -746,16 +795,19 @@ func checkRouteTargets(ctx context.Context, tx pgx.Tx, org uuid.UUID, targets []
 	if len(targets) == 0 {
 		return nil
 	}
-	rows, err := tx.Query(ctx, `SELECT name FROM upstreams WHERE org_id = $1 AND name = ANY($2) FOR SHARE`, org, targets)
+	rows, err := tx.Query(ctx, `SELECT name, provider FROM upstreams WHERE org_id = $1 AND name = ANY($2) FOR SHARE`, org, targets)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 	found := map[string]bool{}
 	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
+		var name, provider string
+		if err := rows.Scan(&name, &provider); err != nil {
 			return err
+		}
+		if provider == backend.Provider {
+			return &unknownTargetError{name: name, backend: true}
 		}
 		found[name] = true
 	}
@@ -781,4 +833,31 @@ func routeTargets(rules []policy.Rule) []string {
 		}
 	}
 	return out
+}
+
+// validateBackend checks what differs for a custom backend: it has a backend
+// configuration, and none of the model fields; retries are off, since a
+// business request may not be safe to send twice.
+func (u *upstream) validateBackend() error {
+	if u.Provider != backend.Provider {
+		if u.Backend != nil {
+			return errors.New("backend is only used with provider custom")
+		}
+		return nil
+	}
+	if u.Backend == nil {
+		return errors.New("backend is required with provider custom: path_prefixes, methods and scan")
+	}
+	if err := u.Backend.Validate(); err != nil {
+		return err
+	}
+	switch {
+	case u.Model != "" || len(u.Models) > 0:
+		return errors.New("a custom backend has no models; leave models and default_model empty")
+	case u.MaxTokensCap != nil:
+		return errors.New("max_tokens_cap is not used with provider custom")
+	case u.Retries != 0:
+		return errors.New("retries must be 0 for a custom backend: a business request may not be safe to send twice")
+	}
+	return nil
 }

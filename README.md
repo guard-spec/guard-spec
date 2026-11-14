@@ -757,6 +757,7 @@ or `x-api-key: gs_...`.
 | `POST /guardrail/scan` | Score `text` and/or `documents[]` without calling a model |
 | `POST /guardrail/scan/tools` | Score MCP tool definitions (a `tools/list` result) |
 | `POST /guardrail/sanitize` | Return the sanitized text and the sanitizer report |
+| `GET`/`POST`/`PUT`/`PATCH`/`DELETE /v1/backend/{upstream}/{path}` | An organization's own JSON API (an upstream of provider `custom`): the method and path are checked against its configuration (405, 403), the declared request fields are scanned like chat, and an allowed request is forwarded unchanged; declared answer fields go through the output guard. [docs/integrations.md](docs/integrations.md#custom-backend) |
 
 A refused request gets HTTP 400 with
 `{"error":{"message":"...","type":"invalid_request_error","code":"content_filter"}}`.

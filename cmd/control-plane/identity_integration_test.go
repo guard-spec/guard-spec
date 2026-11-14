@@ -1056,7 +1056,7 @@ func TestUpstreamProviderFieldsAndTest(t *testing.T) {
 	}
 	// Members cannot test.
 	h.expect(403, "POST", base+"/"+id+"/test", h.member(org, auth.RoleMember), "")
-	if cat := h.expect(200, "GET", "/v1/providers/catalog", admin, ""); len(cat["items"].([]any)) != 7 {
+	if cat := h.expect(200, "GET", "/v1/providers/catalog", admin, ""); len(cat["items"].([]any)) != 8 {
 		t.Errorf("catalog %v", cat)
 	}
 }

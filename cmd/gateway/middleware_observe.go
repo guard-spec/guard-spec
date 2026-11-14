@@ -42,6 +42,9 @@ func routeLabel(path string) string {
 	if r, ok := knownRoutes[path]; ok {
 		return r
 	}
+	if isBackendPath(path) {
+		return routeBackend
+	}
 	return "other"
 }
 

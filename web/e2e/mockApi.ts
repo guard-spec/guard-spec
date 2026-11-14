@@ -1106,6 +1106,7 @@ export const CATALOG = [
   { id: 'ollama', display_name: 'Ollama', default_base_url: 'http://ollama:11434/v1', key_required: false, key_env_hint: '', needs_api_version: false, openai_compatible_endpoint: false, known_models: null, docs_url: '', notes: 'Self-hosted; no key.' },
   { id: 'vllm', display_name: 'vLLM', default_base_url: 'http://vllm:8000/v1', key_required: false, key_env_hint: '', needs_api_version: false, openai_compatible_endpoint: false, known_models: null, docs_url: '', notes: '' },
   { id: 'openai_compatible', display_name: 'OpenAI-compatible', default_base_url: 'https://llm.example.com/v1', key_required: false, key_env_hint: '', needs_api_version: false, openai_compatible_endpoint: false, known_models: null, docs_url: '', notes: '' },
+  { id: 'custom', display_name: 'Custom backend', default_base_url: '', key_required: false, key_env_hint: 'UPSTREAM_KEY_<NAME>', needs_api_version: false, openai_compatible_endpoint: false, known_models: null, docs_url: 'https://github.com/guard-spec/guard-spec/blob/main/docs/integrations.md#custom-backend', notes: 'Your own JSON API, reached through /v1/backend/{name}/{path}.' },
 ];
 
 /** GET /permissions: the control plane's table (cmd/control-plane/members.go), mirrored by FALLBACK_MATRIX. */

@@ -29,7 +29,7 @@ export interface AppState {
 export interface OrgState {
   org: Org;
   projects: Project[];
-  /** null: the control plane has no upstream API (needs the routing backend). */
+  /** The model providers (custom backends left out); null: the control plane has no upstream API. */
   upstreams: Upstream[] | null;
   upstreamError: string | null;
   reload: () => Promise<void>;

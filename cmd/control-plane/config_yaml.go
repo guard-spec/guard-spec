@@ -26,6 +26,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"github.com/guard-spec/guard-spec/internal/auth"
+	"github.com/guard-spec/guard-spec/internal/backend"
 	"github.com/guard-spec/guard-spec/internal/config"
 	"github.com/guard-spec/guard-spec/internal/policy"
 	"github.com/guard-spec/guard-spec/internal/tenant"
@@ -57,6 +58,10 @@ type configUpstream struct {
 	APIKeyEnv string `yaml:"api_key_env,omitempty"`
 	TimeoutMs int    `yaml:"timeout_ms,omitempty"`
 	Enabled   *bool  `yaml:"enabled,omitempty"`
+	// Provider and Backend carry a custom backend (migration 031) through
+	// the file; model providers keep their provider fields in the database.
+	Provider string          `yaml:"provider,omitempty"`
+	Backend  *backend.Config `yaml:"backend,omitempty"`
 }
 
 type configPolicy struct {
@@ -271,6 +276,9 @@ func (s *storedConfig) document() (*configDoc, error) {
 		if !u.Enabled {
 			cu.Enabled = &u.Enabled
 		}
+		if u.Provider == backend.Provider {
+			cu.Provider, cu.Backend = u.Provider, u.Backend
+		}
 		doc.Upstreams = append(doc.Upstreams, cu)
 	}
 	for _, p := range s.projects {
@@ -336,6 +344,9 @@ func putConfig(db *pgxpool.Pool, eng *policy.Engine, settings *appSettings) fibe
 				return err
 			}
 			if errs := plan.resolveProjects(stored); len(errs) > 0 {
+				return &configInvalid{errs: errs}
+			}
+			if errs := plan.checkBackends(stored); len(errs) > 0 {
 				return &configInvalid{errs: errs}
 			}
 			twoPerson, _, err := twoPersonSettings(c.Context(), tx, org)
@@ -410,11 +421,15 @@ func validateConfig(eng *policy.Engine, doc *configDoc, keyOrgs config.KeyOrgs, 
 	}
 	plan := &configPlan{doc: doc}
 	names := map[string]bool{}
+	custom := map[string]bool{} // custom backends of the file: never a default or a route target
 	for i, cu := range doc.Upstreams {
 		path := fmt.Sprintf("upstreams[%d]", i)
 		u := upstream{Name: cu.Name, BaseURL: cu.BaseURL, Model: cu.Model, APIKeyEnv: cu.APIKeyEnv,
-			TimeoutMs: cu.TimeoutMs, Enabled: cu.Enabled == nil || *cu.Enabled}
-		if err := u.validate(); err != nil {
+			TimeoutMs: cu.TimeoutMs, Enabled: cu.Enabled == nil || *cu.Enabled, Provider: cu.Provider, Backend: cu.Backend}
+		custom[u.Name] = cu.Provider == backend.Provider
+		if cu.Provider != "" && cu.Provider != backend.Provider {
+			add(path+".provider", "provider is only written for custom backends; set model provider presets in the admin UI")
+		} else if err := u.validate(); err != nil {
 			add(path, "%s", err.Error())
 		} else if err := keyOrgs.Check(u.APIKeyEnv, org); err != nil {
 			add(path+".api_key_env", "%s", err.Error())
@@ -427,10 +442,14 @@ func validateConfig(eng *policy.Engine, doc *configDoc, keyOrgs config.KeyOrgs, 
 	}
 	if doc.DefaultUpstream != nil && !names[*doc.DefaultUpstream] {
 		add("default_upstream", "%q is not an upstream of this file", *doc.DefaultUpstream)
+	} else if doc.DefaultUpstream != nil && custom[*doc.DefaultUpstream] {
+		add("default_upstream", "%q is a custom backend; a default upstream must be a model provider", *doc.DefaultUpstream)
 	}
 	for slug, name := range doc.ProjectDefaults {
 		if !names[name] {
 			add("project_defaults."+slug, "%q is not an upstream of this file", name)
+		} else if custom[name] {
+			add("project_defaults."+slug, "%q is a custom backend; a default upstream must be a model provider", name)
 		}
 	}
 	policyNames := map[string]bool{}
@@ -464,6 +483,8 @@ func validateConfig(eng *policy.Engine, doc *configDoc, keyOrgs config.KeyOrgs, 
 				add(rpath, "%s", err.Error())
 			} else if rule.Action == policy.ActionRoute && !names[rule.RouteTarget] {
 				add(rpath+".route_target", "%q is not an upstream of this file", rule.RouteTarget)
+			} else if rule.Action == policy.ActionRoute && custom[rule.RouteTarget] {
+				add(rpath+".route_target", "%q is a custom backend; route rules can only name model providers", rule.RouteTarget)
 			}
 			rules, texts = append(rules, rule), append(texts, text)
 		}
@@ -471,6 +492,38 @@ func validateConfig(eng *policy.Engine, doc *configDoc, keyOrgs config.KeyOrgs, 
 		plan.texts = append(plan.texts, texts)
 	}
 	return plan, errs
+}
+
+// checkBackends refuses a file that would turn a stored custom backend into
+// a model provider: an entry for it must keep provider custom and its
+// backend (an export writes both), so that no configuration is lost.
+func (p *configPlan) checkBackends(s *storedConfig) []configError {
+	var errs []configError
+	stored := map[string]upstream{}
+	for _, u := range s.upstreams {
+		stored[u.Name] = u
+	}
+	for i, u := range p.upstreams {
+		if old, ok := stored[u.Name]; ok && old.Provider == backend.Provider && u.Provider != backend.Provider {
+			errs = append(errs, configError{Path: fmt.Sprintf("upstreams[%d]", i), Message: fmt.Sprintf(
+				"upstream %q is a custom backend; keep provider: custom and its backend (export the config to get them)", u.Name)})
+		}
+	}
+	return errs
+}
+
+// backendChanged reports a custom backend whose provider or configuration
+// the file changes; model providers keep theirs.
+func backendChanged(old, u upstream) bool {
+	if u.Provider != backend.Provider {
+		return false
+	}
+	if old.Provider != backend.Provider || old.Backend == nil || u.Backend == nil {
+		return true
+	}
+	a, _ := json.Marshal(old.Backend)
+	b, _ := json.Marshal(u.Backend)
+	return !bytes.Equal(a, b)
 }
 
 // resolveProjects maps the project slugs of the file to the org's projects.
@@ -641,7 +694,7 @@ func (p *configPlan) diff(s *storedConfig) []configChange {
 		case !ok:
 			changes = append(changes, configChange{"upstream", u.Name, "create"})
 		case old.BaseURL != u.BaseURL || old.Model != u.Model || old.APIKeyEnv != u.APIKeyEnv ||
-			old.TimeoutMs != u.TimeoutMs || old.Enabled != u.Enabled:
+			old.TimeoutMs != u.TimeoutMs || old.Enabled != u.Enabled || backendChanged(old, u):
 			changes = append(changes, configChange{"upstream", u.Name, "update"})
 		}
 	}
@@ -705,15 +758,23 @@ func (p *configPlan) apply(ctx context.Context, tx pgx.Tx, org, actor uuid.UUID,
 		if !ok {
 			var id uuid.UUID
 			if err := tx.QueryRow(ctx,
-				`INSERT INTO upstreams (org_id, name, base_url, model, api_key_env, timeout_ms, enabled)
-				 VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-				org, u.Name, u.BaseURL, u.Model, nullString(u.APIKeyEnv), u.TimeoutMs, u.Enabled).Scan(&id); err != nil {
+				`INSERT INTO upstreams (org_id, name, base_url, model, api_key_env, timeout_ms, enabled, provider, backend)
+				 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+				org, u.Name, u.BaseURL, u.Model, nullString(u.APIKeyEnv), u.TimeoutMs, u.Enabled, u.Provider, u.Backend).Scan(&id); err != nil {
 				return fmt.Errorf("upstream %s: %w", u.Name, err)
 			}
 			ids[u.Name] = id
 			continue
 		}
 		ids[u.Name] = old.ID
+		if backendChanged(old, u) {
+			// Becomes or stays a custom backend: its configuration is the file's.
+			if _, err := tx.Exec(ctx, `UPDATE upstreams SET provider = $3, backend = $4, models = '{}', max_tokens_cap = NULL,
+				   retries = 0, api_version = '', updated_at = NOW() WHERE id = $1 AND org_id = $2`,
+				old.ID, org, u.Provider, u.Backend); err != nil {
+				return fmt.Errorf("upstream %s: %w", u.Name, err)
+			}
+		}
 		if old.BaseURL != u.BaseURL || old.Model != u.Model || old.APIKeyEnv != u.APIKeyEnv ||
 			old.TimeoutMs != u.TimeoutMs || old.Enabled != u.Enabled {
 			if _, err := tx.Exec(ctx,

@@ -491,7 +491,26 @@ export interface Upstream {
   max_tokens_cap?: number | null;
   retries?: number;
   tags?: string[];
+  /** A custom backend's configuration (provider custom, migration 031); null otherwise. */
+  backend?: BackendConfig | null;
 }
+
+/** What a custom backend forwards and scans (internal/backend). */
+export interface BackendConfig {
+  path_prefixes: string[];
+  methods: BackendMethod[];
+  /** Send the key in this header as is; empty: Authorization: Bearer. */
+  key_header?: string;
+  scan: {
+    request: string[];
+    response: string[];
+    all_strings: boolean;
+    raw_text: boolean;
+  };
+}
+
+export type BackendMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+export const BACKEND_METHODS: readonly BackendMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
 
 export type UpstreamInput = Omit<Upstream, 'id' | 'created_at' | 'updated_at'>;
 
@@ -902,8 +921,8 @@ export interface ActivityEntry {
 
 // ── Model providers (identity contract §6) ──────────────────────────────────
 
-export type ProviderKind = 'openai' | 'anthropic' | 'azure_openai' | 'gemini' | 'ollama' | 'vllm' | 'openai_compatible';
-export const PROVIDER_KINDS: readonly ProviderKind[] = ['openai', 'anthropic', 'azure_openai', 'gemini', 'ollama', 'vllm', 'openai_compatible'];
+export type ProviderKind = 'openai' | 'anthropic' | 'azure_openai' | 'gemini' | 'ollama' | 'vllm' | 'openai_compatible' | 'custom';
+export const PROVIDER_KINDS: readonly ProviderKind[] = ['openai', 'anthropic', 'azure_openai', 'gemini', 'ollama', 'vllm', 'openai_compatible', 'custom'];
 
 /** GET /providers/catalog: one preset (field names of the control plane). */
 export interface CatalogEntry {

@@ -406,7 +406,10 @@ chỉ tới upstream có provider `openai`, `azure_openai` hoặc
 `openai_compatible`), `POST /v1/embeddings`, `GET /v1/models`,
 `POST /guardrail/scan` (chấm `text` và `documents`
 không gọi model), `POST /guardrail/scan/tools` (chấm định nghĩa tool MCP),
-`POST /guardrail/sanitize`.
+`POST /guardrail/sanitize`, `/v1/backend/{upstream}/{path}` (API JSON của
+chính tổ chức, upstream có provider `custom`: quét các trường đã khai báo rồi
+chuyển tiếp nguyên vẹn; xem
+[docs/integrations.vi.md](docs/integrations.vi.md#backend-tùy-chỉnh)).
 
 Control plane (cổng 8081, compose mở ra 18081): đăng nhập, tổ chức, API key,
 project, policy, guard settings, exemplar, lời mời, audit log. Bảng đầy đủ và

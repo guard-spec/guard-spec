@@ -7,6 +7,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"github.com/guard-spec/guard-spec/internal/backend"
 	"github.com/guard-spec/guard-spec/internal/config"
 	"github.com/guard-spec/guard-spec/internal/proxy"
 	secretsrc "github.com/guard-spec/guard-spec/internal/secrets"
@@ -63,6 +64,10 @@ var providerCatalog = []providerPreset{
 		Notes:   "A private address needs UPSTREAM_ALLOW_PRIVATE=true."},
 	{ID: "openai_compatible", DisplayName: "OpenAI-compatible", KeyEnvHint: "UPSTREAM_KEY_<NAME>",
 		DocsURL: "https://platform.openai.com/docs/api-reference/chat"},
+	{ID: backend.Provider, DisplayName: "Custom backend", KeyEnvHint: "UPSTREAM_KEY_<NAME>",
+		DocsURL: "https://github.com/guard-spec/guard-spec/blob/main/docs/integrations.md#custom-backend",
+		Notes: "Your own JSON API, reached through /v1/backend/{name}/{path}: the gateway scans the fields " +
+			"you list and forwards the request unchanged. It is never a chat upstream."},
 }
 
 func providerCatalogHandler(c *fiber.Ctx) error {
@@ -147,6 +152,12 @@ func testUpstream(db *pgxpool.Pool, s *appSettings) fiber.Handler {
 		}
 		if err != nil {
 			return serverError(c, err)
+		}
+		if u.Provider == backend.Provider {
+			// GET {base_url}/models means nothing to a business API, and a
+			// probe of another path could have side effects.
+			return c.Status(400).JSON(fiber.Map{"error": "connection tests list a model provider's models; " +
+				"test a custom backend with a request to /v1/backend/" + u.Name + "/..."})
 		}
 		px, keySent, err := upstreamProxy(u, org, s)
 		if err != nil {
