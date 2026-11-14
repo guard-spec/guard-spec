@@ -366,7 +366,12 @@ nhúng nên không được phát hành, và một vòng v8 (R7), chặn 2/180 t
 hại và bắt nhiều tấn công nhúng hơn nhưng kém chính xác hơn với prompt ngắn,
 nên cũng không được phát hành. Trên holdout mới của R7 (`long7`, chấm một
 lần), **v6 đang phát hành chặn 10/180 tài liệu vô hại 100k và 200k token
-(5,6%)** với `strong75`. Khả năng phát hiện tấn công nhúng thấp hơn v5
+(5,6%)** với `strong75`. Trên holdout của R8a
+(`long8`, 602 tài liệu, chấm một lần), v6 chặn 24 tài liệu (4,0%). Cũng
+trong vòng này, nhánh E của R7 với cách quyết định chặt hơn trên đường dài
+(`strong75` và L2 đã hiệu chỉnh từ 0,95 trở lên) chỉ chặn 1/602 và bắt 88,0%
+tấn công nhúng, tức là đạt mục tiêu. Cách quyết định này chưa có trong
+gateway và E chưa được đóng gói; phát hành nó là một quyết định riêng. Khả năng phát hiện tấn công nhúng thấp hơn v5
 một chút, và `val_v3_holdout` cùng `val_realistic_holdout` vẫn dưới v3b. Mọi
 bảng số nằm trong [train/MODEL_CARD.md](../train/MODEL_CARD.md) (mục "v6").
 

@@ -21,7 +21,7 @@ training run; the results were added after the runs, under "Results": **v6 is ar
 on the v6 data, the first arm to block no benign bench/long document of 100k to 200k tokens on the dev
 slice (`guardspec-classifier@v6` in `models/manifest.yaml`, not recommended, published as a pre-release;
 v3b stays the default). The later rounds R3, R5, R6 and R7 (below) did not meet the long-document target
-either, so v6 is the shadow-mode candidate of this work, with an FP16 file for the GPU option. Same architecture, base model
+either (R8a met it with R7's arm E under a stricter long-path decision that is not in the gateway yet), so v6 is the shadow-mode candidate of this work, with an FP16 file for the GPU option. Same architecture, base model
 and revision, tokenizer, labels, window-level training, augmentation, seed (20261105) and settings as
 v5 (`config.yaml`; MPS on the Apple M3 Max, one run at a time).
 
@@ -384,6 +384,24 @@ v8 training; the dev result ([`reports/v8_dev.md`](reports/v8_dev.md), on `long5
   payloads) and cut blocked long documents about sixfold, but it costs precision on short prompts. A ratio
   between D and E, with more short benign prompts, is the candidate for a next round; it needs its own
   pre-registration and a new holdout (`long7` is spent).
+
+**R8a: R7's arm E under `strong75_l2` on a new holdout (2026-11-14, met; no release).** No training. R8a
+fixed R7's arm E and one long-path decision, `strong75_l2` (`strong75` and a calibrated L2 of at least 0.95 on
+texts of more than 30 windows), in [`reports/r8a_preregistration.md`](reports/r8a_preregistration.md). It
+then built a new holdout, `long8` (602 scored benign documents of 100k and 200k tokens, EN and VI, and 336
+embedded documents of 48 fresh payloads), and scored it once
+([`reports/r8a_holdout.md`](reports/r8a_holdout.md)).
+
+- E blocks **0 / 302** documents at 100k and **1 / 300** at 200k (a Vietnamese Wikipedia document). The
+  released v6 blocks 7 / 602 under the same decision and 24 / 602 (4.0%) under `strong75`.
+- Embedded detection is **88.0%** against 91.7% for the payloads alone (−3.7 points; payload-clustered 95%
+  interval −10.9 to +3.5).
+- eval/data hold-out TPR at FPR ≤ 1% is **0.9618** (`ref` 0.9618), with no benign row at 0.85.
+- Both R7's criteria and the review's stricter set are met.
+- Two English 200k documents were rejected by the sanitizer (encoding depth) for every model and are not
+  counted. Counted as blocks, 200k is 3 / 302 and still within the target.
+- Nothing is packaged. Shipping E needs the L2 bar in the gateway's long path, a v8e package, a GPU (FP16)
+  measurement and a fresh short-prompt holdout. That is the owner's decision.
 
 **Known weaknesses.** G6 rests on 15 dev documents: with none blocked, the Clopper-Pearson 95% upper bound
 of the false-positive rate is 0.218, so the gate shows the rate is not large, not that it is under 1%;
