@@ -14,8 +14,11 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 sys.path.insert(0, str(HERE))
 
-import longdoc_v8 as LD  # noqa: E402
-import select_v8 as S  # noqa: E402
+try:
+    import longdoc_v8 as LD  # noqa: E402  (imports numpy through longdoc_r5)
+    import select_v8 as S  # noqa: E402
+except ImportError as e:  # the CI job without the training extras
+    raise unittest.SkipTest(f"needs numpy (uv run): {e}")
 from test_select_v6 import refs, reports  # noqa: E402
 
 N_ATTACK = 600
