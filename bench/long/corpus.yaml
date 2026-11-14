@@ -1431,6 +1431,469 @@ sources:
     terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
     sha256: c5fee234a06acc53cab9a81b1f76b0c9640cd70b7e2b543db714f5a7226facbd
 
+  # ---------------------------------------------------------------------
+  # Sources of the `long8` profile (2026-11-14, RF-35fd836c R8a): the holdout
+  # of R8a (train/reports/r8a_preregistration.md), pinned and committed before
+  # any long8 document is scored by a model or rule layer. Its text is in no
+  # other profile and in no training row: another English Wikipedia file, the
+  # Vietnamese Wikipedia row groups after the ones `long7` holds, English
+  # Wikisource row groups after long7's, U.S. Code titles no profile or
+  # training source uses, further RFCs, the Argo CD and Hugo documentation and
+  # MDN Web Docs pages, and Hugo, Caddy and Argo CD Go code (sets no profile or
+  # training source reads). exclude.json lists the units that share a 50-token
+  # run with a v4-A, v6, v7 or v8 training or validation row or with the v7
+  # training pool (the v8 hosts), or near-duplicate (20% of their 50-token
+  # shingles) a quick, full, long, long5, long6 or long7 document.
+  wikipedia-l8-en:
+    lang: en
+    genre: wiki
+    kind: hf-parquet
+    repo: wikimedia/wikipedia
+    revision: b04c8d1ceb2f5cd4588862100d08de323dccfbaa
+    file: 20231101.en/train-00005-of-00041.parquet
+    file_sha256: 220d31bb222ba2d449c845733622a6a2b7a89db3e28b24bfcb3a9bb3e52c6c8d
+    row_group_range: [0, 40] # row groups 0 to 39
+    license: CC-BY-SA-3.0 / GFDL
+    terms: Dataset card license field; used locally for measurement, never redistributed.
+    sha256: 27a230332becabe3b2217fc07c45383dd0d4397e55357e92387405380340c5be
+  wikipedia-l8-vi:
+    lang: vi
+    genre: wiki
+    kind: hf-parquet
+    repo: wikimedia/wikipedia
+    revision: b04c8d1ceb2f5cd4588862100d08de323dccfbaa
+    file: 20231101.vi/train-00003-of-00004.parquet
+    file_sha256: 0f5c15b2c8836c02547c796a817dd85b980897916259ed9e8f76580482f0cb77
+    row_group_range: [256, 323] # row groups 256 to 322, the rest of the file (long6 and long7 hold 196 to 255)
+    license: CC-BY-SA-3.0 / GFDL
+    terms: Dataset card license field; used locally for measurement, never redistributed.
+    sha256: a4bd3dd001c9b3e8f9f1b5386723e1d225d03af4b133c790a097eed325f00a1f
+  wikisource-l8-en:
+    lang: en
+    genre: prose
+    kind: hf-parquet
+    repo: wikimedia/wikisource
+    revision: f31a033f5f3d2107b3e864e578710df104a00baa
+    file: 20231201.en/train-00004-of-00005.parquet
+    file_sha256: 642d829eae0b3e320cff48102718bea4243da4571b0cca52a49fdbef58f52756
+    row_group_range: [3, 9] # row groups 3 to 8 (long7 holds 0 to 2)
+    license: CC-BY-SA-3.0 / GFDL
+    terms: Dataset card license field; used locally for measurement, never redistributed.
+    sha256: 83906d26211b6521f1aaaca8a4c85451ca3ccd6e530c092bbf9b8fa9c463cc51
+  uscode-l8-en:
+    lang: en
+    genre: legal
+    kind: http-html
+    # United States Code, 2023 main edition (GovInfo), titles no profile or
+    # training source uses: 2 (The Congress), 6 (Domestic Security), 24
+    # (Hospitals and Asylums), 26 (Internal Revenue Code), 27 (Intoxicating
+    # Liquors), 30 (Mineral Lands and Mining), 32 (National Guard), 34 (Crime
+    # Control and Law Enforcement), 37 (Pay and Allowances of the Uniformed
+    # Services), 40 (Public Buildings, Property, and Works), 44 (Public Printing
+    # and Documents), 45 (Railroads), 48 (Territories and Insular Possessions).
+    urls:
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title2/html/USCODE-2023-title2.htm
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title6/html/USCODE-2023-title6.htm
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title24/html/USCODE-2023-title24.htm
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title26/html/USCODE-2023-title26.htm
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title27/html/USCODE-2023-title27.htm
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title30/html/USCODE-2023-title30.htm
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title32/html/USCODE-2023-title32.htm
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title34/html/USCODE-2023-title34.htm
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title37/html/USCODE-2023-title37.htm
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title40/html/USCODE-2023-title40.htm
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title44/html/USCODE-2023-title44.htm
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title45/html/USCODE-2023-title45.htm
+      - https://www.govinfo.gov/content/pkg/USCODE-2023-title48/html/USCODE-2023-title48.htm
+    license: Public domain (17 U.S.C. 105)
+    terms: GovInfo content is public domain U.S. Government work; bulk use is allowed.
+    sha256: 685d14adec5fbecee2f55d5ff30f089db4ef30736ea82e021ddcaa283a7ace7a
+  rfc-l8-en:
+    lang: en
+    genre: rfc
+    kind: http-text
+    # RFCs that no profile and no training source uses (IETF Trust Legal
+    # Provisions, BCP 78): every third, by number, of the RFCs from 2000 on of
+    # 60 to 250 pages, with a text file, not obsoleted, on the standards track,
+    # BCP or informational (rfc-index.xml of 2026-11-14).
+    base: https://www.rfc-editor.org/rfc/
+    file_header: ""
+    strip: rfc
+    max_unit_chars: 60000
+    paths:
+      - rfc2022.txt
+      - rfc2108.txt
+      - rfc2156.txt
+      - rfc2196.txt
+      - rfc2297.txt
+      - rfc2417.txt
+      - rfc2479.txt
+      - rfc2525.txt
+      - rfc2622.txt
+      - rfc2661.txt
+      - rfc2707.txt
+      - rfc2744.txt
+      - rfc2814.txt
+      - rfc2863.txt
+      - rfc2967.txt
+      - rfc3095.txt
+      - rfc3127.txt
+      - rfc3202.txt
+      - rfc3253.txt
+      - rfc3275.txt
+      - rfc3292.txt
+      - rfc3371.txt
+      - rfc3414.txt
+      - rfc3512.txt
+      - rfc3591.txt
+      - rfc3635.txt
+      - rfc3659.txt
+      - rfc3666.txt
+      - rfc3723.txt
+      - rfc3744.txt
+      - rfc3813.txt
+      - rfc3821.txt
+      - rfc3868.txt
+      - rfc3880.txt
+      - rfc3945.txt
+      - rfc4011.txt
+      - rfc4108.txt
+      - rfc4134.txt
+      - rfc4172.txt
+      - rfc4204.txt
+      - rfc4293.txt
+      - rfc4323.txt
+      - rfc4396.txt
+      - rfc4463.txt
+      - rfc4502.txt
+      - rfc4560.txt
+      - rfc4666.txt
+      - rfc4740.txt
+      - rfc4780.txt
+      - rfc4802.txt
+      - rfc4825.txt
+      - rfc4851.txt
+      - rfc4936.txt
+      - rfc4981.txt
+      - rfc5024.txt
+      - rfc5055.txt
+      - rfc5091.txt
+      - rfc5126.txt
+      - rfc5213.txt
+      - rfc5247.txt
+      - rfc5340.txt
+      - rfc5407.txt
+      - rfc5440.txt
+      - rfc5533.txt
+      - rfc5643.txt
+      - rfc5662.txt
+      - rfc5740.txt
+      - rfc5792.txt
+      - rfc5812.txt
+      - rfc5912.txt
+      - rfc5939.txt
+      - rfc6071.txt
+      - rfc6115.txt
+      - rfc6184.txt
+      - rfc6216.txt
+      - rfc6240.txt
+      - rfc6295.txt
+      - rfc6320.txt
+      - rfc6350.txt
+      - rfc6458.txt
+      - rfc6503.txt
+      - rfc6513.txt
+      - rfc6615.txt
+      - rfc6728.txt
+      - rfc6781.txt
+      - rfc6917.txt
+      - rfc6940.txt
+      - rfc7016.txt
+      - rfc7145.txt
+      - rfc7181.txt
+      - rfc7256.txt
+      - rfc7401.txt
+      - rfc7450.txt
+      - rfc7460.txt
+      - rfc7520.txt
+      - rfc7574.txt
+      - rfc7658.txt
+      - rfc7798.txt
+      - rfc7862.txt
+      - rfc7878.txt
+      - rfc7925.txt
+      - rfc7937.txt
+      - rfc7970.txt
+      - rfc8006.txt
+      - rfc8038.txt
+      - rfc8156.txt
+      - rfc8280.txt
+      - rfc8349.txt
+      - rfc8412.txt
+      - rfc8456.txt
+      - rfc8490.txt
+      - rfc8519.txt
+      - rfc8572.txt
+      - rfc8613.txt
+      - rfc8639.txt
+      - rfc8727.txt
+      - rfc8776.txt
+      - rfc8802.txt
+      - rfc8855.txt
+      - rfc8913.txt
+      - rfc8995.txt
+      - rfc9061.txt
+      - rfc9127.txt
+      - rfc9130.txt
+      - rfc9180.txt
+      - rfc9189.txt
+      - rfc9260.txt
+      - rfc9380.txt
+      - rfc9420.txt
+      - rfc9483.txt
+      - rfc9522.txt
+      - rfc9535.txt
+      - rfc9555.txt
+      - rfc9594.txt
+      - rfc9625.txt
+      - rfc9639.txt
+      - rfc9711.txt
+      - rfc9807.txt
+      - rfc9834.txt
+      - rfc9846.txt
+      - rfc9889.txt
+      - rfc9914.txt
+      - rfc9930.txt
+      - rfc9946.txt
+      - rfc9989.txt
+      - rfc10073.txt
+    license: IETF Trust Legal Provisions (BCP 78)
+    terms: RFC Editor text files; used locally for measurement, never redistributed.
+    sha256: 1e2cbcb20b852b79d7ce174b53523099f27951d03ac67df0f2a970d1ca80f153
+  argocd-docs-l8-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    # The Argo CD documentation (argoproj/argo-cd at the v2.13.0 tag,
+    # Apache-2.0), front matter stripped; with the Hugo documentation and the
+    # MDN pages below one `docs` pool.
+    repo: argoproj/argo-cd
+    commit: 347f221adba5599ef4d5f12ee572b2c17d01db4d
+    prefix: docs
+    tree_sha: ac493e937435ea4254fd6ca59f7611d0f9eddaaa
+    suffixes: [.md]
+    min_bytes: 2000
+    strip: front-matter
+    max_unit_chars: 60000
+    license: Apache-2.0 (argoproj/argo-cd LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 29ca49325e5bc20b53fe363179cab7fe631468f08f27bbb9fb1da41d5b7f3701
+  hugo-docs-l8-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    # The Hugo documentation (gohugoio/hugo at the v0.139.0 tag, docs/,
+    # Apache-2.0).
+    repo: gohugoio/hugo
+    commit: dacef0df92a9a20072b4eaa42003e1a63ace8f41
+    prefix: docs/content
+    tree_sha: e7969c3f9120a5260c707d78952eed6fa9bc1803
+    suffixes: [.md]
+    min_bytes: 2000
+    strip: front-matter
+    max_unit_chars: 60000
+    license: Apache-2.0 (gohugoio/hugo docs/LICENSE.md)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: a948a364faa0e522f749d6e672ec22d1539a185d94037963f6f2cdd3f259b450
+  mdn-http-l8-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    # MDN Web Docs (mdn/content at a pinned commit; prose CC-BY-SA-2.5, code
+    # samples CC0): the HTTP, HTML, accessibility, CSS and SVG pages.
+    repo: mdn/content
+    commit: deca95e12eeba261ff77a5e4db4575da16d0c1f5
+    prefix: files/en-us/web/http
+    tree_sha: 0879ca7ac845834d3977f795876b2f3d8680245c
+    suffixes: [.md]
+    min_bytes: 2000
+    strip: front-matter
+    max_unit_chars: 60000
+    license: CC-BY-SA-2.5 (mdn/content LICENSE.md, prose)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: cfdebce8532d4126b5cbe3d636612acdcd65759d10f29de2720513062226c448
+  mdn-html-l8-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    repo: mdn/content
+    commit: deca95e12eeba261ff77a5e4db4575da16d0c1f5
+    prefix: files/en-us/web/html
+    tree_sha: 469df713c3fbd626c6dd36034f07ba1d8acbf5e8
+    suffixes: [.md]
+    min_bytes: 2000
+    strip: front-matter
+    max_unit_chars: 60000
+    license: CC-BY-SA-2.5 (mdn/content LICENSE.md, prose)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 56888e34ccb56616d8889af70381bb11928519a27f8c30cb8a90e4473801b444
+  mdn-accessibility-l8-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    repo: mdn/content
+    commit: deca95e12eeba261ff77a5e4db4575da16d0c1f5
+    prefix: files/en-us/web/accessibility
+    tree_sha: 8f8ea6181f708eaee0410ed2084b67d5b03eea0a
+    suffixes: [.md]
+    min_bytes: 2000
+    strip: front-matter
+    max_unit_chars: 60000
+    license: CC-BY-SA-2.5 (mdn/content LICENSE.md, prose)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: d43ff00d29d18b5519568c7593ac1203c1259e4ed914f0206e4bc92dffe292a2
+  mdn-css-l8-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    repo: mdn/content
+    commit: deca95e12eeba261ff77a5e4db4575da16d0c1f5
+    prefix: files/en-us/web/css
+    tree_sha: 859732d9e748407fe159c62898aed2410faccfcd
+    suffixes: [.md]
+    min_bytes: 2000
+    strip: front-matter
+    max_unit_chars: 60000
+    license: CC-BY-SA-2.5 (mdn/content LICENSE.md, prose)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 32452804e3d8a7e41b471c6259285c6772da56ffb46bcdcc4b0e6154800506ef
+  mdn-svg-l8-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    repo: mdn/content
+    commit: deca95e12eeba261ff77a5e4db4575da16d0c1f5
+    prefix: files/en-us/web/svg
+    tree_sha: 3b84d9eae4ea953da0c5ada8cdda2bc6c5c71841
+    suffixes: [.md]
+    min_bytes: 2000
+    strip: front-matter
+    max_unit_chars: 60000
+    license: CC-BY-SA-2.5 (mdn/content LICENSE.md, prose)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 03998e62cade31a8f81e0c1c1b135712c837412e096dc2b7597a4be3ed631eef
+  hugo-code-l8-en:
+    lang: en
+    genre: code
+    kind: github-tree
+    # Go source of Hugo (gohugoio/hugo at the v0.139.0 tag), Caddy
+    # (caddyserver/caddy at the v2.8.4 tag) and Argo CD (argoproj/argo-cd at the
+    # v2.13.0 tag: util, controller, server, applicationset and cmd), all
+    # Apache-2.0, one `code` pool. Hugo and Caddy: every Go file of the
+    # repository tree (no prefix); the licence comment lines at the top of a
+    # Hugo or Caddy file are stripped.
+    repo: gohugoio/hugo
+    commit: dacef0df92a9a20072b4eaa42003e1a63ace8f41
+    tree_sha: 111e0b8e42dac390838b90dd98a643adc7fb67ab
+    suffixes: [.go]
+    min_bytes: 2000
+    strip: license-header-lines
+    file_header: "// File: {path}\n"
+    max_unit_chars: 60000
+    license: Apache-2.0 (gohugoio/hugo LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 0c233587758ed822ff7c2d41877129edbe4edfa71ea74850cec8f4c10483a9e9
+  caddy-code-l8-en:
+    lang: en
+    genre: code
+    kind: github-tree
+    repo: caddyserver/caddy
+    commit: 7088605cc11c52c2777ab613dfc5c2a9816006e4
+    tree_sha: fa8de6ac18df4614347974b8261c2e590cd2e911
+    suffixes: [.go]
+    min_bytes: 2000
+    strip: license-header-lines
+    file_header: "// File: {path}\n"
+    max_unit_chars: 60000
+    license: Apache-2.0 (caddyserver/caddy LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 863169f1495d3a0e37c7116e8d4cc5e30c76f0c1fd1f748e0e8b75293c445ff3
+  argocd-util-l8-en:
+    lang: en
+    genre: code
+    kind: github-tree
+    repo: argoproj/argo-cd
+    commit: 347f221adba5599ef4d5f12ee572b2c17d01db4d
+    prefix: util
+    tree_sha: c5185f438d805f80418a53ce76b7e4775cf87e46
+    suffixes: [.go]
+    min_bytes: 2000
+    file_header: "// File: {path}\n"
+    max_unit_chars: 60000
+    license: Apache-2.0 (argoproj/argo-cd LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 929b671531c30cb009b98945c0e4536b38334566ed4a5124d27d8afbb4095191
+  argocd-controller-l8-en:
+    lang: en
+    genre: code
+    kind: github-tree
+    repo: argoproj/argo-cd
+    commit: 347f221adba5599ef4d5f12ee572b2c17d01db4d
+    prefix: controller
+    tree_sha: fbb7114fd96662f041a303e973e0f5bd49144b62
+    suffixes: [.go]
+    min_bytes: 2000
+    file_header: "// File: {path}\n"
+    max_unit_chars: 60000
+    license: Apache-2.0 (argoproj/argo-cd LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 96f52b2b86a0ab2c4644a43ff31107155f3e5370e399fd2aadbc9caa7a3c9044
+  argocd-server-l8-en:
+    lang: en
+    genre: code
+    kind: github-tree
+    repo: argoproj/argo-cd
+    commit: 347f221adba5599ef4d5f12ee572b2c17d01db4d
+    prefix: server
+    tree_sha: e2132b1b1d3fcdeb588eb9fd9b32da5e2cfa9177
+    suffixes: [.go]
+    min_bytes: 2000
+    file_header: "// File: {path}\n"
+    max_unit_chars: 60000
+    license: Apache-2.0 (argoproj/argo-cd LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 287235863812074bcbd62ab4ef9955b62f5821906d487ae0e592bdde2ef1eefb
+  argocd-applicationset-l8-en:
+    lang: en
+    genre: code
+    kind: github-tree
+    repo: argoproj/argo-cd
+    commit: 347f221adba5599ef4d5f12ee572b2c17d01db4d
+    prefix: applicationset
+    tree_sha: 67100e86efaf3148e55436e405f0dfbd886e686b
+    suffixes: [.go]
+    min_bytes: 2000
+    file_header: "// File: {path}\n"
+    max_unit_chars: 60000
+    license: Apache-2.0 (argoproj/argo-cd LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 4135d682d522a3c468e56ef996d1902893571c5d5af28f318c413225d9f8a774
+  argocd-cmd-l8-en:
+    lang: en
+    genre: code
+    kind: github-tree
+    repo: argoproj/argo-cd
+    commit: 347f221adba5599ef4d5f12ee572b2c17d01db4d
+    prefix: cmd
+    tree_sha: 07d9f4be897b734dae83c4f68b663d7221d379a8
+    suffixes: [.go]
+    min_bytes: 2000
+    file_header: "// File: {path}\n"
+    max_unit_chars: 60000
+    license: Apache-2.0 (argoproj/argo-cd LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 238b5d3aa6ec2eebab6f84bdecc8a4a671025232f7dbef495dec8d59758ed385
+
 # Synthetic genres: generated by build.py from a fixed seed (project-written,
 # Apache-2.0). "hardneg" is benign text about prompt injection and security.
 synthetic:
@@ -1654,6 +2117,57 @@ profiles:
     host_tokens: 2000
     segment_host_bytes: 28000
 
+  long8:
+    # The holdout of R8a (RF-35fd836c, train/reports/r8a_preregistration.md):
+    # benign documents of 100k and 200k tokens from the `long8` sources and the
+    # synthetic genres with their own seed, about 150 per language and size.
+    # Every document is R8a holdout (the `split` field still follows the hash
+    # rule). The embedded attack documents are built from these hosts by
+    # bench/long/embed_long.py with eval/ dev-half payloads no earlier profile
+    # used (--eval-payloads 24 --eval-skip 120). Ids carry the prefix `long8-`.
+    # Built on 2026-11-14: 604 documents (EN wiki 52, prose 30, legal 25, rfc 15,
+    # docs 15, code 9 and one per synthetic genre; VI wiki 138 and two per
+    # synthetic genre; per size), 90.53M tokens. Attack documents (embed_long.py,
+    # --split dev and --split holdout concatenated): 48 payloads (eval/ dev-half
+    # attack rows 120 to 143 of each language in build.py's seeded order; full
+    # took 0 to 31, R5 32 to 71, long6 72 to 95, long7 96 to 119), 48 controls
+    # and 336 embedded documents, 50.88M tokens, SHA-256
+    # 5d119ce7fc1749e9e7f1f3d5c6db6740bb2ba6e69508aaa373398edf3ceb6f77.
+    sources: [wikipedia-l8-en, wikisource-l8-en, uscode-l8-en, rfc-l8-en, argocd-docs-l8-en, hugo-docs-l8-en,
+              mdn-http-l8-en, mdn-html-l8-en, mdn-accessibility-l8-en, mdn-css-l8-en, mdn-svg-l8-en,
+              hugo-code-l8-en, caddy-code-l8-en, argocd-util-l8-en, argocd-controller-l8-en, argocd-server-l8-en,
+              argocd-applicationset-l8-en, argocd-cmd-l8-en, wikipedia-l8-vi]
+    synthetic: [logs, json, csv, email, chat, hardneg]
+    synthetic_seed: 20261116
+    id_prefix: long8-
+    sizes:
+      default: [100000, 200000]
+      synthetic: [100000, 200000]
+    docs_per_size:
+      default: 0
+      wiki-en: 52
+      prose-en: 30
+      legal-en: 25
+      rfc-en: 15
+      docs-en: 15
+      code-en: 9
+      wiki-vi: 138
+      logs-en: 1
+      json-en: 1
+      csv-en: 1
+      email-en: 1
+      chat-en: 1
+      hardneg-en: 1
+      logs-vi: 2
+      json-vi: 2
+      csv-vi: 2
+      email-vi: 2
+      chat-vi: 2
+      hardneg-vi: 2
+    payloads_per_lang: 0
+    host_tokens: 2000
+    segment_host_bytes: 28000
+
 # Dev/holdout split of every document (build.py split_of, the eval/ convention):
 # the last hex digit of SHA-256(key) is 0-7 for dev and 8-f for holdout, with
 # key the payload id of an attack or control document (every variant of a
@@ -1689,6 +2203,10 @@ outputs:
   # 26.96M tokens (EN 45 + 45, VI 45 + 45 at 100k + 200k), after exclude.json.
   # The v8 holdout: never scored by a model or rule layer before the v8 holdout stage.
   long7: 3123957ce5bef40da71d5cc18d57516af0f260b8fe677fe0c532f8c22329229d
+  # long8: pinned on 2026-11-14 (R8a), before any long8 score; 604 benign documents,
+  # 90.53M tokens (EN 152 + 152, VI 150 + 150 at 100k + 200k), after exclude.json.
+  # The R8a holdout: scored once per model (train/reports/r8a_preregistration.md).
+  long8: ff7356eeef0357d3f2cbe4131c195081d6555de4a69913ceae9f2049190621ff
 
 dropped:
   - source: Project Gutenberg (gutenberg.org)
