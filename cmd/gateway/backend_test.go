@@ -57,7 +57,7 @@ func jsonAnswer(body string) http.HandlerFunc {
 		w.Header().Set("ETag", `"v1"`)
 		w.Header().Set("Set-Cookie", "session=internal")
 		w.Header().Set("Server", "internal-api/1.2")
-		fmt.Fprint(w, body)
+		_, _ = fmt.Fprint(w, body)
 	}
 }
 
@@ -360,7 +360,7 @@ func TestBackendPersonalData(t *testing.T) {
 func TestBackendModes(t *testing.T) {
 	b := newSampleBackend(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		fmt.Fprint(w, "Reach us at an@congty.vn")
+		_, _ = fmt.Fprint(w, "Reach us at an@congty.vn")
 	})
 	def := defaultOutputConfig()
 	cfg := &backend.Config{PathPrefixes: []string{"/"}, Methods: []string{"POST"},
@@ -411,20 +411,20 @@ func TestBackendAnswers(t *testing.T) {
 		case "/api/search/missing":
 			w.Header().Set("Content-Type", jsonType)
 			w.WriteHeader(404)
-			fmt.Fprint(w, `{"results":[{"snippet":"no order for an@congty.vn"}]}`)
+			_, _ = fmt.Fprint(w, `{"results":[{"snippet":"no order for an@congty.vn"}]}`)
 		case "/api/search/fail":
 			w.WriteHeader(500)
-			fmt.Fprint(w, `{"error":"db at 10.0.0.5 is down"}`)
+			_, _ = fmt.Fprint(w, `{"error":"db at 10.0.0.5 is down"}`)
 		case "/api/search/auth":
 			w.WriteHeader(401)
 		case "/api/search/redirect":
 			http.Redirect(w, r, other.URL+"/steal", http.StatusFound)
 		case "/api/search/stream":
 			w.Header().Set("Content-Type", "text/event-stream")
-			fmt.Fprint(w, "data: one\n\ndata: two\n\n")
+			_, _ = fmt.Fprint(w, "data: one\n\ndata: two\n\n")
 		case "/api/search/bad-json":
 			w.Header().Set("Content-Type", jsonType)
-			fmt.Fprint(w, `{"results":`)
+			_, _ = fmt.Fprint(w, `{"results":`)
 		}
 	})
 	def := defaultOutputConfig()
