@@ -258,7 +258,7 @@ gateway:
     count: 1          # resources.limits["nvidia.com/gpu"]
     provider: cuda    # INFERENCE_PROVIDER: cuda or auto
     # Your GPU image (required with enabled: true), e.g.
-    # repository: registry.example.com/guard-spec-gateway, tag: 0.7.0-gpu
+    # repository: registry.example.com/guard-spec-gateway, tag: 0.8.0-gpu
     image:
       repository: ""
       tag: ""

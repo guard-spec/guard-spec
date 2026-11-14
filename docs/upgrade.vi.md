@@ -164,6 +164,11 @@ Các migration của một bản làm gì ngoài việc thêm bảng, và cần 
   `max_input_tokens` theo `MAX_SCAN_TOKENS` của gateway (không đặt thì giới
   hạn là 40.000). Down: thiết lập và các yêu cầu nới lỏng đang chờ bị xóa, mọi
   tổ chức quay về hành vi của instance.
+- **031 (custom backend).** Thêm provider `custom` và cột `upstreams.backend`
+  (những gì gateway chuyển tiếp và quét cho một custom backend). Các upstream
+  hiện có không đổi. Gateway 0.8.0 đọc cột này với mọi upstream: hãy chạy
+  migration trước khi gateway khởi động, như job `migrate` của compose. Down:
+  các custom backend bị xóa (không có gì khác trỏ tới chúng).
 
 ## Rollback
 

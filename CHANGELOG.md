@@ -9,17 +9,7 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ## [Unreleased]
 
-### Research
-
-- **R7, classifier training on data v8: not met, no new model** (RF-3a9ce3f9).
-  Pre-registered round pairing benign long text with embedded attacks from
-  the same hosts. On the new `long7` holdout, scored once, the candidate
-  blocked 2 of 180 benign long documents (the released v6: 10) and caught
-  95.1% of embedded attacks, but lost precision on short prompts. The
-  released model is unchanged. Reports:
-  [`train/reports/v8_holdout.md`](train/reports/v8_holdout.md),
-  [`train/MODEL_CARD.md`](train/MODEL_CARD.md) ("R7"), and the v6 long-document
-  numbers in [`docs/models.md`](docs/models.md).
+## [0.8.0] - 2026-11-14
 
 ### Added
 
@@ -56,6 +46,35 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   guard on where `OUTPUT_GUARD=off`; values that `input_pii_action: tokenize`
   replaced still come back in the answer. An invalid value is refused with
   400 (`guard settings: output_pii_action must be off or redact`).
+
+### Changed
+
+- The gateway and gateway-full images are built on a newer Chainguard
+  `glibc-dynamic` (`sha256:4cefd4ac…`, built 2026-11-12; 0.7.0 used
+  `sha256:cb7aa468…`).
+
+### Upgrade notes
+
+- Migration 031 adds the provider `custom` and the column
+  `upstreams.backend`. A 0.8.0 gateway reads that column with every
+  upstream: apply the migrations before it starts (the compose `migrate`
+  job does). Existing upstreams are not changed. Down: custom backends are
+  deleted. See [docs/upgrade.md](docs/upgrade.md#migration-notes).
+- The new guard settings `output_pii_action` and `output_pii_kinds` are
+  unset after the upgrade, so every organization keeps `OUTPUT_PII_REDACT`
+  and `OUTPUT_PII_IPV4` until an admin sets them.
+
+### Research
+
+- **R7, classifier training on data v8: not met, no new model** (RF-3a9ce3f9).
+  Pre-registered round pairing benign long text with embedded attacks from
+  the same hosts. On the new `long7` holdout, scored once, the candidate
+  blocked 2 of 180 benign long documents (the released v6: 10) and caught
+  95.1% of embedded attacks, but lost precision on short prompts. The
+  released model is unchanged. Reports:
+  [`train/reports/v8_holdout.md`](train/reports/v8_holdout.md),
+  [`train/MODEL_CARD.md`](train/MODEL_CARD.md) ("R7"), and the v6 long-document
+  numbers in [`docs/models.md`](docs/models.md).
 
 ## [0.7.0] - 2026-11-13
 
@@ -1578,7 +1597,8 @@ First release.
 - List endpoints still answer the older `{"data": [...]}` shape when called
   without `limit` and `cursor`; use the paginated form.
 
-[Unreleased]: https://github.com/guard-spec/guard-spec/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/guard-spec/guard-spec/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/guard-spec/guard-spec/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/guard-spec/guard-spec/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/guard-spec/guard-spec/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/guard-spec/guard-spec/compare/v0.4.2...v0.5.0

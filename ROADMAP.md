@@ -40,14 +40,17 @@ Release and operations
 
 ## Later
 
-- Per-organization output guard settings.
+- Per-organization output guard settings beyond personal data (personal data
+  in responses, `output_pii_action` and `output_pii_kinds`, is per
+  organization since 0.8.0).
 - A shared rate limiter (Redis or Postgres) so limits hold across replicas.
 - More languages, starting with the ones users ask for.
-- Redaction of personal data in requests (the `redact` rule action, with
-  reversible placeholders). Personal data in requests is a policy signal
-  (`input.pii.kinds`, `input.pii.count`) that rules can log or block on; it
-  is never rewritten. See
-  [ADR 0003](docs/adr/0003-input-pii-policy-signal.md).
+- A `redact` rule action for personal data in requests. Today personal data
+  in requests is a policy signal (`input.pii.kinds`, `input.pii.count`) that
+  rules can log or block on, and, separately, the guard setting
+  `input_pii_action` (since 0.4.0) redacts or tokenizes it before the
+  upstream for a whole organization; a rule cannot choose that per request.
+  See [ADR 0003](docs/adr/0003-input-pii-policy-signal.md).
 
 ## Not planned
 

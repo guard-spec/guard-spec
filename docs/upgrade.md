@@ -166,6 +166,12 @@ every version.
   `max_input_tokens` against the gateway's `MAX_SCAN_TOKENS` (without it,
   40,000). Down: the settings and pending loosening requests are dropped,
   and every organization is back to the instance's behaviour.
+- **031 (custom backends).** Adds the provider `custom` and the column
+  `upstreams.backend` (what the gateway forwards and scans for a custom
+  backend). Existing upstreams are not changed. A 0.8.0 gateway reads the
+  column with every upstream: apply the migration before it starts, as the
+  compose `migrate` job does. Down: custom backends are deleted (nothing
+  else refers to them).
 
 ## Rolling back
 

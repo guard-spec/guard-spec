@@ -107,7 +107,7 @@ Everything is in `.env` ([`.env.example`](.env.example) lists it):
 | `CADDY_CPUS`, `CADDY_MEMORY` | `1`, `256m` | |
 | `LOG_MAX_SIZE`, `LOG_MAX_FILE` | `10m`, `5` | Per container |
 | `EDGE_SUBNET` | `172.30.89.0/24` | The control plane trusts `X-Forwarded-For` from it (Caddy); change it if it collides with your networks |
-| `GUARDSPEC_VERSION` | `0.7.0` | Image tag ([docs/upgrade.md](../../../docs/upgrade.md)) |
+| `GUARDSPEC_VERSION` | `0.8.0` | Image tag ([docs/upgrade.md](../../../docs/upgrade.md)) |
 
 `UPSTREAM_KEY_ORGS` has no default here (the quick start lets every org use
 `UPSTREAM_KEY_MAIN`), and `UPSTREAM_ALLOW_PRIVATE` is `false`: set them
