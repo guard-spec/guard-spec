@@ -25,6 +25,7 @@ the gateway accepts, then each tool, with what was run and what was not.
 | `POST /v1/embeddings` | Forwarded with the key, rate limit, routing and model allowlist; the input is not scanned unless `EMBEDDINGS_SCAN=on` |
 | `GET /v1/models` | The models of the key's default upstream; OpenAI list shape, Anthropic's with an `anthropic-version` header |
 | `POST /guardrail/scan`, `/guardrail/scan/tools`, `/guardrail/sanitize` | Guard Spec's own scan endpoints, no model call |
+| `/v1/backend/{upstream}/{path}` | An organization's own JSON API, an upstream of provider `custom`: see [Custom backend](#custom-backend) |
 | Not served (404) | `GET`/`DELETE /v1/responses/{id}`, `/v1/responses/{id}/input_items`, `/v1/conversations`, audio, images, files, assistants, batches, realtime and WebSocket mode |
 
 The client's key is the Guard Spec key, never the provider's: the gateway
@@ -604,6 +605,124 @@ credential whose Base URL is the gateway plus `/v1`, *Use Responses API*
 off, which works with any upstream). n8n's OpenAI node reports a block as "Bad request - please check your
 parameters" without the gateway's reason; the HTTP Request node keeps it.
 Steps: [examples/n8n](../examples/n8n/README.md).
+
+## Custom backend
+
+The gateway can also stand in front of an organization's own JSON API, such
+as a search, support or order service that takes user text and sends it on
+to a model or an agent. The application calls
+
+```
+<METHOD> https://<GATEWAY_HOST>/v1/backend/{upstream}/{path}?{query}
+Authorization: Bearer gs_...
+```
+
+and the gateway sends the request to `{base_url}{path}?{query}` of the
+organization's upstream `{upstream}`, which must have provider `custom`.
+Create it in the admin UI (Model providers → Add provider → Custom
+backend) or with `POST /v1/organizations/{id}/upstreams`:
+
+```json
+{
+  "name": "search",
+  "provider": "custom",
+  "base_url": "https://search.internal.example/api",
+  "api_key_env": "UPSTREAM_KEY_SEARCH",
+  "timeout_ms": 30000,
+  "backend": {
+    "path_prefixes": ["/search"],
+    "methods": ["POST"],
+    "key_header": "",
+    "scan": {
+      "request": ["$.query", "$.filters[*]"],
+      "response": ["$.results[*].snippet"],
+      "all_strings": false,
+      "raw_text": false
+    }
+  }
+}
+```
+
+| Field | |
+|---|---|
+| `path_prefixes` | 1 to 20 prefixes, matched by whole segments: `/search` allows `/search` and `/search/v2`, not `/search-admin`; `/` allows every path. Other paths: 403 `path_not_allowed` |
+| `methods` | Some of `GET`, `POST`, `PUT`, `PATCH`, `DELETE`; empty means `POST`. Other methods: 405 `method_not_allowed` with an `Allow` header |
+| `scan.request` | JSONPaths of the request fields that are scanned (at most 50). A path to an object or a list covers every string in it |
+| `scan.response` | JSONPaths of the answer fields the output guard checks; empty: the answer is returned as the backend sent it |
+| `scan.all_strings` | Opt-in: a side (request or answer) that lists no path has every string value scanned. A backend needs request paths or this |
+| `scan.raw_text` | Opt-in: a request body that is not JSON is accepted and scanned whole, and a `text/*` answer is guarded whole. Without it a body that is not JSON gets 415 `unsupported_media_type`, and a text answer passes unchecked |
+| `key_header` | Optional: the key goes in this header as is (`X-Api-Key`); empty sends `Authorization: Bearer` |
+
+The JSONPath subset is small on purpose: `$` then `.name` (letters, digits,
+`_`, `-`), `[n]`, `[*]` and `.*`, for example `$.query`,
+`$.messages[*].content`, `$.items[0].text`. Recursive descent (`..`),
+filters, slices and quoted names are refused when the backend is saved, with
+an error that names the path and the reason. A field that a request does not
+have is skipped, so list every field the backend reads, or use
+`all_strings`.
+
+**What the gateway does with a request**, in order:
+
+1. The API key and rate limit, as on every route.
+2. The upstream: 404 `backend_not_found` when the organization has none of
+   that name, 400 `not_a_backend` when it is a model provider, 502
+   `route_unavailable` when it is disabled, its stored configuration is not
+   valid, its `api_key_env` is not allowed for the organization by
+   `UPSTREAM_KEY_ORGS` (or not set), or its address is refused (the
+   [address rules](../README.md#routing) of every org-defined upstream: metadata and
+   link-local addresses always, private ones unless `UPSTREAM_ALLOW_PRIVATE=true`).
+3. The method (405) and the path: a path with an empty, `.` or `..`
+   segment, an encoded `/`, `\` or `.`, or a control character is refused
+   (400 `invalid_path`), so the backend resolves the path the gateway
+   checked; then the prefixes (403).
+4. The body: JSON (`application/json` or `+json`), or text with `raw_text`;
+   otherwise 415. Invalid JSON, a duplicated key, or a key that differs from
+   a scanned field only in case (`Query` next to `query`, which some
+   backends read instead) is refused (400 `invalid_body`).
+5. The scan: the declared fields and every query string value are sanitized
+   and classified as user text, with the same detectors, thresholds,
+   `max_input_tokens`, input personal-data check and policies as a chat
+   request. A refused request gets the usual 400 `content_filter` and
+   **never reaches the backend**. Route rules do not apply here: the URL
+   names the backend.
+6. The request is forwarded **byte for byte**: same body, method, path and
+   query. The one exception is the organization's `input_pii_action`
+   (`redact` or `tokenize`): only the string values it changed are
+   rewritten in place, every other byte stays as sent; a changed query
+   string is re-encoded. With `tokenize` the answer gets the values back.
+7. Headers: the client's headers go on except the gateway's credentials
+   (`Authorization`, `x-api-key` and any name with key, token, secret, auth,
+   cookie, session...), hop-by-hop headers and those named in `Connection`,
+   `Host`, `Content-Length`, `X-Forwarded-*`, `Forwarded`, `Via`,
+   `X-Real-IP` and similar client-address headers, and trace headers. The
+   upstream's configured `headers` and its key come last and win.
+8. The answer: 2xx and 4xx are relayed with their status (`Cache-Control`,
+   `Content-Language`, `ETag`, `Last-Modified`, `Expires` and `Retry-After`
+   go with them; `ETag` is dropped when the guard changed the body). 401
+   and 407 are about the gateway's key and become 502
+   `upstream_auth_failed`; 5xx become 502; redirects are never followed
+   (502). In a JSON answer the declared fields go through the output guard:
+   links, and personal data per the organization's `output_pii_action` and
+   `output_pii_kinds`. An event stream and any other content type pass as
+   they come, unchecked.
+
+Each request writes one row of the request log (route label `backend`,
+route target the upstream's name), with the same metrics and alert events
+as the other routes. Body size (`MAX_REQUEST_BYTES`) and the upstream's
+`timeout_ms` apply; retries are off for custom backends, since a business
+request may not be safe to send twice. A custom backend is never a chat
+upstream: it cannot be a default or a route rule's target, and the
+connection test does not apply to it.
+
+```bash
+curl -s https://<GATEWAY_HOST>/v1/backend/search/search \
+  -H "Authorization: Bearer $GUARDSPEC_API_KEY" -H 'Content-Type: application/json' \
+  -d '{"query":"red shoes size 42","filters":["in stock"]}'
+```
+
+Runnable: [examples/custom-backend](../examples/custom-backend/README.md), a
+sample backend and a script that shows each case; the **Examples** CI
+workflow runs it.
 
 ## Files, PDFs and images
 

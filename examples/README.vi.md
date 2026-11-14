@@ -19,6 +19,7 @@ ví dụ mong đợi.
 | [typescript/openai-sdk](typescript/openai-sdk/) | OpenAI TypeScript SDK: chat, streaming, xử lý lỗi |
 | [typescript/vercel-ai-sdk](typescript/vercel-ai-sdk/) | Vercel AI SDK (`@ai-sdk/openai` với `baseURL`): `generateText`, `streamText`, xử lý lỗi |
 | [n8n](n8n/) | Một workflow n8n có thể import: node HTTP Request và node OpenAI Chat Model trỏ vào gateway |
+| [custom-backend](custom-backend/) | Gateway đứng trước API JSON của chính tổ chức (`/v1/backend/{upstream}/{path}`): yêu cầu sạch được chuyển tiếp nguyên từng byte, yêu cầu chứa injection không bao giờ tới backend, e-mail trong phản hồi bị che, đường dẫn ngoài phạm vi bị từ chối |
 
 Các dependency đều được ghim phiên bản: `pyproject.toml` và `uv.lock` cho
 Python (chạy bằng [uv](https://docs.astral.sh/uv/)), `package.json` và

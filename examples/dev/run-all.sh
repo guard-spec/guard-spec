@@ -76,6 +76,9 @@ fi
 
 check "n8n workflow shape" examples/n8n "ok: " -- python3 validate.py
 
+check "custom-backend" examples/custom-backend "allowed: " "forwarded unchanged: yes" "redacted: " \
+	"blocked: content_filter" "not reached: " "refused path: 403 path_not_allowed" -- python3 demo.py
+
 if [ "$failed" -ne 0 ]; then
 	echo "examples: FAILED"
 	exit 1

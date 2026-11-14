@@ -19,6 +19,7 @@ example expects.
 | [typescript/openai-sdk](typescript/openai-sdk/) | OpenAI TypeScript SDK: chat, streaming, error handling |
 | [typescript/vercel-ai-sdk](typescript/vercel-ai-sdk/) | Vercel AI SDK (`@ai-sdk/openai` with `baseURL`): `generateText`, `streamText`, error handling |
 | [n8n](n8n/) | An importable n8n workflow: HTTP Request node and OpenAI Chat Model node pointed at the gateway |
+| [custom-backend](custom-backend/) | The gateway in front of an organization's own JSON API (`/v1/backend/{upstream}/{path}`): a clean request forwarded byte for byte, an injection that never reaches the backend, an e-mail redacted in the answer, a refused path |
 
 Dependencies are pinned: `pyproject.toml` and `uv.lock` for Python (run with
 [uv](https://docs.astral.sh/uv/)), `package.json` and `package-lock.json` for

@@ -11,6 +11,27 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ### Added
 
+- **Custom backends: the gateway in front of an organization's own JSON
+  API** (RF-d6ba510e). An upstream of the new provider `custom` (migration
+  031) is reached through `/v1/backend/{upstream}/{path}` with the usual API
+  key. Its configuration lists the allowed path prefixes (403 otherwise, by
+  whole segments) and methods (405), and the JSONPaths of the request fields
+  to scan and of the answer fields to guard (`$.query`,
+  `$.messages[*].content`; the subset is `.name`, `[n]`, `[*]` and `.*`),
+  with opt-in `all_strings` and `raw_text` (a body that is not JSON is
+  otherwise refused, 415). The declared fields and every query value go
+  through the same detectors, thresholds and policies as chat; a refused
+  request never reaches the backend, an allowed one is forwarded byte for
+  byte (only the values `input_pii_action` replaced are rewritten). The
+  answer's declared fields get the output guard with the organization's
+  personal data settings; event streams pass unchecked. The key comes from
+  `api_key_env` under `UPSTREAM_KEY_ORGS`; the client's credentials,
+  hop-by-hop and client-address headers are not forwarded, redirects are not
+  followed, and the base URL follows the upstream address rules. A custom
+  backend cannot be a default upstream or a route target. Admin UI: Model
+  providers → Custom backend. Example: `examples/custom-backend`. Docs:
+  [integrations](docs/integrations.md#custom-backend).
+
 - **Personal data in responses per organization** (RF-e9ac5935). Guard
   settings take `output_pii_action` (`off` or `redact`) and
   `output_pii_kinds` (`email`, `phone`, `card`, `cccd`, `ipv4`), which

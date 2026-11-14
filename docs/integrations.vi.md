@@ -26,6 +26,7 @@ nhận, sau đó đến từng công cụ, kèm theo những gì đã chạy th�
 | `POST /v1/embeddings` | Chuyển tiếp kèm kiểm tra key, rate limit, định tuyến và allowlist model; input không được quét trừ khi đặt `EMBEDDINGS_SCAN=on` |
 | `GET /v1/models` | Các model của upstream mặc định của key; theo dạng danh sách của OpenAI, hoặc của Anthropic nếu có header `anthropic-version` |
 | `POST /guardrail/scan`, `/guardrail/scan/tools`, `/guardrail/sanitize` | Các endpoint quét riêng của Guard Spec, không gọi model |
+| `/v1/backend/{upstream}/{path}` | API JSON của chính tổ chức, một upstream có provider `custom`: xem [Backend tùy chỉnh](#backend-tùy-chỉnh) |
 | Không phục vụ (404) | `GET`/`DELETE /v1/responses/{id}`, `/v1/responses/{id}/input_items`, `/v1/conversations`, audio, images, files, assistants, batches, realtime và chế độ WebSocket |
 
 Key của client là key Guard Spec, không bao giờ là key của provider: gateway
@@ -612,6 +613,123 @@ API*, cách này chạy với mọi upstream). Node OpenAI của n8n báo một 
 "Bad request - please check your parameters" mà không kèm lý do của gateway;
 node HTTP Request thì giữ lại lý do đó.
 Các bước: [examples/n8n](../examples/n8n/README.md).
+
+## Backend tùy chỉnh
+
+Gateway cũng có thể đứng trước API JSON của chính tổ chức, ví dụ dịch vụ tìm
+kiếm, hỗ trợ khách hàng hay đơn hàng nhận văn bản của người dùng rồi chuyển
+cho một mô hình hoặc agent. Ứng dụng gọi
+
+```
+<METHOD> https://<GATEWAY_HOST>/v1/backend/{upstream}/{path}?{query}
+Authorization: Bearer gs_...
+```
+
+và gateway gửi yêu cầu tới `{base_url}{path}?{query}` của upstream
+`{upstream}` thuộc tổ chức, upstream này phải có provider `custom`. Tạo trong
+giao diện quản trị (Nhà cung cấp mô hình → Thêm nhà cung cấp → Backend tùy
+chỉnh) hoặc bằng `POST /v1/organizations/{id}/upstreams`:
+
+```json
+{
+  "name": "search",
+  "provider": "custom",
+  "base_url": "https://search.internal.example/api",
+  "api_key_env": "UPSTREAM_KEY_SEARCH",
+  "timeout_ms": 30000,
+  "backend": {
+    "path_prefixes": ["/search"],
+    "methods": ["POST"],
+    "key_header": "",
+    "scan": {
+      "request": ["$.query", "$.filters[*]"],
+      "response": ["$.results[*].snippet"],
+      "all_strings": false,
+      "raw_text": false
+    }
+  }
+}
+```
+
+| Trường | |
+|---|---|
+| `path_prefixes` | 1 đến 20 tiền tố, so khớp theo từng đoạn: `/search` cho phép `/search` và `/search/v2`, không cho `/search-admin`; `/` cho phép mọi đường dẫn. Đường dẫn khác: 403 `path_not_allowed` |
+| `methods` | Một số trong `GET`, `POST`, `PUT`, `PATCH`, `DELETE`; để trống là `POST`. Phương thức khác: 405 `method_not_allowed` kèm header `Allow` |
+| `scan.request` | JSONPath của các trường yêu cầu được quét (tối đa 50). Đường dẫn tới một đối tượng hay danh sách sẽ quét mọi chuỗi bên trong |
+| `scan.response` | JSONPath của các trường phản hồi mà bộ lọc đầu ra kiểm tra; để trống: phản hồi được trả về đúng như backend gửi |
+| `scan.all_strings` | Tùy chọn bật: phía nào (yêu cầu hoặc phản hồi) không khai báo đường dẫn thì quét mọi giá trị chuỗi. Backend cần có đường dẫn yêu cầu hoặc bật tùy chọn này |
+| `scan.raw_text` | Tùy chọn bật: chấp nhận nội dung yêu cầu không phải JSON và quét toàn bộ, phản hồi `text/*` được kiểm tra toàn bộ. Nếu tắt, nội dung không phải JSON nhận 415 `unsupported_media_type` và phản hồi dạng văn bản đi qua không kiểm tra |
+| `key_header` | Không bắt buộc: khóa được gửi nguyên văn trong header này (`X-Api-Key`); để trống thì gửi `Authorization: Bearer` |
+
+Tập con JSONPath được giữ nhỏ có chủ đích: `$` rồi `.name` (chữ, số, `_`,
+`-`), `[n]`, `[*]` và `.*`, ví dụ `$.query`, `$.messages[*].content`,
+`$.items[0].text`. Tìm đệ quy (`..`), bộ lọc, lát cắt và tên trong ngoặc kép
+bị từ chối khi lưu backend, kèm lỗi nêu rõ đường dẫn và lý do. Trường nào yêu
+cầu không có thì bỏ qua, nên hãy khai báo mọi trường backend đọc, hoặc dùng
+`all_strings`.
+
+**Gateway xử lý một yêu cầu** theo thứ tự:
+
+1. API key và giới hạn tốc độ, như mọi route.
+2. Upstream: 404 `backend_not_found` khi tổ chức không có upstream tên đó,
+   400 `not_a_backend` khi đó là nhà cung cấp mô hình, 502
+   `route_unavailable` khi upstream bị tắt, cấu hình đã lưu không hợp lệ,
+   `api_key_env` không được `UPSTREAM_KEY_ORGS` cho phép với tổ chức (hoặc
+   chưa đặt), hay địa chỉ bị từ chối (cùng quy tắc địa chỉ với mọi upstream
+   do tổ chức khai báo: luôn chặn địa chỉ metadata và link-local, chặn địa chỉ
+   nội bộ trừ khi `UPSTREAM_ALLOW_PRIVATE=true`).
+3. Phương thức (405) và đường dẫn: đường dẫn có đoạn rỗng, `.` hoặc `..`,
+   có `/`, `\` hoặc `.` được mã hóa, hay có ký tự điều khiển đều bị từ chối
+   (400 `invalid_path`), để backend hiểu đúng đường dẫn mà gateway đã kiểm
+   tra; sau đó là tiền tố (403).
+4. Nội dung: JSON (`application/json` hoặc `+json`), hoặc văn bản khi bật
+   `raw_text`; ngoài ra là 415. JSON không hợp lệ, khóa bị lặp, hay khóa chỉ
+   khác trường được quét ở chữ hoa chữ thường (`Query` cạnh `query`, mà một
+   số backend lại đọc) đều bị từ chối (400 `invalid_body`).
+5. Quét: các trường đã khai báo và mọi giá trị trên query string được làm
+   sạch và phân loại như văn bản người dùng, với cùng bộ phát hiện, ngưỡng,
+   `max_input_tokens`, kiểm tra dữ liệu cá nhân đầu vào và chính sách như
+   yêu cầu chat. Yêu cầu bị từ chối nhận 400 `content_filter` như thường lệ
+   và **không bao giờ tới backend**. Quy tắc định tuyến không áp dụng ở đây:
+   URL đã chỉ định backend.
+6. Yêu cầu được chuyển tiếp **nguyên từng byte**: cùng nội dung, phương
+   thức, đường dẫn và query. Ngoại lệ duy nhất là `input_pii_action` của tổ
+   chức (`redact` hoặc `tokenize`): chỉ những giá trị chuỗi bị thay đổi được
+   ghi lại tại chỗ, mọi byte khác giữ nguyên; query string bị thay đổi thì
+   được mã hóa lại. Với `tokenize`, phản hồi nhận lại giá trị gốc.
+7. Header: header của client được chuyển tiếp, trừ thông tin xác thực với
+   gateway (`Authorization`, `x-api-key` và mọi tên chứa key, token, secret,
+   auth, cookie, session...), header hop-by-hop và những header được nêu
+   trong `Connection`, `Host`, `Content-Length`, `X-Forwarded-*`,
+   `Forwarded`, `Via`, `X-Real-IP` cùng các header địa chỉ client tương tự,
+   và header trace. Các `headers` đã cấu hình của upstream và khóa của nó
+   được đặt sau cùng và luôn thắng.
+8. Phản hồi: 2xx và 4xx được trả về với đúng mã trạng thái (kèm
+   `Cache-Control`, `Content-Language`, `ETag`, `Last-Modified`, `Expires` và
+   `Retry-After`; bỏ `ETag` khi bộ lọc đã sửa nội dung). 401 và 407 là lỗi
+   khóa của gateway nên thành 502 `upstream_auth_failed`; 5xx thành 502;
+   chuyển hướng không bao giờ được theo (502). Trong phản hồi JSON, các
+   trường đã khai báo đi qua bộ lọc đầu ra: liên kết, và dữ liệu cá nhân theo
+   `output_pii_action` và `output_pii_kinds` của tổ chức. Event stream và mọi
+   kiểu nội dung khác đi qua nguyên trạng, không kiểm tra.
+
+Mỗi yêu cầu ghi một dòng nhật ký yêu cầu (route `backend`, đích định tuyến là
+tên upstream), cùng metric và sự kiện cảnh báo như các route khác. Giới hạn
+kích thước nội dung (`MAX_REQUEST_BYTES`) và `timeout_ms` của upstream vẫn áp
+dụng; backend tùy chỉnh không thử lại, vì một yêu cầu nghiệp vụ có thể không an
+toàn khi gửi hai lần. Backend tùy chỉnh không bao giờ là upstream cho chat:
+không thể làm upstream mặc định hay đích của quy tắc định tuyến, và không có
+kiểm tra kết nối.
+
+```bash
+curl -s https://<GATEWAY_HOST>/v1/backend/search/search \
+  -H "Authorization: Bearer $GUARDSPEC_API_KEY" -H 'Content-Type: application/json' \
+  -d '{"query":"giày đỏ size 42","filters":["còn hàng"]}'
+```
+
+Chạy thử: [examples/custom-backend](../examples/custom-backend/README.vi.md),
+gồm một backend mẫu và script minh họa từng trường hợp; workflow CI
+**Examples** chạy nó.
 
 ## File, PDF và ảnh
 
