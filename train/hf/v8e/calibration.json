@@ -1,0 +1,60 @@
+{
+  "model": "guardspec-classifier-v8e",
+  "fitted_on": "v4-A build val.jsonl + val_hard.jsonl + val_vi_variants.jsonl + val_v3.jsonl + val_v4.jsonl, with the owner-supplied and OTP/KYC validation rows, plus v6_val.jsonl + val_v6.jsonl of the v6 build (12785 rows), 2026-11-13 (R7 arm E; refit on 2026-11-15 gives the same values)",
+  "platt": {
+    "A": 0.829328964936031,
+    "B": -0.34967623935053715
+  },
+  "logreg": {
+    "l1,l2": {
+      "W": [
+        0.44401296340452656,
+        0.9429979537239901,
+        0
+      ],
+      "B": 0.3804655535705589
+    },
+    "l1,l2,l3": {
+      "W": [
+        0.4346565394505346,
+        0.9181781420825593,
+        0.26586548566566026
+      ],
+      "B": 0.49187003816101554
+    }
+  },
+  "l2_untrusted_max": 0.88,
+  "long_doc": {
+    "min_windows": 30,
+    "corroborate_l1": 0.75,
+    "min_l2": 0.95,
+    "base": 0.85,
+    "fitted_on": "R8a (train/reports/r8a_preregistration.md, r8a_holdout.md): strong75_l2, n0 30, L1 bar 0.75 raw, L2 bar 0.95; met on the long8 holdout"
+  },
+  "fp16": {
+    "fitted_on": "the same 12785 validation rows, scored with model_fp16.onnx on the CPU, 2026-11-15",
+    "platt": {
+      "A": 0.8422148550632398,
+      "B": -0.6726705053646705
+    },
+    "logreg": {
+      "l1,l2": {
+        "W": [
+          0.4517763167860925,
+          0.9425213454259785,
+          0
+        ],
+        "B": 0.37597345332729565
+      },
+      "l1,l2,l3": {
+        "W": [
+          0.4379959641242574,
+          0.9163707813000543,
+          0.2737908970608975
+        ],
+        "B": 0.4847224553085046
+      }
+    },
+    "l2_untrusted_max": 0.88
+  }
+}
