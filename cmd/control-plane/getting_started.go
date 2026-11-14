@@ -68,7 +68,7 @@ func startCounts(ctx context.Context, tx pgx.Tx, org uuid.UUID, out *gettingStar
 	since := time.Now().Add(-startWindow)
 	return tx.QueryRow(ctx, `
 		SELECT
-		  (SELECT COUNT(*) FROM upstreams WHERE org_id = $1 AND enabled),
+		  (SELECT COUNT(*) FROM upstreams WHERE org_id = $1 AND enabled AND provider <> 'custom'), -- model providers
 		  (SELECT COUNT(*) FROM api_keys WHERE org_id = $1 AND revoked_at IS NULL
 		      AND (expires_at IS NULL OR expires_at > NOW())),
 		  (SELECT COUNT(*) FROM policies WHERE org_id = $1 AND enabled),
