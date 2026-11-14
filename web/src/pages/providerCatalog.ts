@@ -6,7 +6,7 @@
 // format upstream, so Anthropic and Gemini use their OpenAI-compatible
 // endpoints.
 
-import { API_KEY_ENV_RE, UPSTREAM_NAME_RE, type CatalogEntry, type ProviderKind, type UpstreamInput } from '../types';
+import { API_KEY_ENV_RE, BACKEND_METHODS, UPSTREAM_NAME_RE, type BackendConfig, type CatalogEntry, type ProviderKind, type UpstreamInput } from '../types';
 
 export const BUILTIN_CATALOG: CatalogEntry[] = [
   {
@@ -72,7 +72,103 @@ export const BUILTIN_CATALOG: CatalogEntry[] = [
     key_required: false,
     known_models: [],
   },
+  {
+    id: 'custom',
+    display_name: 'Custom backend',
+    default_base_url: 'https://api.example.com',
+    key_required: false,
+    key_env_hint: 'UPSTREAM_KEY_<NAME>',
+    known_models: [],
+    notes: 'Your own JSON API, reached through /v1/backend/{name}/{path}: the gateway scans the fields you list and forwards the request unchanged. It is never a chat upstream.',
+  },
 ];
+
+/** The provider id of a custom backend. */
+export const CUSTOM: ProviderKind = 'custom';
+
+/** A new custom backend: POST anywhere, the query field scanned. */
+export function defaultBackend(): BackendConfig {
+  return { path_prefixes: ['/'], methods: ['POST'], key_header: '', scan: { request: ['$.query'], response: [], all_strings: false, raw_text: false } };
+}
+
+/** Why a JSONPath is refused; each has a message (prov.jsonPath.*). */
+export type JsonPathError = 'start' | 'descent' | 'name' | 'bracket' | 'index' | 'length';
+
+/**
+ * Checks a JSONPath of the subset the gateway reads (internal/jsonpath):
+ * $ then .name, .*, [n] or [*] steps. Returns null when valid, else the
+ * reason, for the form's message.
+ */
+export function jsonPathError(s: string): JsonPathError | null {
+  if (s.length > 256) return 'length';
+  if (!s.startsWith('$')) return 'start';
+  let steps = 0;
+  for (let i = 1; i < s.length; ) {
+    if (++steps > 32) return 'length';
+    const c = s[i];
+    if (c === '.') {
+      i++;
+      if (s[i] === '.') return 'descent';
+      if (s[i] === '*') {
+        i++;
+        continue;
+      }
+      const m = /^[A-Za-z0-9_-]+/.exec(s.slice(i));
+      if (!m) return 'name';
+      i += m[0].length;
+    } else if (c === '[') {
+      const end = s.indexOf(']', i);
+      if (end < 0) return 'bracket';
+      const inner = s.slice(i + 1, end);
+      if (inner !== '*') {
+        if (!/^\d+$/.test(inner)) return 'bracket';
+        if ((inner.length > 1 && inner.startsWith('0')) || Number(inner) > 1 << 20) return 'index';
+      }
+      i = end + 1;
+    } else {
+      return 'name';
+    }
+  }
+  return null;
+}
+
+const PREFIX_RE = /^\/[A-Za-z0-9._~/-]*$/;
+
+export function prefixValid(p: string): boolean {
+  if (p.length > 256 || !PREFIX_RE.test(p)) return false;
+  if (p === '/') return true;
+  return !p.includes('//') && !p.split('/').some((seg) => seg === '.' || seg === '..');
+}
+
+const KEY_HEADER_RE = /^[A-Za-z0-9][A-Za-z0-9-]{0,63}$/;
+const KEY_HEADER_DENIED = /^(host|content-length|content-type|content-encoding|transfer-encoding|connection|upgrade|te|trailer|keep-alive|cookie|set-cookie|forwarded|via|traceparent|tracestate|baggage|expect|user-agent|x-forwarded-.*|proxy-.*)$/i;
+
+export type BackendErrorKind = 'prefixes' | 'methods' | 'keyHeader' | 'request' | 'response' | 'scan';
+
+/** What is wrong with a custom backend's configuration, by field; the first bad path is named. */
+export function validateBackend(b: BackendConfig | null | undefined): Partial<Record<BackendErrorKind, { path?: string; reason?: JsonPathError }>> {
+  const errs: Partial<Record<BackendErrorKind, { path?: string; reason?: JsonPathError }>> = {};
+  if (!b) return { scan: {} };
+  const prefixes = b.path_prefixes.map((p) => p.trim()).filter(Boolean);
+  const badPrefix = prefixes.find((p) => !prefixValid(p));
+  if (prefixes.length === 0 || prefixes.length > 20 || badPrefix !== undefined) errs.prefixes = { path: badPrefix };
+  if (b.methods.length === 0 || b.methods.some((m) => !BACKEND_METHODS.includes(m))) errs.methods = {};
+  const kh = (b.key_header ?? '').trim();
+  if (kh && (!KEY_HEADER_RE.test(kh) || KEY_HEADER_DENIED.test(kh))) errs.keyHeader = {};
+  for (const side of ['request', 'response'] as const) {
+    const paths = b.scan[side].map((p) => p.trim()).filter(Boolean);
+    if (paths.length > 50) errs[side] = {};
+    for (const p of paths) {
+      const reason = jsonPathError(p);
+      if (reason) {
+        errs[side] = { path: p, reason };
+        break;
+      }
+    }
+  }
+  if (!errs.request && b.scan.request.every((p) => !p.trim()) && !b.scan.all_strings) errs.scan = {};
+  return errs;
+}
 
 /** A human name for a provider id: from the catalog, else the built-in presets, else the id. */
 export function providerLabel(catalog: readonly CatalogEntry[], id: string | undefined): string {

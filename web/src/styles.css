@@ -297,7 +297,8 @@ input[aria-invalid='true'] {
   gap: 4px;
   margin-bottom: 12px;
 }
-.field label {
+.field label,
+.field .field-label {
   font-weight: 600;
   font-size: 13px;
 }

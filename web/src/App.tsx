@@ -280,7 +280,8 @@ function Authed({ route }: { route: Route }) {
       setOrgError(errorText(e));
     }
     try {
-      setUpstreams(await api.listUpstreams(orgId));
+      // Custom backends serve only /v1/backend: not a default, route target or flow node.
+      setUpstreams((await api.listUpstreams(orgId)).filter((u) => u.provider !== 'custom'));
       setUpstreamError(null);
     } catch (e) {
       setUpstreams(null);

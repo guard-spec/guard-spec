@@ -15,8 +15,20 @@ import { authErrorText } from '../auth/errors';
 import { ConfirmDialog, Dialog, ErrorBanner, Field, PageHeader, useDebounced } from '../components/ui';
 import { nonEmpty, useApp, useOrg } from '../context';
 import type { MessageKey } from '../i18n';
-import type { CatalogEntry, ConnectionTest, ProviderKind, Upstream, UpstreamInput } from '../types';
-import { BUILTIN_CATALOG, providerLabel, slugName, validateProvider, viaOpenAICompat, type ProviderError } from './providerCatalog';
+import { BACKEND_METHODS, type BackendConfig, type CatalogEntry, type ConnectionTest, type ProviderKind, type Upstream, type UpstreamInput } from '../types';
+import {
+  BUILTIN_CATALOG,
+  CUSTOM,
+  defaultBackend,
+  providerLabel,
+  slugName,
+  validateBackend,
+  validateProvider,
+  viaOpenAICompat,
+  type BackendErrorKind,
+  type JsonPathError,
+  type ProviderError,
+} from './providerCatalog';
 
 const EMPTY: UpstreamInput = {
   name: '',
@@ -52,17 +64,37 @@ function toInput(u: Upstream): UpstreamInput {
     max_tokens_cap: u.max_tokens_cap ?? null,
     tags: u.tags ?? [],
     enabled: u.enabled,
+    backend: u.backend ?? null,
   };
 }
+
+/** Lines of a textarea, trimmed, without blanks. */
+const lines = (xs: string[]) => xs.map((x) => x.trim()).filter(Boolean);
 
 /** What is sent: model mirrors default_model (its alias for one release). */
 function toBody(v: UpstreamInput): UpstreamInput {
   const body: UpstreamInput = { ...v, model: v.default_model ?? v.model };
   if (!body.api_version) delete body.api_version;
   if (!body.display_name) delete body.display_name;
+  if (body.provider === CUSTOM && body.backend) {
+    // A custom backend has no models; retries would send a business request twice.
+    const b = body.backend;
+    body.backend = {
+      ...b,
+      path_prefixes: lines(b.path_prefixes),
+      key_header: (b.key_header ?? '').trim(),
+      scan: { ...b.scan, request: lines(b.scan.request), response: lines(b.scan.response) },
+    };
+    body.model = '';
+    body.default_model = '';
+    body.models = [];
+    body.max_tokens_cap = null;
+    body.retries = 0;
+  } else {
+    delete body.backend;
+  }
   return body;
 }
-
 
 export function ProvidersPage() {
   const { api, t, notify } = useApp();
@@ -104,7 +136,25 @@ export function ProvidersPage() {
       : undefined,
   });
 
-  const errs = editing ? validateProvider(editing.value) : {};
+  const errs = editing ? validateProvider({ ...editing.value, retries: editing.value.provider === CUSTOM ? 0 : editing.value.retries }) : {};
+  const backendErrs = editing?.value.provider === CUSTOM ? validateBackend(editing.value.backend) : {};
+  const jsonPathReason = (r: JsonPathError): string => t(`prov.jsonPath.${r}` as MessageKey);
+  const backendMsg = (k: BackendErrorKind): string | undefined => {
+    const e = backendErrs[k];
+    if (!touched || !e) return undefined;
+    switch (k) {
+      case 'prefixes':
+        return e.path !== undefined ? t('prov.invalidPrefix', { path: e.path }) : t('prov.needPrefix');
+      case 'methods':
+        return t('prov.invalidMethods');
+      case 'keyHeader':
+        return t('prov.invalidKeyHeader');
+      case 'scan':
+        return t('prov.needScan');
+      default:
+        return e.path !== undefined && e.reason ? t('prov.invalidJsonPath', { path: e.path, reason: jsonPathReason(e.reason) }) : t('prov.tooManyPaths');
+    }
+  };
   const msgFor = (e: ProviderError | undefined): string | undefined => {
     const keys: Record<ProviderError, MessageKey> = {
       name: 'up.invalidName',
@@ -127,7 +177,7 @@ export function ProvidersPage() {
 
   const save = async () => {
     setTouched(true);
-    if (!editing || Object.keys(errs).length > 0) return;
+    if (!editing || Object.keys(errs).length > 0 || Object.keys(backendErrs).length > 0) return;
     try {
       if (editing.id) await api.updateUpstream(org.id, editing.id, toBody(editing.value));
       else await api.createUpstream(org.id, toBody(editing.value));
@@ -167,7 +217,17 @@ export function ProvidersPage() {
 
   const set = (patch: Partial<UpstreamInput>) => {
     if ('api_key_env' in patch) setKeyEnvError(null);
-    if (editing) setEditing({ ...editing, value: { ...editing.value, ...patch } });
+    if (!editing) return;
+    const value = { ...editing.value, ...patch };
+    if (patch.provider === CUSTOM && !value.backend) value.backend = defaultBackend();
+    setEditing({ ...editing, value });
+  };
+  const setBackend = (patch: Partial<BackendConfig>) => {
+    if (editing) set({ backend: { ...(editing.value.backend ?? defaultBackend()), ...patch } });
+  };
+  const setScan = (patch: Partial<BackendConfig['scan']>) => {
+    const b = editing?.value.backend ?? defaultBackend();
+    setBackend({ scan: { ...b.scan, ...patch } });
   };
 
   const pick = (c: CatalogEntry) => {
@@ -186,6 +246,8 @@ export function ProvidersPage() {
         default_model: c.known_models[0] ?? '',
         model: c.known_models[0] ?? '',
         models: [],
+        backend: c.id === CUSTOM ? (editing.value.backend ?? defaultBackend()) : null,
+        retries: c.id === CUSTOM ? 0 : editing.value.retries,
       },
     });
   };
@@ -198,6 +260,8 @@ export function ProvidersPage() {
   };
 
   const list = upstreams ?? [];
+  // A custom backend serves only /v1/backend: never a default (the context leaves them out too).
+  const chatUpstreams = list.filter((u) => u.provider !== CUSTOM);
   const entry = editing ? catalog.find((c) => c.id === editing.value.provider) : undefined;
 
   const columns: Column<Upstream>[] = [
@@ -244,6 +308,14 @@ export function ProvidersPage() {
       header: t('prov.models'),
       className: 'col-model',
       cell: (u) => {
+        if (u.provider === CUSTOM) {
+          return (
+            <div className="cell-stack">
+              <span className="mono small ellipsis" title={`/v1/backend/${u.name}/…`}>{`/v1/backend/${u.name}/…`}</span>
+              <span className="muted small nowrap">{t('prov.backendColumn', { count: u.backend?.path_prefixes.length ?? 0 })}</span>
+            </div>
+          );
+        }
         const m = nonEmpty(u.default_model) ?? nonEmpty(u.model);
         return (
           <div className="cell-stack">
@@ -273,7 +345,7 @@ export function ProvidersPage() {
       className: 'row-actions',
       cell: (u) => (
         <span className="icon-actions">
-          {canTest ? (
+          {canTest && u.provider !== CUSTOM ? (
             <button
               type="button"
               className="btn btn-small btn-square"
@@ -316,7 +388,6 @@ export function ProvidersPage() {
       ),
     },
   ];
-
 
   const headers = Object.entries(editing?.value.headers ?? {});
   const setHeaders = (rows: [string, string][]) => set({ headers: Object.fromEntries(rows) });
@@ -372,7 +443,7 @@ export function ProvidersPage() {
             label={t('up.orgDefault')}
             value={org.default_upstream_id ?? null}
             emptyLabel={t('up.gatewayDefault')}
-            upstreams={list}
+            upstreams={chatUpstreams}
             disabled={!writable}
             onChange={(id) => void setDefault(null, id)}
           />
@@ -382,7 +453,7 @@ export function ProvidersPage() {
               label={t('up.projectDefault', { name: p.name })}
               value={p.default_upstream_id ?? null}
               emptyLabel={t('up.inherit')}
-              upstreams={list}
+              upstreams={chatUpstreams}
               disabled={!writable}
               onChange={(id) => void setDefault(p.id, id)}
             />
@@ -509,55 +580,63 @@ export function ProvidersPage() {
               ) : null}
               {entry?.notes ? <p className="small muted">{entry.notes}</p> : null}
             </fieldset>
-            <fieldset>
-              <legend>{t('prov.modelsTitle')}</legend>
-              <Field label={t('prov.defaultModel')} help={t('up.modelHelp')} error={msg('default_model')}>
-                {(p) => (
-                  <>
-                    <input
-                      {...p}
-                      className="mono"
-                      list="known-models"
-                      value={editing.value.default_model ?? ''}
-                      onChange={(e) => set({ default_model: e.target.value, model: e.target.value })}
-                    />
-                    <datalist id="known-models">
-                      {[...new Set([...(entry?.known_models ?? []), ...(editing.value.models ?? [])])].map((m) => (
-                        <option key={m} value={m} />
-                      ))}
-                    </datalist>
-                  </>
-                )}
-              </Field>
-              <ChipsInput
-                label={t('prov.allowedModels')}
-                help={t('prov.allowedHelp')}
-                values={editing.value.models ?? []}
-                suggestions={entry?.known_models ?? []}
-                placeholder={t('prov.addModel')}
-                onChange={(models) => set({ models })}
-              />
-            </fieldset>
+            {editing.value.provider === CUSTOM ? (
+              <BackendFields name={editing.value.name} backend={editing.value.backend ?? defaultBackend()} setBackend={setBackend} setScan={setScan} msg={backendMsg} />
+            ) : (
+              <fieldset>
+                <legend>{t('prov.modelsTitle')}</legend>
+                <Field label={t('prov.defaultModel')} help={t('up.modelHelp')} error={msg('default_model')}>
+                  {(p) => (
+                    <>
+                      <input
+                        {...p}
+                        className="mono"
+                        list="known-models"
+                        value={editing.value.default_model ?? ''}
+                        onChange={(e) => set({ default_model: e.target.value, model: e.target.value })}
+                      />
+                      <datalist id="known-models">
+                        {[...new Set([...(entry?.known_models ?? []), ...(editing.value.models ?? [])])].map((m) => (
+                          <option key={m} value={m} />
+                        ))}
+                      </datalist>
+                    </>
+                  )}
+                </Field>
+                <ChipsInput
+                  label={t('prov.allowedModels')}
+                  help={t('prov.allowedHelp')}
+                  values={editing.value.models ?? []}
+                  suggestions={entry?.known_models ?? []}
+                  placeholder={t('prov.addModel')}
+                  onChange={(models) => set({ models })}
+                />
+              </fieldset>
+            )}
             <fieldset>
               <legend>{t('prov.limits')}</legend>
               <div className="form-grid form-grid-3">
                 <Field label={t('up.timeout')} error={msg('timeout_ms')}>
                   {(p) => <input {...p} type="number" min={1000} step={1000} value={editing.value.timeout_ms} onChange={(e) => set({ timeout_ms: Number(e.target.value) })} />}
                 </Field>
-                <Field label={t('prov.retries')} error={msg('retries')}>
-                  {(p) => <input {...p} type="number" min={0} max={5} value={editing.value.retries ?? 0} onChange={(e) => set({ retries: Number(e.target.value) })} />}
-                </Field>
-                <Field label={t('prov.maxTokens')} help={t('prov.maxTokensHelp')} error={msg('max_tokens_cap')}>
-                  {(p) => (
-                    <input
-                      {...p}
-                      type="number"
-                      min={1}
-                      value={editing.value.max_tokens_cap ?? ''}
-                      onChange={(e) => set({ max_tokens_cap: e.target.value === '' ? null : Number(e.target.value) })}
-                    />
-                  )}
-                </Field>
+                {editing.value.provider === CUSTOM ? null : (
+                  <>
+                    <Field label={t('prov.retries')} error={msg('retries')}>
+                      {(p) => <input {...p} type="number" min={0} max={5} value={editing.value.retries ?? 0} onChange={(e) => set({ retries: Number(e.target.value) })} />}
+                    </Field>
+                    <Field label={t('prov.maxTokens')} help={t('prov.maxTokensHelp')} error={msg('max_tokens_cap')}>
+                      {(p) => (
+                        <input
+                          {...p}
+                          type="number"
+                          min={1}
+                          value={editing.value.max_tokens_cap ?? ''}
+                          onChange={(e) => set({ max_tokens_cap: e.target.value === '' ? null : Number(e.target.value) })}
+                        />
+                      )}
+                    </Field>
+                  </>
+                )}
               </div>
             </fieldset>
             <fieldset>
@@ -622,6 +701,110 @@ export function ProvidersPage() {
         }}
       />
     </div>
+  );
+}
+
+/** The custom backend part of the form: paths, methods, scanned fields. */
+function BackendFields({
+  name,
+  backend,
+  setBackend,
+  setScan,
+  msg,
+}: {
+  name: string;
+  backend: BackendConfig;
+  setBackend: (patch: Partial<BackendConfig>) => void;
+  setScan: (patch: Partial<BackendConfig['scan']>) => void;
+  msg: (k: BackendErrorKind) => string | undefined;
+}) {
+  const { t } = useApp();
+  const url = `/v1/backend/${name || '{name}'}/{path}`;
+  const split = (v: string) => v.split('\n');
+  return (
+    <fieldset data-testid="backend-fields">
+      <legend>{t('prov.backend')}</legend>
+      <p className="muted small">{t('prov.backendHelp', { url })}</p>
+      <Field label={t('prov.backendPrefixes')} help={t('prov.backendPrefixesHelp')} error={msg('prefixes')}>
+        {(p) => (
+          <textarea
+            {...p}
+            className="mono"
+            rows={2}
+            spellCheck={false}
+            value={backend.path_prefixes.join('\n')}
+            onChange={(e) => setBackend({ path_prefixes: split(e.target.value) })}
+          />
+        )}
+      </Field>
+      <div role="group" aria-label={t('prov.backendMethods')} className="field">
+        <span className="field-label">{t('prov.backendMethods')}</span>
+        <span className="badges">
+          {BACKEND_METHODS.map((m) => (
+            <label key={m} className="check">
+              <input
+                type="checkbox"
+                checked={backend.methods.includes(m)}
+                onChange={(e) =>
+                  setBackend({ methods: e.target.checked ? BACKEND_METHODS.filter((x) => x === m || backend.methods.includes(x)) : backend.methods.filter((x) => x !== m) })
+                }
+              />
+              <span className="mono">{m}</span>
+            </label>
+          ))}
+        </span>
+        <small className="muted">{t('prov.backendMethodsHelp')}</small>
+        {msg('methods') ? <small className="field-error">{msg('methods')}</small> : null}
+      </div>
+      <Field label={t('prov.backendRequest')} help={t('prov.backendRequestHelp')} error={msg('request') ?? msg('scan')}>
+        {(p) => (
+          <textarea
+            {...p}
+            className="mono"
+            rows={3}
+            spellCheck={false}
+            placeholder="$.query"
+            value={backend.scan.request.join('\n')}
+            onChange={(e) => setScan({ request: split(e.target.value) })}
+          />
+        )}
+      </Field>
+      <Field label={t('prov.backendResponse')} help={t('prov.backendResponseHelp')} error={msg('response')}>
+        {(p) => (
+          <textarea
+            {...p}
+            className="mono"
+            rows={2}
+            spellCheck={false}
+            placeholder="$.results[*].snippet"
+            value={backend.scan.response.join('\n')}
+            onChange={(e) => setScan({ response: split(e.target.value) })}
+          />
+        )}
+      </Field>
+      <label className="check">
+        <input type="checkbox" checked={backend.scan.all_strings} onChange={(e) => setScan({ all_strings: e.target.checked })} />
+        <span>{t('prov.backendAllStrings')}</span>
+      </label>
+      <label className="check">
+        <input type="checkbox" checked={backend.scan.raw_text} onChange={(e) => setScan({ raw_text: e.target.checked })} />
+        <span>{t('prov.backendRawText')}</span>
+      </label>
+      <p className="muted small">{t('prov.backendRawTextHelp')}</p>
+      <Field label={t('prov.backendKeyHeader')} help={t('prov.backendKeyHeaderHelp')} error={msg('keyHeader')}>
+        {(p) => (
+          <input
+            {...p}
+            className="mono"
+            placeholder="X-Api-Key"
+            autoComplete="off"
+            spellCheck={false}
+            value={backend.key_header ?? ''}
+            onChange={(e) => setBackend({ key_header: e.target.value })}
+          />
+        )}
+      </Field>
+    </fieldset>
   );
 }
 
