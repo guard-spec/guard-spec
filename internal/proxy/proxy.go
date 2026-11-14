@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"syscall"
@@ -256,6 +257,14 @@ func (p *Proxy) Forward(ctx context.Context, path string, body []byte) (*Respons
 	return p.Do(ctx, path, body, Call{})
 }
 
+// backendPathRe and backendQueryRe bound Call.URLPath and Call.RawQuery:
+// printable ASCII without spaces or a fragment, the path absolute and
+// without a query or backslash, so neither can change the URL's host.
+var (
+	backendPathRe  = regexp.MustCompile(`^/[!-"$-/0-9:-;=>@-\[\]-~]*$`)
+	backendQueryRe = regexp.MustCompile(`^[!-"$-~]*$`)
+)
+
 // Call holds the settings of one request that differ from the proxy's.
 type Call struct {
 	// Method is the HTTP method; "" is POST. A GET sends no body.
@@ -405,6 +414,13 @@ func (p *Proxy) forwardOnce(ctx context.Context, path string, body []byte, call 
 	}
 	target := p.url(path)
 	if call.URLPath != "" {
+		// The caller checked the path (backend.CleanPath and the prefixes);
+		// this is the last line: only a path and a query that cannot leave
+		// the base URL's host reach the URL.
+		if !backendPathRe.MatchString(call.URLPath) || !backendQueryRe.MatchString(call.RawQuery) {
+			cancel()
+			return nil, &Error{Status: http.StatusBadRequest, Code: "invalid_path", Message: "invalid backend path or query"}
+		}
 		target = p.base + call.URLPath
 		if call.RawQuery != "" {
 			target += "?" + call.RawQuery

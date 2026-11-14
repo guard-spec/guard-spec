@@ -236,7 +236,7 @@ func backendHandler(gw gateway) fiber.Handler {
 				" is not a custom backend; send model requests to /v1/chat/completions", "not_a_backend")
 		}
 		unavailable := func(reason error) error {
-			slog.Warn("custom backend unavailable", "org", entry.OrgID, "upstream", name, "reason", reason)
+			slog.Warn("custom backend unavailable", "org", entry.OrgID, "upstream_id", up.ID, "reason", reason)
 			entry.Action, entry.ErrorKind = actionError, errorKindConnect
 			return backendError(c, fiber.StatusBadGateway, "route target unavailable", "route_unavailable")
 		}
@@ -477,7 +477,7 @@ func backendHandler(gw gateway) fiber.Handler {
 			entry.Output = counts
 			if err != nil {
 				entry.Action = actionError
-				slog.Warn("backend response could not be checked", "upstream", name, "err", err)
+				slog.Warn("backend response could not be checked", "upstream_id", up.ID, "err", err)
 				return backendError(c, fiber.StatusBadGateway, "upstream response could not be checked", "upstream_error")
 			}
 			if string(guarded) != string(out) {

@@ -71,3 +71,25 @@ func TestBackendCall(t *testing.T) {
 		}
 	}
 }
+
+// The proxy refuses a backend path or query that could change the URL.
+func TestBackendCallRefusesBadURL(t *testing.T) {
+	p, err := New(Config{BaseURL: "http://127.0.0.1:1/api"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []Call{
+		{URLPath: "x"}, {URLPath: "/a b"}, {URLPath: "/a#b"}, {URLPath: "/a?b"}, {URLPath: `/a\b`},
+		{URLPath: "/a\nb"}, {URLPath: "/ok", RawQuery: "a=1#frag"}, {URLPath: "/ok", RawQuery: "a b"},
+	} {
+		var e *Error
+		if _, err := p.Do(context.Background(), "/backend", nil, c); !errors.As(err, &e) || e.Code != "invalid_path" {
+			t.Errorf("%+v: %v", c, err)
+		}
+	}
+	for _, c := range []Call{{URLPath: "/a/b%20c~d;e=f@g"}, {URLPath: "/ok", RawQuery: `f[a]=1&b="x"|y?z`}} {
+		if !backendPathRe.MatchString(c.URLPath) || !backendQueryRe.MatchString(c.RawQuery) {
+			t.Errorf("refused %+v", c)
+		}
+	}
+}
