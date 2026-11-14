@@ -38,15 +38,15 @@ type Scan struct {
 	// Request and Response are JSONPaths (package jsonpath) of the fields
 	// scanned. A path that selects an object or array covers every string
 	// inside it.
-	Request  []string `json:"request"`
-	Response []string `json:"response"`
+	Request  []string `json:"request" yaml:"request"`
+	Response []string `json:"response" yaml:"response"`
 	// AllStrings scans every string value of a JSON body whose side
 	// (request or response) declares no path. Off unless set.
-	AllStrings bool `json:"all_strings"`
+	AllStrings bool `json:"all_strings" yaml:"all_strings"`
 	// RawText accepts bodies that are not JSON and scans them as one text
 	// (text/plain, say). Without it such a request is refused (415) and
 	// such a response is passed through unchecked.
-	RawText bool `json:"raw_text"`
+	RawText bool `json:"raw_text" yaml:"raw_text"`
 }
 
 // Config is upstreams.backend.
@@ -54,13 +54,13 @@ type Config struct {
 	// PathPrefixes are the paths the gateway forwards, matched by whole
 	// segments: /orders allows /orders and /orders/7, not /orders-admin.
 	// "/" allows every path.
-	PathPrefixes []string `json:"path_prefixes"`
+	PathPrefixes []string `json:"path_prefixes" yaml:"path_prefixes"`
 	// Methods are the methods the gateway forwards; empty means POST.
-	Methods []string `json:"methods"`
+	Methods []string `json:"methods" yaml:"methods"`
 	// KeyHeader, when set, sends the api_key_env value in this header as
 	// is, instead of as Authorization: Bearer.
-	KeyHeader string `json:"key_header,omitempty"`
-	Scan      Scan   `json:"scan"`
+	KeyHeader string `json:"key_header,omitempty" yaml:"key_header,omitempty"`
+	Scan      Scan   `json:"scan" yaml:"scan"`
 
 	request, response []jsonpath.Path
 }
