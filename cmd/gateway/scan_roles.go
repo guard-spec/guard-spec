@@ -67,6 +67,12 @@ type scanConfig struct {
 	// input_pii_kinds (input_pii_protect.go); "" is off.
 	PIIAction string
 	PIIKinds  []string
+	// OutputPIIAction and OutputPIIKinds are the org's output_pii_action
+	// and output_pii_kinds: its override of OUTPUT_PII_REDACT and
+	// OUTPUT_PII_IPV4 for the answers (outputguard.Guard.WithPII); "" and
+	// nil: the gateway's.
+	OutputPIIAction string
+	OutputPIIKinds  []string
 	// Unscanned is UNSCANNED_PARTS with the org's stricter unscanned_parts:
 	// allow, log (the default) or block (unscanned.go).
 	Unscanned string
@@ -267,6 +273,7 @@ func (gw gateway) scanConfigFor(orgID uuid.UUID) (scanConfig, error) {
 	cfg.WindowTurns, cfg.WindowBytes = s.Window(cfg.WindowTurns, cfg.WindowBytes)
 	cfg.InputPII = s.PII()
 	cfg.PIIAction, cfg.PIIKinds = s.PIIAction(), s.InputPIIKinds
+	cfg.OutputPIIAction, cfg.OutputPIIKinds = s.OutputPII()
 	cfg.Unscanned = s.Unscanned(cfg.Unscanned)
 	cfg.ScanTokens = s.ScanTokens(cfg.MaxScanTokens)
 	if cfg.Input = s.Input; cfg.Input != nil && cfg.Unscanned == indirect.UnscannedAllow {

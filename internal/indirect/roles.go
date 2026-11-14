@@ -143,6 +143,16 @@ type Settings struct {
 	// InputPIIKinds limits the action to these kinds (outputguard.PIIKinds);
 	// empty: every kind.
 	InputPIIKinds []string `json:"input_pii_kinds,omitempty"`
+	// OutputPIIAction overrides the output guard's redaction of personal
+	// data in answers for the org (OUTPUT_PII_REDACT): off or redact; not
+	// set, the gateway's own. It cannot turn the output guard on where the
+	// gateway runs with OUTPUT_GUARD=off. Tokens of input_pii_action
+	// tokenize are put back in the answer either way.
+	OutputPIIAction *string `json:"output_pii_action,omitempty"`
+	// OutputPIIKinds are the kinds redacted in answers (outputguard.PIIKinds)
+	// in place of the gateway's (every kind but IPv4, IPv4 too with
+	// OUTPUT_PII_IPV4); empty: the gateway's.
+	OutputPIIKinds []string `json:"output_pii_kinds,omitempty"`
 	// UnscannedParts is what to do with images, files and audio the gateway
 	// cannot read (UNSCANNED_PARTS): allow, log or block. It can only make
 	// the gateway stricter (see Unscanned).
@@ -188,6 +198,16 @@ func (s Settings) PIIAction() string {
 		return outputguard.PIIOff
 	}
 	return *s.InputPIIAction
+}
+
+// OutputPII is the org's output_pii_action ("" when not set: the gateway's
+// OUTPUT_PII_REDACT) and output_pii_kinds (nil: the gateway's kinds).
+func (s Settings) OutputPII() (string, []string) {
+	action := ""
+	if s.OutputPIIAction != nil {
+		action = *s.OutputPIIAction
+	}
+	return action, s.OutputPIIKinds
 }
 
 // Bounds and defaults of the conversation window. A window of one turn is
@@ -310,6 +330,14 @@ func ParseSettings(raw []byte) (Settings, error) {
 	for _, k := range s.InputPIIKinds {
 		if !slices.Contains(outputguard.PIIKinds, k) {
 			return Settings{}, fmt.Errorf("guard settings: unknown input_pii_kinds entry %q (have %s)", k, strings.Join(outputguard.PIIKinds, ", "))
+		}
+	}
+	if a := s.OutputPIIAction; a != nil && !slices.Contains([]string{outputguard.PIIOff, outputguard.PIIRedact}, *a) {
+		return Settings{}, fmt.Errorf("guard settings: output_pii_action must be off or redact")
+	}
+	for _, k := range s.OutputPIIKinds {
+		if !slices.Contains(outputguard.PIIKinds, k) {
+			return Settings{}, fmt.Errorf("guard settings: unknown output_pii_kinds entry %q (have %s)", k, strings.Join(outputguard.PIIKinds, ", "))
 		}
 	}
 	if u := s.UnscannedParts; u != nil {

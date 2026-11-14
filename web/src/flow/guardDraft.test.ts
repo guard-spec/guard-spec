@@ -145,6 +145,20 @@ describe('guardBody: personal data action', () => {
     expect(guardBody({ input_pii_action: 'off', input_pii_kinds: ['email'] })).toEqual({});
   });
 
+  it('keeps the answer redaction override: off stored, kinds dropped with off, unset left out', () => {
+    expect(guardBody({})).toEqual({});
+    expect(guardBody({ output_pii_action: 'off', output_pii_kinds: ['email'] })).toEqual({ output_pii_action: 'off' });
+    expect(guardBody({ output_pii_action: 'redact', output_pii_kinds: ['email', 'ipv4'] })).toEqual({
+      output_pii_action: 'redact',
+      output_pii_kinds: ['email', 'ipv4'],
+    });
+    // Kinds alone keep the gateway's on or off and change what it redacts.
+    expect(guardBody({ output_pii_kinds: ['phone'] })).toEqual({ output_pii_kinds: ['phone'] });
+    expect(guardBody({ output_pii_action: 'redact', output_pii_kinds: [] })).toEqual({ output_pii_action: 'redact' });
+    expect(guardChanged({}, { output_pii_action: 'off' })).toBe(true);
+    expect(guardChanged({ output_pii_action: 'off' }, { output_pii_action: 'off', output_pii_kinds: ['email'] })).toBe(false);
+  });
+
   it('keeps unscanned_parts when set and drops it when unset', () => {
     expect(guardBody({ unscanned_parts: 'block' })).toEqual({ unscanned_parts: 'block' });
     expect(guardBody({ unscanned_parts: 'allow' })).toEqual({ unscanned_parts: 'allow' });

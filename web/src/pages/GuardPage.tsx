@@ -8,6 +8,7 @@ import type { MessageKey } from '../i18n';
 import { guardBody, parseThreshold, parseWindowSize } from '../flow/guardDraft';
 import { KeyTip } from '../flow/HelpText';
 import {
+  DEFAULT_OUTPUT_PII_KINDS,
   DEFAULT_SCAN_ROLES,
   PII_KINDS,
   SCAN_ROLES,
@@ -271,6 +272,77 @@ export function GuardPage() {
                 })}
               </div>
               <div id="pii-kinds-help" className="small muted">{t('guard.piiKinds.help')}</div>
+            </fieldset>
+          ) : null}
+        </fieldset>
+        <fieldset>
+          <legend>{t('guard.outputPii.legend')}</legend>
+          <div className="field">
+            <label htmlFor="output-pii-action">{t('guard.outputPii')}</label>
+            <select
+              id="output-pii-action"
+              value={draft.output_pii_action ?? ''}
+              disabled={!writable}
+              aria-describedby="output-pii-help"
+              onChange={(e) => {
+                const v = e.target.value as 'off' | 'redact' | '';
+                const { output_pii_action: _old, output_pii_kinds: kinds, ...rest } = draft;
+                // Off redacts nothing, so the kinds go with it.
+                const keep = v !== 'off' && kinds?.length ? { output_pii_kinds: kinds } : {};
+                setDraft(v ? { ...rest, output_pii_action: v, ...keep } : { ...rest, ...keep });
+              }}
+            >
+              <option value="">{t('guard.outputPii.default')}</option>
+              <option value="redact">{t('guard.outputPii.redact')}</option>
+              <option value="off">{t('guard.outputPii.off')}</option>
+            </select>
+            <div id="output-pii-help" className="small muted" data-testid="output-pii-help">
+              {t(`guard.outputPii.${draft.output_pii_action ?? 'default'}Help`)}
+            </div>
+          </div>
+          {draft.output_pii_action !== 'off' ? (
+            <fieldset className="check-group" aria-describedby="output-pii-kinds-help">
+              <legend>{t('guard.outputPiiKinds')}</legend>
+              <div className="check-row">
+                {PII_KINDS.map((k) => {
+                  const own = draft.output_pii_kinds?.length ? draft.output_pii_kinds : null;
+                  // Unset shows the gateway's default kinds.
+                  const chosen = own ?? DEFAULT_OUTPUT_PII_KINDS;
+                  return (
+                    <label key={k} className="check">
+                      <input
+                        type="checkbox"
+                        checked={chosen.includes(k)}
+                        disabled={!writable}
+                        onChange={(e) => {
+                          const next = e.target.checked ? [...chosen, k] : chosen.filter((x) => x !== k);
+                          if (next.length === 0) return; // at least one kind; off is the choice above
+                          setDraft({ ...draft, output_pii_kinds: PII_KINDS.filter((x) => next.includes(x)) });
+                        }}
+                      />
+                      {t(`guard.piiKind.${k}`)}
+                    </label>
+                  );
+                })}
+              </div>
+              <div id="output-pii-kinds-help" className="small muted" data-testid="output-pii-kinds-help">
+                {t(draft.output_pii_kinds?.length ? 'guard.outputPiiKinds.ownHelp' : 'guard.outputPiiKinds.defaultHelp')}
+                {draft.output_pii_kinds?.length && writable ? (
+                  <>
+                    {' '}
+                    <button
+                      type="button"
+                      className="btn btn-link"
+                      onClick={() => {
+                        const { output_pii_kinds: _old, ...rest } = draft;
+                        setDraft(rest);
+                      }}
+                    >
+                      {t('guard.outputPiiKinds.reset')}
+                    </button>
+                  </>
+                ) : null}
+              </div>
             </fieldset>
           ) : null}
         </fieldset>

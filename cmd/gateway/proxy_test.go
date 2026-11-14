@@ -22,6 +22,7 @@ import (
 	"github.com/guard-spec/guard-spec/internal/inference"
 	"github.com/guard-spec/guard-spec/internal/policy"
 	"github.com/guard-spec/guard-spec/internal/proxy"
+	"github.com/guard-spec/guard-spec/internal/tenant"
 )
 
 const clean = `{"model":"m","messages":[{"role":"user","content":"hello"}]}`
@@ -80,6 +81,12 @@ type harness struct {
 // response, which would hide whether a stream is incremental.
 func startGateway(t testing.TB, upstreamURL string, mutate func(*gateway)) *harness {
 	t.Helper()
+	return startGatewayLookup(t, upstreamURL, testLookup, mutate)
+}
+
+// startGatewayLookup is startGateway with the API keys of lookup.
+func startGatewayLookup(t testing.TB, upstreamURL string, lookup tenant.LookupFn, mutate func(*gateway)) *harness {
+	t.Helper()
 	runner, err := inference.NewRunner("")
 	if err != nil {
 		t.Fatal(err)
@@ -100,7 +107,7 @@ func startGateway(t testing.TB, upstreamURL string, mutate func(*gateway)) *harn
 	if err != nil {
 		t.Fatal(err)
 	}
-	app := newApp(gw, testLookup)
+	app := newApp(gw, lookup)
 	go func() { _ = app.Listener(ln) }()
 	t.Cleanup(func() { _ = app.ShutdownWithTimeout(time.Second) })
 	return &harness{url: "http://" + ln.Addr().String(), rec: rec, gw: gw}

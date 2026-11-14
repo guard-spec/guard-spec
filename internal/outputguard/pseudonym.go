@@ -216,7 +216,8 @@ func (r *restorer) flush() string {
 
 // WithTokens makes the scanner put the values back for t's tokens in
 // everything it guards, before its own checks: a value the output guard
-// would redact (OUTPUT_REDACT_PII) is then redacted in the answer as usual.
+// would redact (OUTPUT_PII_REDACT, or the org's output_pii_action) is then
+// redacted in the answer as usual.
 func (s *Scanner) WithTokens(t *Tokens) *Scanner {
 	s.tokens = t
 	return s

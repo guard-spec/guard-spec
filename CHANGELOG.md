@@ -9,6 +9,19 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ## [Unreleased]
 
+### Added
+
+- **Personal data in responses per organization** (RF-e9ac5935). Guard
+  settings take `output_pii_action` (`off` or `redact`) and
+  `output_pii_kinds` (`email`, `phone`, `card`, `cccd`, `ipv4`), which
+  override `OUTPUT_PII_REDACT` and `OUTPUT_PII_IPV4` for that organization's
+  answers on `/v1/chat/completions`, `/v1/completions`, `/v1/messages` and
+  `/v1/responses`, streamed or not. Admin UI: Guard settings → Personal data
+  in responses. Left unset, nothing changes. They cannot turn the output
+  guard on where `OUTPUT_GUARD=off`; values that `input_pii_action: tokenize`
+  replaced still come back in the answer. An invalid value is refused with
+  400 (`guard settings: output_pii_action must be off or redact`).
+
 ## [0.7.0] - 2026-11-13
 
 ### Added

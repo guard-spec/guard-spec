@@ -330,7 +330,9 @@ What to do: if you must not send personal data to the LLM provider, set
 requests](../README.md#personal-data-in-requests)). It only covers what the
 patterns find: remove other personal data (names, addresses) in your
 application before the request, or use a provider and contract that allow
-it.
+it. The redaction in answers follows `OUTPUT_PII_REDACT` unless the
+organization sets `output_pii_action` to `off`; check that setting when
+answers must not show personal data ([Output guard](../README.md#output-guard)).
 
 ### R3. Trace IDs or metric labels leak tenant data
 
