@@ -14,6 +14,7 @@ sys.path.insert(0, str(HERE.parent))
 try:
     import numpy as np  # noqa: E402
     import longdoc_r8a as R  # noqa: E402  (imports numpy through longdoc_r5)
+    import verdict_r8a as V  # noqa: E402
 except ImportError as e:  # the CI job without the training extras
     raise unittest.SkipTest(f"needs numpy (uv run): {e}")
 
@@ -66,6 +67,49 @@ class StageGuard(unittest.TestCase):
         with self.assertRaises(SystemExit):
             R.check_paths("holdout", ["x/long7/E/benign"])
         R.check_paths("holdout", ["x/long8/E/benign"])
+
+
+def longdoc(b100, b200, n=300, emb=0.90, alone=0.88):
+    def cp(k):
+        return list(R.L.clopper_pearson(k, n))
+    s = {"blocked_100k": b100, "docs_100k": n, "cp95_100k": cp(b100), "blocked_200k": b200, "docs_200k": n,
+         "cp95_200k": cp(b200), "embedded": emb, "alone": alone, "embedded_k": 0, "embedded_n": 0, "alone_k": 0, "alone_n": 0}
+    return {"stage": "holdout", "decisions": ["strong75_l2"],
+            "models": {"E": {"summary": {"strong75_l2": s}, "payload_clustered": {"strong75_l2": {}}}}}
+
+
+def evalrep(tpr=0.95, fpr=0.008):
+    return {"slices": {"holdout": {"at_fpr_1pct": {"tpr": tpr, "fpr": 0.0098}, "at_0.85": {"tpr": 0.94, "fpr": fpr}}}}
+
+
+class Verdict(unittest.TestCase):
+    def test_met_both(self):
+        v = V.verdict(longdoc(0, 1), evalrep())
+        self.assertTrue(v["set_a"]["met"])
+        self.assertTrue(v["set_b"]["met"])
+
+    def test_three_of_300_meets_both(self):
+        v = V.verdict(longdoc(3, 0), evalrep())  # CP95 upper of 3 / 300 is 2.9%
+        self.assertTrue(v["set_a"]["criteria"]["1"])
+        self.assertTrue(v["set_b"]["criteria"]["1'"])
+
+    def test_upper_bound_binds_on_small_samples(self):
+        v = V.verdict(longdoc(1, 0, n=100), evalrep())  # 1 / 100 = 1%, CP95 upper 5.4%
+        self.assertTrue(v["set_a"]["criteria"]["1"])
+        self.assertFalse(v["set_b"]["criteria"]["1'"])
+
+    def test_four_of_300_fails(self):
+        self.assertFalse(V.verdict(longdoc(4, 0), evalrep())["set_a"]["met"])
+
+    def test_detection_margin(self):
+        self.assertTrue(V.verdict(longdoc(0, 0, emb=0.83, alone=0.88), evalrep())["set_a"]["criteria"]["2"])
+        self.assertFalse(V.verdict(longdoc(0, 0, emb=0.82, alone=0.88), evalrep())["set_a"]["criteria"]["2"])
+
+    def test_short_path(self):
+        self.assertFalse(V.verdict(longdoc(0, 0), evalrep(tpr=0.94))["set_a"]["criteria"]["3"])
+        v = V.verdict(longdoc(0, 0), evalrep(fpr=0.012))
+        self.assertTrue(v["set_a"]["criteria"]["3"])
+        self.assertFalse(v["set_b"]["criteria"]["3'"])
 
 
 if __name__ == "__main__":
