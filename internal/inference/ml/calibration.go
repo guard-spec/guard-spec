@@ -44,7 +44,7 @@ type CalibrationFile struct {
 	// rows, for a model whose FP16 decisions differ from the INT8 ones by
 	// more than 0.5% (train/reports/fp16_agreement_*.md). It applies when
 	// the classifier was loaded from model_fp16.onnx; absent, that file uses
-	// the fields above.
+	// the fields above. A block without long_doc takes the top-level one.
 	FP16 *CalibrationFile `json:"fp16,omitempty"`
 }
 
@@ -55,6 +55,9 @@ func (c CalibrationFile) forModelFile(file string) (CalibrationFile, bool) {
 		f := *c.FP16
 		if f.Model == "" {
 			f.Model = c.Model
+		}
+		if f.LongDoc == nil { // the rule is the model's, not the precision's
+			f.LongDoc = c.LongDoc
 		}
 		f.FP16 = nil
 		return f, true

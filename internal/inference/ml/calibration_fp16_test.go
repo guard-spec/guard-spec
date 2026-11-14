@@ -27,6 +27,16 @@ func TestCalibrationForModelFile(t *testing.T) {
 	if !fp16 || got.Platt.A != 0.9 || got.Platt.B != -0.3 || got.L2UntrustedMax != 0.9 || got.Model != "m" || got.FP16 != nil {
 		t.Fatalf("fp16: %+v %v", got, fp16)
 	}
+	// The FP16 block takes the top-level long document rule unless it has its own.
+	base.LongDoc = &LongDoc{MinWindows: 30, CorroborateL1: 0.75, MinL2: 0.95}
+	if got, _ = base.forModelFile(onnx.ModelFP16File); got.LongDoc == nil || got.LongDoc.MinL2 != 0.95 {
+		t.Fatalf("fp16 long_doc: %+v", got.LongDoc)
+	}
+	base.FP16.LongDoc = &LongDoc{MinWindows: 30, MinL2: 0.97}
+	if got, _ = base.forModelFile(onnx.ModelFP16File); got.LongDoc.MinL2 != 0.97 {
+		t.Fatalf("fp16 own long_doc: %+v", got.LongDoc)
+	}
+	base.LongDoc = nil
 	// Without a block the FP16 file uses the top-level calibration.
 	base.FP16 = nil
 	if got, fp16 = base.forModelFile(onnx.ModelFP16File); fp16 || got.Platt.A != 0.86 {
