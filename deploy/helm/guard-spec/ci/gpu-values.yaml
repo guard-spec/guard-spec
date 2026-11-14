@@ -9,7 +9,7 @@ gateway:
     enabled: true
     image:
       repository: registry.example.com/guard-spec-gateway
-      tag: 0.7.0-gpu
+      tag: 0.8.0-gpu
   nodeSelector:
     nvidia.com/gpu.present: "true"
   tolerations:

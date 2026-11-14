@@ -40,7 +40,9 @@ Release and operations
 
 ## Later
 
-- Per-organization output guard settings.
+- Per-organization output guard settings beyond personal data (personal data
+  in responses, `output_pii_action` and `output_pii_kinds`, is per
+  organization since 0.8.0).
 - A shared rate limiter (Redis or Postgres) so limits hold across replicas.
 - More languages, starting with the ones users ask for.
 - Redaction of personal data in requests (the `redact` rule action, with

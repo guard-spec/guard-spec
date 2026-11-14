@@ -230,7 +230,7 @@ ký trước, nên nó là bản ứng viên cho shadow mode chứ không phải
 
 `guardspec-classifier@v5` có trong manifest nhưng **không** phải phiên bản
 khuyến nghị: v3b vẫn là mặc định cho đến khi v5 chạy ở shadow mode ít nhất 7
-ngày và chủ dự án quyết định (không ở v0.6.0 hay v0.7.0). v5 dùng cùng kiến trúc, công
+ngày và chủ dự án quyết định (không ở v0.6.0, v0.7.0 hay v0.8.0). v5 dùng cùng kiến trúc, công
 thức train và nhãn của v3b, nhưng train theo từng cửa sổ (các cửa sổ 256 token
 của gateway thay vì một dòng bị cắt ngắn) trên dữ liệu v4 cộng thêm code,
 cấu hình, log, stack trace và văn xuôi dài vô hại làm hard negative, cùng các

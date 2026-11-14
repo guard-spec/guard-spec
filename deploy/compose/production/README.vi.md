@@ -107,7 +107,7 @@ Mọi thứ nằm trong `.env` ([`.env.example`](.env.example) liệt kê đầy
 | `CADDY_CPUS`, `CADDY_MEMORY` | `1`, `256m` | |
 | `LOG_MAX_SIZE`, `LOG_MAX_FILE` | `10m`, `5` | Cho mỗi container |
 | `EDGE_SUBNET` | `172.30.89.0/24` | Control plane tin `X-Forwarded-For` đến từ dải này (Caddy); đổi nếu nó trùng với mạng của bạn |
-| `GUARDSPEC_VERSION` | `0.7.0` | Tag của image ([docs/upgrade.vi.md](../../../docs/upgrade.vi.md)) |
+| `GUARDSPEC_VERSION` | `0.8.0` | Tag của image ([docs/upgrade.vi.md](../../../docs/upgrade.vi.md)) |
 
 `UPSTREAM_KEY_ORGS` không có giá trị mặc định ở đây (bản bắt đầu nhanh cho mọi
 org dùng `UPSTREAM_KEY_MAIN`), và `UPSTREAM_ALLOW_PRIVATE` là `false`: hãy đặt
