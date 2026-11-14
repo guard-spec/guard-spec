@@ -639,10 +639,10 @@ in a second table.
 | `SCAN_CACHE_BACKEND` | `memory` | Where the scan cache is shared: `memory` (each replica alone), `postgres` (the `scan_cache` table of the gateway's database) or `redis`. The in-process cache stays in front of either |
 | `SCAN_CACHE_REDIS_URL` | — | `redis://` or `rediss://` URL with the password, for `SCAN_CACHE_BACKEND=redis`. Keep that Redis private and authenticated |
 | `SCAN_CACHE_TIMEOUT` | `50ms` | Bound on each call to the shared backend; an error or a timeout means the content is scanned, never a failed request |
-| `OUTPUT_GUARD` | `on` | `off` passes responses through unchanged |
+| `OUTPUT_GUARD` | `on` | `off` passes responses through unchanged (values that `input_pii_action: tokenize` replaced still come back). An org's `output_pii_action` cannot turn the guard on |
 | `OUTPUT_LINK_ALLOWLIST` | empty | Comma-separated hosts (and their subdomains) whose images and links are kept |
-| `OUTPUT_PII_REDACT` | `true` | Redact e-mail, phone, CCCD and card numbers |
-| `OUTPUT_PII_IPV4` | `false` | Also redact IPv4 addresses |
+| `OUTPUT_PII_REDACT` | `true` | Redact e-mail, phone, CCCD and card numbers. An org can override it (`output_pii_action` in guard settings). See [Output guard](#output-guard) |
+| `OUTPUT_PII_IPV4` | `false` | Also redact IPv4 addresses. An org's `output_pii_kinds` replaces the kinds |
 | `OUTPUT_CANARY` | `off` | `block` or `redact` injects a canary and acts when it leaks |
 | `OUTPUT_REASONING` | `guard` | `drop` removes `reasoning` / `reasoning_content` instead of guarding them |
 | `OUTPUT_UNKNOWN_BLOCKS` | `refuse` | `/v1/messages`: a response content block of a type the output guard does not know (a server tool other than web search and web fetch, say) is refused (502, or an error event in a stream); `/v1/responses`: likewise an output item other than `message`, `function_call`, `custom_tool_call`, `reasoning` and `web_search_call` (image generation, code interpreter, MCP, shell, computer use...), a content part, or a stream event with content of a type it does not know; `pass` passes such blocks, items and events on unchanged and unchecked |
@@ -1872,7 +1872,20 @@ checked and gives 502.
 - **Personal data.** Each match is replaced with `[REDACTED:<type>]`:
   `email`, `phone` (Vietnamese numbers in the +84, 84 and 0 forms, mobile and
   landline), `cccd` (12 digits starting with 0), `card` (13 to 19 digits that
-  pass the Luhn check) and, when enabled, `ipv4`.
+  pass the Luhn check) and, when enabled, `ipv4`. An organization can
+  override this for its own requests in its guard settings (admin UI: Guard
+  settings → Personal data in responses): `output_pii_action` is `off`
+  (answers keep the personal data) or `redact` (redacted whatever
+  `OUTPUT_PII_REDACT` says), and `output_pii_kinds` lists the kinds to redact
+  (`email`, `phone`, `card`, `cccd`, `ipv4`) in place of the gateway's. Left
+  unset, the gateway's `OUTPUT_PII_REDACT` and `OUTPUT_PII_IPV4` apply, as
+  before. It applies to `/v1/chat/completions`, `/v1/completions`,
+  `/v1/messages` and `/v1/responses`, streamed or not; links, images, HTML
+  and the canary are guarded as before. With `OUTPUT_GUARD=off` the setting
+  has no effect: an org cannot turn the output guard on. Values that
+  `input_pii_action: tokenize` replaced in the request come back in the
+  answer either way; with `redact` they are redacted again, with `off` the
+  client gets them as sent.
 - **Canary.** When enabled, the gateway puts a random token for each request
   in the system prompt (appended to a leading system message, or as a new
   one; legacy completions get none). If the model repeats it, the response is
@@ -2134,7 +2147,8 @@ JSON column.
   alone). Left as they are: system and developer prompts, signed thinking
   blocks, the provider's own web search and fetch results. Tokens live only in
   memory for the request. A restored value passes the output guard like any
-  other text, so `OUTPUT_REDACT_PII=true` shows the redaction in the answer.
+  other text, so with `OUTPUT_PII_REDACT=true` the answer shows the redaction;
+  `output_pii_action: off` gives the client the values as sent.
   The audit row gets `input:pii_tokenized_<kind>=<n>` or
   `input:pii_redacted_<kind>=<n>`.
 - **Audit and alerts.** The audit row's `pii_entities` gets

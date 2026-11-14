@@ -319,6 +319,10 @@ Nên làm: nếu không được gửi dữ liệu cá nhân cho nhà cung cấp
 request](../README.vi.md#dữ-liệu-cá-nhân-trong-request)). Cách này chỉ che những
 gì mẫu tìm được: dữ liệu cá nhân khác (họ tên, địa chỉ) hãy loại bỏ trong ứng
 dụng trước khi gửi, hoặc dùng nhà cung cấp và hợp đồng cho phép điều đó.
+Việc che trong câu trả lời theo `OUTPUT_PII_REDACT`, trừ khi tổ chức đặt
+`output_pii_action` là `off`; hãy kiểm tra thiết lập này khi câu trả lời không
+được hiện dữ liệu cá nhân ([Dữ liệu cá nhân trong câu trả
+lời](../README.vi.md#dữ-liệu-cá-nhân-trong-câu-trả-lời)).
 
 ### R3. Trace ID hoặc nhãn metric lộ dữ liệu tenant
 
