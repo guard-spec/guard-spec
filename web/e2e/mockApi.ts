@@ -1818,6 +1818,13 @@ export async function installMockApi(page: Page, state: MockState = seedState(),
       if (g.input_pii !== undefined && typeof g.input_pii !== 'boolean') {
         return json(400, { error: 'guard settings: input_pii must be true or false' });
       }
+      if (g.output_pii_action !== undefined && !['off', 'redact'].includes(g.output_pii_action)) {
+        return json(400, { error: 'guard settings: output_pii_action must be off or redact' });
+      }
+      const badKind = (g.output_pii_kinds ?? []).find((k) => !['email', 'phone', 'card', 'cccd', 'ipv4'].includes(k));
+      if (badKind !== undefined) {
+        return json(400, { error: `guard settings: unknown output_pii_kinds entry "${badKind}" (have email, phone, card, cccd, ipv4)` });
+      }
       if (g.unscanned_parts !== undefined && !['allow', 'log', 'block'].includes(g.unscanned_parts)) {
         return json(400, { error: 'guard settings: unscanned_parts must be allow, log or block' });
       }

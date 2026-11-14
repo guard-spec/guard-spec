@@ -28,6 +28,8 @@ export function guardBody(s: GuardSettings): GuardSettings {
     out.input_pii_action = s.input_pii_action;
     if (s.input_pii_kinds?.length) out.input_pii_kinds = [...s.input_pii_kinds];
   }
+  if (s.output_pii_action) out.output_pii_action = s.output_pii_action;
+  if (s.output_pii_action !== 'off' && s.output_pii_kinds?.length) out.output_pii_kinds = [...s.output_pii_kinds];
   if (s.unscanned_parts) out.unscanned_parts = s.unscanned_parts;
   if (s.max_scan_tokens !== undefined) out.max_scan_tokens = s.max_scan_tokens;
   return out;
