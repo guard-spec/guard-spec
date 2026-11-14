@@ -398,8 +398,10 @@ embedded documents of 48 fresh payloads), and scored it once
   interval −10.9 to +3.5).
 - eval/data hold-out TPR at FPR ≤ 1% is **0.9618** (`ref` 0.9618), with no benign row at 0.85.
 - Both R7's criteria and the review's stricter set are met.
-- Two English 200k documents were rejected by the sanitizer (encoding depth) for every model and are not
-  counted. Counted as blocks, 200k is 3 / 302 and still within the target.
+- Two English 200k documents were rejected by the sanitizer for every model and are not counted. Counted as
+  blocks, 200k is 3 / 302 and still within the target. The cause is the sanitizer's HTML pass, not encoding:
+  it treats mentions of `<textarea>` as tags (and drops the text after a mention of `<script>` or `<style>`),
+  task RF-4131836b.
 - Nothing is packaged. Shipping E needs the L2 bar in the gateway's long path, a v8e package, a GPU (FP16)
   measurement and a fresh short-prompt holdout. That is the owner's decision.
 
