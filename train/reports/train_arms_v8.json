@@ -1,0 +1,146 @@
+{
+  "what": "v8 arms on Colab L4 (RF-3a9ce3f9 R7, reports/v8_preregistration.md): the plan, written before any v8 job; results are filled in from each job's train_log.json, aggregate numbers only",
+  "seed": 20261105,
+  "owner_data": "v4-A train.jsonl (1,016 owner rows) and val.jsonl (124) go to Colab only after the owner approves in chat for v8-D and v8-E; /content/job/<name>/data deleted before each VM stops; no hold-out file uploaded",
+  "budget_compute_units": {
+    "estimate": 3.6,
+    "max": 5.0,
+    "stop_one_job_at": 2.5,
+    "used": 3.79
+  },
+  "arms": {
+    "ref": {
+      "status": "reused: R6's GPU reference (train_arms_v7.json arms.ref, job v7-ref, commit c21d7d3a8699), not retrained",
+      "colab_job": null,
+      "compute_units": 0
+    },
+    "D": {
+      "status": "trained",
+      "colab_job": "v8-D",
+      "gpu": "L4",
+      "cmd": "cd train && python3 train.py --data-dir \"$DATA_DIR/data-v4A\" --v6-dir \"$DATA_DIR/out-full\" --v8-dir \"$DATA_DIR/v8\" --seed 20261105 --run-dir \"$OUT_DIR/D\"",
+      "data_sha256": {
+        "data-v4A/train.jsonl": "7f47970fc4074a7aea4dc6acc2e46edef2e2785effb2d51866233634cb78b5fc",
+        "data-v4A/val_hard.jsonl": "0b85dd1414a412b1233675201a529de1f84f8bdf67c0c3f7517f37ccc36d29d2",
+        "data-v4A/val_v3.jsonl": "750d93625ff0ec4bb4c007109ba701c7cdb2aa3e133b986f783f2b32a22dc27c",
+        "data-v4A/val_v4.jsonl": "1c0d27b6c2e35bf5cbfd873079cf3b5a02c3340ce3ba61e1bd51d0f504003768",
+        "data-v4A/val_vi_variants.jsonl": "de9c7b94dd3ccb45e220b4de11985d1b2e9dc992f8a95e7caa0d8611be16c9c6",
+        "data-v4A/val.jsonl": "62edd29aa4980f4c443fdfb6110d6391bf5d2e803a679ad8f20972e3569cd94e",
+        "out-full/v6_train.jsonl": "20f5ddadb634add3556a946ea64631f1d4d9801c7c1af5c4b88dccd4a4de48f5",
+        "out-full/v6_val.jsonl": "84dd0cfb448486dee0b43dee8d892cac8bbf42c4683e99db35236335a4e72ef1",
+        "out-full/val_v6.jsonl": "f70e0617946da98e15430c0a0548f9eafe9903271de953ee3b4670fc5e1f44d1",
+        "v8/v8_train.jsonl": "1305e50f756c9f3ad375518976953845ab2d3519a1ce2571998dc8177ea9320e"
+      },
+      "upload_mb": 74.3,
+      "est_train_windows": 77181,
+      "est_train_minutes": 51,
+      "est_compute_units": 1.9,
+      "best_epoch": 5,
+      "val_loss": [
+        0.0706,
+        0.0318,
+        0.0288,
+        0.0213,
+        0.0212
+      ],
+      "train_minutes": 49.3,
+      "compute_units": {
+        "before": 393.94,
+        "after": 392.16,
+        "used": 1.78
+      },
+      "commit": "019b47bdbab1",
+      "n_train_rows": 72639,
+      "n_train_windows": 77181,
+      "oversample_kind": null,
+      "train_files": [
+        "train.jsonl",
+        "v6_train.jsonl",
+        "v8_train.jsonl"
+      ],
+      "device": "cuda",
+      "session": {
+        "start": "2026-11-13T11:45:33+0700",
+        "stopped": "2026-11-13T12:43:16+0700",
+        "wall_minutes": 57.7
+      },
+      "artifact_sha256": {
+        "best/model.safetensors": "1f336ab1bbcb03b56068a417b4353715fda30af07edb0a6b184402f9603e4639",
+        "best/config.json": "a74903e3d5f0f21799228d520b0b08aa2a2ac9c779bafd78c2d800f9e8a29d7a",
+        "best/tokenizer.json": "cd98e5698b201ba914efb8c18b6709fa8735ab71dcad8d2b431e52e8bf68d932",
+        "train_log.json": "fcc86470acaefb8ad22e7fa49080147f77002b711b5e9db116956c2197ba0b92"
+      },
+      "vm_data_deleted": true,
+      "vm_stopped": true,
+      "data_tarball_sha256": "c6139f92da7d6e8c3b4535e728dc959b891b02c634ee60dc8df9680cac6e7a6c"
+    },
+    "E": {
+      "status": "trained",
+      "colab_job": "v8-E",
+      "gpu": "L4",
+      "cmd": "cd train && python3 train.py --data-dir \"$DATA_DIR/data-v4A\" --v6-dir \"$DATA_DIR/out-full\" --v8-dir \"$DATA_DIR/v8\" --v8-file v8e_train.jsonl --seed 20261105 --run-dir \"$OUT_DIR/E\"",
+      "data_sha256": {
+        "data-v4A/train.jsonl": "7f47970fc4074a7aea4dc6acc2e46edef2e2785effb2d51866233634cb78b5fc",
+        "data-v4A/val_hard.jsonl": "0b85dd1414a412b1233675201a529de1f84f8bdf67c0c3f7517f37ccc36d29d2",
+        "data-v4A/val_v3.jsonl": "750d93625ff0ec4bb4c007109ba701c7cdb2aa3e133b986f783f2b32a22dc27c",
+        "data-v4A/val_v4.jsonl": "1c0d27b6c2e35bf5cbfd873079cf3b5a02c3340ce3ba61e1bd51d0f504003768",
+        "data-v4A/val_vi_variants.jsonl": "de9c7b94dd3ccb45e220b4de11985d1b2e9dc992f8a95e7caa0d8611be16c9c6",
+        "data-v4A/val.jsonl": "62edd29aa4980f4c443fdfb6110d6391bf5d2e803a679ad8f20972e3569cd94e",
+        "out-full/v6_train.jsonl": "20f5ddadb634add3556a946ea64631f1d4d9801c7c1af5c4b88dccd4a4de48f5",
+        "out-full/v6_val.jsonl": "84dd0cfb448486dee0b43dee8d892cac8bbf42c4683e99db35236335a4e72ef1",
+        "out-full/val_v6.jsonl": "f70e0617946da98e15430c0a0548f9eafe9903271de953ee3b4670fc5e1f44d1",
+        "v8/v8e_train.jsonl": "7f51cdb409fa4af9121b30ddc8708e7aa1cac186d33f668fa7a614b433195550"
+      },
+      "upload_mb": 66.4,
+      "est_train_windows": 70897,
+      "est_train_minutes": 46,
+      "est_compute_units": 1.7,
+      "best_epoch": 5,
+      "val_loss": [
+        0.0671,
+        0.03,
+        0.0238,
+        0.0225,
+        0.0209
+      ],
+      "train_minutes": 45.3,
+      "compute_units": {
+        "before": 392.16,
+        "after": 390.15,
+        "used": 2.01
+      },
+      "commit": "019b47bdbab1",
+      "n_train_rows": 67005,
+      "n_train_windows": 70897,
+      "oversample_kind": null,
+      "train_files": [
+        "train.jsonl",
+        "v6_train.jsonl",
+        "v8e_train.jsonl"
+      ],
+      "device": "cuda",
+      "session": {
+        "start": "2026-11-13T12:43:32+0700",
+        "stopped": "2026-11-13T13:47:14+0700",
+        "wall_minutes": 63.7,
+        "note": "colab_job.py start created the session, uploaded and installed, but its launch exec timed out (kernel unresponsive); colab_job.LAUNCH was run over ssh at 12:55 and the outputs were fetched with scp; about 12 idle minutes billed"
+      },
+      "artifact_sha256": {
+        "best/model.safetensors": "54f11e3a5f17b232d2614d4e629974f1148f686d381ee0704f304893caa7e980",
+        "best/config.json": "a74903e3d5f0f21799228d520b0b08aa2a2ac9c779bafd78c2d800f9e8a29d7a",
+        "best/tokenizer.json": "cd98e5698b201ba914efb8c18b6709fa8735ab71dcad8d2b431e52e8bf68d932",
+        "train_log.json": "565e5168ba36a40c96c71483c67f3266d69ce9b8e1526cf4a630d9b87dcb2fee"
+      },
+      "vm_data_deleted": true,
+      "vm_stopped": true,
+      "data_tarball_sha256": "b7f1a043ea4a50bf3ca2d6befcd82be2696c59eb39ebe88f89f1c5bf2aee525c"
+    }
+  },
+  "environment": {
+    "gpu_detail": "NVIDIA L4, driver 580.82.07, CUDA 13.0",
+    "torch": "2.13.0+cu130",
+    "transformers": "5.10.2",
+    "python": "3.13.16 (Colab VM; the project pins 3.12)"
+  },
+  "owner_data_approval": "owner approved in chat on 2026-11-13 for v8-D and v8-E only; both jobs ran with --allow-owner-data; only the staged files above were uploaded (no hold-out or probe file); /content/job/<name>/data and the data tarball deleted on the VM after the fetched files were verified locally, then the VM was stopped"
+}
