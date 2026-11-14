@@ -362,7 +362,11 @@ vòng sau cũng không đạt: một quy tắc cấp tài liệu trên đường
 quy tắc L1 cùng một cách quyết định chặt hơn (R5: 6.6% tài liệu mới bị chặn;
 các thay đổi quy tắc đã vào gateway, cách quyết định thì không), và một vòng
 train v7 (R6), chặn không tài liệu vô hại nào nhưng bắt ít hơn 9 điểm tấn công
-nhúng nên không được phát hành. Khả năng phát hiện tấn công nhúng thấp hơn v5
+nhúng nên không được phát hành, và một vòng v8 (R7), chặn 2/180 tài liệu vô
+hại và bắt nhiều tấn công nhúng hơn nhưng kém chính xác hơn với prompt ngắn,
+nên cũng không được phát hành. Trên holdout mới của R7 (`long7`, chấm một
+lần), **v6 đang phát hành chặn 10/180 tài liệu vô hại 100k và 200k token
+(5,6%)** với `strong75`. Khả năng phát hiện tấn công nhúng thấp hơn v5
 một chút, và `val_v3_holdout` cùng `val_realistic_holdout` vẫn dưới v3b. Mọi
 bảng số nằm trong [train/MODEL_CARD.md](../train/MODEL_CARD.md) (mục "v6").
 
