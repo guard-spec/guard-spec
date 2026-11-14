@@ -1265,7 +1265,9 @@ func proxyHandler(gw gateway, f apiFormat) fiber.Handler {
 					canary = "" // no system prompt to carry it (legacy completions)
 				}
 			}
-			scan = gw.output.ForRequest(canary)
+			// The org's output_pii_action and output_pii_kinds, if set
+			// (guard settings); the gateway's OUTPUT_PII_* otherwise.
+			scan = gw.output.WithPII(scanCfg.OutputPIIAction, scanCfg.OutputPIIKinds).ForRequest(canary)
 		}
 		// Tokenized personal data: the answer gets the values back, with or
 		// without the output guard.

@@ -371,6 +371,7 @@ dùng nhất:
 | `TOOL_CODE_CORROBORATION` | `on` | Kết quả tool và tài liệu trông như mã nguồn, cấu hình, diff, stack trace hoặc log chỉ bị chặn khi L1 (một luật, không chỉ từ khoá) hoặc L3 đồng ý với bộ phân loại (L2), vốn chấm quá tay loại văn bản này. `off`: L2 một mình lại chặn được như trước 0.4.2. Không áp dụng cho văn bản người dùng, system và mô tả tool. Trên đường dài (`MAX_SCAN_TOKENS`) luật áp dụng cho từng cửa sổ token, nơi L3 không chạy, nên chỉ L1 có thể đồng ý |
 | `CONVERSATION_WINDOW_TURNS` / `CONVERSATION_WINDOW_BYTES` | `4` / `8192` | Cửa sổ hội thoại: ghép các lượt người dùng gần nhất (tối đa bấy nhiêu lượt và byte) rồi chấm điểm chung, để bắt chỉ dẫn bị chia nhỏ qua nhiều tin nhắn; `0` là tắt |
 | `OUTPUT_LINK_ALLOWLIST` | rỗng | Host được giữ ảnh/link trong câu trả lời |
+| `OUTPUT_PII_REDACT` / `OUTPUT_PII_IPV4` | `true` / `false` | Che email, số điện thoại, CCCD, số thẻ (và IPv4) trong câu trả lời. Tổ chức có thể đặt riêng bằng `output_pii_action` và `output_pii_kinds` trong guard settings. Xem [Dữ liệu cá nhân trong câu trả lời](#dữ-liệu-cá-nhân-trong-câu-trả-lời) |
 | `OUTPUT_CANARY` | `off` | `block` hoặc `redact` khi canary bị lộ |
 | `OUTPUT_UNKNOWN_BLOCKS` | `refuse` | `/v1/messages` và `/v1/responses`: block, output item hoặc sự kiện stream có kiểu output guard không biết bị từ chối; `pass` cho qua không kiểm tra |
 | `RESPONSES_SERVER_STATE` | `refuse` | `/v1/responses`: request dùng trạng thái hội thoại lưu ở upstream (`previous_response_id`, `conversation`, `item_reference`) bị từ chối (400) vì gateway không quét được các lượt trước; `allow` cho qua và gắn `input:server_state=1` vào audit |
@@ -496,8 +497,9 @@ kế tiếp.
   được giữ nguyên). Giữ nguyên: system prompt và developer prompt, khối thinking
   có chữ ký, kết quả web search và fetch của chính nhà cung cấp. Token chỉ nằm
   trong bộ nhớ cho request đó. Giá trị được trả lại vẫn đi qua output guard như
-  mọi văn bản khác, nên với `OUTPUT_REDACT_PII=true` câu trả lời hiện dạng đã
-  che. Dòng audit có `input:pii_tokenized_<loại>=<số>` hoặc
+  mọi văn bản khác, nên với `OUTPUT_PII_REDACT=true` câu trả lời hiện dạng đã
+  che; với `output_pii_action: off` client nhận lại đúng giá trị đã gửi. Dòng
+  audit có `input:pii_tokenized_<loại>=<số>` hoặc
   `input:pii_redacted_<loại>=<số>`.
 - **Luật, audit, cảnh báo.** Luật có thể `log` hoặc `block` theo
   `input.pii.kinds` và `input.pii.count`. Dòng audit có thẻ
@@ -507,6 +509,29 @@ kế tiếp.
   request 2 KB và khoảng 57 µs cho request 20 KB; p50 cả đường HTTP với L1 từ
   1,18 lên 1,20 ms (2 KB) và từ 11,08 lên 11,19 ms (20 KB). Khi tắt thì không
   chạy gì.
+
+### Dữ liệu cá nhân trong câu trả lời
+
+Output guard che dữ liệu cá nhân trong câu trả lời theo `OUTPUT_PII_REDACT`
+(mặc định bật: email, số điện thoại, số thẻ, CCCD) và `OUTPUT_PII_IPV4` (mặc
+định tắt). Mỗi tổ chức có thể đặt riêng trong guard settings (giao diện: Thiết
+lập bảo vệ → Dữ liệu cá nhân trong câu trả lời):
+
+- `output_pii_action`: `off` (câu trả lời giữ nguyên dữ liệu cá nhân) hoặc
+  `redact` (luôn che, bất kể `OUTPUT_PII_REDACT`). Không đặt: theo gateway,
+  như trước đây.
+- `output_pii_kinds`: các loại cần che (`email`, `phone`, `card`, `cccd`,
+  `ipv4`), thay cho danh sách của gateway. Không đặt: mọi loại trừ IPv4 (có
+  cả IPv4 khi bật `OUTPUT_PII_IPV4`).
+
+Áp dụng cho `/v1/chat/completions`, `/v1/completions`, `/v1/messages` và
+`/v1/responses`, streaming hay không. Liên kết, hình ảnh, HTML và canary vẫn
+được kiểm tra như cũ. Khi gateway chạy với `OUTPUT_GUARD=off`, thiết lập này
+không có tác dụng: tổ chức không bật được output guard. Giá trị đã được thay
+bằng token (`input_pii_action: tokenize`) luôn được trả lại trong câu trả lời;
+với `redact` chúng bị che lại, với `off` client nhận đúng giá trị đã gửi. Giá
+trị không hợp lệ bị từ chối (400), ví dụ `guard settings: output_pii_action
+must be off or redact`.
 
 ### Phần gateway không đọc được
 

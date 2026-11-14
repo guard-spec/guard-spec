@@ -227,6 +227,10 @@ export interface GuardSettings {
   input_pii_action?: 'off' | 'redact' | 'tokenize';
   /** Kinds the action replaces; unset or empty: every kind. */
   input_pii_kinds?: PiiKind[];
+  /** Redaction of personal data in answers: off or redact; unset: the gateway's OUTPUT_PII_REDACT. Has no effect with OUTPUT_GUARD=off. */
+  output_pii_action?: 'off' | 'redact';
+  /** Kinds redacted in answers; unset or empty: the gateway's (every kind but IPv4, IPv4 too with OUTPUT_PII_IPV4). */
+  output_pii_kinds?: PiiKind[];
   /** Images, files and audio the gateway cannot read: allow, log or block. Only a stricter mode than the gateway's UNSCANNED_PARTS takes effect. */
   unscanned_parts?: UnscannedMode;
   /** The most tokens the gateway scans for one request; only a value below the gateway's MAX_SCAN_TOKENS counts. */
@@ -246,6 +250,8 @@ export const UNSCANNED_KINDS: UnscannedKind[] = ['image', 'file', 'audio', 'othe
 /** Kinds of personal data the gateway finds (outputguard.PIIKinds). */
 export type PiiKind = 'email' | 'phone' | 'card' | 'cccd' | 'ipv4';
 export const PII_KINDS: PiiKind[] = ['email', 'phone', 'card', 'cccd', 'ipv4'];
+/** The kinds the gateway redacts in answers by default (OUTPUT_PII_IPV4 unset). */
+export const DEFAULT_OUTPUT_PII_KINDS: PiiKind[] = ['email', 'phone', 'card', 'cccd'];
 
 /** Bounds of the conversation window sizes (internal/indirect MinWindowTurns...). */
 export const WINDOW_TURNS = { min: 2, max: 32, default: 4 } as const;
