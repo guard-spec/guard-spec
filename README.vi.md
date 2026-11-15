@@ -177,9 +177,22 @@ Nguồn của các sơ đồ ở [docs/diagrams/](docs/diagrams/)
 
 ![Một request đi qua Guard Spec: xác định tổ chức, làm sạch, tách theo nguồn, ba lớp phát hiện, ngưỡng, chính sách, LLM và kiểm tra đầu ra](docs/images/diagram-flow.vi.png)
 
-- **L0 sanitizer**: chuẩn hoá NFKC, xoá ký tự vô hình, tag, bidi, variation
-  selector, ký tự điều khiển, ANSI, HTML, giải mã entity lặp lại đến khi ổn
-  định. Điểm bất thường (anomaly) ≥ 0.6 thì chặn.
+- **L0 sanitizer**: tạo hai bản của mỗi văn bản.
+  - **Bản quét**, cho các lớp phát hiện đọc. Các bước sau lặp lại đến khi văn
+    bản ổn định, tối đa 8 vòng, để gỡ hết entity lồng nhau:
+    - chuẩn hoá NFKC;
+    - xoá ký tự vô hình, tag, bidi, variation selector, ký tự điều khiển và
+      ANSI;
+    - đánh dấu HTML ẩn bằng `[hidden]`;
+    - thay mỗi thẻ bằng giá trị các thuộc tính của nó, giữ nội dung của mọi
+      phần tử, kể cả script và style;
+    - giải mã một lớp entity.
+  - **Bản gửi đi**, gửi tới upstream. Đây là văn bản như người dùng viết, chỉ
+    bỏ ký tự vô hình, bidi, ANSI, ký tự điều khiển và marker giả. Markup, code
+    và entity tới model nguyên vẹn, và các lớp phát hiện đã đọc toàn bộ nội
+    dung đó qua bản quét.
+
+  Điểm bất thường (anomaly) ≥ 0.6 thì chặn.
 - **L1 luật**: chuẩn hoá văn bản thành "skeleton" (bỏ dấu, teencode, leet,
   homoglyph...) rồi áp luật có trọng số theo loại tấn công. Luôn chạy, không
   cần file model.

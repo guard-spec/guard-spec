@@ -9,6 +9,31 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ## [Unreleased]
 
+### Fixed
+
+- **The sanitizer no longer cuts markup and code out of the text it forwards** (RF-4131836b).
+  - Before, the gateway forwarded its HTML-stripped text. So any text that looked like a tag was removed before
+    the model saw it:
+    - JSX and HTML in code;
+    - placeholders such as `<key>`;
+    - everything after a mention of `<script>` or `<style>`.
+  - Before, a document that mentioned `<textarea>` or `<plaintext>` nine times or more was rejected as
+    "input exceeds 8 layers of encoding".
+  - Now the gateway forwards the text as written. It removes only invisible and bidi characters, ANSI escapes,
+    control characters and spoofed markers.
+  - The detectors read a separate scan view:
+    - each tag is reduced to the text of its attributes;
+    - the content of every element is kept, script and style included;
+    - hidden HTML is marked as before.
+  - `/guardrail/sanitize` returns the scan view.
+  - Measured with `cmd/sanitizecheck` (new):
+    - no corpus text is rejected any more;
+    - eval/data decisions are unchanged;
+    - eval/embedded catches 904 of 1,171 attacks, up from 889, with no more benign texts blocked;
+    - eval/codelog blocks 25 of 310 benign texts, up from 24;
+    - v8e on long5: still 0 of 150 benign documents blocked, 487 of 560 embedded attacks caught, up from 481.
+  - Report: `docs/reports/sanitizer_truncation.md`.
+
 ### Added
 
 - **Long-path decision with an L2 bar in `calibration.json`** (RF-b15702bf).
