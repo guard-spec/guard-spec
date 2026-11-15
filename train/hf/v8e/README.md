@@ -93,8 +93,9 @@ On all `eval/data` rows:
 - TPR at FPR ≤ 1% is 0.951, against 0.952 for INT8;
 - at 0.85, FP16 catches 0.937 of attacks against INT8's 0.929, and blocks 4 benign rows of 1,005 against 2.
 
-The long-path rule was measured with INT8. For FP16 on the long path, see `fp16_agreement_v8e.md` before relying on
-it.
+On an NVIDIA L4 with the CUDA execution provider, FP16 decides like FP16 on the CPU (100% of `eval/data` rows).
+On the long path with `long_doc` it blocks 1 of 150 benign `long5` documents (INT8: 0) and catches 480 of 554
+embedded attacks (INT8: 481). That is a dev set, not a fresh holdout (`fp16_agreement_v8e.md`).
 
 ## Files
 
