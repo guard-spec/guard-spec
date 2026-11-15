@@ -9,7 +9,30 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ## [Unreleased]
 
+### Added
+
+- **Long-path decision with an L2 bar in `calibration.json`** (RF-b15702bf).
+  `long_doc` takes two new fields:
+  - `corroborate_l1`: a window of a long text blocks only when an L1 rule of at least this raw weight agrees,
+    or a floor applied;
+  - `min_l2`: the window's calibrated L2 must reach this value, or its score is lowered below the block
+    threshold.
+
+  A `fp16` calibration block without its own `long_doc` now takes the top-level one. Older calibrations behave
+  as before.
+
 ### Research
+
+- **v8e, R7's arm E packaged with that decision: a candidate, not the default** (RF-b15702bf).
+  - On the fresh short-prompt holdout `short1` (real-world jailbreaks, chat requests and email injections,
+    scored once), it does not meet the bar against v3b:
+    - email injections on the tool path: 12.0% against 27.8%;
+    - English benign prompts: every model blocks persona prompts.
+  - Vietnamese false positives are lower: 0.5% against 2.2%.
+  - FP16 on an NVIDIA L4 decides long documents like INT8 on the CPU.
+  - Reports: [`train/reports/v8e_short_holdout.md`](train/reports/v8e_short_holdout.md),
+    [`train/reports/fp16_agreement_v8e.md`](train/reports/fp16_agreement_v8e.md),
+    [`train/reports/v8e_parity.md`](train/reports/v8e_parity.md).
 
 - **R8a, R7's arm E under a stricter long-path decision: met, no release**
   (RF-35fd836c). No training. On the new `long8` holdout, scored once, R7's
