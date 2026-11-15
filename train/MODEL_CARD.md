@@ -39,7 +39,8 @@ R8a measured, `strong75_l2`, written into `calibration.json` as `long_doc`
   - On `long5` with `long_doc`, it blocks 1 of 150 benign documents (INT8: 0) and catches 480 of 554 embedded
     attacks (INT8: 481).
 
-v8e is a shadow-mode candidate (`SHADOW_L2_MODEL=guardspec-classifier@v8e`).
+v8e is a shadow-mode candidate (`SHADOW_L2_MODEL=guardspec-classifier@v8e`). Published 2026-11-15: Hugging Face branch `v8e` (revision
+`c9ed6c3b`, pinned in `models/manifest.yaml`) and the signed GitHub Release `model-guardspec-classifier-v8e`.
 
 ## v6 (2026-11-11): round 3 candidate for long documents, not the default
 

@@ -116,7 +116,7 @@ func TestResolveOrder(t *testing.T) {
 }
 
 // TestShippedCalibrationFile: the calibration.json published with each
-// guardspec-classifier version of the manifest (v3b, v4, v5, v6) is the built-in
+// guardspec-classifier version of the manifest (v3b, v4, v5, v6, v8e) is the built-in
 // calibration of that version, marshalled as `cmd/calibrate fit -write` does
 // (two-space indent, trailing newline). To recreate it:
 // json.MarshalIndent(BuiltinCalibrations["guardspec-classifier-<version>"], "", "  ") + "\n".
@@ -125,7 +125,7 @@ func TestShippedCalibrationFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, version := range []string{"v3b", "v4", "v5", "v6"} {
+	for _, version := range []string{"v3b", "v4", "v5", "v6", "v8e"} {
 		mod, err := m.Lookup("guardspec-classifier@" + version)
 		if err != nil {
 			t.Fatal(err)
@@ -159,8 +159,8 @@ func TestShippedCalibrationFile(t *testing.T) {
 
 // TestV8eCalibrationFile: the calibration.json of the v8e package
 // (train/hf/v8e) is the built-in calibration of v8e, marshalled as
-// TestShippedCalibrationFile expects. Once v8e is in the manifest it joins
-// that test.
+// TestShippedCalibrationFile expects (that test also checks the manifest's
+// checksum of the published file).
 func TestV8eCalibrationFile(t *testing.T) {
 	want, err := os.ReadFile(filepath.Join("..", "..", "..", "train", "hf", "v8e", "calibration.json"))
 	if err != nil {

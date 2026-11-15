@@ -21,6 +21,7 @@ tool, so the binary always knows its recommended models.
 | `guardspec-classifier` | `v4` | L2 | no: candidate, [compare in shadow mode](#guardspec-classifier-v4-candidate) | the GitHub Release `model-guardspec-classifier-v4` (once the owner publishes it) |
 | `guardspec-classifier` | `v5` | L2 | no: candidate for code, logs and long documents, [shadow mode first](#guardspec-classifier-v5-candidate) | Hugging Face `guard-spec/guardspec-classifier` (branch `v5`), then the GitHub Release `model-guardspec-classifier-v5` |
 | `guardspec-classifier` | `v6` | L2 | no: candidate for long documents, with an FP16 file for the GPU option, [shadow mode first](#guardspec-classifier-v6-candidate) | Hugging Face `guard-spec/guardspec-classifier` (branch `v6`), then the GitHub Release `model-guardspec-classifier-v6` |
+| `guardspec-classifier` | `v8e` | L2 | no: candidate for long documents, with the long-path decision in `calibration.json` and an FP16 file, [shadow mode first](#guardspec-classifier-v8e-candidate) | Hugging Face `guard-spec/guardspec-classifier` (branch `v8e`), then the GitHub Release `model-guardspec-classifier-v8e` |
 | `multilingual-e5-small` | `614241f` | L3 | yes | Hugging Face `intfloat/multilingual-e5-small` |
 | `protectai-deberta-v3-small-pi-v2` | `d7c8842` | baseline | optional, gated | Hugging Face |
 | `protectai-deberta-v3-base-pi-v2` | `90c9989` | baseline | optional | Hugging Face |
@@ -49,7 +50,7 @@ ONNX Runtime's CUDA execution provider (`train/export.py --fp16`). The
 manifest marks it `provider: cuda`: `models pull -provider cuda` (or
 `INFERENCE_PROVIDER=cuda`/`auto`, as in the GPU image) fetches it, a CPU
 install never does, and the CPU keeps loading `model_int8.onnx`. So far only
-`guardspec-classifier@v6` has one; with another version (v3b, the default,
+`guardspec-classifier@v6` and `@v8e` have one; with another version (v3b, the default,
 included) CUDA runs the INT8 file, slowly, and `doctor` warns.
 
 ## Pulling
@@ -377,6 +378,39 @@ injections caught on the tool path), so it is a shadow-mode candidate
 detection is a little under v5's, and `val_v3_holdout` and
 `val_realistic_holdout` stay under v3b. Every table is in
 [train/MODEL_CARD.md](../train/MODEL_CARD.md) ("v6").
+
+### guardspec-classifier v8e (candidate)
+
+`guardspec-classifier@v8e` is listed in the manifest but is **not** the
+recommended version: v3b stays the default, and v8e runs in shadow mode
+first. It is round R7's arm E (v6's data plus pairs of benign and attack
+windows cut from the same long hosts), and its `calibration.json` carries the
+long-path decision of R8a: in a text of more than 30 windows, a window blocks
+only if an L1 rule of raw weight 0.75 or more agrees (or a floor applied) and
+the calibrated L2 score is at least 0.95 (`long_doc`: `corroborate_l1`,
+`min_l2`). A gateway that does not know these fields ignores them and blocks
+many more benign long documents, so use a release that reads them. It keeps
+v6's cap (`l2_untrusted_max` 0.88) and ships `model_fp16.onnx` for the GPU
+option, with its own `fp16` block.
+
+On the `long8` holdout (scored once) it blocked 1 of 602 benign documents of
+100k and 200k tokens and caught 88.0% of embedded attacks. On the `short1`
+short-prompt holdout (scored once) it did not meet the bar for replacing
+v3b: it caught 12.0% of email injections on the tool path against v3b's
+27.8%, mostly because of the cap
+([train/reports/v8e_short_holdout.md](../train/reports/v8e_short_holdout.md)).
+
+**Published** on 2026-11-15: Hugging Face branch `v8e` (revision
+`c9ed6c3b`, pinned in the manifest) and the signed GitHub Release
+`model-guardspec-classifier-v8e` as the mirror.
+
+```bash
+docker compose --profile models run --rm models-pull guardspec-classifier@v8e
+# .env: keep v3b deciding, let v8e score the same traffic.
+L2_MODEL=guardspec-classifier@v3b
+SHADOW_L2_MODEL=guardspec-classifier@v8e
+SHADOW_SAMPLE=1
+```
 
 ## Reloading without a restart
 
