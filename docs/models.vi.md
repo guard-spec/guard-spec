@@ -21,6 +21,7 @@ binary luôn biết các model nó khuyến nghị.
 | `guardspec-classifier` | `v4` | L2 | không: bản ứng viên, [so sánh ở shadow mode](#guardspec-classifier-v4-bản-ứng-viên) | GitHub Release `model-guardspec-classifier-v4` (khi chủ dự án công bố) |
 | `guardspec-classifier` | `v5` | L2 | không: bản ứng viên cho code, log và tài liệu dài, [shadow mode trước](#guardspec-classifier-v5-bản-ứng-viên) | Hugging Face `guard-spec/guardspec-classifier` (nhánh `v5`), sau đó là GitHub Release `model-guardspec-classifier-v5` |
 | `guardspec-classifier` | `v6` | L2 | không: bản ứng viên cho tài liệu dài, có file FP16 cho tùy chọn GPU, [shadow mode trước](#guardspec-classifier-v6-bản-ứng-viên) | Hugging Face `guard-spec/guardspec-classifier` (nhánh `v6`), sau đó là GitHub Release `model-guardspec-classifier-v6` |
+| `guardspec-classifier` | `v8e` | L2 | không: bản ứng viên cho tài liệu dài, có cách quyết định trên đường dài trong `calibration.json` và file FP16, [shadow mode trước](#guardspec-classifier-v8e-bản-ứng-viên) | Hugging Face `guard-spec/guardspec-classifier` (nhánh `v8e`), sau đó là GitHub Release `model-guardspec-classifier-v8e` |
 | `multilingual-e5-small` | `614241f` | L3 | có | Hugging Face `intfloat/multilingual-e5-small` |
 | `protectai-deberta-v3-small-pi-v2` | `d7c8842` | baseline | tùy chọn, cần xin quyền truy cập | Hugging Face |
 | `protectai-deberta-v3-base-pi-v2` | `90c9989` | baseline | tùy chọn | Hugging Face |
@@ -49,7 +50,7 @@ dạng FP16 cho CUDA execution provider của ONNX Runtime (`train/export.py
 --fp16`). Manifest đánh dấu file này `provider: cuda`: `models pull -provider
 cuda` (hoặc `INFERENCE_PROVIDER=cuda`/`auto`, như trong image GPU) sẽ tải
 nó, bản cài cho CPU không bao giờ tải, và CPU vẫn nạp `model_int8.onnx`.
-Hiện chỉ `guardspec-classifier@v6` có file này; với phiên bản khác (kể cả
+Hiện chỉ `guardspec-classifier@v6` và `@v8e` có file này; với phiên bản khác (kể cả
 v3b, bản mặc định) CUDA chạy file INT8, chậm, và `doctor` cảnh báo.
 
 ## Tải model
@@ -377,6 +378,38 @@ trên đường tool), nên chỉ là ứng viên chạy shadow
 ([train/reports/v8e_short_holdout.md](../train/reports/v8e_short_holdout.md)). Khả năng phát hiện tấn công nhúng thấp hơn v5
 một chút, và `val_v3_holdout` cùng `val_realistic_holdout` vẫn dưới v3b. Mọi
 bảng số nằm trong [train/MODEL_CARD.md](../train/MODEL_CARD.md) (mục "v6").
+
+### guardspec-classifier v8e (bản ứng viên)
+
+`guardspec-classifier@v8e` có trong manifest nhưng **không** phải phiên bản
+khuyến nghị: v3b vẫn là mặc định, và v8e chạy ở shadow mode trước. Đây là
+nhánh E của vòng R7 (dữ liệu của v6 cộng các cặp cửa sổ vô hại và cửa sổ tấn
+công cắt từ cùng các host dài). `calibration.json` của nó mang cách quyết
+định trên đường dài của R8a: với text dài hơn 30 cửa sổ, một cửa sổ chỉ bị
+chặn khi có luật L1 với trọng số thô từ 0,75 trở lên đồng ý (hoặc một floor
+được áp) và điểm L2 đã hiệu chỉnh từ 0,95 trở lên (`long_doc`:
+`corroborate_l1`, `min_l2`). Gateway không biết các trường này sẽ bỏ qua
+chúng và chặn nhiều tài liệu dài vô hại hơn hẳn, nên hãy dùng bản phát hành
+có đọc chúng. v8e giữ cap của v6 (`l2_untrusted_max` 0.88) và có
+`model_fp16.onnx` cho tùy chọn GPU, với khối `fp16` riêng.
+
+Trên holdout `long8` (chấm một lần), v8e chặn 1/602 tài liệu vô hại 100k và
+200k token và bắt 88,0% tấn công nhúng. Trên holdout prompt ngắn `short1`
+(chấm một lần), v8e chưa đạt mức để thay v3b: bắt 12,0% email injection trên
+đường tool, so với 27,8% của v3b, chủ yếu do cap
+([train/reports/v8e_short_holdout.md](../train/reports/v8e_short_holdout.md)).
+
+**Đã công bố** ngày 2026-11-15: nhánh `v8e` trên Hugging Face (revision
+`c9ed6c3b`, đã ghim trong manifest) và GitHub Release đã ký
+`model-guardspec-classifier-v8e` làm bản sao dự phòng.
+
+```bash
+docker compose --profile models run --rm models-pull guardspec-classifier@v8e
+# .env: keep v3b deciding, let v8e score the same traffic.
+L2_MODEL=guardspec-classifier@v3b
+SHADOW_L2_MODEL=guardspec-classifier@v8e
+SHADOW_SAMPLE=1
+```
 
 ## Nạp lại không cần khởi động lại
 

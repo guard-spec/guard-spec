@@ -196,6 +196,52 @@ models:
         size: 1337
         sha256: ab7281b6b442c2fd970a5c7cb4f232cba37766cd3548ef4f7530aec44617625d
 
+  # v8e candidate (train/MODEL_CARD.md, "v8e"): not recommended; v3b stays the
+  # default, and v8e runs in shadow mode first, as v6 does. Round R7's arm E
+  # (the v6 data plus benign and attack windows cut from the same long hosts)
+  # with the long-path decision of R8a in calibration.json (long_doc:
+  # corroborate_l1 0.75, min_l2 0.95). On the long8 holdout it blocked 1 of
+  # 602 benign long documents; on the short1 holdout it did not meet the bar
+  # for replacing v3b (train/reports/v8e_short_holdout.md). model_fp16.onnx
+  # is the GPU option, with its own fp16 block (fp16_agreement_v8e.md).
+  # Published 2026-11-15: Hugging Face branch v8e at the revision below, and
+  # the signed GitHub Release model-guardspec-classifier-v8e as the mirror.
+  - name: guardspec-classifier
+    version: v8e
+    kind: classifier
+    repo: guard-spec/guardspec-classifier
+    revision: "c9ed6c3b772eb0a016d93f6caf335b26079b765e"
+    mirrors:
+      - https://github.com/guard-spec/guard-spec/releases/download/model-guardspec-classifier-v8e/{file}
+    license: Apache-2.0
+    license_url: https://github.com/guard-spec/guard-spec/blob/main/train/MODEL_CARD.md
+    files:
+      - src: model_int8.onnx
+        dest: model_int8.onnx
+        size: 118466001
+        sha256: 447c63cd6f2378c957b3282a1d4526f00feef9153e0046203c10fb20d75d7dde
+      - src: model_fp16.onnx
+        dest: model_fp16.onnx
+        size: 235629184
+        sha256: 601bdd4d1c1ae3666acb509445e870fb51bd0c30f6a35ff344f417c5e2dbb4ce
+        provider: cuda
+      - src: tokenizer.json
+        dest: tokenizer.json
+        size: 17082955
+        sha256: 6879d3648d0329c894b1cbb0c89096430e24d3c7cf5d359d4ccc87ce585c4ae4
+      - src: config.json
+        dest: config.json
+        size: 1272
+        sha256: a74903e3d5f0f21799228d520b0b08aa2a2ac9c779bafd78c2d800f9e8a29d7a
+      - src: thresholds.json
+        dest: thresholds.json
+        size: 4663
+        sha256: dd3ce3a3d05e42b3c367dc3fb047f3c86fdde8d8b51be6d7d3ff819fc1c36bbf
+      - src: calibration.json
+        dest: calibration.json
+        size: 1611
+        sha256: 3419798d34eb3ba094747d3cef1fe1c68183087e0b15ce394813e2a00e845da6
+
   # ProtectAI small v2: gated, requires HF_TOKEN. Optional baseline.
   - name: protectai-deberta-v3-small-pi-v2
     version: d7c8842

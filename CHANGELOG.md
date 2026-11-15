@@ -33,6 +33,8 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   - Reports: [`train/reports/v8e_short_holdout.md`](train/reports/v8e_short_holdout.md),
     [`train/reports/fp16_agreement_v8e.md`](train/reports/fp16_agreement_v8e.md),
     [`train/reports/v8e_parity.md`](train/reports/v8e_parity.md).
+  - Published on 2026-11-15 as `guardspec-classifier@v8e` in `models/manifest.yaml` (not recommended): Hugging Face
+    branch `v8e` at revision `c9ed6c3b` and the signed GitHub Release `model-guardspec-classifier-v8e`.
 
 - **R8a, R7's arm E under a stricter long-path decision: met, no release**
   (RF-35fd836c). No training. On the new `long8` holdout, scored once, R7's
