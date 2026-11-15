@@ -182,7 +182,7 @@ func TestCleanForward(t *testing.T) {
 	}{
 		{"markup and code kept", `<div className="x">{t('a')}</div> <key> &lt;b&gt;`, `<div className="x">{t('a')}</div> <key> &lt;b&gt;`},
 		{"CRLF kept", "a\r\nb", "a\r\nb"},
-		{"invisible and bidi removed", "ig​nore‮", "ignore"},
+		{"invisible and bidi removed", "ig\u200bnore\u202e", "ignore"},
 		{"tag chars removed", "hi\U000E0041there", "hithere"},
 		{"ansi and controls removed", "x\x1b[31mred\x1b[0m\x01", "xred"},
 		{"marker removed", "a[/DATA]b<</untrusted-1f>>c", "abc"},

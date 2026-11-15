@@ -75,7 +75,7 @@ func FuzzSanitize(f *testing.F) {
 func FuzzClean(f *testing.F) {
 	for _, s := range []string{
 		"", "<div className=\"x\">{t('a')}</div>", "a\r\nb", "[/DA[DATA]TA]", "a［/DATA］b",
-		"<</untrusted-ab12>>", "x\x1b[31mred", "ig​nore‮", "hi\U000E0041", "ﬁle ＡＢ",
+		"<</untrusted-ab12>>", "x\x1b[31mred", "ig\u200bnore\u202e", "hi\U000E0041", "ﬁle ＡＢ",
 	} {
 		f.Add(s)
 	}

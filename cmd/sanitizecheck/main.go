@@ -124,7 +124,7 @@ func check(path string, minLoss float64) (fileStats, []hit, error) {
 	if err != nil {
 		return st, nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	r := bufio.NewReaderSize(f, 1<<20)
 	var hits []hit
 	for {
