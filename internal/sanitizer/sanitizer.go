@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"html"
 	"regexp"
+	"strings"
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/microcosm-cc/bluemonday"
 	"golang.org/x/text/runes"
 	"golang.org/x/text/transform"
 	"golang.org/x/text/unicode/norm"
@@ -25,14 +25,57 @@ type Report struct {
 	BytesRemoved  int
 }
 
-// htmlPolicy strips all HTML tags, keeping only text content.
-var htmlPolicy = bluemonday.StrictPolicy()
+var crlf = strings.NewReplacer("\r\n", "\n", "\r", "\n")
 
-// maxCleanPasses bounds how many layers of entity encoding we will unwrap.
+// maxCleanPasses bounds how many cleaning passes the scan view may take: one
+// per layer of entity encoding, plus one to find the text stable.
 const maxCleanPasses = 8
 
-// Sanitize applies the full pipeline and returns cleaned text + report.
-// Order is security-critical — do not reorder steps.
+// Result is what Clean makes of a text.
+type Result struct {
+	// Scan is the text the detectors read (Sanitize): normalized, entities
+	// decoded, hidden HTML marked, tags reduced to the text of their
+	// attributes, the content of every element kept.
+	Scan string
+	// Forward is the text the gateway sends upstream: the input with only the
+	// characters a reader cannot see removed (invisible and bidi characters,
+	// ANSI escapes, control characters) and spoofed marker tokens. Markup,
+	// code, entities, line endings and the Unicode form are left as written,
+	// so a prompt about HTML or JSX reaches the model intact; everything in it
+	// was read by the detectors through Scan.
+	Forward string
+	Report  Report
+}
+
+// Clean returns both views of a text. Call it where the text is forwarded;
+// Sanitize where it is only scored.
+func Clean(input string) (Result, error) {
+	scan, report, err := Sanitize(input)
+	if err != nil {
+		return Result{}, err
+	}
+	return Result{Scan: scan, Forward: forward(input, report.HadFakeMarker), Report: report}, nil
+}
+
+// forward removes what a reader cannot see and spoofed markers, and nothing
+// else. The input is valid UTF-8 (Sanitize checked it). When the scan view
+// found a spoofed marker, the text is NFKC-normalized first, so a fullwidth
+// or compatibility spelling of one is removed too.
+func forward(s string, hadMarker bool) string {
+	if hadMarker {
+		if n, _, err := transform.String(norm.NFKC, s); err == nil {
+			s = n
+		}
+	}
+	s, _, _ = stripInvisible(s)
+	s, _ = stripANSI(s)
+	s = stripControls(s)
+	s, _ = stripMarkers(s)
+	return s
+}
+
+// Sanitize applies the full pipeline and returns the scan view (Result.Scan)
+// and the report. Order is security-critical: do not reorder steps.
 // Call this before passing text to the ML inference layer.
 func Sanitize(input string) (string, Report, error) {
 	var report Report
@@ -43,7 +86,7 @@ func Sanitize(input string) (string, Report, error) {
 	}
 
 	// 2-6. Repeat until stable: decoding an HTML entity can reintroduce anything
-	// an earlier step removed (e.g. &#xFE01; or &lt;script&gt;).
+	// an earlier step removed (e.g. &#xFE01; or &lt;b&gt;).
 	stripped := input
 	stable := false
 	for i := 0; i < maxCleanPasses && !stable; i++ {
@@ -55,7 +98,7 @@ func Sanitize(input string) (string, Report, error) {
 		stripped = next
 	}
 	if !stable {
-		return "", report, fmt.Errorf("input exceeds %d layers of encoding", maxCleanPasses)
+		return "", report, fmt.Errorf("input not stable after %d cleaning passes (nested entity encoding)", maxCleanPasses)
 	}
 
 	// 7. Homoglyph detection — signal only, do not rewrite.
@@ -101,8 +144,13 @@ func cleanPass(s string, report *Report) (string, error) {
 	stripped, hadHidden := markHidden(stripped)
 	report.HadHiddenHTML = report.HadHiddenHTML || hadHidden
 
-	// 6. HTML-strip (strict: no tags survive). Unescape entities bluemonday re-encodes.
-	stripped = html.UnescapeString(htmlPolicy.Sanitize(stripped))
+	// 6. Tags: each one is replaced by the text of its attributes (stripTags,
+	// html.go); the content of every element, script and style included, is
+	// kept. Then one layer of entities is decoded.
+	stripped = html.UnescapeString(stripTags(stripped))
+	// Line endings as an HTML parser reads them (CRLF and CR become LF), as
+	// the scan view always had them.
+	stripped = crlf.Replace(stripped)
 
 	// 6b. Remove spoofed datamarking tokens. This runs inside the loop because
 	// removing one can join its neighbours into a tag or entity that the steps
