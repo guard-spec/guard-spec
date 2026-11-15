@@ -152,7 +152,7 @@ rounds, so it is not fresh.
 | TPR at FPR ≤ 1% | 0.962 | 0.964 |
 | TPR / FPR at 0.85 | 0.937 / **0.0%** | 0.945 / 0.39% |
 
-Reports: `train/reports/r8a_holdout.md`, `v8e_parity.md` (the gateway's decision matches the evaluation script on
+Reports: `train/reports/r8a_holdout.md`, `v8e_short_holdout.md`, `v8e_parity.md` (the gateway's decision matches the evaluation script on
 all 790 dev documents), and `fp16_agreement_v8e.md`.
 
 ## Limitations
@@ -163,9 +163,14 @@ all 790 dev documents), and `fp16_agreement_v8e.md`.
 - **The L2 bar trades some detection.** Embedded attacks that the classifier is not sure of get through more often:
   - at the end of a document: 82%;
   - split across two adjacent windows: 81%.
-- **Short prompts.** At 0.85, v8e catches 0.8 points fewer `eval/data` hold-out attacks than v6, and 1.3 points
-  fewer than R7's reference model, with no false positive. A fresh short-prompt holdout is part of the work before
-  any default change.
+- **Short prompts.** On a fresh short-prompt holdout (`short1`, real-world prompts and emails, scored once;
+  `v8e_short_holdout.md`), v8e does not meet the bar for replacing v3b:
+  - It catches as many in-the-wild jailbreaks (75.0% against 76.2%; 92.6% against 90.6% after a label audit).
+  - It blocks fewer Vietnamese benign prompts (0.5% against 2.2%).
+  - It catches fewer email injections on the tool path (12.0% against 27.8%), mostly because of the
+    `l2_untrusted_max` cap.
+  - Like every Guard Spec model, it blocks many persona and role-play system prompts (15.6% after the audit) and
+    catches few adaptive email injections (under 30%).
 - **FP16 differs from INT8 near the threshold.** Measure the GPU path on your own traffic before relying on it.
 - **Guard Spec's sanitizer.** Technical documents that mention `<textarea>` many times are rejected before
   classification, and text after a mention of `<script>` or `<style>` is dropped. The sanitizer, not this model,
