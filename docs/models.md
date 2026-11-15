@@ -369,8 +369,11 @@ benign documents of 100k and 200k tokens (5.6%)** under `strong75`. On R8a's
 holdout (`long8`, 602 documents, scored once) it blocks 24 (4.0%). In the
 same round, R7's arm E under a stricter long-path decision (`strong75` and a
 calibrated L2 of at least 0.95) blocked 1 of 602 and caught 88.0% of embedded
-attacks, which meets the target. That decision is not in the gateway and E is
-not packaged; shipping it is a separate decision. Embedded-attack
+attacks, which meets the target. The gateway now reads that decision from
+`calibration.json`, and E is packaged as the candidate v8e. On a fresh
+short-prompt holdout v8e did not meet the bar for replacing v3b (fewer email
+injections caught on the tool path), so it is a shadow-mode candidate
+([train/reports/v8e_short_holdout.md](../train/reports/v8e_short_holdout.md)). Embedded-attack
 detection is a little under v5's, and `val_v3_holdout` and
 `val_realistic_holdout` stay under v3b. Every table is in
 [train/MODEL_CARD.md](../train/MODEL_CARD.md) ("v6").

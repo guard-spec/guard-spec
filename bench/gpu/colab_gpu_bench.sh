@@ -13,6 +13,8 @@
 #   fp16/   the v6 classifier with model_fp16.onnx (tokenizer.json,
 #           config.json, thresholds.json, calibration.json with its fp16 block)
 #   quick/  bench/long corpus, profile quick (docs.jsonl), for parity
+#   longdoc/{benign,attack}  (step longdoc only) long5 and its R5 attack
+#           documents, for the long path in FP16
 #   long/   .txt files of about 20k, 100k and 200k tokens, for timing, built
 #           from the quick/full profiles' wiki-en-* documents (a 200k text:
 #           concatenate them). Never from the long5/long6 profiles: their
@@ -125,6 +127,25 @@ timing() {
     done
   done
   python3 bench/gpu/summarize_timing.py "$OUT_DIR" > "$OUT_DIR/timing_summary.json"
+}
+
+# The long path in FP16 on CUDA (RF-b15702bf, v8e): the calibration's long_doc
+# rule on $DATA_DIR/longdoc/{benign,attack}, the long5 corpus and its R5 attack
+# documents. long5 is dev since R5 (its hold-out half was spent there), so it
+# may be scored here; long6, long7 and long8 never are. Writes the -dump files
+# (window scores, no text) and the reports, to compare with the INT8 run.
+longdoc() {
+  step "long path on CUDA with the long_doc rule"
+  local k
+  for k in benign attack; do
+    if grep -lqE '"id": ?"long[678]-' "$DATA_DIR/longdoc/$k/docs.jsonl"; then
+      echo "refusing a spent hold-out in longdoc/$k" >&2; return 1
+    fi
+    INFERENCE_PROVIDER=cuda L2_MODEL_DIR=$FP16 "$BIN/benchlong" -corpus "$DATA_DIR/longdoc/$k" -profile "longdoc-$k" \
+      -layers none -l2pass off -long on -dump "$OUT_DIR/longdoc-$k" -skip-latency -workers 2 -host colab-cuda \
+      -out "$OUT_DIR/longdoc-$k.json" > "$OUT_DIR/longdoc-$k.log" 2>&1 || { tail "$OUT_DIR/longdoc-$k.log"; return 1; }
+    tail -1 "$OUT_DIR/longdoc-$k.log"
+  done
 }
 
 smoke() {

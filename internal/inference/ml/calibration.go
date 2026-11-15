@@ -44,7 +44,7 @@ type CalibrationFile struct {
 	// rows, for a model whose FP16 decisions differ from the INT8 ones by
 	// more than 0.5% (train/reports/fp16_agreement_*.md). It applies when
 	// the classifier was loaded from model_fp16.onnx; absent, that file uses
-	// the fields above.
+	// the fields above. A block without long_doc takes the top-level one.
 	FP16 *CalibrationFile `json:"fp16,omitempty"`
 }
 
@@ -55,6 +55,9 @@ func (c CalibrationFile) forModelFile(file string) (CalibrationFile, bool) {
 		f := *c.FP16
 		if f.Model == "" {
 			f.Model = c.Model
+		}
+		if f.LongDoc == nil { // the rule is the model's, not the precision's
+			f.LongDoc = c.LongDoc
 		}
 		f.FP16 = nil
 		return f, true
@@ -74,6 +77,19 @@ type LongDoc struct {
 	// calibrated L1 score, or to the length-aware threshold's scale when
 	// Threshold is set.
 	Corroborate bool `json:"corroborate,omitempty"`
+	// CorroborateL1 is the raw L1 rule weight that corroborates a window
+	// (0: corroborationL1Raw, 0.5). A value turns Corroborate on. 0.75 is
+	// the strong75 decision of train/longdoc_r5.py (R5, RF-35fd836c R8a).
+	CorroborateL1 float64 `json:"corroborate_l1,omitempty"`
+	// MinL2: in a longer text a window keeps its score only when its
+	// calibrated L2 score is at least MinL2 (a window L2 did not score has
+	// 0); otherwise its score is at most L2 * Base / MinL2, under Base
+	// (0.85 when Base is unset). 0.95 with CorroborateL1 0.75 is the R8a
+	// decision strong75_l2 (train/reports/r8a_preregistration.md). With
+	// MinL2 at least 0.5, strong75's condition that a floor counts only when
+	// L2 agrees (L2 at least 0.5) holds for every window that keeps its
+	// score, so it needs no field of its own.
+	MinL2 float64 `json:"min_l2,omitempty"`
 	// Threshold is the length-aware threshold T(n) as points [n, T]: in a
 	// text of n windows a window scoring s counts as s would against Base
 	// in a text within MinWindows, i.e. its logit is lowered by
@@ -88,6 +104,36 @@ type LongDoc struct {
 
 // BuiltinCalibrations are the calibrations of the classifiers we ship.
 var BuiltinCalibrations = map[string]CalibrationFile{
+	// v8e (a shadow candidate; v3b stays the default): R7's arm E with the
+	// R8a long-path decision (strong75_l2) as LongDoc. The calibration.json
+	// of train/hf/v8e, byte for byte (TestV8eCalibrationFile). FP16 takes
+	// the top-level LongDoc (forModelFile).
+	"guardspec-classifier-v8e": {
+		Model:    "guardspec-classifier-v8e",
+		FittedOn: "v4-A build val.jsonl + val_hard.jsonl + val_vi_variants.jsonl + val_v3.jsonl + val_v4.jsonl, with the owner-supplied and OTP/KYC validation rows, plus v6_val.jsonl + val_v6.jsonl of the v6 build (12785 rows), 2026-11-13 (R7 arm E; refit on 2026-11-15 gives the same values)",
+		Platt:    fusion.Calibration{A: 0.829328964936031, B: -0.34967623935053715},
+		LogReg: map[string]fusion.LogReg{
+			"l1,l2":    {W: [3]float64{0.44401296340452656, 0.9429979537239901, 0}, B: 0.3804655535705589},
+			"l1,l2,l3": {W: [3]float64{0.4346565394505346, 0.9181781420825593, 0.26586548566566026}, B: 0.49187003816101554},
+		},
+		L2UntrustedMax: 0.88,
+		LongDoc: &LongDoc{
+			MinWindows:    30,
+			CorroborateL1: 0.75,
+			MinL2:         0.95,
+			Base:          0.85,
+			FittedOn:      "R8a (train/reports/r8a_preregistration.md, r8a_holdout.md): strong75_l2, n0 30, L1 bar 0.75 raw, L2 bar 0.95; met on the long8 holdout",
+		},
+		FP16: &CalibrationFile{
+			FittedOn: "the same 12785 validation rows, scored with model_fp16.onnx on the CPU, 2026-11-15",
+			Platt:    fusion.Calibration{A: 0.8422148550632398, B: -0.6726705053646705},
+			LogReg: map[string]fusion.LogReg{
+				"l1,l2":    {W: [3]float64{0.4517763167860925, 0.9425213454259785, 0}, B: 0.37597345332729565},
+				"l1,l2,l3": {W: [3]float64{0.4379959641242574, 0.9163707813000543, 0.2737908970608975}, B: 0.4847224553085046},
+			},
+			L2UntrustedMax: 0.88,
+		},
+	},
 	// v6 (a shadow candidate; v3b stays the default): the calibration.json
 	// published with the model, byte for byte. Fitted on the v4 validation
 	// splits plus the v6 validation rows (12,785 rows; the owner-supplied

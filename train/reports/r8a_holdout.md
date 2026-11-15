@@ -84,6 +84,14 @@ benign row. No criterion covers TPR at 0.85, so it is reported and not used.
   sanitizer limit, not a classifier result, and it applies to every model. It is reported for a follow-up and
   not counted in the verdict.
 
+  *Correction (2026-11-15, RF-4131836b).* The message is misleading: neither document is encoded in layers.
+  Both are MDN pages on HTML that mention `<textarea>` or `<plaintext>` in backticks many times. The sanitizer's
+  strict HTML pass treats each mention as a tag and removes one per pass, so a text with nine or more mentions
+  does not settle within 8 passes. The same pass drops everything after a mention of `<script>` or `<style>`;
+  one `long8` document lost about half its text. The gateway forwards the sanitized text, so this is no bypass,
+  but users lose content silently, and technical documents here were scored on truncated text. The fix is task
+  RF-4131836b.
+
 ## Reading
 
 - The L2 bar works as the review predicted on fresh text. It removes 4 of E's 5 `strong75` blocks and 17 of
@@ -115,7 +123,8 @@ benign row. No criterion covers TPR at 0.85, so it is reported and not used.
   a candidate in shadow mode, and measure the GPU path. A fresh short-prompt holdout is needed before E could
   become the default.
 - **R8b (RF-a957551a):** arm F, two seeds of `ref` and the new criteria. The owner decides after this report.
-- **The sanitizer's encoding-depth limit** on long technical documentation (2 of 302 English 200k documents).
+- **The sanitizer's HTML pass** (RF-4131836b): it rejects technical documents that mention `<textarea>` many times
+  (2 of 302 English 200k documents) and drops the text after a mention of `<script>` or `<style>`.
 
 ## Reproduce
 

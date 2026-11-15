@@ -370,8 +370,11 @@ lần), **v6 đang phát hành chặn 10/180 tài liệu vô hại 100k và 200k
 (`long8`, 602 tài liệu, chấm một lần), v6 chặn 24 tài liệu (4,0%). Cũng
 trong vòng này, nhánh E của R7 với cách quyết định chặt hơn trên đường dài
 (`strong75` và L2 đã hiệu chỉnh từ 0,95 trở lên) chỉ chặn 1/602 và bắt 88,0%
-tấn công nhúng, tức là đạt mục tiêu. Cách quyết định này chưa có trong
-gateway và E chưa được đóng gói; phát hành nó là một quyết định riêng. Khả năng phát hiện tấn công nhúng thấp hơn v5
+tấn công nhúng, tức là đạt mục tiêu. Gateway nay đọc cách quyết định này từ
+`calibration.json`, và E được đóng gói thành ứng viên v8e. Trên holdout
+prompt ngắn mới, v8e chưa đạt mức để thay v3b (bắt ít email injection hơn
+trên đường tool), nên chỉ là ứng viên chạy shadow
+([train/reports/v8e_short_holdout.md](../train/reports/v8e_short_holdout.md)). Khả năng phát hiện tấn công nhúng thấp hơn v5
 một chút, và `val_v3_holdout` cùng `val_realistic_holdout` vẫn dưới v3b. Mọi
 bảng số nằm trong [train/MODEL_CARD.md](../train/MODEL_CARD.md) (mục "v6").
 

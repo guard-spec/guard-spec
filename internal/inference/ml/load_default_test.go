@@ -156,3 +156,21 @@ func TestShippedCalibrationFile(t *testing.T) {
 		}
 	}
 }
+
+// TestV8eCalibrationFile: the calibration.json of the v8e package
+// (train/hf/v8e) is the built-in calibration of v8e, marshalled as
+// TestShippedCalibrationFile expects. Once v8e is in the manifest it joins
+// that test.
+func TestV8eCalibrationFile(t *testing.T) {
+	want, err := os.ReadFile(filepath.Join("..", "..", "..", "train", "hf", "v8e", "calibration.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.MarshalIndent(BuiltinCalibrations["guardspec-classifier-v8e"], "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(append(data, '\n')); got != string(want) {
+		t.Errorf("built-in v8e calibration differs from train/hf/v8e/calibration.json:\n%s", got)
+	}
+}

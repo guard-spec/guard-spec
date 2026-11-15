@@ -10,6 +10,37 @@ tags: [prompt-injection, jailbreak, guardrail, onnx, int8]
 
 Copyright The Guard Spec Authors. Licensed under the Apache License 2.0.
 
+## v8e (2026-11-15): candidate for long documents, not the default
+
+v8e (task RF-b15702bf) packages R7's arm E (`MODEL_CARD.md`, "R7" and "R8a" under v6) with the long-path decision
+R8a measured, `strong75_l2`, written into `calibration.json` as `long_doc`
+(`{"min_windows": 30, "corroborate_l1": 0.75, "min_l2": 0.95, "base": 0.85}`). Nothing was retrained.
+
+- **Gateway.** `ml.LongDoc` reads `corroborate_l1` and `min_l2`. On the 790 `long5` dev documents the gateway's
+  decision matches `train/longdoc_r8a.py` on every document (`reports/v8e_parity.md`). An FP16 `fp16` block
+  without its own `long_doc` takes the top-level one.
+- **Package.** `train/hf/v8e`: INT8 and FP16 ONNX, tokenizer, config, thresholds, calibration and SHA256SUMS
+  (`model_int8.onnx` `447c63cd…7dde`).
+- **Long documents** (R8a, `long8`, scored once): 1 of 602 benign documents of 100k and 200k tokens blocked, and
+  88.0% of embedded attacks caught (91.7% alone).
+- **Short prompts** (`short1`, a fresh holdout of real-world prompts and emails, scored once,
+  `reports/v8e_short_holdout.md`): **not met**, so v3b stays the default.
+  - Jailbreaks: 75.0% against v3b's 76.2% (met).
+  - Email injections on the tool path: 12.0% against 27.8% (not met). This is mostly the `l2_untrusted_max`
+    cap of 0.88, which v3b does not have.
+  - English benign prompts: 12.1% blocked against 13.4% (not met, above the 2% cap). Persona and role-play
+    system prompts are blocked by every model.
+  - Vietnamese benign prompts: 0.5% blocked against 2.2% (met).
+  - A blind label audit after scoring shows noisy source labels. With audited labels, v8e catches 92.6% of real
+    jailbreaks (v3b 90.6%) and blocks 15.6% of benign persona prompts (v3b 18.9%) and 1.4% of ordinary
+    requests (v3b 1.2%).
+- **FP16 on a GPU** (`reports/fp16_agreement_v8e.md`, Colab L4):
+  - CUDA and CPU agree on 100% of `eval/data` decisions.
+  - On `long5` with `long_doc`, it blocks 1 of 150 benign documents (INT8: 0) and catches 480 of 554 embedded
+    attacks (INT8: 481).
+
+v8e is a shadow-mode candidate (`SHADOW_L2_MODEL=guardspec-classifier@v8e`).
+
 ## v6 (2026-11-11): round 3 candidate for long documents, not the default
 
 v6 (task RF-895d3533, todo R2) is the v5 recipe trained on the v6 data (`DATA_CARD.md`, "v6 data":
@@ -21,7 +52,7 @@ training run; the results were added after the runs, under "Results": **v6 is ar
 on the v6 data, the first arm to block no benign bench/long document of 100k to 200k tokens on the dev
 slice (`guardspec-classifier@v6` in `models/manifest.yaml`, not recommended, published as a pre-release;
 v3b stays the default). The later rounds R3, R5, R6 and R7 (below) did not meet the long-document target
-either (R8a met it with R7's arm E under a stricter long-path decision that is not in the gateway yet), so v6 is the shadow-mode candidate of this work, with an FP16 file for the GPU option. Same architecture, base model
+either (R8a met it with R7's arm E under a stricter long-path decision, packaged as v8e above), so v6 was the shadow-mode candidate of this work until v8e, with an FP16 file for the GPU option. Same architecture, base model
 and revision, tokenizer, labels, window-level training, augmentation, seed (20261105) and settings as
 v5 (`config.yaml`; MPS on the Apple M3 Max, one run at a time).
 
@@ -398,8 +429,10 @@ embedded documents of 48 fresh payloads), and scored it once
   interval −10.9 to +3.5).
 - eval/data hold-out TPR at FPR ≤ 1% is **0.9618** (`ref` 0.9618), with no benign row at 0.85.
 - Both R7's criteria and the review's stricter set are met.
-- Two English 200k documents were rejected by the sanitizer (encoding depth) for every model and are not
-  counted. Counted as blocks, 200k is 3 / 302 and still within the target.
+- Two English 200k documents were rejected by the sanitizer for every model and are not counted. Counted as
+  blocks, 200k is 3 / 302 and still within the target. The cause is the sanitizer's HTML pass, not encoding:
+  it treats mentions of `<textarea>` as tags (and drops the text after a mention of `<script>` or `<style>`),
+  task RF-4131836b.
 - Nothing is packaged. Shipping E needs the L2 bar in the gateway's long path, a v8e package, a GPU (FP16)
   measurement and a fresh short-prompt holdout. That is the owner's decision.
 

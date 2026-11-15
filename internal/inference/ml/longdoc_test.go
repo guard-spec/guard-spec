@@ -83,6 +83,62 @@ func TestLongDocRuleApply(t *testing.T) {
 	}
 }
 
+// strong75_l2 (R8a): in a text of more than MinWindows windows a window
+// blocks at 0.85 exactly when it does under train/longdoc_r8a.py: its score
+// is at least 0.85, its calibrated L2 at least 0.95, and L1 fired a rule of
+// raw weight 0.75 or more, or a floor applied.
+func TestLongDocRuleStrong75L2(t *testing.T) {
+	r := NewLongDocRule(&LongDoc{MinWindows: 30, CorroborateL1: 0.75, MinL2: 0.95, Base: 0.85})
+	bar := fusion.DefaultL1Calibration.Apply(0.75)
+	if math.Abs(bar-0.8104) > 1e-3 {
+		t.Fatalf("calibrated L1 bar %v", bar)
+	}
+	research := func(p, l1, l2, floor float64) bool {
+		return p >= 0.85 && l2 >= 0.95 && (l1 >= bar || floor > 0)
+	}
+	vals := []float64{fusion.Missing, 0, 0.3, 0.5, 0.7, 0.8, 0.81, 0.85, 0.9, 0.949, 0.95, 0.96, 0.99}
+	for _, p := range []float64{0.5, 0.84, 0.85, 0.9, 0.97} {
+		for _, l1 := range vals {
+			for _, l2 := range vals {
+				for _, floor := range []float64{0, 0.9} {
+					s := windowScore(p, l1, l2, floor)
+					want := research(p, l1, l2, floor)
+					got := r.Apply(31, s)
+					if blocks := float64(got.Confidence) >= 0.85-1e-6; blocks != want {
+						t.Fatalf("p %v l1 %v l2 %v floor %v: blocks %v (score %v), research %v",
+							p, l1, l2, floor, blocks, got.Confidence, want)
+					}
+					if got.Confidence > s.Confidence {
+						t.Fatal("the rule raised a score")
+					}
+					if short := r.Apply(30, s); !reflect.DeepEqual(short, s) {
+						t.Fatal("a text of MinWindows windows must be unchanged")
+					}
+				}
+			}
+		}
+	}
+	// The L2 bar lowers in proportion to L2, so windows keep their order.
+	a, b := r.Apply(100, windowScore(0.97, 0.95, 0.90, 0)), r.Apply(100, windowScore(0.97, 0.95, 0.80, 0))
+	if !(a.Confidence > b.Confidence) || math.Abs(float64(a.Confidence)-0.90*0.85/0.95) > 1e-6 ||
+		!slices.Contains(a.Detail.Rules, fusion.LongDocRule) {
+		t.Fatalf("L2 bar: %v %v %+v", a.Confidence, b.Confidence, a.Detail)
+	}
+	// Base unset: the gateway's 0.85.
+	nb := NewLongDocRule(&LongDoc{MinWindows: 30, MinL2: 0.95})
+	if got := nb.Apply(31, windowScore(0.99, 0.99, 0.9, 0)); got.Confidence >= 0.85 {
+		t.Fatalf("MinL2 without Base: %v", got.Confidence)
+	}
+	// MinL2 alone does not require corroboration.
+	if got := nb.Apply(31, windowScore(0.99, 0.1, 0.96, 0)); got.Confidence != 0.99 {
+		t.Fatalf("MinL2 alone lowered a window that clears it: %v", got.Confidence)
+	}
+	// The default bar is unchanged when CorroborateL1 is unset.
+	if NewLongDocRule(&LongDoc{Corroborate: true}).l1Bar != corroborationL1 {
+		t.Fatal("default corroboration bar")
+	}
+}
+
 // Without a rule the long path is unchanged; with one, a long benign-looking
 // text whose only strong window has no rule behind it is no longer blocked,
 // a short one is, and a window the rules corroborate still blocks (early
@@ -155,10 +211,14 @@ func (r *LongDocRule) orNil() inference.LongDocRule {
 	return r
 }
 
-// long_doc is optional: calibrations without it marshal as before, and one
-// with it round-trips through calibration.json.
+// long_doc is optional: calibrations without it marshal as before (v8e is
+// the first built-in with one), and one with it round-trips through
+// calibration.json.
 func TestLongDocCalibrationRoundTrip(t *testing.T) {
 	for name, c := range BuiltinCalibrations {
+		if name == "guardspec-classifier-v8e" {
+			continue
+		}
 		data, err := json.Marshal(c)
 		if err != nil {
 			t.Fatal(err)
@@ -169,7 +229,7 @@ func TestLongDocCalibrationRoundTrip(t *testing.T) {
 	}
 	c := BuiltinCalibrations["guardspec-classifier-v5"]
 	c.LongDoc = &LongDoc{MinWindows: 32, Corroborate: true, Base: 0.85, Threshold: [][2]float64{{64, 0.95}, {1024, 0.99}},
-		FittedOn: "test"}
+		CorroborateL1: 0.75, MinL2: 0.95, FittedOn: "test"}
 	data, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		t.Fatal(err)
