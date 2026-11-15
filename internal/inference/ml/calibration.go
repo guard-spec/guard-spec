@@ -104,6 +104,36 @@ type LongDoc struct {
 
 // BuiltinCalibrations are the calibrations of the classifiers we ship.
 var BuiltinCalibrations = map[string]CalibrationFile{
+	// v8e (a shadow candidate; v3b stays the default): R7's arm E with the
+	// R8a long-path decision (strong75_l2) as LongDoc. The calibration.json
+	// of train/hf/v8e, byte for byte (TestV8eCalibrationFile). FP16 takes
+	// the top-level LongDoc (forModelFile).
+	"guardspec-classifier-v8e": {
+		Model:    "guardspec-classifier-v8e",
+		FittedOn: "v4-A build val.jsonl + val_hard.jsonl + val_vi_variants.jsonl + val_v3.jsonl + val_v4.jsonl, with the owner-supplied and OTP/KYC validation rows, plus v6_val.jsonl + val_v6.jsonl of the v6 build (12785 rows), 2026-11-13 (R7 arm E; refit on 2026-11-15 gives the same values)",
+		Platt:    fusion.Calibration{A: 0.829328964936031, B: -0.34967623935053715},
+		LogReg: map[string]fusion.LogReg{
+			"l1,l2":    {W: [3]float64{0.44401296340452656, 0.9429979537239901, 0}, B: 0.3804655535705589},
+			"l1,l2,l3": {W: [3]float64{0.4346565394505346, 0.9181781420825593, 0.26586548566566026}, B: 0.49187003816101554},
+		},
+		L2UntrustedMax: 0.88,
+		LongDoc: &LongDoc{
+			MinWindows:    30,
+			CorroborateL1: 0.75,
+			MinL2:         0.95,
+			Base:          0.85,
+			FittedOn:      "R8a (train/reports/r8a_preregistration.md, r8a_holdout.md): strong75_l2, n0 30, L1 bar 0.75 raw, L2 bar 0.95; met on the long8 holdout",
+		},
+		FP16: &CalibrationFile{
+			FittedOn: "the same 12785 validation rows, scored with model_fp16.onnx on the CPU, 2026-11-15",
+			Platt:    fusion.Calibration{A: 0.8422148550632398, B: -0.6726705053646705},
+			LogReg: map[string]fusion.LogReg{
+				"l1,l2":    {W: [3]float64{0.4517763167860925, 0.9425213454259785, 0}, B: 0.37597345332729565},
+				"l1,l2,l3": {W: [3]float64{0.4379959641242574, 0.9163707813000543, 0.2737908970608975}, B: 0.4847224553085046},
+			},
+			L2UntrustedMax: 0.88,
+		},
+	},
 	// v6 (a shadow candidate; v3b stays the default): the calibration.json
 	// published with the model, byte for byte. Fitted on the v4 validation
 	// splits plus the v6 validation rows (12,785 rows; the owner-supplied
