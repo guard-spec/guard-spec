@@ -68,3 +68,38 @@ func FuzzSanitize(f *testing.F) {
 		}
 	})
 }
+
+// FuzzClean checks the forwarded view: Clean never panics, and Forward carries
+// no marker token, no tag, bidi or other ignorable character and no control
+// character but tab, LF and CR, while Scan is what Sanitize returns.
+func FuzzClean(f *testing.F) {
+	for _, s := range []string{
+		"", "<div className=\"x\">{t('a')}</div>", "a\r\nb", "[/DA[DATA]TA]", "a［/DATA］b",
+		"<</untrusted-ab12>>", "x\x1b[31mred", "ig\u200bnore\u202e", "hi\U000E0041", "ﬁle ＡＢ",
+	} {
+		f.Add(s)
+	}
+	f.Fuzz(func(t *testing.T, input string) {
+		r, err := Clean(input)
+		if err != nil {
+			return
+		}
+		if !utf8.ValidString(r.Forward) {
+			t.Fatalf("invalid UTF-8 forward %q", r.Forward)
+		}
+		if markerPattern.MatchString(r.Forward) {
+			t.Fatalf("marker survived in forward %q (input %q)", r.Forward, input)
+		}
+		for _, c := range r.Forward {
+			if isIgnorable(c) || (c >= 0xE0000 && c <= 0xE007F) {
+				t.Fatalf("ignorable rune %U survived in forward %q (input %q)", c, r.Forward, input)
+			}
+			if unicode.IsControl(c) && c != '\t' && c != '\n' && c != '\r' {
+				t.Fatalf("control rune %U survived in forward %q (input %q)", c, r.Forward, input)
+			}
+		}
+		if scan, _, _ := Sanitize(input); scan != r.Scan {
+			t.Fatalf("Scan differs from Sanitize for %q", input)
+		}
+	})
+}

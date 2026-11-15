@@ -18,7 +18,7 @@ const (
 )
 
 var (
-	// htmlComment matches a comment; bluemonday would drop its text.
+	// htmlComment matches a comment, whose text the tag step would otherwise keep unmarked.
 	htmlComment = regexp.MustCompile(`(?s)<!--(.*?)(?:-->|$)`)
 	// openTag matches an opening tag with attributes; group 1 is the name.
 	openTag = regexp.MustCompile(`(?i)<([a-z][a-z0-9-]*)\s[^<>]*>`)
@@ -46,7 +46,7 @@ const (
 	hiddenOpen  = " " + HiddenMarker + " "
 	hiddenClose = " " + HiddenEndMarker + " "
 	// maxHiddenElements bounds the work on hostile markup; later hidden
-	// elements are left to the HTML strip unmarked.
+	// elements are left to the tag step unmarked.
 	maxHiddenElements = 256
 )
 
@@ -87,7 +87,7 @@ func markHidden(s string) (string, bool) {
 			b.WriteString(hiddenClose)
 			break
 		}
-		// Hidden elements inside are covered already; the HTML strip removes their tags.
+		// Hidden elements inside are covered already; the tag step removes their tags.
 		b.WriteString(rest[:end])
 		b.WriteString(hiddenClose)
 		s = rest[end+closeLen:]

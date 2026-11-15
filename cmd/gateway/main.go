@@ -814,13 +814,16 @@ func (g *textGuard) clean(text string) (string, error) {
 	return g.pseudonymize(cleaned), nil
 }
 
-// sanitizeCollect sanitizes text and collects it for classification, without
-// replacing its personal data; it returns the sanitized text.
+// sanitizeCollect sanitizes text and collects its scan view for
+// classification, without replacing its personal data; it returns the text to
+// forward (sanitizer.Result.Forward): the input without invisible characters,
+// escapes and spoofed markers, its markup and code intact.
 func (g *textGuard) sanitizeCollect(text string) (string, error) {
-	cleaned, rep, err := sanitizer.Sanitize(text)
+	res, err := sanitizer.Clean(text)
 	if err != nil {
 		return "", err
 	}
+	cleaned, rep := res.Scan, res.Report
 	g.merge(rep)
 	// Block if anomaly score is high (tag chars = likely encoding attack)
 	if rep.AnomalyScore >= anomalyBlockThreshold {
@@ -830,7 +833,7 @@ func (g *textGuard) sanitizeCollect(text string) (string, error) {
 	}
 	g.texts = append(g.texts, cleaned)
 	g.collect(cleaned)
-	return cleaned, nil
+	return res.Forward, nil
 }
 
 // rejectShadowKeys refuses a key that differs from a guarded one only in case.

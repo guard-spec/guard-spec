@@ -222,12 +222,25 @@ Two Go services share one Postgres database:
 
 What each stage does:
 
-- **L0 sanitizer** (`internal/sanitizer`). Rejects invalid UTF-8, then repeats
-  until the text is stable (at most 8 passes): NFKC normalization, removal of
-  default-ignorable, tag-block, bidi-control, variation-selector and control
-  characters, ANSI escapes, HTML (bluemonday strict policy) and HTML entities.
-  It flags homoglyphs and computes an anomaly score; a score of 0.6 or more
-  blocks the request. Spoofed spotlighting markers are stripped.
+- **L0 sanitizer** (`internal/sanitizer`). Rejects invalid UTF-8, then makes
+  two views of each text:
+  - **Scan view**, which the detectors read. The sanitizer repeats these steps
+    until the text is stable, at most 8 passes, so that nested entity encoding
+    is unwrapped:
+    - NFKC normalization;
+    - removal of default-ignorable, tag-block, bidi-control, variation-selector
+      and control characters, and of ANSI escapes;
+    - hidden HTML is marked `[hidden]`;
+    - each tag is replaced by the text of its attributes; the content of every
+      element is kept, script and style included;
+    - one layer of HTML entities is decoded.
+  - **Forwarded view**, which goes upstream. It is the text as written, with
+    only the invisible and bidi characters, ANSI escapes, control characters
+    and spoofed markers removed. Markup, code and entities reach the model
+    intact, and the detectors have read all of it through the scan view.
+
+  The sanitizer flags homoglyphs and computes an anomaly score. A score of 0.6
+  or more blocks the request.
 - **L1 rules** (`internal/inference/skeleton`, `internal/inference/rules`).
   The text is turned into a "skeleton": diacritics, homoglyphs, fullwidth
   forms, leetspeak, spelled-out letters, repeated characters and Vietnamese

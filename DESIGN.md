@@ -67,9 +67,11 @@ client ──► gateway (Go, Fiber) ──────────────�
 3. **L0 sanitizer** (`internal/sanitizer`), order fixed:
    UTF-8 validation; then, repeated until stable (at most 8 passes), NFKC,
    removal of default-ignorable / tag / variation-selector / bidi / control
-   characters, ANSI escapes, HTML (bluemonday strict) and entity decoding,
+   characters, ANSI escapes, HTML tags reduced to their attribute text (element content kept) and entity decoding,
    and removal of spoofed spotlight markers; then homoglyph detection (signal
-   only). The anomaly score blocks at 0.6.
+   only). The anomaly score blocks at 0.6. The detectors read this cleaned view;
+   the gateway forwards the input as written, minus invisible, bidi and control
+   characters, ANSI escapes and spoofed markers (`sanitizer.Clean`).
 4. **Detector** (`internal/inference`). Text is split into overlapping windows
    and the worst window counts, so padding cannot push a payload past a cut.
    - L1 rules (`rules`, `skeleton`): canonical skeleton (diacritics,
