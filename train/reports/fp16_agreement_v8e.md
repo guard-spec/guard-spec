@@ -55,3 +55,38 @@ On the hold-out half, at 0.85, TPR / FPR is 0.937 / 0.0% for INT8 and 0.942 / 0.
 - R8a's dev check showed that FP32 blocks more benign long documents than INT8 under `strong75_l2` (2 of 41 `long5`
   documents against 0). FP16 is close to FP32, so the long path in FP16 needs its own measurement before the GPU
   option is recommended for v8e.
+
+## GPU run: FP16 on CUDA, and the long path (2026-11-15)
+
+Colab job `gs-v8e-fp16`:
+- NVIDIA L4, driver 580.82.07, CUDA 12.9, ONNX Runtime 1.31.1 (`gpu_cuda12`), commit `fac9444`;
+- `STEPS="parity longdoc" bench/gpu/colab_gpu_bench.sh`;
+- no owner data was sent. The first launch did not start: the data was extracted inside the `exec` call, which
+  timed out. It was relaunched on the same VM.
+
+Compute units: 390.15 before and 382.19 after (7.96, most of it the idle VM before the relaunch).
+
+**CUDA against CPU, same FP16 file.** On `eval/data` rows the decisions at 0.85 agree 100% (2,176 rows, max
+|Δscore| 0.0067), and the gateway decisions agree 100%. On the `quick` long-input windows they also agree 100%
+(L2 5,341 windows, `l1,l2` 2,456 chunks, max |Δ| 0.0042).
+
+**Long path on CUDA with `long_doc`.** This is `long5`, 150 benign documents and 640 attack documents. It has been
+dev since R5, so this is a dev measure. It is compared with the INT8 CPU run of `v8e_parity.md`:
+
+| | FP16, CUDA | INT8, CPU |
+|---|---|---|
+| benign documents blocked | 1 / 150 | 0 / 150 |
+| embedded attacks caught (intact) | 480 / 554 (86.6%) | 481 / 554 (86.8%) |
+| payloads alone | 70 / 80 | 69 / 80 |
+| documents rejected | 0 | 0 |
+
+- 9 of 790 documents get a different decision, in both directions:
+  - 1 benign document: `long5-hardneg-en-200000-0`, doc score 0.967 against 0.753;
+  - 8 attack documents.
+- At 116k tokens/s, the 150 benign documents (22.1M tokens) took 194 s.
+
+**Reading.** Under the `long_doc` rule, FP16 on a GPU decides long documents like INT8 on the CPU, within the
+noise of the near-threshold windows. The R8a concern came from FP32 under `strong75_l2` (2 of 41 against 0); it
+does not show at this scale, and the one extra block is a hard negative. The GPU option is fit for v8e as a
+candidate, with the same caveat as the short path: about 1% of decisions near the threshold differ between a
+GPU gateway and a CPU gateway. No fresh long holdout was scored in FP16.
