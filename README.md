@@ -270,6 +270,16 @@ What each stage does:
   bound of the fused score, and `fusion.l1_floor` is added to the fired rules.
   `off` (or `0`) disables it; `/readyz` shows the value in use as
   `detector.l1_floor`.
+- **L1 floor on untrusted content** (`UNTRUSTED_L1_FLOOR`, default 0.90).
+  A tool result, an email or a document has no reason to address the model,
+  so an instruction the rules recognize in it is an injection whoever wrote
+  it. On untrusted content only, a calibrated L1 score at or above the floor
+  is a lower bound of the chunk's fused score, whatever the classifier says
+  (`fusion.untrusted_l1_floor` in the rules). It applies after the
+  classifier's cap (`l2_untrusted_max`). The rules' own suppressors (meta
+  discussion, quotes, code string literals) and the tool path's code
+  corroboration are unchanged; user, system and tool-description text is not
+  affected. `off` (or `0`) disables it.
 - **Fixed thresholds.** A direct injection score of 0.85 or more blocks.
   Tool results, documents and tool descriptions are scored one by one, and the
   largest of those scores blocks at `INDIRECT_BLOCK_THRESHOLD` (default 0.85).
@@ -669,6 +679,7 @@ in a second table.
 | `DETECTOR_CASCADE` | `false` | `true` skips L2/L3 when L1's calibrated score is below `DETECTOR_CASCADE_LOW` or above `DETECTOR_CASCADE_HIGH` |
 | `DETECTOR_CASCADE_LOW` / `DETECTOR_CASCADE_HIGH` | `0.03` / `0.965` | Cascade bounds |
 | `FUSION_L1_FLOOR` | `0.985` | With `logreg` fusion, a decisive L1 rule match whose calibrated score is at least this value is a lower bound of the fused score. `off` or `0` disables it; otherwise a number in (0.5, 1] |
+| `UNTRUSTED_L1_FLOOR` | `0.90` | On tool results and documents only, a calibrated L1 score at or above this value is a lower bound of the fused score, so a rule match on an instruction inside an email or a tool result is not outvoted by the classifier. `off` or `0` disables it; otherwise a number in (0.5, 1] |
 | `DETECTOR_REQUIRE_ML` | `false` | `true` refuses to start without the model layers (not with `GUARD_ENV=dev`) |
 | `MODELS_MANIFEST` | empty (the manifest built into the binary) | Manifest file read at start and on every reload: what a reload verifies against, and what `/readyz` reports as recommended. See [Shadow mode and model reload](#shadow-mode-and-model-reload) |
 | `SHADOW_L2_MODEL` / `SHADOW_L2_MODEL_DIR` | empty (off) | Candidate classifier compared with the active one on the same traffic, as `name@version` or a directory. It never changes a decision |

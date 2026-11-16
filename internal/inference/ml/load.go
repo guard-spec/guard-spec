@@ -64,9 +64,14 @@ var DefaultCascade = fusion.Cascade{Low: 0.03, High: 0.965}
 const DefaultL1Floor = 0.985
 
 // DefaultUntrustedL1Floor is the calibrated L1 score at or above which L1
-// alone decides on untrusted content (UNTRUSTED_L1_FLOOR). 0 until chosen on
-// indirect1 dev (RF-67fdf675).
-const DefaultUntrustedL1Floor = 0
+// alone decides on untrusted content (UNTRUSTED_L1_FLOOR). Chosen on indirect1
+// dev (RF-67fdf675, train/reports/indirect1_preregistration.md), never on its
+// holdout: with v3b and the ei.* rules, 0.90 catches 63.9% of 1,400 dev
+// attacks (42.9% without the floor and the rules) and blocks 2 of 471 clean
+// rows, as before; 0.95 caught fewer and blocked no fewer. The CI eval gates
+// do not regress, and v8e's long path on long5 still blocks 0 of 150 benign
+// documents and catches 487 of 560 embedded attacks.
+const DefaultUntrustedL1Floor = 0.90
 
 // Config selects and locates the detection layers.
 type Config struct {
