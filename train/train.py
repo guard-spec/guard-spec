@@ -175,6 +175,8 @@ def main():
                     "(validation unchanged)")
     ap.add_argument("--v8-dir", help="v8: a data/build_v8.py output: --v8-file is added to training (validation unchanged)")
     ap.add_argument("--v8-file", default=V8_TRAIN, help="v8: v8_train.jsonl (default) or v8e_train.jsonl (arm E)")
+    ap.add_argument("--extra-train", action="append", default=[], metavar="FILE",
+                    help="add this JSONL file to training (repeatable), e.g. R8b's persona hard negatives (arm E+P)")
     ap.add_argument("--oversample-kind", action="append", default=[], metavar="KIND=FACTOR",
                     help="v5: repeat training rows of a v5 `kind` (repeatable), e.g. log_vi_repeat=2 (arm C); "
                          "v6: twin=2 (arm B), secdoc_en=2 (arm C)")
@@ -214,6 +216,7 @@ def main():
         train_files.append(f"{a.v7_dir}/{V7_TRAIN}")
     if a.v8_dir:
         train_files.append(f"{a.v8_dir}/{a.v8_file}")
+    train_files += a.extra_train
     cfg["data"]["train_files"] = train_files
     seed_everything(cfg["seed"])
     labels = cfg["labels"]
