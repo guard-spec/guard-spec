@@ -315,7 +315,8 @@ jobs:
   # (Settings > Secrets and variables > Actions > Variables), as
   # <hf-repo>@<commit-sha>, set from the Publish model workflow's summary. The
   # commit must hold the five files of build/gateway-full.l2.sha256 at the
-  # repository root (train/hf/stage.sh stages exactly those). While it is unset,
+  # repository root: since v0.9.0, guardspec-classifier v8e, the Hugging Face
+  # branch v8e at the revision pinned in models/manifest.yaml. While it is unset,
   # these jobs are skipped with a notice and the rest of the release is unchanged.
   # ---------------------------------------------------------------------------
   gateway-full-gate:
@@ -328,7 +329,7 @@ jobs:
           L2_SOURCE: ${{ vars.GATEWAY_FULL_L2_SOURCE }}
         run: |
           if [ -z "$L2_SOURCE" ]; then
-            msg="gateway-full skipped: the repository variable GATEWAY_FULL_L2_SOURCE is not set (the L2 model guardspec-classifier-v3b is not published yet). Set it to <hf-repo>@<commit-sha> to build ghcr.io/${GITHUB_REPOSITORY_OWNER}/guard-spec-gateway-full."
+            msg="gateway-full skipped: the repository variable GATEWAY_FULL_L2_SOURCE is not set (the L2 model guardspec-classifier-v8e). Set it to <hf-repo>@<commit-sha> to build ghcr.io/${GITHUB_REPOSITORY_OWNER}/guard-spec-gateway-full."
             echo "::notice title=gateway-full skipped::$msg"
             echo "$msg" >> "$GITHUB_STEP_SUMMARY"
             echo "enabled=false" >> "$GITHUB_OUTPUT"
@@ -382,8 +383,8 @@ jobs:
           manifest="$RUNNER_TEMP/l2-manifest.yaml"
           {
             echo "models:"
-            echo "  - name: guardspec-classifier-v3b"
-            echo "    version: v3b"
+            echo "  - name: guardspec-classifier-v8e"
+            echo "    version: v8e"
             echo "    kind: classifier"
             echo "    repo: $repo"
             echo "    revision: $rev"

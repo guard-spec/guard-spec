@@ -18,7 +18,7 @@ gateway:
   extraEnvFrom:
     - secretRef: {name: guard-spec-alerts}
   shadow:
-    model: guardspec-classifier@v3b
+    model: guardspec-classifier@v8e
     sample: "0.5"
     maxInflight: "2"
   modelsManifest: /models/manifest.yaml
@@ -65,7 +65,7 @@ models:
   existingClaim: guard-spec-models
   pull:
     enabled: true
-    models: [guardspec-classifier@v3b, multilingual-e5-small]
+    models: [guardspec-classifier@v8e, multilingual-e5-small]
     mirror: https://models.example.com/guard-spec
     hfToken:
       secretName: guard-spec-hf

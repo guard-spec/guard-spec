@@ -14,10 +14,11 @@
 #   version defaults to v3b; model-dir defaults to
 #   models/local/guardspec-classifier-<version> of this checkout.
 #
-# v3b: calibration.json and README.md of this directory, and the SHA-256 of
-# every file is checked against build/gateway-full.l2.sha256 (the pin the
-# gateway-full image builds with). Any other version: train/hf/<version>/ holds
-# its calibration.json, README.md and SHA256SUMS (the pins). Either way a
+# v3b: calibration.json and README.md of this directory (the card of the Hugging
+# Face main branch), and the SHA-256 of every file is checked against
+# train/hf/v3b/SHA256SUMS (until v0.9.0 also the gateway-full pin). Any other
+# version: train/hf/<version>/ holds its calibration.json, README.md and
+# SHA256SUMS (the pins). Either way a
 # different export cannot be staged by mistake.
 set -eu
 
@@ -28,7 +29,7 @@ version=${3:-v3b}
 src=${2:-$root/models/local/guardspec-classifier-$version}
 if [ "$version" = v3b ]; then
   meta=$here
-  pins=$root/build/gateway-full.l2.sha256
+  pins=$here/v3b/SHA256SUMS
 else
   meta=$here/$version
   pins=$meta/SHA256SUMS

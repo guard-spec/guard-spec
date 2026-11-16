@@ -6,11 +6,25 @@ pipeline_tag: text-classification
 tags: [prompt-injection, jailbreak, guardrail, onnx, int8]
 ---
 
-# guardspec-classifier-v3b
+# guardspec-classifier (default: v8e since v0.9.0; v3b before)
 
 Copyright The Guard Spec Authors. Licensed under the Apache License 2.0.
 
-## v8e (2026-11-15): candidate for long documents, not the default
+## v8e becomes the default (v0.9.0, RF-3d02f45e)
+
+The owner made v8e the recommended classifier on 2026-11-17, after three rounds closed the gaps `short1` found:
+
+- **Email injection** (RF-67fdf675): the untrusted-content L1 floor and the `ei.*` rules let rule matches decide on
+  tool content. On the fresh `indirect1` holdout, v8e catches 72.3% of attacks, up from 26.2%
+  (`reports/indirect1_holdout.md`).
+- **Persona prompts** (RF-f9d52639, R8b): on the fresh `persona2` holdout, v8e blocks 0% of Vietnamese and 3.3% of
+  English enterprise and persona prompts (`reports/persona1_holdout.md`, `reports/r8b_report.md`).
+- **Seed noise** (R8b): of three seeds of the same recipe, v8e is the best. On the `eval/data` hold-out half its
+  TPR at FPR ≤ 1% is 0.960, and it blocks 0 of 511 benign rows at 0.85.
+
+v3b stays in the manifest for rollback (`L2_MODEL=guardspec-classifier@v3b`).
+
+## v8e (2026-11-15): candidate for long documents
 
 v8e (task RF-b15702bf) packages R7's arm E (`MODEL_CARD.md`, "R7" and "R8a" under v6) with the long-path decision
 R8a measured, `strong75_l2`, written into `calibration.json` as `long_doc`
@@ -39,7 +53,7 @@ R8a measured, `strong75_l2`, written into `calibration.json` as `long_doc`
   - On `long5` with `long_doc`, it blocks 1 of 150 benign documents (INT8: 0) and catches 480 of 554 embedded
     attacks (INT8: 481).
 
-v8e is a shadow-mode candidate (`SHADOW_L2_MODEL=guardspec-classifier@v8e`). Published 2026-11-15: Hugging Face branch `v8e` (revision
+v8e was a shadow-mode candidate until v0.9.0 made it the default. Published 2026-11-15: Hugging Face branch `v8e` (revision
 `c9ed6c3b`, pinned in `models/manifest.yaml`) and the signed GitHub Release `model-guardspec-classifier-v8e`.
 
 ## v6 (2026-11-11): round 3 candidate for long documents, not the default

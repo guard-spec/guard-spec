@@ -1,7 +1,7 @@
 # Models that internal/onnx can load. Fetch them with:
 #
 #   go run ./cmd/models pull                           # every recommended, non-optional model
-#   go run ./cmd/models pull guardspec-classifier@v3b  # one version
+#   go run ./cmd/models pull guardspec-classifier@v8e  # one version
 #   go run ./cmd/models list --available               # what this manifest offers
 #
 # docs/models.md covers versions, pinning, rollback and air-gapped installs.
@@ -42,7 +42,6 @@ models:
   # internal/inference/ml/calibration.go).
   - name: guardspec-classifier
     version: v3b
-    recommended: true
     kind: classifier
     # Hugging Face commit of the upload (Publish model workflow); the GitHub
     # Release mirror below holds the same files.
@@ -196,18 +195,21 @@ models:
         size: 1337
         sha256: ab7281b6b442c2fd970a5c7cb4f232cba37766cd3548ef4f7530aec44617625d
 
-  # v8e candidate (train/MODEL_CARD.md, "v8e"): not recommended; v3b stays the
-  # default, and v8e runs in shadow mode first, as v6 does. Round R7's arm E
+  # v8e, the default classifier since v0.9.0 (RF-3d02f45e; v3b above stays
+  # available with L2_MODEL=guardspec-classifier@v3b). Round R7's arm E
   # (the v6 data plus benign and attack windows cut from the same long hosts)
   # with the long-path decision of R8a in calibration.json (long_doc:
   # corroborate_l1 0.75, min_l2 0.95). On the long8 holdout it blocked 1 of
-  # 602 benign long documents; on the short1 holdout it did not meet the bar
-  # for replacing v3b (train/reports/v8e_short_holdout.md). model_fp16.onnx
+  # 602 benign long documents. short1's email-injection gap was closed by the
+  # untrusted-content L1 floor (indirect1_holdout.md), and its persona false
+  # positives were measured on enterprise prompts (persona1/R8b: 3.3% EN, 0% VI).
+  # model_fp16.onnx
   # is the GPU option, with its own fp16 block (fp16_agreement_v8e.md).
   # Published 2026-11-15: Hugging Face branch v8e at the revision below, and
   # the signed GitHub Release model-guardspec-classifier-v8e as the mirror.
   - name: guardspec-classifier
     version: v8e
+    recommended: true
     kind: classifier
     repo: guard-spec/guardspec-classifier
     revision: "c9ed6c3b772eb0a016d93f6caf335b26079b765e"

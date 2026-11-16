@@ -488,7 +488,9 @@ var builtinManifest = sync.OnceValues(func() (*onnx.Manifest, error) {
 //  2. L2_MODEL=name@version: MODEL_DIR/cache/<name>/<version>; a bare name
 //     is its recommended version in the manifest;
 //  3. the manifest's recommended classifier, MODEL_DIR/cache/<name>/<version>,
-//     when installed;
+//     when installed; else another installed version of the same model, in
+//     manifest order, with a warning (an install from before the recommended
+//     version changed);
 //  4. the directories from before versions (L2Defaults), the first installed.
 //
 // Steps 1 and 2 are explicit choices: the directory is returned even when it
@@ -534,6 +536,22 @@ func resolveDir(manifest func() (*onnx.Manifest, error), modelDir, dir, ref, ref
 				return d, nil
 			}
 			tried = append(tried, d)
+			// An install from before the recommended version changed (v3b
+			// before v0.9.0) keeps working on the version it pulled, with a
+			// warning, instead of starting without the model layer.
+			for i := range m.Models {
+				o := &m.Models[i]
+				if o.Name != mod.Name || o.Version == mod.Version || o.Optional {
+					continue
+				}
+				od := o.Dir(filepath.Join(modelDir, ModelCacheSubdir))
+				if hasModel(od) {
+					slog.Warn("the recommended model is not installed; using another installed version",
+						"kind", kind, "recommended", mod.Name+"@"+mod.Version, "using", o.Name+"@"+o.Version,
+						"fix", "run `models pull`, or set "+refEnv+"="+o.Name+"@"+o.Version+" to keep it")
+					return od, nil
+				}
+			}
 		}
 	}
 	for _, sub := range legacy {

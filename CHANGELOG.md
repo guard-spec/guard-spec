@@ -11,6 +11,23 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ### Changed
 
+- **The default classifier is now `guardspec-classifier` v8e** (RF-3d02f45e). It was v3b before.
+  - Why:
+    - long documents: 1 of 602 benign documents blocked on the fresh long8 holdout;
+    - email injection: with the untrusted-content L1 floor, 72.3% caught on the fresh indirect1 holdout;
+    - persona prompts: on the fresh persona2 holdout, 0% Vietnamese and 3.3% English blocked;
+    - user messages: on the eval/data hold-out half, TPR at FPR ≤ 1% is 0.960, and none of 511 benign rows is
+      blocked at 0.85.
+  - `models/manifest.yaml` recommends v8e, so `models-init` and `models pull` fetch it.
+  - The `gateway-full` image bakes in v8e at `/models/local/guardspec-classifier-v8e`.
+  - **Upgrade note.**
+    - An install that only has v3b keeps using v3b, with a warning, until v8e is pulled. Before, the gateway would
+      have looked only in the old `models/local` directories.
+    - To stay on v3b, set `L2_MODEL=guardspec-classifier@v3b`.
+    - v8e caps the classifier on tool content (`l2_untrusted_max` 0.88), so rule matches decide there. The L1 floor
+      on untrusted content is on by default.
+  - The v3b pins moved from `build/gateway-full.l2.sha256` to `train/hf/v3b/SHA256SUMS`.
+
 - **R8b: seed noise of v8e's recipe, and a persona-trained arm** (RF-a957551a). Report: `train/reports/r8b_report.md`.
   - Training only.
   - Retraining v8e's recipe with two other seeds moves eval/data hold-out TPR at FPR ≤ 1% between 0.915 and 0.960,

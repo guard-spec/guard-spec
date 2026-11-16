@@ -80,7 +80,7 @@ body:
     attributes:
       label: Detector layers
       description: DETECTOR_LAYERS, the classifier version and the fusion (the Models page shows them).
-      placeholder: l1,l2,l3 · guardspec-classifier@v3b · fusion logreg
+      placeholder: l1,l2,l3 · guardspec-classifier@v8e · fusion logreg
     validations:
       required: true
   - type: textarea

@@ -197,7 +197,7 @@ gateway:
   # candidate must be in the models volume (models.pull.models), and it costs
   # about one more classifier in memory and CPU for sampled requests.
   shadow:
-    model: ""        # name@version, e.g. guardspec-classifier@v3b
+    model: ""        # name@version, e.g. guardspec-classifier@v8e
     modelDir: ""     # a directory under /models; wins over model
     sample: "1"      # share of requests compared, 0 to 1
     timeout: "2s"    # budget of one request's comparison

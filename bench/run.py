@@ -261,7 +261,7 @@ def ensure_models(cache: Path) -> tuple[Path, Path]:
     want = ["protectai-deberta-v3-base-pi-v2@90c9989"]
     gs_root = Path(os.environ["MODEL_DIR"]) if os.environ.get("MODEL_DIR") else root
     if not os.environ.get("MODEL_DIR"):
-        want += ["guardspec-classifier@v3b", "multilingual-e5-small@614241f"]
+        want += ["guardspec-classifier@v8e", "multilingual-e5-small@614241f"]
     run(["go", "run", "./cmd/models", "pull", "-dir", str(root / "cache"), *want])
     return gs_root, root
 

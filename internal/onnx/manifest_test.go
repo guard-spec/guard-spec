@@ -30,7 +30,7 @@ func TestRepoManifestIsValid(t *testing.T) {
 			t.Errorf("manifest lacks %s", name)
 		}
 	}
-	if c := m.Recommended("classifier"); c == nil || c.Ref() != "guardspec-classifier@v3b" {
+	if c := m.Recommended("classifier"); c == nil || c.Ref() != "guardspec-classifier@v8e" {
 		t.Errorf("recommended classifier: %+v", c)
 	}
 	if e := m.Recommended("embedder"); e == nil || e.Name != "multilingual-e5-small" {
