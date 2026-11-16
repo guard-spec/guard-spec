@@ -11,6 +11,13 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ### Changed
 
+- **R8b: seed noise of v8e's recipe, and a persona-trained arm** (RF-a957551a). Report: `train/reports/r8b_report.md`.
+  - Training only.
+  - Retraining v8e's recipe with two other seeds moves eval/data hold-out TPR at FPR ≤ 1% between 0.915 and 0.960,
+    and long5 embedded detection between 83.2% and 87.0%. The shipped v8e is the best of the three.
+  - Adding 1,573 benign persona prompts (arm E+P) cuts English persona false positives on a fresh holdout from 3.3%
+    to 0.5%. It also blocks 4 of 150 benign English technical documents on the long path, so it is not adopted.
+  - `train.py --extra-train` adds a JSONL file to training.
 - **Fewer benign persona and role prompts blocked** (RF-f9d52639).
   - What changed: 59 benign "act as …" prompts from prompts.chat (CC0) were added to the built-in L3 exemplar set.
   - Fresh holdout `persona1`, pre-registered, label-audited, scored once. With v3b:
