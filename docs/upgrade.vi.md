@@ -101,6 +101,13 @@ curl -s localhost:8080/readyz | jq .detector        # 6. or https://<GATEWAY_HOS
   nó trước khi gateway khởi động (với `DETECTOR_REQUIRE_ML=true`, mặc định
   của production, một lần tải lỗi sẽ dừng `up` trước khi gateway mới khởi
   động). Khi đã ghim `L2_MODEL` / `L3_MODEL`, gateway giữ phiên bản đã ghim.
+- **0.9.0 đổi classifier khuyến nghị từ v3b sang v8e.**
+  - `models-init` tải v8e trước khi gateway khởi động.
+  - Gateway không chạy `models-init` mà chỉ có v3b vẫn dùng v3b, kèm cảnh báo trong log, cho tới khi v8e được tải.
+  - Muốn giữ v3b, đặt `L2_MODEL=guardspec-classifier@v3b`. Muốn so sánh trước, chạy v8e ở shadow mode (bên dưới).
+  - 0.9.0 cũng bật `UNTRUSTED_L1_FLOOR=0.90`: với kết quả tool và tài liệu, luật khớp gần chắc chắn sẽ chặn dù
+    classifier thấy văn bản sạch. `off` để quay về hành vi cũ.
+  - Không có migration.
 - Phiên bản classifier mới: để thử trước khi chuyển, giữ `L2_MODEL` đã ghim
   và đặt `SHADOW_L2_MODEL=guardspec-classifier@<new>`. Nó chấm điểm cùng lưu
   lượng nhưng không ra quyết định; so sánh trong giao diện quản trị
