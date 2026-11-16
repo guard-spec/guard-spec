@@ -16,18 +16,19 @@ import (
 // -tags onnx and the model files.
 const mlDetector = "fusion-ml"
 
-// newMLDetector builds the fusion-ml detector and the classifier's cap for
-// untrusted content (nil without one). Its report name carries the layers,
+// newMLDetector builds the fusion-ml detector, the classifier's cap for
+// untrusted content (nil without one) and the untrusted-content L1 floor (nil
+// when off). Its report name carries the layers,
 // the fusion method and the cascade, so a baseline is only compared with the
 // same configuration.
-func newMLDetector(layers string, cascade bool, method string) (evalset.Detector, inference.ChunkAdjust, string, error) {
+func newMLDetector(layers string, cascade bool, method string) (evalset.Detector, inference.ChunkAdjust, inference.ChunkAdjust, string, error) {
 	cfg, err := ml.ConfigFromEnv(os.Getenv)
 	if err != nil {
-		return nil, nil, "", err
+		return nil, nil, nil, "", err
 	}
 	if layers != "" {
 		if cfg.Layers, err = ml.ParseLayers(layers); err != nil {
-			return nil, nil, "", err
+			return nil, nil, nil, "", err
 		}
 	}
 	if cascade && cfg.Cascade == nil {
@@ -39,16 +40,16 @@ func newMLDetector(layers string, cascade bool, method string) (evalset.Detector
 	}
 	stack, err := ml.Build(context.Background(), cfg, nil)
 	if err != nil {
-		return nil, nil, "", err
+		return nil, nil, nil, "", err
 	}
 	if stack.Degraded() {
 		_ = stack.Close()
-		return nil, nil, "", errors.New("model layers unavailable:\n  " + strings.Join(stack.Problems, "\n  "))
+		return nil, nil, nil, "", errors.New("model layers unavailable:\n  " + strings.Join(stack.Problems, "\n  "))
 	}
 	name := mlDetector + ":" + ml.LayerKey(stack.Active) + "/" + stack.Fusion
 	if cfg.Cascade != nil {
 		name += "/cascade"
 	}
 	r := inference.NewRunnerWith(inference.FusedBackend{F: stack.Fuser})
-	return evalset.RunnerDetector{Runner: r}, stack.UntrustedAdjust(), name, nil
+	return evalset.RunnerDetector{Runner: r}, stack.CapAdjust(), stack.L1FloorAdjust(), name, nil
 }

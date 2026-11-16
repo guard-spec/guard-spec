@@ -9,6 +9,23 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ## [Unreleased]
 
+### Changed
+
+- **Instructions inside emails and tool results are caught much more often** (RF-67fdf675).
+  - New L1 rules `ei.*`: an email or tool result that dictates a message to an address ("send an email to … with
+    the text …"), or hands the agent a new task or a tool call. English and Vietnamese.
+  - New `UNTRUSTED_L1_FLOOR` (default `0.90`): on tool results and documents only, a calibrated L1 score at or
+    above it is a lower bound of the fused score. Before, the logistic combiner let a classifier that found the
+    text clean (or a capped one, v8e) outvote a near-certain rule match. `off` restores the previous behaviour.
+  - Fresh holdout `indirect1` (LLMail level 2, AgentDojo, clean function results; pre-registered, scored once),
+    tool path, at 0.85:
+    - v3b catches 77.0% of 560 attacks, up from 47.7%;
+    - it blocks 5 of 541 clean rows, up from 3 (CP95 upper bound 2.1%);
+    - v8e catches 72.3%, up from 26.2%.
+  - CI gates: `eval/embedded` catches 86.3% of attacks, up from 75.0%; `eval/codelog` blocks 27 of 310 clean
+    rows, up from 25. The tool-path ONNX baselines were refreshed (detector name `/l1floor`).
+  - Report: `train/reports/indirect1_holdout.md`.
+
 ### Fixed
 
 - **The sanitizer no longer cuts markup and code out of the text it forwards** (RF-4131836b).

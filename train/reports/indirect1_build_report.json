@@ -1,0 +1,278 @@
+{
+ "seed": 20261116,
+ "revisions": {
+  "llmail": "1063bdf01ec8762b812d5e06ee768a06faa5a6f7",
+  "injecagent": "f19c9f2c79a41046eb13c03c51a24c567a8ffa07",
+  "bipia": "a004b69ec0dd446e0afd461d98cb5e96e120a5d0",
+  "agentdojo": "089ed468cf3ed0322acc66b0211f26d9d90dbf60",
+  "glaive": "e7f4b6456019f5d8bcb991ef0dd67d8ff23221ac"
+ },
+ "llmail_holdout_level": "2",
+ "prior_files": {
+  "<repo>/eval/data/en.jsonl": 926,
+  "<repo>/eval/data/vi.jsonl": 1250,
+  "<repo>/train/data/pilot_labels.jsonl": 200,
+  "<repo>/train/data/probe_v4.jsonl": 4,
+  "<repo>/train/data/realistic/realistic_holdout.jsonl": 613,
+  "<repo>/train/data/realistic/realistic_train.jsonl": 2412,
+  "<repo>/train/data/train.jsonl": 31522,
+  "<repo>/train/data/val.jsonl": 5125,
+  "<repo>/train/data/val_hard.jsonl": 829,
+  "<repo>/train/data/val_realistic_holdout.jsonl": 613,
+  "<repo>/train/data/val_v3.jsonl": 508,
+  "<repo>/train/data/val_v3_holdout.jsonl": 1510,
+  "<repo>/train/data/val_v4.jsonl": 333,
+  "<repo>/train/data/val_v4_holdout.jsonl": 141,
+  "<repo>/train/data/val_vi_variants.jsonl": 1408,
+  "<data>/processed/user2_holdout.jsonl": 460,
+  "<data>/processed/user2_train.jsonl": 1140,
+  "<data>/processed/user_holdout.jsonl": 220,
+  "<data>/processed/user_train.jsonl": 580,
+  "<data>/v5/out-full/v5_train.jsonl": 15841,
+  "<data>/v5/out-full/v5_val.jsonl": 2203,
+  "<data>/v5/out-full/val_v5.jsonl": 2267,
+  "<data>/v5/out-full/val_v5_holdout.jsonl": 2216,
+  "<data>/v5/work/data-v3b/otpkyc_probe.jsonl": 120,
+  "<data>/v5/work/data-v3b/train.jsonl": 31215,
+  "<data>/v5/work/data-v3b/user_holdout.jsonl": 220,
+  "<data>/v5/work/data-v3b/val.jsonl": 4832,
+  "<data>/v5/work/data-v3b/val_hard.jsonl": 829,
+  "<data>/v5/work/data-v3b/val_realistic_holdout.jsonl": 613,
+  "<data>/v5/work/data-v3b/val_v3.jsonl": 508,
+  "<data>/v5/work/data-v3b/val_v3_holdout.jsonl": 1510,
+  "<data>/v5/work/data-v3b/val_vi_variants.jsonl": 1408,
+  "<data>/v5/work/data-v4A/otpkyc_probe.jsonl": 120,
+  "<data>/v5/work/data-v4A/probe_v4.jsonl": 4,
+  "<data>/v5/work/data-v4A/train.jsonl": 33366,
+  "<data>/v5/work/data-v4A/user_holdout.jsonl": 460,
+  "<data>/v5/work/data-v4A/val.jsonl": 5269,
+  "<data>/v5/work/data-v4A/val_hard.jsonl": 829,
+  "<data>/v5/work/data-v4A/val_realistic_holdout.jsonl": 613,
+  "<data>/v5/work/data-v4A/val_v3.jsonl": 508,
+  "<data>/v5/work/data-v4A/val_v3_holdout.jsonl": 1510,
+  "<data>/v5/work/data-v4A/val_v4.jsonl": 333,
+  "<data>/v5/work/data-v4A/val_v4_holdout.jsonl": 141,
+  "<data>/v5/work/data-v4A/val_vi_variants.jsonl": 1408,
+  "<data>/v5r2/out-full/v5_train.jsonl": 15876,
+  "<data>/v5r2/out-full/v5_val.jsonl": 2169,
+  "<data>/v5r2/out-full/val_v5.jsonl": 2259,
+  "<data>/v5r2/out-full/val_v5_holdout.jsonl": 2214,
+  "<data>/v5r2/work/data-v3b/otpkyc_probe.jsonl": 120,
+  "<data>/v5r2/work/data-v3b/train.jsonl": 31215,
+  "<data>/v5r2/work/data-v3b/user_holdout.jsonl": 220,
+  "<data>/v5r2/work/data-v3b/val.jsonl": 4832,
+  "<data>/v5r2/work/data-v3b/val_hard.jsonl": 829,
+  "<data>/v5r2/work/data-v3b/val_realistic_holdout.jsonl": 613,
+  "<data>/v5r2/work/data-v3b/val_v3.jsonl": 508,
+  "<data>/v5r2/work/data-v3b/val_v3_holdout.jsonl": 1510,
+  "<data>/v5r2/work/data-v3b/val_vi_variants.jsonl": 1408,
+  "<data>/v5r2/work/data-v4A/otpkyc_probe.jsonl": 120,
+  "<data>/v5r2/work/data-v4A/probe_v4.jsonl": 4,
+  "<data>/v5r2/work/data-v4A/train.jsonl": 33366,
+  "<data>/v5r2/work/data-v4A/user_holdout.jsonl": 460,
+  "<data>/v5r2/work/data-v4A/val.jsonl": 5269,
+  "<data>/v5r2/work/data-v4A/val_hard.jsonl": 829,
+  "<data>/v5r2/work/data-v4A/val_realistic_holdout.jsonl": 613,
+  "<data>/v5r2/work/data-v4A/val_v3.jsonl": 508,
+  "<data>/v5r2/work/data-v4A/val_v3_holdout.jsonl": 1510,
+  "<data>/v5r2/work/data-v4A/val_v4.jsonl": 333,
+  "<data>/v5r2/work/data-v4A/val_v4_holdout.jsonl": 141,
+  "<data>/v5r2/work/data-v4A/val_vi_variants.jsonl": 1408,
+  "<data>/v6/out-full/v6_train.jsonl": 15785,
+  "<data>/v6/out-full/v6_val.jsonl": 2211,
+  "<data>/v6/out-full/val_v6.jsonl": 2227,
+  "<data>/v6/out-full/val_v6_holdout.jsonl": 2238,
+  "<data>/v7/data/generated.jsonl": 960,
+  "<data>/v7/data/mine/sanitized.jsonl": 475,
+  "<data>/v7/data/v7_train.jsonl": 11270,
+  "<data>/v8/data/v8_train.jsonl": 22540,
+  "<data>/v8/data/v8e_train.jsonl": 16906,
+  "<data>/v8/data-rerun/v8_train.jsonl": 22540,
+  "<data>/v8/data-rerun/v8e_train.jsonl": 16906,
+  "<public bench test splits + jackhhao train>": 17545,
+  "<short1, hashed only>": 2426
+ },
+ "agentdojo": {
+  "goals": {
+   "banking": 17,
+   "slack": 5,
+   "travel": 9,
+   "workspace": 15
+  },
+  "records": {
+   "banking": 9,
+   "slack": 10,
+   "travel": 41,
+   "workspace": 83
+  }
+ },
+ "strata": {
+  "agentdojo_attack/holdout": {
+   "candidates": 195,
+   "kept": 160,
+   "near_dup": 35
+  },
+  "agentdojo_benign/holdout": {
+   "candidates": 143,
+   "kept": 141,
+   "exact_dup": 1,
+   "near_dup": 1
+  },
+  "glaive_benign/holdout": {
+   "candidates": 2834,
+   "kept": 400,
+   "exact_dup": 311,
+   "near_dup": 12,
+   "attack_marker": 9,
+   "cap": 2102
+  },
+  "llmail_p1/holdout": {
+   "candidates": 18208,
+   "kept": 400,
+   "near_dup": 80,
+   "length": 980,
+   "prior_overlap": 57,
+   "cap": 16691
+  },
+  "bipia_attack/dev": {
+   "candidates": 150,
+   "kept": 104,
+   "near_dup": 46
+  },
+  "bipia_benign/dev": {
+   "candidates": 50,
+   "kept": 44,
+   "exact_dup": 6
+  },
+  "glaive_benign/dev": {
+   "candidates": 1732,
+   "kept": 400,
+   "exact_dup": 187,
+   "near_dup": 14,
+   "attack_marker": 1,
+   "cap": 1130
+  },
+  "injecagent/dev": {
+   "candidates": 372,
+   "kept": 372
+  },
+  "injecagent_benign/dev": {
+   "candidates": 3,
+   "kept": 3
+  },
+  "llmail_benign/dev": {
+   "candidates": 45,
+   "prior_exact": 43,
+   "prior_overlap": 2
+  },
+  "llmail_p1/dev": {
+   "candidates": 21717,
+   "kept": 600,
+   "near_dup": 173,
+   "length": 1166,
+   "exact_dup": 8,
+   "prior_overlap": 89,
+   "cap": 19681
+  },
+  "llmail_p2/dev": {
+   "candidates": 4249,
+   "prior_overlap": 1252,
+   "kept": 300,
+   "prior_exact": 82,
+   "near_dup": 13,
+   "length": 46,
+   "cap": 2556
+  },
+  "vi_synth_attack/dev": {
+   "candidates": 24,
+   "kept": 24
+  },
+  "vi_synth_benign/dev": {
+   "candidates": 24,
+   "kept": 24
+  },
+  "bipia_attack/train": {
+   "candidates": 150,
+   "kept": 92,
+   "near_dup": 58
+  },
+  "bipia_benign/train": {
+   "candidates": 50,
+   "kept": 32,
+   "exact_dup": 16,
+   "near_dup": 2
+  },
+  "glaive_benign/train": {
+   "candidates": 21025,
+   "kept": 1500,
+   "exact_dup": 1875,
+   "near_dup": 245,
+   "attack_marker": 31,
+   "cap": 17373,
+   "prior_overlap": 1
+  },
+  "injecagent/train": {
+   "candidates": 1736,
+   "kept": 1668,
+   "near_dup": 68
+  },
+  "injecagent_benign/train": {
+   "candidates": 14,
+   "kept": 13,
+   "length": 1
+  },
+  "llmail_benign/train": {
+   "candidates": 158,
+   "prior_exact": 155,
+   "prior_overlap": 3
+  },
+  "llmail_p1/train": {
+   "candidates": 87445,
+   "kept": 3000,
+   "near_dup": 1514,
+   "length": 4952,
+   "exact_dup": 62,
+   "prior_overlap": 346,
+   "cap": 77571
+  },
+  "llmail_p2/train": {
+   "candidates": 16758,
+   "kept": 1500,
+   "near_dup": 159,
+   "prior_overlap": 4766,
+   "length": 179,
+   "prior_exact": 369,
+   "exact_dup": 7,
+   "cap": 9778
+  },
+  "vi_synth_attack/train": {
+   "candidates": 96,
+   "kept": 96
+  },
+  "vi_synth_benign/train": {
+   "candidates": 96,
+   "kept": 93,
+   "exact_dup": 1,
+   "near_dup": 2
+  }
+ },
+ "outputs_sha256": {
+  "holdout/tool/en.jsonl": "cc70f5c3149d67d95b662ca7df87c8704daffd00c5f4d84db1b4288f2cee48d0",
+  "dev/tool/en.jsonl": "482639d530912574a170d2762ae1e0aa4a6e930de32a21d925767d9c594af733",
+  "dev/tool/vi.jsonl": "e9e4320f318d089a23a3f1d95c89135df952566838fc58b2192d1fe992072585",
+  "train/tool/en.jsonl": "868cea4a57272451fc601618cfc0ec925a9a80ad92c63e2d150df2e1c0f76bec",
+  "train/tool/vi.jsonl": "eda28ffe130181671c7c87089dbe19a05b314c5153baeec6084da2665f207c55"
+ },
+ "totals": {
+  "holdout/en/attack": 560,
+  "holdout/en/benign": 541,
+  "dev/en/attack": 1376,
+  "dev/en/benign": 447,
+  "dev/vi/attack": 24,
+  "dev/vi/benign": 24,
+  "train/en/attack": 6260,
+  "train/en/benign": 1545,
+  "train/vi/attack": 96,
+  "train/vi/benign": 93
+ }
+}

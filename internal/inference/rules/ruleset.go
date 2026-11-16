@@ -893,6 +893,38 @@ func New() *Engine {
 			b.or(imperative, overrideVerb, newInstr))})
 	b.cue(addressAI)
 
+	// Email and agent injection (RF-67fdf675): an email or a tool result that
+	// tells the agent reading it to send a message to an address with a body it
+	// dictates, or hands it a new task or a tool call. A person asking the
+	// reader to send something rarely dictates the exact text of the message;
+	// an injected instruction usually does, since that is how the attacker
+	// checks it worked.
+	msgObj := b.t("email", "an email", "a email", "e mail", "an e mail", "mail", "a mail", "message", "a message",
+		"note", "a note", "reply", "a reply", "notification", "a notification", "confirmation",
+		"thu", "mot thu", "mot email", "tin nhan", "mot tin nhan", "thong bao")
+	bodySpec := b.t("with the text", "with text", "with the body", "with body", "with the content", "with content",
+		"with the message", "with the words", "with the word", "with the subject", "with subject",
+		"containing the text", "containing the word", "containing only", "containing just", "that says",
+		"which says", "saying", "with only the word", "body is", "body should be", "the body", "body of",
+		"voi noi dung", "kem noi dung", "noi dung la", "voi tieu de", "tieu de la", "co noi dung", "ghi rang")
+	b.add(rule{id: "ei.send_dictated", cat: IndirectInjection, w: 0.88, gap: 12, needFlag: "dest",
+		seq: seq(b.t("send", "forward", "compose", "draft", "write", "deliver", "dispatch", "email", "mail",
+			"gui", "soan", "chuyen tiep", "viet"), msgObj, bodySpec)})
+	b.add(rule{id: "ei.send_dictated.rev", cat: IndirectInjection, w: 0.88, gap: 12, needFlag: "dest",
+		seq: seq(b.t("send", "forward", "compose", "draft", "deliver", "dispatch", "gui", "soan", "chuyen tiep"),
+			msgObj, b.t("to", "toi", "den", "cho"), bodySpec)})
+	agentTask := b.t("your new task", "your next task", "your real task", "your actual task", "your side task",
+		"your true task", "new side task", "a side task", "secondary task", "additional task", "your task now",
+		"your new instructions", "your new instruction", "a new task for you", "new task for you",
+		"tool call", "tool call only", "api call", "api_call", "function call", "issue an api call",
+		"make an api call", "make a tool call", "call the tool", "call the function", "invoke the tool",
+		"use the send email", "use the email tool", "use the send_email", "send_email",
+		"nhiem vu moi cua ban", "nhiem vu that su", "nhiem vu phu", "nhiem vu tiep theo cua ban",
+		"goi cong cu", "goi ham", "su dung cong cu gui")
+	b.add(rule{id: "ei.agent_task", cat: IndirectInjection, w: 0.88, gap: 12, crossSent: true,
+		seq: seq(agentTask, b.or(sendVerb, imperative))})
+	b.cue(agentTask, bodySpec)
+
 	// Hidden content: the sanitizer prefixes text that HTML hides from the
 	// reader (display:none, visibility:hidden, font-size:0, white on white,
 	// aria-hidden, comments, ...) with sanitizer.HiddenMarker. Hidden text that

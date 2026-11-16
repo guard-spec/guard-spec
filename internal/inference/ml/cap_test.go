@@ -168,3 +168,36 @@ func TestLiveUntrustedAdjustFollowsReload(t *testing.T) {
 		t.Fatalf("after reload: score %.3f rules %v, want 0.5 (max fusion, L2 at the cap)", got.Confidence, got.Detail.Rules)
 	}
 }
+
+func TestUntrustedL1Floor(t *testing.T) {
+	if UntrustedL1Floor(0) != nil {
+		t.Fatal("floor 0 is not off")
+	}
+	adj := UntrustedL1Floor(0.9)
+	sure := fusion.DefaultL1Calibration.Apply(0.88)
+	unsure := fusion.DefaultL1Calibration.Apply(0.7)
+	neutral := DefaultL3Calibration.Apply(0.5)
+	for _, tt := range []struct {
+		name   string
+		in     inference.Score
+		raised bool
+	}{
+		{"sure rule, benign classifier: raised to L1", detail(sure, 0.02, neutral, 0, "ei.send_dictated"), true},
+		{"unsure rule: unchanged", detail(unsure, 0.02, neutral, 0, "ii.tell_user"), false},
+		{"already above L1: unchanged", detail(sure, 0.999, 0.99, 0, "ei.send_dictated"), false},
+		{"no L1: unchanged", detail(fusion.Missing, 0.02, neutral, 0), false},
+	} {
+		out := adj("", tt.in)
+		if raised := out.Confidence > tt.in.Confidence; raised != tt.raised {
+			t.Errorf("%s: %.3f -> %.3f, raised %v, want %v", tt.name, tt.in.Confidence, out.Confidence, raised, tt.raised)
+		}
+		if tt.raised {
+			if float64(out.Confidence) < tt.in.Detail.L1-1e-6 || !slices.Contains(out.Detail.Rules, UntrustedL1FloorRule) {
+				t.Errorf("%s: score %.3f below L1 %.3f or rule missing: %v", tt.name, out.Confidence, tt.in.Detail.L1, out.Detail.Rules)
+			}
+			if tt.in.Detail.Rules[0] == "ei.send_dictated" && slices.Contains(tt.in.Detail.Rules, UntrustedL1FloorRule) {
+				t.Errorf("%s: input detail was modified", tt.name)
+			}
+		}
+	}
+}
