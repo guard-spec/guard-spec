@@ -101,6 +101,13 @@ curl -s localhost:8080/readyz | jq .detector        # 6. or https://<GATEWAY_HOS
   production default, a failed pull stops `up` before the new gateway
   starts). With `L2_MODEL` / `L3_MODEL` pinned, the gateway
   keeps the pinned version.
+- **0.9.0 changes the recommended classifier from v3b to v8e.**
+  - `models-init` pulls v8e before the gateway starts.
+  - A gateway without `models-init` that only has v3b keeps using it, with a warning in the log, until v8e is pulled.
+  - To stay on v3b, set `L2_MODEL=guardspec-classifier@v3b`. To compare first, run v8e in shadow mode (below).
+  - 0.9.0 also turns on `UNTRUSTED_L1_FLOOR=0.90`: on tool results and documents, a near-certain rule match blocks
+    even when the classifier finds the text clean. `off` restores the previous behaviour.
+  - No migration.
 - New classifier version: to try it before switching, keep `L2_MODEL`
   pinned and set `SHADOW_L2_MODEL=guardspec-classifier@<new>`. It scores the
   same traffic without deciding; compare in the admin UI (**Models**). Then

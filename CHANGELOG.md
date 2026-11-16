@@ -9,6 +9,21 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-17
+
+### Upgrade notes
+
+- **The default classifier changes from v3b to v8e.**
+  - `models-init`, or `models pull`, fetches v8e.
+  - Until it is installed, a gateway that only has v3b keeps using it and logs a warning.
+  - To stay on v3b, set `L2_MODEL=guardspec-classifier@v3b`.
+  - The `gateway-full` image carries v8e.
+- **New default `UNTRUSTED_L1_FLOOR=0.90`.** On tool results and documents, a near-certain rule match now blocks even
+  when the classifier finds the text clean. Set `off` for the previous behaviour.
+- **The sanitizer forwards the text as written.** Only invisible, bidi and control characters, ANSI escapes and
+  spoofed markers are removed. Detectors read a separate scan view. `/guardrail/sanitize` returns the scan view.
+- No database migration.
+
 ### Changed
 
 - **The default classifier is now `guardspec-classifier` v8e** (RF-3d02f45e). It was v3b before.
@@ -99,7 +114,8 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ### Research
 
-- **v8e, R7's arm E packaged with that decision: a candidate, not the default** (RF-b15702bf).
+- **v8e, R7's arm E packaged with that decision** (RF-b15702bf). It was published on 2026-11-15 as a candidate and is
+  the default since this release; see Changed.
   - On the fresh short-prompt holdout `short1` (real-world jailbreaks, chat requests and email injections,
     scored once), it does not meet the bar against v3b:
     - email injections on the tool path: 12.0% against 27.8%;
@@ -1710,7 +1726,8 @@ First release.
 - List endpoints still answer the older `{"data": [...]}` shape when called
   without `limit` and `cursor`; use the paginated form.
 
-[Unreleased]: https://github.com/guard-spec/guard-spec/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/guard-spec/guard-spec/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/guard-spec/guard-spec/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/guard-spec/guard-spec/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/guard-spec/guard-spec/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/guard-spec/guard-spec/compare/v0.5.0...v0.6.0
