@@ -212,3 +212,13 @@ jobs:
           elif [ "$FOUND" = 0 ] && [ -n "$number" ]; then
             gh issue close "$number" --comment "The daily scan of the v$VERSION images found no known vulnerabilities."
           fi
+          # An issue opened for an earlier release is never scanned again once a newer release exists. When the
+          # latest release is clean, close those issues: the fix is to upgrade.
+          if [ "$FOUND" = 0 ]; then
+            gh issue list --state open --label security --limit 200 --json number,title \
+              | jq -r '.[] | select(.title | test("^Known vulnerabilities in the v[0-9][^ ]* images$"))
+                       | select(.title != env.TITLE) | .number' \
+              | while read -r old; do
+                  gh issue close "$old" --comment "Superseded: the daily scan of the latest release, v$VERSION, finds no known vulnerabilities in its images. Upgrade to v$VERSION; older images are not patched."
+                done
+          fi
