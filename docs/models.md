@@ -17,11 +17,11 @@ tool, so the binary always knows its recommended models.
 
 | Model | Version | Layer | Recommended | Source |
 |---|---|---|---|---|
-| `guardspec-classifier` | `v3b` | L2 | yes | Hugging Face (not published yet), then the GitHub Release `model-guardspec-classifier-v3b` |
+| `guardspec-classifier` | `v3b` | L2 | no: the default before v0.9.0, kept for rollback (`L2_MODEL=guardspec-classifier@v3b`) | Hugging Face `guard-spec/guardspec-classifier` (branch `main`), then the GitHub Release `model-guardspec-classifier-v3b` |
 | `guardspec-classifier` | `v4` | L2 | no: candidate, [compare in shadow mode](#guardspec-classifier-v4-candidate) | the GitHub Release `model-guardspec-classifier-v4` (once the owner publishes it) |
 | `guardspec-classifier` | `v5` | L2 | no: candidate for code, logs and long documents, [shadow mode first](#guardspec-classifier-v5-candidate) | Hugging Face `guard-spec/guardspec-classifier` (branch `v5`), then the GitHub Release `model-guardspec-classifier-v5` |
 | `guardspec-classifier` | `v6` | L2 | no: candidate for long documents, with an FP16 file for the GPU option, [shadow mode first](#guardspec-classifier-v6-candidate) | Hugging Face `guard-spec/guardspec-classifier` (branch `v6`), then the GitHub Release `model-guardspec-classifier-v6` |
-| `guardspec-classifier` | `v8e` | L2 | no: candidate for long documents, with the long-path decision in `calibration.json` and an FP16 file, [shadow mode first](#guardspec-classifier-v8e-candidate) | Hugging Face `guard-spec/guardspec-classifier` (branch `v8e`), then the GitHub Release `model-guardspec-classifier-v8e` |
+| `guardspec-classifier` | `v8e` | L2 | **yes, since v0.9.0** ([why](#guardspec-classifier-v8e-the-default-since-v090)), with the long-path decision in `calibration.json` and an FP16 file | Hugging Face `guard-spec/guardspec-classifier` (branch `v8e`), then the GitHub Release `model-guardspec-classifier-v8e` |
 | `multilingual-e5-small` | `614241f` | L3 | yes | Hugging Face `intfloat/multilingual-e5-small` |
 | `protectai-deberta-v3-small-pi-v2` | `d7c8842` | baseline | optional, gated | Hugging Face |
 | `protectai-deberta-v3-base-pi-v2` | `90c9989` | baseline | optional | Hugging Face |
@@ -37,7 +37,7 @@ A version is installed in `<dir>/<name>/<version>/`; with compose,
 
 ```
 models/cache/
-  guardspec-classifier/v3b/     model_int8.onnx tokenizer.json config.json thresholds.json calibration.json
+  guardspec-classifier/v8e/     model_int8.onnx tokenizer.json config.json thresholds.json calibration.json
   multilingual-e5-small/614241f/  model.onnx tokenizer.json config.json
 ```
 
@@ -50,7 +50,7 @@ ONNX Runtime's CUDA execution provider (`train/export.py --fp16`). The
 manifest marks it `provider: cuda`: `models pull -provider cuda` (or
 `INFERENCE_PROVIDER=cuda`/`auto`, as in the GPU image) fetches it, a CPU
 install never does, and the CPU keeps loading `model_int8.onnx`. So far only
-`guardspec-classifier@v6` and `@v8e` have one; with another version (v3b, the default,
+`guardspec-classifier@v6` and `@v8e` (the default) have one; with another version (v3b
 included) CUDA runs the INT8 file, slowly, and `doctor` warns.
 
 ## Pulling
@@ -58,11 +58,11 @@ included) CUDA runs the INT8 file, slowly, and `doctor` warns.
 ```bash
 # Docker: models-init does this before the gateway starts, on every `up`
 docker compose --profile models run --rm models-pull                           # recommended versions
-docker compose --profile models run --rm models-pull guardspec-classifier@v3b  # one version
+docker compose --profile models run --rm models-pull guardspec-classifier@v8e  # one version
 
 # Without Docker
 go run ./cmd/models pull                              # recommended version of every non-optional model
-go run ./cmd/models pull guardspec-classifier@v3b     # one version
+go run ./cmd/models pull guardspec-classifier@v8e     # one version
 go run ./cmd/models pull -models a,b@v1               # the older flag form still works
 go run ./cmd/models list                              # what is installed
 go run ./cmd/models list --available                  # what the manifest offers
@@ -101,7 +101,10 @@ The gateway resolves each model layer in this order:
    variables; they win when set);
 2. `L2_MODEL` / `L3_MODEL` = `name@version`: `$MODEL_DIR/cache/<name>/<version>`.
    A bare name means its recommended version;
-3. nothing set: the manifest's recommended model, when installed;
+3. nothing set: the manifest's recommended model, when installed; else
+   another installed version of the same model (in manifest order), with a
+   warning in the log, so an upgrade does not drop the layer before
+   `models pull` has fetched the new recommended version;
 4. the directories from before versions: `$MODEL_DIR/local/guardspec-classifier-v3b`
    (then `-v2`, `-v1`, `-v0`) for L2 and `$MODEL_DIR/cache/multilingual-e5-small`
    for L3.
@@ -113,7 +116,7 @@ in the image and `./models` otherwise.
 `GET /readyz` shows what loaded:
 
 ```json
-{"detector":{"layers":["l1","l2","l3"],"degraded":false,"onnx":true,"fusion":"logreg","l2_model":"guardspec-classifier-v3b"},"status":"ready","version":"0.1.0"}
+{"detector":{"layers":["l1","l2","l3"],"degraded":false,"onnx":true,"fusion":"logreg","l2_model":"guardspec-classifier@v8e"},"status":"ready","version":"0.1.0"}
 ```
 
 ## Pinning
@@ -121,7 +124,7 @@ in the image and `./models` otherwise.
 - **Images** are pinned by `GUARDSPEC_VERSION` (default `0.1.0`). Each image
   contains the manifest of its release, so the models it recommends are
   pinned with it.
-- **Models** are pinned by `L2_MODEL=guardspec-classifier@v3b` (and
+- **Models** are pinned by `L2_MODEL=guardspec-classifier@v8e` (and
   `L3_MODEL`). Set them in `.env` to keep a version across image upgrades
   that recommend a newer one; models-init still pulls the new recommended
   version, but the gateway keeps loading the pinned one.
@@ -379,11 +382,10 @@ detection is a little under v5's, and `val_v3_holdout` and
 `val_realistic_holdout` stay under v3b. Every table is in
 [train/MODEL_CARD.md](../train/MODEL_CARD.md) ("v6").
 
-### guardspec-classifier v8e (candidate)
+### guardspec-classifier v8e (the default since v0.9.0)
 
-`guardspec-classifier@v8e` is listed in the manifest but is **not** the
-recommended version: v3b stays the default, and v8e runs in shadow mode
-first. It is round R7's arm E (v6's data plus pairs of benign and attack
+`guardspec-classifier@v8e` is the recommended version since v0.9.0 (v3b
+before). It is round R7's arm E (v6's data plus pairs of benign and attack
 windows cut from the same long hosts), and its `calibration.json` carries the
 long-path decision of R8a: in a text of more than 30 windows, a window blocks
 only if an L1 rule of raw weight 0.75 or more agrees (or a floor applied) and
@@ -395,18 +397,33 @@ option, with its own `fp16` block.
 
 On the `long8` holdout (scored once) it blocked 1 of 602 benign documents of
 100k and 200k tokens and caught 88.0% of embedded attacks. On the `short1`
-short-prompt holdout (scored once) it did not meet the bar for replacing
+short-prompt holdout (scored once) it first did not meet the bar for replacing
 v3b: it caught 12.0% of email injections on the tool path against v3b's
 27.8%, mostly because of the cap
 ([train/reports/v8e_short_holdout.md](../train/reports/v8e_short_holdout.md)).
+Why it became the default:
+
+- **Email injection.** With the untrusted-content L1 floor and the `ei.*`
+  rules (v0.9.0), it catches 72.3% of the fresh `indirect1` holdout's attacks
+  on the tool path, against 26.2% before ([indirect1_holdout.md](../train/reports/indirect1_holdout.md)).
+- **Persona prompts.** On the fresh `persona2` holdout it blocks 0% of
+  Vietnamese and 3.3% of English enterprise and persona prompts
+  ([r8b_report.md](../train/reports/r8b_report.md)).
+- **User messages.** On the `eval/data` hold-out half, its TPR at FPR ≤ 1% is
+  0.960 and it blocks 0 of 511 benign rows at 0.85. It is the best of three
+  training seeds of its recipe (R8b).
+
+Upgrading from an earlier release: `models-init` (or `models pull`) fetches
+v8e. Until it is installed, a gateway that only has v3b keeps using v3b and
+logs a warning. To keep v3b, set `L2_MODEL=guardspec-classifier@v3b`.
 
 **Published** on 2026-11-15: Hugging Face branch `v8e` (revision
 `c9ed6c3b`, pinned in the manifest) and the signed GitHub Release
 `model-guardspec-classifier-v8e` as the mirror.
 
 ```bash
-docker compose --profile models run --rm models-pull guardspec-classifier@v8e
-# .env: keep v3b deciding, let v8e score the same traffic.
+# Compare before switching: keep v3b deciding, let v8e score the same traffic.
+docker compose --profile models run --rm models-pull guardspec-classifier@v8e guardspec-classifier@v3b
 L2_MODEL=guardspec-classifier@v3b
 SHADOW_L2_MODEL=guardspec-classifier@v8e
 SHADOW_SAMPLE=1

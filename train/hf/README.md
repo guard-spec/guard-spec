@@ -37,17 +37,19 @@ self-hosted prompt-injection guardrail gateway. It is not an LLM and does not ge
   risk score for decisions.
 - Input: up to 256 tokens per window. Longer text should be split into windows, taking the
   maximum risk (Guard Spec does this).
-- Version: **v3b** (2026-11-04), the default classifier of Guard Spec.
+- Version: **v3b** (2026-11-04), Guard Spec's default classifier until v0.9.0. Since v0.9.0 the default is
+  **v8e** (branch [`v8e`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v8e)).
 
 ## Versions and branches
 
-`main` holds **v3b**, Guard Spec's default classifier. Other versions live on their own branches of this
+`main` holds **v3b**, Guard Spec's default classifier until v0.9.0; since v0.9.0 the default is **v8e**, on its
+own branch. Other versions also live on their own branches of this
 repository, so `main` never changes under you:
 
 | branch | version | status | files |
 |---|---|---|---|
-| `main` | **v3b** | default classifier | INT8 (CPU) |
-| [`v8e`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v8e) | **v8e** | **candidate**, published 2026-11-15, for long documents (100k–200k tokens) | INT8 (CPU) **and FP16 (GPU)** |
+| `main` | **v3b** | default until v0.9.0, kept for rollback | INT8 (CPU) |
+| [`v8e`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v8e) | **v8e** | **default since Guard Spec v0.9.0**, published 2026-11-15, built for long documents (100k–200k tokens) | INT8 (CPU) **and FP16 (GPU)** |
 | [`v6`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v6), [`v5`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v5), [`v4`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v4) | v6, v5, v4 | earlier candidates | see each branch |
 
 Each branch has its own model card with its training data, calibration and evaluation.
@@ -68,10 +70,12 @@ INT8 on the CPU through Guard Spec's gateway path unless stated.
 | GPU throughput, NVIDIA L4, FP16 | about 116,000 tokens/s on long documents | |
 
 Before you rely on v8e:
-- **It is a candidate, not the default.** On a fresh short-prompt holdout it did not meet the bar for replacing v3b;
-  in particular it catches fewer email injections on the tool path (12.0% against 27.8%).
+- **It is Guard Spec's default classifier since v0.9.0.** On tool content, its scores are capped
+  (`l2_untrusted_max` 0.88), so Guard Spec's rule layer decides there. With the v0.9.0 rules and the untrusted-content
+  L1 floor, it catches 72.3% of a fresh email-injection holdout (26.2% before). Used alone, without that rule
+  layer, it catches fewer email injections than v3b.
 - About 1% of decisions near the threshold differ between FP16 (GPU) and INT8 (CPU). Measure on your own traffic.
-- Run it in Guard Spec's **shadow mode** first: it scores next to the active model and only logs the differences.
+- To compare it with v3b on your own traffic, Guard Spec's **shadow mode** scores both and logs the differences.
 
 Download and try it:
 

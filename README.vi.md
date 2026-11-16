@@ -196,7 +196,7 @@ Nguồn của các sơ đồ ở [docs/diagrams/](docs/diagrams/)
 - **L1 luật**: chuẩn hoá văn bản thành "skeleton" (bỏ dấu, teencode, leet,
   homoglyph...) rồi áp luật có trọng số theo loại tấn công. Luôn chạy, không
   cần file model.
-- **L2 classifier**: `guardspec-classifier-v3b`, fine-tune từ
+- **L2 classifier**: `guardspec-classifier` v8e (mặc định từ v0.9.0; trước đó là v3b), fine-tune từ
   `intfloat/multilingual-e5-small`, INT8 ONNX, chạy trong tiến trình.
 - **L3 tương đồng**: embedding e5 so với exemplar tấn công/lành tính có sẵn và
   exemplar riêng của từng tổ chức.
@@ -322,7 +322,7 @@ triển chưa kiểm chứng trên các nền tảng đó; rất mong bạn báo
 | Lớp | File | Lấy ở đâu |
 |---|---|---|
 | L1 | không cần | có sẵn trong binary |
-| L2 | `models/local/guardspec-classifier-v3b/` (không có thì `-v2`, `-v1`, rồi `-v0`) | **chưa được công bố**: tự build bằng `train/`, hoặc chép file vào |
+| L2 | `models/cache/guardspec-classifier/v8e/` (bản cài cũ chỉ có `v3b/` vẫn chạy kèm cảnh báo; thư mục cũ `models/local/guardspec-classifier-v3b/`, `-v2`, `-v1`, `-v0` vẫn đọc được) | `docker compose --profile models run --rm models-pull` (Hugging Face, kiểm SHA-256); giữ bản cũ bằng `L2_MODEL=guardspec-classifier@v3b` |
 | L3 | `models/cache/multilingual-e5-small/` | `docker compose --profile models run --rm models-pull` (tải từ Hugging Face, kiểm SHA-256) |
 
 Build classifier (xem [train/MODEL_CARD.md](train/MODEL_CARD.md)):
@@ -1056,6 +1056,7 @@ amd64 và arm64 ở mục "Độ trễ trên Linux" bên dưới. Bộ eval `eva
 | L1 + L2 | 0.985 | 0.942 | 2,6% | 3,4% | 6,3% | 3,8% | 2,7 / 7,6 ms |
 | L1 + L2 + L3 | 0.985 | 0.939 | 2,7% | 3,6% | 7,0% | 3,8% | 3,7 / 11,3 ms |
 | L1 + L2 + L3, cascade | 0.987 | 0.953 | 2,7% | 3,6% | 7,0% | 3,8% | 2,9 / 8,5 ms |
+| **L1 + L2 + L3 (v8e, mặc định từ v0.9.0), đo 2026-11-16** | 0.987 | 0.928 | 0,2% | 0,3% | 0,7% | 0,4% | như v3b |
 
 Lệnh tái lập: `go run ./cmd/eval` (L1) và
 `go run -tags onnx ./cmd/eval -layers l1,l2,l3 [-cascade]` (xem README tiếng Anh).
@@ -1095,7 +1096,7 @@ lần lượt từng dòng):
 |---|---|---|
 | Chỉ L1 | 0,15 / 0,34 / 0,48 ms | 0,17 / 0,34 / 0,49 ms |
 | L1 + L2 (v3b) | 5,2 / 13,7 / 24,1 ms | 5,7 / 14,3 / 17,6 ms |
-| **L1 + L2 + L3 (v3b, mặc định khi có model)** | 7,2 / 20,0 / 25,1 ms | 9,5 / 24,0 / 30,2 ms |
+| L1 + L2 + L3 (v3b, mặc định khi có model trước v0.9.0) | 7,2 / 20,0 / 25,1 ms | 9,5 / 24,0 / 30,2 ms |
 | L1 + L2 + L3 (v3b), cascade | 5,4 / 16,1 / 19,6 ms | 6,7 / 20,0 / 24,0 ms |
 
 Một lần chạy model cho mỗi request (`cmd/onnxbench`, 200 request mỗi dòng,

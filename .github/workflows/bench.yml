@@ -47,7 +47,7 @@ jobs:
       # Hugging Face at the pinned revision, else the GitHub Release mirror;
       # every file is checked against models/manifest.yaml.
       - name: Pull models
-        run: go run ./cmd/models pull -dir models/cache guardspec-classifier@v3b multilingual-e5-small
+        run: go run ./cmd/models pull -dir models/cache guardspec-classifier@v8e multilingual-e5-small
       - name: Build
         run: |
           go build -tags onnx -o bin/onnxbench ./cmd/onnxbench

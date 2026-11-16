@@ -120,7 +120,7 @@ bench-long: onnx-deps
 	$(ONNX_ENV) $(GO) run -tags onnx ./cmd/benchlong -corpus $(BENCH_CACHE)/long/$(PROFILE) -profile $(PROFILE) $(BENCH_LONG_FLAGS)
 
 onnxbench: onnx-deps
-	$(ONNX_ENV) $(GO) run -tags onnx ./cmd/onnxbench -model models/local/guardspec-classifier-v3b
+	$(ONNX_ENV) $(GO) run -tags onnx ./cmd/onnxbench -model models/cache/guardspec-classifier/v8e
 
 # SSO end to end (scripts/sso-e2e.sh): the control plane built from this
 # checkout, Postgres and Keycloak as the compose project gs-sso-e2e
