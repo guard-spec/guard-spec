@@ -39,6 +39,65 @@ self-hosted prompt-injection guardrail gateway. It is not an LLM and does not ge
   maximum risk (Guard Spec does this).
 - Version: **v3b** (2026-11-04), the default classifier of Guard Spec.
 
+## Versions and branches
+
+`main` holds **v3b**, Guard Spec's default classifier. Other versions live on their own branches of this
+repository, so `main` never changes under you:
+
+| branch | version | status | files |
+|---|---|---|---|
+| `main` | **v3b** | default classifier | INT8 (CPU) |
+| [`v8e`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v8e) | **v8e** | **candidate**, published 2026-11-15, for long documents (100k–200k tokens) | INT8 (CPU) **and FP16 (GPU)** |
+| [`v6`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v6), [`v5`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v5), [`v4`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v4) | v6, v5, v4 | earlier candidates | see each branch |
+
+Each branch has its own model card with its training data, calibration and evaluation.
+
+### v8e: long documents, with a GPU option
+
+v8e is built to block fewer benign long documents. Its `calibration.json` carries a long-path decision: in a text of
+more than 30 windows, a window blocks only when an L1 rule agrees and the classifier is confident. Scores below are
+INT8 on the CPU through Guard Spec's gateway path unless stated.
+
+| benchmark | v8e | for comparison |
+|---|---|---|
+| benign long documents blocked, fresh holdout `long8` (602 docs, 100k and 200k tokens, EN/VI, scored once) | **1 / 602** | v6: 24 / 602 |
+| attacks hidden inside those documents, caught | **88.0%** (285 / 324) | v6: 86.7% |
+| user messages, `eval/data` hold-out half, TPR / FPR at 0.85 | 0.937 / **0.0%** | v6: 0.945 / 0.39% |
+| GPU: FP16 on CUDA vs the same file on the CPU (NVIDIA L4, Colab) | **100%** identical decisions on 2,176 rows | max \|Δscore\| 0.0067 |
+| GPU long path, `long5` (dev, 790 docs) | 1 / 150 benign blocked, 480 / 554 attacks caught | INT8 CPU: 0 / 150, 481 / 554 |
+| GPU throughput, NVIDIA L4, FP16 | about 116,000 tokens/s on long documents | |
+
+Before you rely on v8e:
+- **It is a candidate, not the default.** On a fresh short-prompt holdout it did not meet the bar for replacing v3b;
+  in particular it catches fewer email injections on the tool path (12.0% against 27.8%).
+- About 1% of decisions near the threshold differ between FP16 (GPU) and INT8 (CPU). Measure on your own traffic.
+- Run it in Guard Spec's **shadow mode** first: it scores next to the active model and only logs the differences.
+
+Download and try it:
+
+```python
+from huggingface_hub import snapshot_download
+
+# CPU (INT8) and GPU (FP16) files, pinned to the published revision of the v8e branch
+path = snapshot_download("guard-spec/guardspec-classifier",
+                         revision="c9ed6c3b772eb0a016d93f6caf335b26079b765e")
+# model_int8.onnx: CPUExecutionProvider; model_fp16.onnx: CUDAExecutionProvider
+```
+
+In Guard Spec (files checked against the SHA-256 in the gateway's manifest; a signed mirror is on the GitHub
+release `model-guardspec-classifier-v8e`):
+
+```sh
+models pull guardspec-classifier@v8e                 # INT8, CPU
+models pull -provider cuda guardspec-classifier@v8e  # also the FP16 file, for the GPU image
+SHADOW_L2_MODEL=guardspec-classifier@v8e             # shadow mode next to v3b
+L2_MODEL=guardspec-classifier@v8e                    # or make it the active classifier
+```
+
+Full numbers: the [v8e model card](https://huggingface.co/guard-spec/guardspec-classifier/blob/v8e/README.md) and
+the reports in the Guard Spec repository (`train/reports/r8a_holdout.md`, `v8e_short_holdout.md`,
+`fp16_agreement_v8e.md`).
+
 ## How Guard Spec uses it
 
 Guard Spec scores every prompt, retrieved document, tool result and tool definition with three
