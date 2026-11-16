@@ -1,0 +1,20 @@
+{
+ "seed": 20261118,
+ "pool": 1516,
+ "holdout": {
+  "prompts_chat": 300,
+  "enterprise_en": 96,
+  "enterprise_vi": 96
+ },
+ "train": {
+  "en/fka/prompts.chat": 1213,
+  "en/guard-spec": 180,
+  "vi/guard-spec": 180
+ },
+ "dropped_overlap_with_holdout": 3,
+ "sha256": {
+  "persona_neg_train.jsonl": "74aecfc6165e9ca348fd47ca78e0f3aa4adc0ba449db73383bad43ffe021ca20",
+  "persona2/holdout/direct/en.jsonl": "1a3540233c858daa12b9c0962ed91de45c62f55a53506e6d4582da2929e2ec38",
+  "persona2/holdout/direct/vi.jsonl": "e15808b599d94a70863353f602dbcb7fffd770d5e8e8f162fff6f784304c96ab"
+ }
+}
