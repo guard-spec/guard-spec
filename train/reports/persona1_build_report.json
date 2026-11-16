@@ -1,0 +1,183 @@
+{
+ "seed": 20261117,
+ "revisions": {
+  "prompts_chat": "5137e6dc22bf915a19f1c013149da8f07c978e2e",
+  "tw": "a10aab8eff1c73165a442d4464dce192bd28b9c5",
+  "jbb": "see raw/revisions.txt"
+ },
+ "prior_files": {
+  "<repo>/eval/data/en.jsonl": 926,
+  "<repo>/eval/data/vi.jsonl": 1250,
+  "<repo>/train/data/pilot_labels.jsonl": 200,
+  "<repo>/train/data/probe_v4.jsonl": 4,
+  "<repo>/train/data/realistic/realistic_holdout.jsonl": 613,
+  "<repo>/train/data/realistic/realistic_train.jsonl": 2412,
+  "<repo>/train/data/train.jsonl": 31522,
+  "<repo>/train/data/val.jsonl": 5125,
+  "<repo>/train/data/val_hard.jsonl": 829,
+  "<repo>/train/data/val_realistic_holdout.jsonl": 613,
+  "<repo>/train/data/val_v3.jsonl": 508,
+  "<repo>/train/data/val_v3_holdout.jsonl": 1510,
+  "<repo>/train/data/val_v4.jsonl": 333,
+  "<repo>/train/data/val_v4_holdout.jsonl": 141,
+  "<repo>/train/data/val_vi_variants.jsonl": 1408,
+  "<data>/processed/user2_holdout.jsonl": 460,
+  "<data>/processed/user2_train.jsonl": 1140,
+  "<data>/processed/user_holdout.jsonl": 220,
+  "<data>/processed/user_train.jsonl": 580,
+  "<data>/v5/out-full/v5_train.jsonl": 15841,
+  "<data>/v5/out-full/v5_val.jsonl": 2203,
+  "<data>/v5/out-full/val_v5.jsonl": 2267,
+  "<data>/v5/out-full/val_v5_holdout.jsonl": 2216,
+  "<data>/v5/work/data-v3b/otpkyc_probe.jsonl": 120,
+  "<data>/v5/work/data-v3b/train.jsonl": 31215,
+  "<data>/v5/work/data-v3b/user_holdout.jsonl": 220,
+  "<data>/v5/work/data-v3b/val.jsonl": 4832,
+  "<data>/v5/work/data-v3b/val_hard.jsonl": 829,
+  "<data>/v5/work/data-v3b/val_realistic_holdout.jsonl": 613,
+  "<data>/v5/work/data-v3b/val_v3.jsonl": 508,
+  "<data>/v5/work/data-v3b/val_v3_holdout.jsonl": 1510,
+  "<data>/v5/work/data-v3b/val_vi_variants.jsonl": 1408,
+  "<data>/v5/work/data-v4A/otpkyc_probe.jsonl": 120,
+  "<data>/v5/work/data-v4A/probe_v4.jsonl": 4,
+  "<data>/v5/work/data-v4A/train.jsonl": 33366,
+  "<data>/v5/work/data-v4A/user_holdout.jsonl": 460,
+  "<data>/v5/work/data-v4A/val.jsonl": 5269,
+  "<data>/v5/work/data-v4A/val_hard.jsonl": 829,
+  "<data>/v5/work/data-v4A/val_realistic_holdout.jsonl": 613,
+  "<data>/v5/work/data-v4A/val_v3.jsonl": 508,
+  "<data>/v5/work/data-v4A/val_v3_holdout.jsonl": 1510,
+  "<data>/v5/work/data-v4A/val_v4.jsonl": 333,
+  "<data>/v5/work/data-v4A/val_v4_holdout.jsonl": 141,
+  "<data>/v5/work/data-v4A/val_vi_variants.jsonl": 1408,
+  "<data>/v5r2/out-full/v5_train.jsonl": 15876,
+  "<data>/v5r2/out-full/v5_val.jsonl": 2169,
+  "<data>/v5r2/out-full/val_v5.jsonl": 2259,
+  "<data>/v5r2/out-full/val_v5_holdout.jsonl": 2214,
+  "<data>/v5r2/work/data-v3b/otpkyc_probe.jsonl": 120,
+  "<data>/v5r2/work/data-v3b/train.jsonl": 31215,
+  "<data>/v5r2/work/data-v3b/user_holdout.jsonl": 220,
+  "<data>/v5r2/work/data-v3b/val.jsonl": 4832,
+  "<data>/v5r2/work/data-v3b/val_hard.jsonl": 829,
+  "<data>/v5r2/work/data-v3b/val_realistic_holdout.jsonl": 613,
+  "<data>/v5r2/work/data-v3b/val_v3.jsonl": 508,
+  "<data>/v5r2/work/data-v3b/val_v3_holdout.jsonl": 1510,
+  "<data>/v5r2/work/data-v3b/val_vi_variants.jsonl": 1408,
+  "<data>/v5r2/work/data-v4A/otpkyc_probe.jsonl": 120,
+  "<data>/v5r2/work/data-v4A/probe_v4.jsonl": 4,
+  "<data>/v5r2/work/data-v4A/train.jsonl": 33366,
+  "<data>/v5r2/work/data-v4A/user_holdout.jsonl": 460,
+  "<data>/v5r2/work/data-v4A/val.jsonl": 5269,
+  "<data>/v5r2/work/data-v4A/val_hard.jsonl": 829,
+  "<data>/v5r2/work/data-v4A/val_realistic_holdout.jsonl": 613,
+  "<data>/v5r2/work/data-v4A/val_v3.jsonl": 508,
+  "<data>/v5r2/work/data-v4A/val_v3_holdout.jsonl": 1510,
+  "<data>/v5r2/work/data-v4A/val_v4.jsonl": 333,
+  "<data>/v5r2/work/data-v4A/val_v4_holdout.jsonl": 141,
+  "<data>/v5r2/work/data-v4A/val_vi_variants.jsonl": 1408,
+  "<data>/v6/out-full/v6_train.jsonl": 15785,
+  "<data>/v6/out-full/v6_val.jsonl": 2211,
+  "<data>/v6/out-full/val_v6.jsonl": 2227,
+  "<data>/v6/out-full/val_v6_holdout.jsonl": 2238,
+  "<data>/v7/data/generated.jsonl": 960,
+  "<data>/v7/data/mine/sanitized.jsonl": 475,
+  "<data>/v7/data/v7_train.jsonl": 11270,
+  "<data>/v8/data/v8_train.jsonl": 22540,
+  "<data>/v8/data/v8e_train.jsonl": 16906,
+  "<data>/v8/data-rerun/v8_train.jsonl": 22540,
+  "<data>/v8/data-rerun/v8e_train.jsonl": 16906,
+  "<public bench test splits + jackhhao train>": 17545,
+  "<short1, hashed only>": 2426
+ },
+ "strata": {
+  "enterprise_en/holdout": {
+   "candidates": 96,
+   "kept": 96
+  },
+  "enterprise_vi/holdout": {
+   "candidates": 96,
+   "kept": 96
+  },
+  "jbb_jbc/holdout": {
+   "candidates": 400,
+   "prior_overlap": 400
+  },
+  "jbb_pair/holdout": {
+   "candidates": 237,
+   "kept": 237
+  },
+  "jbb_prompt_with_random_search/holdout": {
+   "candidates": 400,
+   "kept": 7,
+   "exact_dup": 1,
+   "near_dup": 392
+  },
+  "prompts_chat/holdout": {
+   "candidates": 1471,
+   "kept": 500,
+   "length": 175,
+   "prior_overlap": 14,
+   "attack_marker": 24,
+   "prior_exact": 4,
+   "near_dup": 2,
+   "cap": 752
+  },
+  "tw_jailbreak/holdout": {
+   "candidates": 1401,
+   "prior_exact": 1097,
+   "prior_overlap": 158,
+   "kept": 47,
+   "length": 96,
+   "exact_dup": 2,
+   "near_dup": 1
+  },
+  "enterprise_en/dev": {
+   "candidates": 96,
+   "kept": 96
+  },
+  "enterprise_vi/dev": {
+   "candidates": 96,
+   "kept": 96
+  },
+  "prompts_chat/dev": {
+   "candidates": 1521,
+   "kept": 500,
+   "length": 163,
+   "near_dup": 1,
+   "attack_marker": 27,
+   "prior_overlap": 14,
+   "exact_dup": 3,
+   "prior_exact": 7,
+   "cap": 806
+  },
+  "tw_roleplay/dev": {
+   "candidates": 5677,
+   "attack_marker": 1246,
+   "kept": 300,
+   "prior_exact": 202,
+   "length": 405,
+   "prior_overlap": 299,
+   "exact_dup": 12,
+   "near_dup": 5,
+   "cap": 3208
+  }
+ },
+ "outputs_sha256": {
+  "holdout/direct/en.jsonl": "483606e3adb9342d1e06487ee91ad691a4d9bab85bbf32d372cf4923ec2cc83f",
+  "holdout/direct/vi.jsonl": "6b0bdf0cbe7e5ba8f8966afe1f47733531ccb70325e65f5b385c18bb6169e200",
+  "dev/direct/en.jsonl": "3ef56078a422a90b66391ce709086efaebe84c6a04aed3f16a9f60d17334386e",
+  "dev/direct/vi.jsonl": "1ea414b1789e0b67f9663f9fd4942c016d2f9ea52c087e653c0067df7ff1b745"
+ },
+ "totals": {
+  "holdout/en/enterprise_en": 96,
+  "holdout/en/jbb_pair": 237,
+  "holdout/en/jbb_prompt_with_random_search": 7,
+  "holdout/en/prompts_chat": 500,
+  "holdout/en/tw_jailbreak": 47,
+  "holdout/vi/enterprise_vi": 96,
+  "dev/en/enterprise_en": 96,
+  "dev/en/prompts_chat": 500,
+  "dev/en/tw_roleplay": 300,
+  "dev/vi/enterprise_vi": 96
+ }
+}

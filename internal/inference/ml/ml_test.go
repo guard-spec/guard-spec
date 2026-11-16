@@ -296,6 +296,14 @@ func TestDefaultExemplarsComeFromTraining(t *testing.T) {
 		}
 	}
 	for _, x := range ex {
+		// Benign persona exemplars (RF-f9d52639) come from fka/prompts.chat (CC0), outside the training data and
+		// outside persona1's dev and holdout rows.
+		if strings.HasPrefix(x.Source, "fka/prompts.chat@") {
+			if x.Label != LabelAllow || x.License != "CC0-1.0" {
+				t.Errorf("%s: a prompts.chat exemplar must be allow and CC0-1.0", x.ID)
+			}
+			continue
+		}
 		if !train[x.ID] || val[x.ID] {
 			t.Errorf("%s is not a training row", x.ID)
 		}

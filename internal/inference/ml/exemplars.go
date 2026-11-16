@@ -11,8 +11,11 @@ import (
 // defaultExemplars is the L3 reference set: attacks of every category and
 // benign prompts, EN and VI, picked deterministically from the training split
 // (train/data/train.jsonl, never eval/ or the validation split) by
-// `go run ./cmd/calibrate exemplars`. Every row keeps its source and license
-// (all permit redistribution, see train/DATA_LICENSES.md).
+// `go run ./cmd/calibrate exemplars`, plus 59 benign persona and role prompts
+// from fka/prompts.chat (CC0, rows outside persona1's dev and holdout splits,
+// RF-f9d52639), so that ordinary "act as ..." prompts sit closer to benign
+// neighbours. Every row keeps its source and license (all permit
+// redistribution, see train/DATA_LICENSES.md).
 //
 //go:embed exemplars/default.jsonl
 var defaultExemplars []byte
