@@ -11,6 +11,16 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ### Changed
 
+- **Fewer benign persona and role prompts blocked** (RF-f9d52639).
+  - What changed: 59 benign "act as …" prompts from prompts.chat (CC0) were added to the built-in L3 exemplar set.
+  - Fresh holdout `persona1`, pre-registered, label-audited, scored once. With v3b:
+    - English persona and enterprise prompts blocked: 3.3% (20 of 605), down from 4.3%;
+    - Vietnamese enterprise prompts blocked: 6.3% (6 of 96), down from 7.3%. This is above the 5% target;
+      v8e blocks 1 of 96;
+    - audited jailbreaks caught: unchanged.
+  - Long role-play requests for harmful content (JailbreakBench PAIR) are not caught by any model. This is out of
+    the classifier's scope today; see the report.
+  - Report: `train/reports/persona1_holdout.md`.
 - **Instructions inside emails and tool results are caught much more often** (RF-67fdf675).
   - New L1 rules `ei.*`: an email or tool result that dictates a message to an address ("send an email to … with
     the text …"), or hands the agent a new task or a tool call. English and Vietnamese.
