@@ -80,11 +80,13 @@ func TestMLDetectorNeedsModels(t *testing.T) {
 
 func TestToolPathFlags(t *testing.T) {
 	for _, tt := range []struct {
-		noCorr, capped bool
-		want           string
-	}{{false, false, "/tool"}, {true, false, "/tool/no-corroboration"}, {false, true, "/tool/l2cap"}, {true, true, "/tool/no-corroboration/l2cap"}} {
-		if got := toolPathName(tt.noCorr, tt.capped); got != tt.want {
-			t.Errorf("toolPathName(%v, %v) = %q, want %q", tt.noCorr, tt.capped, got, tt.want)
+		noCorr, capped, floored bool
+		want                    string
+	}{{false, false, false, "/tool"}, {true, false, false, "/tool/no-corroboration"}, {false, true, false, "/tool/l2cap"},
+		{true, true, false, "/tool/no-corroboration/l2cap"}, {false, false, true, "/tool/l1floor"},
+		{true, true, true, "/tool/no-corroboration/l2cap/l1floor"}} {
+		if got := toolPathName(tt.noCorr, tt.capped, tt.floored); got != tt.want {
+			t.Errorf("toolPathName(%v, %v, %v) = %q, want %q", tt.noCorr, tt.capped, tt.floored, got, tt.want)
 		}
 	}
 	for _, tt := range []struct {

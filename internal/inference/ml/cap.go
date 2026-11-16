@@ -68,15 +68,96 @@ func CapL2(cal CalibrationFile, logreg bool) inference.ChunkAdjust {
 	}
 }
 
-// UntrustedAdjust is the cap of the stack's classifier as an
-// inference.ChunkAdjust (indirect.Scanner.CapL2): nil without a classifier or
-// without a cap in its calibration. A Live detector follows its reloads
-// (Live.UntrustedAdjust).
+// UntrustedL1FloorRule is the explanation added to Detail.Rules when the
+// untrusted-content L1 floor raised a chunk's score.
+const UntrustedL1FloorRule = "fusion.untrusted_l1_floor"
+
+// UntrustedL1Floor is the L1 floor on untrusted content (UNTRUSTED_L1_FLOOR):
+// nil when min is 0.
+//
+// Untrusted content (a tool result, an email, a document) has no reason to
+// address the model: an instruction in it is an injection whoever wrote it.
+// The rule layer recognizes such instructions (sending data to an address,
+// addressing the assistant, overrides, obfuscated forms of them), but the
+// logistic combiner weights L1 at about half of L2, so a classifier that
+// finds the email benign, or a capped one, outvotes a near-certain rule match
+// (RF-67fdf675: on indirect1 dev, 225 of 1,400 attacks had a calibrated L1
+// score of 0.85 or more and a fused v8e score below 0.1). With the floor, a
+// chunk whose calibrated L1 score reaches min scores at least that much. The
+// rule layer's own suppressors (meta discussion, quotes, code string
+// literals) still apply before its score, and the code corroboration of the
+// tool path is unchanged. The direct path is not affected.
+func UntrustedL1Floor(min float64) inference.ChunkAdjust {
+	if min <= 0 {
+		return nil
+	}
+	return func(_ string, s inference.Score) inference.Score {
+		d := s.Detail
+		if d == nil || d.L1 == fusion.Missing || d.L1 < min || d.L1 <= float64(s.Confidence)+1e-6 {
+			return s
+		}
+		nd := *d
+		nd.Rules = append(append([]string(nil), d.Rules...), UntrustedL1FloorRule)
+		if nd.Floor < d.L1 {
+			nd.Floor = d.L1
+		}
+		if nd.Category == "" {
+			nd.Category = topCategory(d.Categories)
+		}
+		s.Detail = &nd
+		s.Confidence = float32(d.L1)
+		if nd.Category != "" {
+			s.Label = nd.Category
+		}
+		return s
+	}
+}
+
+func topCategory(cats map[string]float64) string {
+	best, name := 0.0, ""
+	for c, v := range cats {
+		if v > best || (v == best && c < name) {
+			best, name = v, c
+		}
+	}
+	return name
+}
+
+// chain applies a, then b; nil when both are nil.
+func chain(a, b inference.ChunkAdjust) inference.ChunkAdjust {
+	switch {
+	case a == nil:
+		return b
+	case b == nil:
+		return a
+	}
+	return func(chunk string, s inference.Score) inference.Score { return b(chunk, a(chunk, s)) }
+}
+
+// UntrustedAdjust is the stack's adjustment of untrusted content as an
+// inference.ChunkAdjust (indirect.Scanner.CapL2): the cap of its classifier,
+// then the untrusted-content L1 floor; nil when neither applies. A Live
+// detector follows its reloads (Live.UntrustedAdjust).
 func (s *Stack) UntrustedAdjust() inference.ChunkAdjust {
+	return chain(s.CapAdjust(), s.L1FloorAdjust())
+}
+
+// CapAdjust is the cap of the stack's classifier alone: nil without a
+// classifier or without a cap in its calibration.
+func (s *Stack) CapAdjust() inference.ChunkAdjust {
 	if s.l2 == nil {
 		return nil
 	}
 	return CapL2(s.l2.Cal, s.Fusion == "logreg")
+}
+
+// L1FloorAdjust is the untrusted-content L1 floor alone: nil when it is off
+// or L1 does not run.
+func (s *Stack) L1FloorAdjust() inference.ChunkAdjust {
+	if !s.Active[fusion.L1] {
+		return nil
+	}
+	return UntrustedL1Floor(s.cfg.UntrustedL1Floor)
 }
 
 // UntrustedAdjust is Stack.UntrustedAdjust for the running generation: the
@@ -87,12 +168,13 @@ func (l *Live) UntrustedAdjust() inference.ChunkAdjust {
 	return func(chunk string, s inference.Score) inference.Score {
 		g := l.acquire()
 		defer g.inflight.Done()
-		if g.l2 == nil {
-			return s
+		var cp inference.ChunkAdjust
+		if g.l2 != nil {
+			cp = CapL2(g.l2.Cal, g.fusion == "logreg")
 		}
-		if adj := CapL2(g.l2.Cal, g.fusion == "logreg"); adj != nil {
-			return adj(chunk, s)
+		if l.stack.Active[fusion.L1] {
+			cp = chain(cp, UntrustedL1Floor(l.stack.cfg.UntrustedL1Floor))
 		}
-		return s
+		return cp.Apply(chunk, s)
 	}
 }

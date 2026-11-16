@@ -35,6 +35,7 @@ const (
 	EnvRequireML     = "DETECTOR_REQUIRE_ML"   // true: refuse to start without the ML layers (outside dev)
 	EnvFusion        = "DETECTOR_FUSION"       // logreg (default) or max
 	EnvL1Floor       = "FUSION_L1_FLOOR"       // calibrated L1 floor for decisive rules; 0 or off disables
+	EnvUntrustedL1   = "UNTRUSTED_L1_FLOOR"    // calibrated L1 floor on untrusted content; 0 or off disables
 	EnvManifest      = "MODELS_MANIFEST"       // manifest file; default: the copy built into the binary
 	L2DefaultV3B     = "local/guardspec-classifier-v3b"
 	L2DefaultV2      = "local/guardspec-classifier-v2"
@@ -62,6 +63,11 @@ var DefaultCascade = fusion.Cascade{Low: 0.03, High: 0.965}
 // L1 0.984).
 const DefaultL1Floor = 0.985
 
+// DefaultUntrustedL1Floor is the calibrated L1 score at or above which L1
+// alone decides on untrusted content (UNTRUSTED_L1_FLOOR). 0 until chosen on
+// indirect1 dev (RF-67fdf675).
+const DefaultUntrustedL1Floor = 0
+
 // Config selects and locates the detection layers.
 type Config struct {
 	ModelDir string
@@ -85,6 +91,11 @@ type Config struct {
 	// L1Floor is FUSION_L1_FLOOR (default DefaultL1Floor; 0: off). It only
 	// matters with the logreg combiner: max already keeps L1's score.
 	L1Floor float64
+	// UntrustedL1Floor is UNTRUSTED_L1_FLOOR (default DefaultUntrustedL1Floor;
+	// 0: off): on untrusted content (tool results, documents), a calibrated L1
+	// score at or above it bounds the chunk's fused score from below
+	// (UntrustedL1Floor in cap.go).
+	UntrustedL1Floor float64
 	// Manifest is MODELS_MANIFEST: a manifest file read instead of the one
 	// built into the binary, at start and on every reload, so that new
 	// versions can be announced, verified and loaded without a new image.
@@ -107,7 +118,7 @@ func ConfigFromEnv(get func(string) string) (Config, error) {
 		ModelDir: get(EnvModelDir),
 		L2Dir:    get(EnvL2Dir), L2Model: strings.TrimSpace(get(EnvL2Model)),
 		L3Dir: get(EnvL3Dir), L3Model: strings.TrimSpace(get(EnvL3Model)),
-		Fusion: "logreg", L1Floor: DefaultL1Floor,
+		Fusion: "logreg", L1Floor: DefaultL1Floor, UntrustedL1Floor: DefaultUntrustedL1Floor,
 	}
 	for _, kv := range [][2]string{{EnvL2Model, cfg.L2Model}, {EnvL3Model, cfg.L3Model}} {
 		if kv[1] != "" {
@@ -160,7 +171,10 @@ func ConfigFromEnv(get func(string) string) (Config, error) {
 	if cfg.Fusion != "max" && cfg.Fusion != "logreg" {
 		return Config{}, fmt.Errorf("%s must be max or logreg", EnvFusion)
 	}
-	if cfg.L1Floor, err = parseL1Floor(get(EnvL1Floor)); err != nil {
+	if cfg.L1Floor, err = parseFloor(EnvL1Floor, get(EnvL1Floor), DefaultL1Floor); err != nil {
+		return Config{}, err
+	}
+	if cfg.UntrustedL1Floor, err = parseFloor(EnvUntrustedL1, get(EnvUntrustedL1), DefaultUntrustedL1Floor); err != nil {
 		return Config{}, err
 	}
 	cfg.Manifest = strings.TrimSpace(get(EnvManifest))
@@ -170,19 +184,19 @@ func ConfigFromEnv(get func(string) string) (Config, error) {
 	return cfg, nil
 }
 
-// parseL1Floor reads FUSION_L1_FLOOR: empty is the default, "off" or 0
-// turns the floor off, anything else must be in (0.5, 1].
-func parseL1Floor(v string) (float64, error) {
+// parseFloor reads FUSION_L1_FLOOR or UNTRUSTED_L1_FLOOR: empty is def, "off"
+// or 0 turns the floor off, anything else must be in (0.5, 1].
+func parseFloor(name, v string, def float64) (float64, error) {
 	v = strings.TrimSpace(strings.ToLower(v))
 	switch v {
 	case "":
-		return DefaultL1Floor, nil
+		return def, nil
 	case "off", "false", "0":
 		return 0, nil
 	}
 	f, err := strconv.ParseFloat(v, 64)
 	if err != nil || f <= 0.5 || f > 1 {
-		return 0, fmt.Errorf("%s must be off, 0 or a number in (0.5, 1]", EnvL1Floor)
+		return 0, fmt.Errorf("%s must be off, 0 or a number in (0.5, 1]", name)
 	}
 	return f, nil
 }

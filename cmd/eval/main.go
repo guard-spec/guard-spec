@@ -73,12 +73,13 @@ func run() int {
 	}
 
 	var (
-		det   evalset.Detector
-		capL2 inference.ChunkAdjust
+		det     evalset.Detector
+		capL2   inference.ChunkAdjust
+		l1Floor inference.ChunkAdjust
 	)
 	if *detName == mlDetector || *layers != "" {
 		var name string
-		det, capL2, name, err = newMLDetector(*layers, *cascade, *fusionMethod)
+		det, capL2, l1Floor, name, err = newMLDetector(*layers, *cascade, *fusionMethod)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "detector:", err)
 			return 2
@@ -112,11 +113,19 @@ func run() int {
 			return 2
 		}
 		scanner := indirect.Scanner{Runner: rd.Runner, NoCodeCorroboration: noCorroboration}
+		var adj inference.ChunkAdjust
 		if useCap {
-			scanner.CapL2 = capL2
+			adj = capL2
 		}
+		if l1Floor != nil {
+			cp := adj
+			adj = func(chunk string, s inference.Score) inference.Score {
+				return l1Floor(chunk, cp.Apply(chunk, s))
+			}
+		}
+		scanner.CapL2 = adj
 		results, err = evalset.RunIndirectWith(context.Background(), rows, scanner)
-		name += toolPathName(noCorroboration, scanner.CapL2 != nil)
+		name += toolPathName(noCorroboration, useCap && capL2 != nil, l1Floor != nil)
 	default:
 		fmt.Fprintf(os.Stderr, "unknown path %q (have: direct, tool)\n", *path)
 		return 2
@@ -175,15 +184,18 @@ func run() int {
 }
 
 // toolPathName is the suffix of the detector name on the tool path: the
-// path, then /no-corroboration and /l2cap when they apply, so a baseline is
-// only compared with the same configuration.
-func toolPathName(noCorroboration, capped bool) string {
+// path, then /no-corroboration, /l2cap and /l1floor when they apply, so a
+// baseline is only compared with the same configuration.
+func toolPathName(noCorroboration, capped, floored bool) string {
 	name := "/" + evalset.PathTool
 	if noCorroboration {
 		name += "/no-corroboration"
 	}
 	if capped {
 		name += "/l2cap"
+	}
+	if floored {
+		name += "/l1floor"
 	}
 	return name
 }
