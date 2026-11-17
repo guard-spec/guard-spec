@@ -560,7 +560,10 @@ func TestConversationWindowChatReusesDirect(t *testing.T) {
 	if resp, got := h.post(t, "/v1/chat/completions", body, nil); resp.StatusCode != 200 {
 		t.Fatalf("%d %s", resp.StatusCode, got)
 	}
-	if got := rb.take(); !slices.Equal(got, []string{"a b c d e", "b c d e"}) {
+	// The window is scored at the same time as the turns: in either order.
+	got := rb.take()
+	slices.Sort(got)
+	if !slices.Equal(got, []string{"a b c d e", "b c d e"}) {
 		t.Errorf("ran on %q", got)
 	}
 }
