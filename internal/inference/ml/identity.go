@@ -37,11 +37,14 @@ type modelIdentity struct {
 // sanitizer, built-in calibrations and exemplars) is not in it: the gateway
 // adds a hash of its own binary.
 type identityDoc struct {
-	Version int             `json:"v"`
-	Layers  [3]bool         `json:"layers"` // the active layers
-	Fusion  string          `json:"fusion"`
-	L1Floor float64         `json:"l1_floor"`
-	Cascade *fusion.Cascade `json:"cascade,omitempty"`
+	Version int     `json:"v"`
+	Layers  [3]bool `json:"layers"` // the active layers
+	Fusion  string  `json:"fusion"`
+	L1Floor float64 `json:"l1_floor"`
+	// UntrustedL1Floor is UNTRUSTED_L1_FLOOR, which changes the verdicts of
+	// untrusted content (0: off).
+	UntrustedL1Floor float64         `json:"untrusted_l1_floor"`
+	Cascade          *fusion.Cascade `json:"cascade,omitempty"`
 	// L2 is the classifier's name and the SHA-256 of every file in its
 	// directory (weights, tokenizer, calibration.json); L2Cal the calibration
 	// in use, which may be a built-in one.
@@ -53,7 +56,7 @@ type identityDoc struct {
 }
 
 // identityVersion changes when identityDoc does.
-const identityVersion = 1
+const identityVersion = 2
 
 // Identity returns the running generation's model identity (a hex SHA-256)
 // and true, or false while it is still being computed; the first call for a
@@ -76,7 +79,8 @@ func (l *Live) Identity() (string, bool) {
 // computeIdentity hashes what g's scores depend on.
 func (l *Live) computeIdentity(g *generation) string {
 	s := l.stack
-	doc := identityDoc{Version: identityVersion, Fusion: g.fusion, L1Floor: g.fuser.L1Floor()}
+	doc := identityDoc{Version: identityVersion, Fusion: g.fusion, L1Floor: g.fuser.L1Floor(),
+		UntrustedL1Floor: s.cfg.UntrustedL1Floor}
 	doc.Layers = s.Active
 	doc.Layers[fusion.L2] = g.l2 != nil
 	if s.cfg.Cascade != nil && s.Active[fusion.L1] {

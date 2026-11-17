@@ -208,11 +208,12 @@ func init() {
 // long path when MAX_SCAN_TOKENS allows them (cmd/gateway/large_input.go).
 var (
 	// ScanWindows counts the token windows of long-path scans by result:
-	// scored, duplicate (an identical window was scored) and skipped (the
-	// text was already refused, early exit).
+	// scored, cached (served from the scan cache, kind chunk), duplicate (an
+	// identical window was scored) and skipped (the text was already
+	// refused, early exit).
 	ScanWindows = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: namespace, Subsystem: "gateway", Name: "scan_windows_total",
-		Help: "Token windows of long-path scans by result (scored, duplicate, skipped).",
+		Help: "Token windows of long-path scans by result (scored, cached, duplicate, skipped).",
 	}, []string{"result"})
 
 	// ScanTokens is the number of tokens each large-input request scanned.

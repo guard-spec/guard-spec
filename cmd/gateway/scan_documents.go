@@ -2,9 +2,11 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
 	"github.com/guard-spec/guard-spec/internal/indirect"
 	"github.com/guard-spec/guard-spec/internal/inference"
 	"github.com/guard-spec/guard-spec/internal/sanitizer"
@@ -63,6 +65,11 @@ func scanHandler(gw gateway) fiber.Handler {
 		var req struct {
 			Text      string         `json:"text"`
 			Documents []scanDocument `json:"documents"`
+			// Cache scores documents through the scan cache, with the
+			// org's scan settings: a document scanned ahead (at upload)
+			// is not scored again when a chat request carries it, and
+			// with MAX_SCAN_TOKENS a long document takes the long path.
+			Cache bool `json:"cache"`
 		}
 		if err := c.BodyParser(&req); err != nil {
 			return c.Status(400).JSON(fiber.Map{"error": "invalid body"})
@@ -87,12 +94,20 @@ func scanHandler(gw gateway) fiber.Handler {
 			}
 			total += len(d.Content)
 		}
-		if total > maxUntrustedBytes {
-			return scanError(c, errDocumentsTooLong)
-		}
-
 		entry := newEntry(c)
 		gw := gw.forRequest(&entry)
+		var orgCfg *scanConfig
+		if req.Cache && len(req.Documents) > 0 {
+			cfg, err := gw.scanConfigFor(entry.OrgID)
+			if err != nil {
+				slog.Error("org scan settings unavailable", "org", entry.OrgID, "err", err)
+				return policyUnavailable(c)
+			}
+			orgCfg = &cfg
+		}
+		if total > maxUntrustedBytes && (orgCfg == nil || !gw.limitsFor(*orgCfg).long) {
+			return scanError(c, errDocumentsTooLong)
+		}
 		resp := fiber.Map{}
 		blocked := false
 		var direct float64
@@ -124,21 +139,24 @@ func scanHandler(gw gateway) fiber.Handler {
 
 		if len(req.Documents) > 0 {
 			threshold := gw.baseScanConfig().IndirectThreshold
-			scanner := indirect.Scanner{Runner: gw.runner, NoCodeCorroboration: gw.baseScanConfig().NoCodeCorroboration, CapL2: gw.capL2}
-			results := make([]documentResult, 0, len(req.Documents))
-			for _, d := range req.Documents {
-				cleaned, report, err := sanitizer.Sanitize(d.Content)
-				if err != nil {
+			if orgCfg != nil {
+				threshold = orgCfg.IndirectThreshold
+			}
+			cleaned := make([]string, len(req.Documents))
+			reports := make([]sanitizer.Report, len(req.Documents))
+			for i, d := range req.Documents {
+				var err error
+				if cleaned[i], reports[i], err = sanitizer.Sanitize(d.Content); err != nil {
 					return c.Status(422).JSON(fiber.Map{"error": fmt.Sprintf("document %q: %v", d.ID, err)})
 				}
-				src := indirect.SourceDocument
-				if d.Source == "tool" {
-					src = indirect.SourceTool
-				}
-				v, err := scanner.Score(gw.base, cleaned, src)
-				if err != nil {
-					return scanError(c, err)
-				}
+			}
+			verdicts, err := gw.scoreDocuments(entry.OrgID, orgCfg, req.Documents, cleaned)
+			if err != nil {
+				return scanError(c, err)
+			}
+			results := make([]documentResult, 0, len(req.Documents))
+			for i, d := range req.Documents {
+				v, report := verdicts[i], reports[i]
 				docBlocked := v.Score >= threshold || report.AnomalyScore >= anomalyBlockThreshold
 				blocked = blocked || docBlocked
 				results = append(results, documentResult{
@@ -167,6 +185,46 @@ func scanHandler(gw gateway) fiber.Handler {
 		gw.audit.record(entry)
 		return c.JSON(resp)
 	}
+}
+
+// documentSource is the indirect source of a scanned document: what a chat
+// request gives a tool result or a document, so that a document scanned
+// ahead has the key it will have there.
+func documentSource(d scanDocument) indirect.Source {
+	if d.Source == "tool" {
+		return indirect.SourceTool
+	}
+	return indirect.SourceDocument
+}
+
+// scoreDocuments scores sanitized documents one by one. With cfg (the org's
+// scan settings, "cache": true) they go through scoreRequest as untrusted
+// parts: the scan cache is read and written, and with MAX_SCAN_TOKENS a long
+// document takes the long path in the large-input lane.
+func (gw gateway) scoreDocuments(org uuid.UUID, cfg *scanConfig, docs []scanDocument, cleaned []string) ([]indirect.Verdict, error) {
+	out := make([]indirect.Verdict, len(docs))
+	if cfg == nil {
+		scanner := indirect.Scanner{Runner: gw.runner, NoCodeCorroboration: gw.baseScanConfig().NoCodeCorroboration, CapL2: gw.capL2}
+		for i, d := range docs {
+			v, err := scanner.Score(gw.base, cleaned[i], documentSource(d))
+			if err != nil {
+				return nil, err
+			}
+			out[i] = v
+		}
+		return out, nil
+	}
+	g := textGuard{org: org, useCache: true, limits: gw.limitsFor(*cfg)}
+	for i, d := range docs {
+		g.parts = append(g.parts, scanPart{source: documentSource(d), text: cleaned[i]})
+	}
+	if _, err := gw.scoreRequest(&g); err != nil {
+		return nil, err
+	}
+	for i := range docs {
+		out[i] = g.parts[i].verdict
+	}
+	return out, nil
 }
 
 // errDocumentsTooLong maps to 413 through scanError.

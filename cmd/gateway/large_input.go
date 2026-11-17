@@ -452,7 +452,8 @@ func (gw gateway) admitScan(g *textGuard, s scanSizes, forceLarge bool) (scanRun
 	if budget == 0 {
 		budget = -1 // spent
 	}
-	ls := inference.NewLongScan(inference.LongOptions{Limiter: gw.large.lim, BatchSize: onnx.LongBatchSize(largeBatch), MaxTokens: budget})
+	ls := inference.NewLongScan(inference.LongOptions{Limiter: gw.large.lim, BatchSize: onnx.LongBatchSize(largeBatch), MaxTokens: budget,
+		Windows: gw.windowCache(g)})
 	ctx := onnx.WithLimiter(inference.WithLongScan(gw.base, ls), gw.large.lim)
 	if err := gw.runner.Prescore(ctx, ls, long); err != nil {
 		release()
@@ -470,7 +471,8 @@ func (gw gateway) admitScan(g *textGuard, s scanSizes, forceLarge bool) (scanRun
 
 // observeLong records a large request's long-path work.
 func observeLong(st inference.LongStats, shortTokens int) {
-	metrics.ScanWindows.WithLabelValues("scored").Add(float64(st.Scored))
+	metrics.ScanWindows.WithLabelValues("scored").Add(float64(st.Scored - st.Cached))
+	metrics.ScanWindows.WithLabelValues("cached").Add(float64(st.Cached))
 	metrics.ScanWindows.WithLabelValues("duplicate").Add(float64(st.Duplicates))
 	metrics.ScanWindows.WithLabelValues("skipped").Add(float64(st.Skipped))
 	metrics.ScanTokens.Observe(float64(st.Tokens + shortTokens))

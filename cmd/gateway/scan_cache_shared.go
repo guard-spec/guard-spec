@@ -21,6 +21,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/guard-spec/guard-spec/internal/indirect"
 	"github.com/guard-spec/guard-spec/internal/inference"
+	"github.com/guard-spec/guard-spec/internal/inference/fusion"
 	"github.com/guard-spec/guard-spec/internal/inference/ml"
 	"github.com/guard-spec/guard-spec/internal/metrics"
 	"github.com/guard-spec/guard-spec/internal/version"
@@ -134,20 +135,22 @@ func buildScanCache(cfg config, db *pgxpool.Pool, live *ml.Live) (*scanCache, fu
 		}
 		return nil, func() {}, nil
 	}
+	c.chunks = newScanCache(cfg.ScanCacheSize*chunkCacheFactor, scanCacheTTL)
 	store, err := openSharedStore(cfg.ScanCache, db)
 	if err != nil || store == nil {
 		return c, func() {}, err
 	}
 	c.shared, c.timeout = store, cfg.ScanCache.Timeout
-	c.identity = liveIdentity(live.Identity)
+	c.identity = liveIdentity(live.Identity, configIdentity(cfg))
 	c.identity() // start hashing the binary and the models now
+	c.chunks.shared, c.chunks.timeout, c.chunks.identity = c.shared, c.timeout, c.identity
 	slog.Info("scan cache", "backend", store.name(), "size", cfg.ScanCacheSize,
 		"timeout", cfg.ScanCache.Timeout.String(), "ttl", scanCacheTTL.String())
 	return c, func() { _ = store.close() }, nil
 }
 
 // sharedKeyPrefix versions the shared key and value format.
-const sharedKeyPrefix = "guardspec-scan-cache/v1"
+const sharedKeyPrefix = "guardspec-scan-cache/v2"
 
 // sharedKey derives the shared layer's key from the in-process key (which
 // already covers org, kind, source and the full content) and the model
@@ -186,6 +189,8 @@ func encodeShared(model, kind string, val any) ([]byte, error) {
 		v = verdictValue{Verdict: x, Scores: x.Scores}
 	case indirect.ToolVerdict:
 		v = verdictValue{Verdict: x.Verdict, Scores: x.Scores}
+	case fusion.Result:
+		v = x
 	default:
 		return nil, fmt.Errorf("scan cache: cannot share a %T", val)
 	}
@@ -211,6 +216,10 @@ func decodeShared(model, kind string, b []byte) (any, error) {
 		var s inference.Scores
 		err := json.Unmarshal(e.Value, &s)
 		return s, err
+	case cacheChunk:
+		var r fusion.Result
+		err := json.Unmarshal(e.Value, &r)
+		return r, err
 	case cacheSource, cacheSourceLong, cacheTool:
 		var v verdictValue
 		if err := json.Unmarshal(e.Value, &v); err != nil {
@@ -507,7 +516,7 @@ var binaryIdentity = sync.OnceValue(func() string {
 // liveIdentity is the identity the shared layer keys on: the binary's and
 // the running models' (ml.Live.Identity). Both are computed in the
 // background; until then the shared layer is skipped.
-func liveIdentity(models func() (string, bool)) func() (string, bool) {
+func liveIdentity(models func() (string, bool), config string) func() (string, bool) {
 	var started sync.Once
 	var bin atomic.Pointer[string]
 	return func() (string, bool) {
@@ -522,7 +531,7 @@ func liveIdentity(models func() (string, bool)) func() (string, bool) {
 		if !ok || b == nil {
 			return "", false
 		}
-		sum := sha256.Sum256([]byte(*b + "\x00" + m))
+		sum := sha256.Sum256([]byte(*b + "\x00" + m + "\x00" + config))
 		return hex.EncodeToString(sum[:]), true
 	}
 }

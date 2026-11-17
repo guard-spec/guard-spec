@@ -743,7 +743,11 @@ type textGuard struct {
 	// latest is SCAN_HISTORY=latest on /v1/messages: history holds while an
 	// earlier turn is cleaned, whose own text is then not classified.
 	latest, history bool
-	// useCache scores parts through gateway.cache (/v1/messages).
+	// useCache scores parts through gateway.cache: every chat API (chat
+	// completions, completions, messages, responses) and embeddings; tool
+	// results, documents, tool definitions, the conversation window and
+	// long-path windows (scan_cache_chunk.go) seen before are not scored
+	// again.
 	useCache bool
 	// redactFn replaces the block being cleaned with a placeholder; nil when
 	// it is not untrusted content.
@@ -1088,7 +1092,7 @@ func proxyHandler(gw gateway, f apiFormat) fiber.Handler {
 
 		// Extract + sanitize untrusted text
 		guard := textGuard{roles: &scanCfg.Roles, toolPrefixes: scanCfg.toolPrefixes(), org: entry.OrgID,
-			latest: f.history && scanCfg.History == historyLatest, useCache: f.history,
+			latest: f.history && scanCfg.History == historyLatest, useCache: true,
 			allowServerState: scanCfg.ServerState == serverStateAllow,
 			windowTurns:      scanCfg.WindowTurns, windowBytes: scanCfg.WindowBytes, detectPII: scanCfg.InputPII,
 			pseudo: outputguard.NewPseudonymizer(scanCfg.PIIAction, scanCfg.PIIKinds), limits: gw.limitsFor(scanCfg),

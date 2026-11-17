@@ -273,6 +273,8 @@ type model struct {
 
 	maxLen, stride, batchSize, maxChunks int
 	lim                                  *Limiter
+	// segs tokenizes long texts in cached segments (segments.go).
+	segs segmenter
 
 	mu     sync.RWMutex // held for reading by running calls, for writing by Close
 	closed bool

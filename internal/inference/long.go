@@ -70,6 +70,23 @@ type LongOptions struct {
 	// LongDoc is the long document rule (nil: none): a text's score is its
 	// largest window after the rule, given the text's number of windows.
 	LongDoc LongDocRule
+	// Windows, when set, keeps each window's fused result across requests
+	// (the gateway's scan cache, kind chunk): a window found there is not
+	// scored again. Only token windows use it (ml.ScoreLong).
+	Windows WindowCache
+}
+
+// WindowCache keeps the fused result of long-path token windows across
+// requests. A result is the window's own: before any LongInput.Adjust and
+// before the long document rule, which every request applies again, so one
+// entry serves every text and source the window appears in. Keys are opaque
+// (ml.ScoreLong derives them from the window's tokens and text); the cache
+// adds whatever must separate them (org, model identity).
+type WindowCache interface {
+	// Lookup returns the results it has of keys, in one call.
+	Lookup(ctx context.Context, keys []string) map[string]fusion.Result
+	// Store keeps results scored in this call.
+	Store(ctx context.Context, results map[string]fusion.Result)
 }
 
 // ruled is s under the long document rule for a text of n units (s without one).
@@ -100,12 +117,13 @@ type LongStats struct {
 	Scored     int // windows fused
 	Duplicates int // windows not scored again: an identical one was
 	Skipped    int // windows not scored: their text was already decided
+	Cached     int // windows (of Scored) served from LongOptions.Windows
 }
 
 // Add sums two LongStats.
 func (s LongStats) Add(o LongStats) LongStats {
 	return LongStats{Tokens: s.Tokens + o.Tokens, Counted: s.Counted + o.Counted, Windows: s.Windows + o.Windows,
-		Scored: s.Scored + o.Scored, Duplicates: s.Duplicates + o.Duplicates, Skipped: s.Skipped + o.Skipped}
+		Scored: s.Scored + o.Scored, Duplicates: s.Duplicates + o.Duplicates, Skipped: s.Skipped + o.Skipped, Cached: s.Cached + o.Cached}
 }
 
 // Count adds a text's tokens and reports whether MaxTokens still holds.

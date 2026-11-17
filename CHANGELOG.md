@@ -9,6 +9,30 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ## [Unreleased]
 
+### Added
+
+- **Scan cache per long-path window** (kind `chunk`, RF-bf0337ef). On the long path (`MAX_SCAN_TOKENS`) the cache keeps
+  the fused L1 + L2 result of each 256-token window, before the per-source adjustments and the long document rule. A
+  conversation that grows turn by turn, or a document edited near its end, only scores the windows that changed.
+  - Entries have their own in-process LRU (8 × `SCAN_CACHE_SIZE`) and go to the shared backend like the others.
+  - `guardspec_gateway_scan_windows_total{result="cached"}` counts them.
+- **`/guardrail/scan` can scan ahead.** With `"cache": true`, `documents` are scored through the scan cache with the
+  org's scan settings, and on the long path when `MAX_SCAN_TOKENS` allows it. A chat request that later carries the
+  same document finds its score in the cache.
+- **Long texts are tokenized in cached segments**, and the sanitizer's result of a large input is cached. Only the end
+  of a grown text is tokenized and cleaned again; the tokens are exactly those of the whole text (checked against the
+  v8e and v3b tokenizers, and by each model before its first long text).
+  - Measured with v8e on a 183k-token chat completions conversation: 22.7 s on the first turn, 85 ms at the median on
+    later turns, 99.9% of windows from the cache.
+
+### Changed
+
+- **Chat completions use the scan cache** (`/v1/chat/completions`, `/v1/completions`): tool results, documents, tool
+  definitions and the conversation window are no longer scored again on every turn. User turns still are.
+- **The shared scan cache's identity covers `UNTRUSTED_L1_FLOOR` and `TOOL_CODE_CORROBORATION`.** Replicas with
+  different values no longer read each other's verdicts. The key format is now `v2`: entries written by earlier
+  versions are not read, and expire.
+
 ## [0.9.0] - 2026-11-17
 
 ### Upgrade notes
