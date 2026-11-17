@@ -9,6 +9,14 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ## [Unreleased]
 
+### Fixed
+
+- **Hugging Face: the `main` branch holds the default classifier (v8e)** (RF-da3c34ec). It held v3b, and the model
+  card's title still named v3b, although v8e has been the default since v0.9.0. v3b moved to the `v3b` branch.
+  `publish-model.yml` now uploads the manifest's recommended version to `main` as well as to its own branch. Before
+  `main` changes version, it gives the version `main` held its own branch. No gateway changes: the manifest pins
+  commits.
+
 ## [0.10.0] - 2026-11-17
 
 ### Upgrade notes

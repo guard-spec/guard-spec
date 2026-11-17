@@ -17,11 +17,11 @@ tool, so the binary always knows its recommended models.
 
 | Model | Version | Layer | Recommended | Source |
 |---|---|---|---|---|
-| `guardspec-classifier` | `v3b` | L2 | no: the default before v0.9.0, kept for rollback (`L2_MODEL=guardspec-classifier@v3b`) | Hugging Face `guard-spec/guardspec-classifier` (branch `main`), then the GitHub Release `model-guardspec-classifier-v3b` |
+| `guardspec-classifier` | `v3b` | L2 | no: the default before v0.9.0, kept for rollback (`L2_MODEL=guardspec-classifier@v3b`) | Hugging Face `guard-spec/guardspec-classifier` (branch `v3b`; `main` until 2026-11-17), then the GitHub Release `model-guardspec-classifier-v3b` |
 | `guardspec-classifier` | `v4` | L2 | no: candidate, [compare in shadow mode](#guardspec-classifier-v4-candidate) | the GitHub Release `model-guardspec-classifier-v4` (once the owner publishes it) |
 | `guardspec-classifier` | `v5` | L2 | no: candidate for code, logs and long documents, [shadow mode first](#guardspec-classifier-v5-candidate) | Hugging Face `guard-spec/guardspec-classifier` (branch `v5`), then the GitHub Release `model-guardspec-classifier-v5` |
 | `guardspec-classifier` | `v6` | L2 | no: candidate for long documents, with an FP16 file for the GPU option, [shadow mode first](#guardspec-classifier-v6-candidate) | Hugging Face `guard-spec/guardspec-classifier` (branch `v6`), then the GitHub Release `model-guardspec-classifier-v6` |
-| `guardspec-classifier` | `v8e` | L2 | **yes, since v0.9.0** ([why](#guardspec-classifier-v8e-the-default-since-v090)), with the long-path decision in `calibration.json` and an FP16 file | Hugging Face `guard-spec/guardspec-classifier` (branch `v8e`), then the GitHub Release `model-guardspec-classifier-v8e` |
+| `guardspec-classifier` | `v8e` | L2 | **yes, since v0.9.0** ([why](#guardspec-classifier-v8e-the-default-since-v090)), with the long-path decision in `calibration.json` and an FP16 file | Hugging Face `guard-spec/guardspec-classifier` (branches `main` and `v8e`), then the GitHub Release `model-guardspec-classifier-v8e` |
 | `multilingual-e5-small` | `614241f` | L3 | yes | Hugging Face `intfloat/multilingual-e5-small` |
 | `protectai-deberta-v3-small-pi-v2` | `d7c8842` | baseline | optional, gated | Hugging Face |
 | `protectai-deberta-v3-base-pi-v2` | `90c9989` | baseline | optional | Hugging Face |

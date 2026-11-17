@@ -65,7 +65,7 @@ Row counts come from `data/stats.json`, except the v3b rows, which `MODEL_CARD.m
 - **OTP/eKYC rows** (v3b, `guard-spec:otpkyc-fable`): written by an AI model for this project;
   several slices were stopped by safety systems and not retried. Kept outside the repository like
   the owner rows; only the trained weights are published.
-- **Published v3b weights** (`train/hf/README.md`): Apache-2.0. Every public source above allows
+- **Published v3b weights** (`train/hf/v3b/README.md`): Apache-2.0. Every public source above allows
   this; HelpSteer2 (CC-BY-4.0) is attributed in the model card.
 - **Project-written rows** are licensed Apache-2.0 as project data. The
   Vietnamese rows are machine-written and agent-labelled, not reviewed by a
