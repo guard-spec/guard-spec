@@ -17,11 +17,11 @@ binary luôn biết các model nó khuyến nghị.
 
 | Model | Phiên bản | Lớp | Khuyến nghị | Nguồn |
 |---|---|---|---|---|
-| `guardspec-classifier` | `v3b` | L2 | không: mặc định trước v0.9.0, giữ để quay lại (`L2_MODEL=guardspec-classifier@v3b`) | Hugging Face `guard-spec/guardspec-classifier` (nhánh `main`), sau đó là GitHub Release `model-guardspec-classifier-v3b` |
+| `guardspec-classifier` | `v3b` | L2 | không: mặc định trước v0.9.0, giữ để quay lại (`L2_MODEL=guardspec-classifier@v3b`) | Hugging Face `guard-spec/guardspec-classifier` (nhánh `v3b`; là `main` đến 2026-11-17), sau đó là GitHub Release `model-guardspec-classifier-v3b` |
 | `guardspec-classifier` | `v4` | L2 | không: bản ứng viên, [so sánh ở shadow mode](#guardspec-classifier-v4-bản-ứng-viên) | GitHub Release `model-guardspec-classifier-v4` (khi chủ dự án công bố) |
 | `guardspec-classifier` | `v5` | L2 | không: bản ứng viên cho code, log và tài liệu dài, [shadow mode trước](#guardspec-classifier-v5-bản-ứng-viên) | Hugging Face `guard-spec/guardspec-classifier` (nhánh `v5`), sau đó là GitHub Release `model-guardspec-classifier-v5` |
 | `guardspec-classifier` | `v6` | L2 | không: bản ứng viên cho tài liệu dài, có file FP16 cho tùy chọn GPU, [shadow mode trước](#guardspec-classifier-v6-bản-ứng-viên) | Hugging Face `guard-spec/guardspec-classifier` (nhánh `v6`), sau đó là GitHub Release `model-guardspec-classifier-v6` |
-| `guardspec-classifier` | `v8e` | L2 | **có, từ v0.9.0** ([lý do](#guardspec-classifier-v8e-mặc-định-từ-v090)), có cách quyết định trên đường dài trong `calibration.json` và file FP16 | Hugging Face `guard-spec/guardspec-classifier` (nhánh `v8e`), sau đó là GitHub Release `model-guardspec-classifier-v8e` |
+| `guardspec-classifier` | `v8e` | L2 | **có, từ v0.9.0** ([lý do](#guardspec-classifier-v8e-mặc-định-từ-v090)), có cách quyết định trên đường dài trong `calibration.json` và file FP16 | Hugging Face `guard-spec/guardspec-classifier` (nhánh `main` và `v8e`), sau đó là GitHub Release `model-guardspec-classifier-v8e` |
 | `multilingual-e5-small` | `614241f` | L3 | có | Hugging Face `intfloat/multilingual-e5-small` |
 | `protectai-deberta-v3-small-pi-v2` | `d7c8842` | baseline | tùy chọn, cần xin quyền truy cập | Hugging Face |
 | `protectai-deberta-v3-base-pi-v2` | `90c9989` | baseline | tùy chọn | Hugging Face |

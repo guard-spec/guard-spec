@@ -11,11 +11,11 @@ import (
 	"testing"
 )
 
-// train/hf/calibration.json ships with the published classifier and is baked
+// train/hf/v3b/calibration.json ships with the published classifier and is baked
 // into the gateway-full image, where it overrides the built-in calibration. It
 // must stay identical to the built-in one.
 func TestHFCalibrationMatchesBuiltin(t *testing.T) {
-	path := filepath.Join("..", "..", "..", "train", "hf", calibrationFile)
+	path := filepath.Join("..", "..", "..", "train", "hf", "v3b", calibrationFile)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)

@@ -23,7 +23,7 @@ Copyright 2026 The Guard Spec Authors
 SPDX-License-Identifier: Apache-2.0
 -->
 
-# guardspec-classifier (v3b)
+# guardspec-classifier (v3b, kept for rollback)
 
 A small English + Vietnamese **prompt-injection risk classifier**, shipped as an INT8 ONNX model
 (118.5 MB). It is the L2 layer of [Guard Spec](https://github.com/guard-spec/guard-spec), a
@@ -37,70 +37,23 @@ self-hosted prompt-injection guardrail gateway. It is not an LLM and does not ge
   risk score for decisions.
 - Input: up to 256 tokens per window. Longer text should be split into windows, taking the
   maximum risk (Guard Spec does this).
-- Version: **v3b** (2026-11-04), Guard Spec's default classifier until v0.9.0. Since v0.9.0 the default is
-  **v8e** (branch [`v8e`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v8e)).
+- Version: **v3b** (2026-11-04), Guard Spec's default classifier until v0.9.0, kept for rollback. Since v0.9.0 the
+  default is **v8e**, on the [`main`](https://huggingface.co/guard-spec/guardspec-classifier) branch.
 
 ## Versions and branches
 
-`main` holds **v3b**, Guard Spec's default classifier until v0.9.0; since v0.9.0 the default is **v8e**, on its
-own branch. Other versions also live on their own branches of this
-repository, so `main` never changes under you:
+**This is the `v3b` branch.** v3b was Guard Spec's default classifier until v0.9.0. It is kept for rollback
+(`L2_MODEL=guardspec-classifier@v3b`). Since Guard Spec v0.9.0 the default is **v8e**, on the
+[`main`](https://huggingface.co/guard-spec/guardspec-classifier) branch of this repository.
 
 | branch | version | status | files |
 |---|---|---|---|
-| `main` | **v3b** | default until v0.9.0, kept for rollback | INT8 (CPU) |
-| [`v8e`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v8e) | **v8e** | **default since Guard Spec v0.9.0**, published 2026-11-15, built for long documents (100k–200k tokens) | INT8 (CPU) **and FP16 (GPU)** |
+| [`main`](https://huggingface.co/guard-spec/guardspec-classifier), [`v8e`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v8e) | **v8e** | **default since Guard Spec v0.9.0** | INT8 (CPU) and FP16 (GPU) |
+| `v3b` (this branch) | v3b | default until v0.9.0, kept for rollback | INT8 (CPU) |
 | [`v6`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v6), [`v5`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v5), [`v4`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v4) | v6, v5, v4 | earlier candidates | see each branch |
 
-Each branch has its own model card with its training data, calibration and evaluation.
-
-### v8e: long documents, with a GPU option
-
-v8e is built to block fewer benign long documents. Its `calibration.json` carries a long-path decision: in a text of
-more than 30 windows, a window blocks only when an L1 rule agrees and the classifier is confident. Scores below are
-INT8 on the CPU through Guard Spec's gateway path unless stated.
-
-| benchmark | v8e | for comparison |
-|---|---|---|
-| benign long documents blocked, fresh holdout `long8` (602 docs, 100k and 200k tokens, EN/VI, scored once) | **1 / 602** | v6: 24 / 602 |
-| attacks hidden inside those documents, caught | **88.0%** (285 / 324) | v6: 86.7% |
-| user messages, `eval/data` hold-out half, TPR / FPR at 0.85 | 0.937 / **0.0%** | v6: 0.945 / 0.39% |
-| GPU: FP16 on CUDA vs the same file on the CPU (NVIDIA L4, Colab) | **100%** identical decisions on 2,176 rows | max \|Δscore\| 0.0067 |
-| GPU long path, `long5` (dev, 790 docs) | 1 / 150 benign blocked, 480 / 554 attacks caught | INT8 CPU: 0 / 150, 481 / 554 |
-| GPU throughput, NVIDIA L4, FP16 | about 116,000 tokens/s on long documents | |
-
-Before you rely on v8e:
-- **It is Guard Spec's default classifier since v0.9.0.** On tool content, its scores are capped
-  (`l2_untrusted_max` 0.88), so Guard Spec's rule layer decides there. With the v0.9.0 rules and the untrusted-content
-  L1 floor, it catches 72.3% of a fresh email-injection holdout (26.2% before). Used alone, without that rule
-  layer, it catches fewer email injections than v3b.
-- About 1% of decisions near the threshold differ between FP16 (GPU) and INT8 (CPU). Measure on your own traffic.
-- To compare it with v3b on your own traffic, Guard Spec's **shadow mode** scores both and logs the differences.
-
-Download and try it:
-
-```python
-from huggingface_hub import snapshot_download
-
-# CPU (INT8) and GPU (FP16) files, pinned to the published revision of the v8e branch
-path = snapshot_download("guard-spec/guardspec-classifier",
-                         revision="c9ed6c3b772eb0a016d93f6caf335b26079b765e")
-# model_int8.onnx: CPUExecutionProvider; model_fp16.onnx: CUDAExecutionProvider
-```
-
-In Guard Spec (files checked against the SHA-256 in the gateway's manifest; a signed mirror is on the GitHub
-release `model-guardspec-classifier-v8e`):
-
-```sh
-models pull guardspec-classifier@v8e                 # INT8, CPU
-models pull -provider cuda guardspec-classifier@v8e  # also the FP16 file, for the GPU image
-SHADOW_L2_MODEL=guardspec-classifier@v8e             # shadow mode next to v3b
-L2_MODEL=guardspec-classifier@v8e                    # or make it the active classifier
-```
-
-Full numbers: the [v8e model card](https://huggingface.co/guard-spec/guardspec-classifier/blob/v8e/README.md) and
-the reports in the Guard Spec repository (`train/reports/r8a_holdout.md`, `v8e_short_holdout.md`,
-`fp16_agreement_v8e.md`).
+Until 2026-11-17 the `main` branch held v3b. Guard Spec pins every version by commit, so that change does not
+affect any gateway.
 
 ## How Guard Spec uses it
 
@@ -148,7 +101,7 @@ import onnxruntime as ort
 from huggingface_hub import snapshot_download
 from tokenizers import Tokenizer
 
-path = snapshot_download("guard-spec/guardspec-classifier")  # pin revision= in production
+path = snapshot_download("guard-spec/guardspec-classifier", revision="v3b")  # pin a commit in production
 tok = Tokenizer.from_file(f"{path}/tokenizer.json")
 tok.enable_truncation(max_length=256)
 tok.enable_padding()

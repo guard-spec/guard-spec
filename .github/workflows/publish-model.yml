@@ -1,10 +1,16 @@
 name: Publish model
 
-# Manual. Uploads a guardspec-classifier version (default v3b) to Hugging Face
-# from its GitHub Release mirror (tag model-guardspec-classifier-<version>),
-# after train/hf/stage.sh checks every file against its pins
-# (train/hf/v3b/SHA256SUMS for v3b, train/hf/<version>/SHA256SUMS
-# otherwise; model_fp16.onnx too where those pins list it). Needs the repository
+# Manual. Uploads a guardspec-classifier version (default: the one
+# models/manifest.yaml recommends) to Hugging Face from its GitHub Release
+# mirror (tag model-guardspec-classifier-<version>), after train/hf/stage.sh
+# checks every file against train/hf/<version>/SHA256SUMS (model_fp16.onnx too
+# where those pins list it).
+#
+# Every version goes to a branch named after it. The recommended version also
+# goes to main, so the model page and an unpinned download show the default
+# classifier. Before main changes version, the version it held gets its own
+# branch at main's current commit if it has none, so nothing becomes
+# unreachable by name. The manifest pins commits, so no gateway changes. Needs the repository
 # secret HF_TOKEN with write access to the Hugging Face org. The job summary
 # shows the Hugging Face commit to pin as `revision` in models/manifest.yaml
 # and in the GATEWAY_FULL_L2_SOURCE variable.
@@ -13,8 +19,8 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Model version (release tag model-guardspec-classifier-<version>)
-        default: v3b
+        description: Model version (release tag model-guardspec-classifier-<version>); empty = the manifest's recommended
+        default: ''
       hf_repo:
         description: Hugging Face repository (org/name)
         default: guard-spec/guardspec-classifier
@@ -33,23 +39,35 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Resolve the version
+        id: ver
+        env:
+          INPUT: ${{ inputs.version }}
+        run: |
+          # The recommended guardspec-classifier version in models/manifest.yaml.
+          rec=$(awk '/^  - name: /{n=$3; v=""} /^    version: /{v=$2} /^    recommended: true/{if (n=="guardspec-classifier") print v}' models/manifest.yaml)
+          [ -n "$rec" ] || { echo "::error::no recommended guardspec-classifier in models/manifest.yaml"; exit 1; }
+          v=${INPUT:-$rec}
+          case "$v" in *[!a-z0-9.-]*) echo "::error::bad version: $v"; exit 1 ;; esac
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "recommended=$rec" >> "$GITHUB_OUTPUT"
       - name: Download the release assets
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ steps.ver.outputs.version }}
         run: |
-          case "$VERSION" in ""|*[!a-z0-9.-]*) echo "::error::bad version: $VERSION"; exit 1 ;; esac
           gh release download "model-guardspec-classifier-$VERSION" -R "$GITHUB_REPOSITORY" -D "$RUNNER_TEMP/model"
       - name: Stage and check
         env:
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ steps.ver.outputs.version }}
         run: train/hf/stage.sh "$RUNNER_TEMP/stage" "$RUNNER_TEMP/model" "$VERSION"
       - name: Upload to Hugging Face
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           HF_REPO: ${{ inputs.hf_repo }}
           PRIVATE: ${{ inputs.private }}
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ steps.ver.outputs.version }}
+          RECOMMENDED: ${{ steps.ver.outputs.recommended }}
           STAGE: ${{ runner.temp }}/stage
         run: |
           [ -n "$HF_TOKEN" ] || { echo "::error::the repository secret HF_TOKEN is not set"; exit 1; }
@@ -57,22 +75,40 @@ jobs:
           python3 -m pip install --quiet --require-hashes -r train/hf/requirements-publish.txt
           python3 - <<'EOF'
           import os
-          from huggingface_hub import HfApi
+          import re
+          from huggingface_hub import HfApi, hf_hub_download
 
           api = HfApi(token=os.environ["HF_TOKEN"])
           repo = os.environ["HF_REPO"]
           api.create_repo(repo, repo_type="model", private=os.environ["PRIVATE"] == "true", exist_ok=True)
-          # v3b, the recommended model, lives on main. Other versions go to a
-          # branch named after the version, so the model page keeps showing
-          # the recommended one; the manifest pins the commit either way.
-          version = os.environ["VERSION"]
-          branch = "main" if version == "v3b" else version
-          if branch != "main":
-              api.create_branch(repo, repo_type="model", branch=branch, exist_ok=True)
-          info = api.upload_folder(repo_id=repo, folder_path=os.environ["STAGE"], revision=branch,
-                                   commit_message="guardspec-classifier " + version)
-          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
-              f.write(f"Uploaded to https://huggingface.co/{repo}/tree/{branch}\n\n")
-              f.write(f"revision: `{info.oid}`\n\nGATEWAY_FULL_L2_SOURCE: `{repo}@{info.oid}`\n")
-          print(f"revision {info.oid}")
+          version, recommended = os.environ["VERSION"], os.environ["RECOMMENDED"]
+          branches = {r.name for r in api.list_repo_refs(repo, repo_type="model").branches}
+
+          def main_version():
+              # The version main holds, from its card's model-index name.
+              try:
+                  card = open(hf_hub_download(repo, "README.md", revision="main", token=os.environ["HF_TOKEN"])).read()
+              except Exception:
+                  return None
+              m = re.search(r"- name: guardspec-classifier-(\S+)", card)
+              return m.group(1) if m else None
+
+          targets = [version]
+          if version == recommended:
+              held = main_version()
+              if held and held != version and held not in branches:
+                  # Keep the version main held reachable by name before main changes.
+                  api.create_branch(repo, repo_type="model", branch=held, revision="main")
+                  branches.add(held)
+                  print(f"created branch {held} at main")
+              targets.append("main")
+          summary = open(os.environ["GITHUB_STEP_SUMMARY"], "a")
+          for branch in targets:
+              if branch != "main" and branch not in branches:
+                  api.create_branch(repo, repo_type="model", branch=branch, exist_ok=True)
+              info = api.upload_folder(repo_id=repo, folder_path=os.environ["STAGE"], revision=branch,
+                                       commit_message="guardspec-classifier " + version)
+              summary.write(f"Uploaded to https://huggingface.co/{repo}/tree/{branch}\n\n")
+              summary.write(f"revision: `{info.oid}`\n\nGATEWAY_FULL_L2_SOURCE: `{repo}@{info.oid}`\n\n")
+              print(f"{branch}: revision {info.oid}")
           EOF

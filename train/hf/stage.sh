@@ -14,12 +14,11 @@
 #   version defaults to v3b; model-dir defaults to
 #   models/local/guardspec-classifier-<version> of this checkout.
 #
-# v3b: calibration.json and README.md of this directory (the card of the Hugging
-# Face main branch), and the SHA-256 of every file is checked against
-# train/hf/v3b/SHA256SUMS (until v0.9.0 also the gateway-full pin). Any other
-# version: train/hf/<version>/ holds its calibration.json, README.md and
-# SHA256SUMS (the pins). Either way a
-# different export cannot be staged by mistake.
+# train/hf/<version>/ holds the version's calibration.json, README.md (its
+# model card) and SHA256SUMS (the pins): the SHA-256 of every staged file is
+# checked against them, so a different export cannot be staged by mistake.
+# The Hugging Face main branch holds the recommended version
+# (publish-model.yml), with that version's card.
 set -eu
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -27,14 +26,9 @@ root=$(cd "$here/../.." && pwd)
 dest=${1:?usage: train/hf/stage.sh <staging-dir> [model-dir] [version]}
 version=${3:-v3b}
 src=${2:-$root/models/local/guardspec-classifier-$version}
-if [ "$version" = v3b ]; then
-  meta=$here
-  pins=$here/v3b/SHA256SUMS
-else
-  meta=$here/$version
-  pins=$meta/SHA256SUMS
-  [ -f "$pins" ] || { echo "stage.sh: no $pins for version $version" >&2; exit 1; }
-fi
+meta=$here/$version
+pins=$meta/SHA256SUMS
+[ -f "$pins" ] || { echo "stage.sh: no $pins for version $version" >&2; exit 1; }
 
 if command -v sha256sum >/dev/null 2>&1; then
   sha() { sha256sum "$@"; }
