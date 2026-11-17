@@ -1423,7 +1423,8 @@ How to read them, and their limits:
   the same TPR at block (0.932 vs 0.933): Vietnamese without diacritics falls
   from 3.0% to 0.4% and English from 2.2% to 1.7%, but **Vietnamese teencode
   rises from 1.4% to 3.5%**, and English leet recall falls (0.825 vs 0.875).
-  `eval/baseline-onnx.json` holds the v3b run with the L1 floor.
+  `eval/baseline-onnx.json` held the v3b run with the L1 floor until 2026-11-17; it now holds v8e, and the onnx
+  CI job checks it (and the tool-path ONNX baselines) on every change.
 - **Vietnamese teencode and no-diacritics benign text was the known weak
   spot** of the model layers. With L1+L2+L3, classifier v2 blocks 1.4% of
   teencode and 3.0% of no-diacritics benign rows (v1: 7.0% and 3.8%). The
