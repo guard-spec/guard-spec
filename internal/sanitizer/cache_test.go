@@ -12,7 +12,7 @@ import (
 
 // A large input's result comes from the cache and equals a fresh one.
 func TestCleanCache(t *testing.T) {
-	in := strings.Repeat("Hello <b>world</b> ‮ reversed \x1b[31mred\x1b[0m &amp; more. ", 1000)
+	in := strings.Repeat("Hello <b>world</b> \u202e reversed \x1b[31mred\x1b[0m &amp; more. ", 1000)
 	first, err := Clean(in)
 	if err != nil {
 		t.Fatal(err)
