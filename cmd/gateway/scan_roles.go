@@ -727,6 +727,10 @@ func (gw gateway) scoreRequestAs(g *textGuard, forceLarge bool) (v requestVerdic
 	joined := strings.Join(texts, " ")
 	sizes.joined = joined
 
+	// The conversation window is scored while the rest is (conversation.go).
+	win := gw.startWindow(view, window, windowKey, joined)
+	defer win.stop()
+
 	// Today's limits, or the large-input lane (large_input.go).
 	run, err := gw.admitScan(g, sizes, forceLarge)
 	if err != nil {
@@ -773,7 +777,7 @@ func (gw gateway) scoreRequestAs(g *textGuard, forceLarge bool) (v requestVerdic
 			}
 		}
 	}
-	if err := gw.scoreWindow(&v, view, window, windowKey, joined, joinedScores); err != nil {
+	if err := win.finish(&v, view, joinedScores); err != nil {
 		return v, err
 	}
 

@@ -2970,11 +2970,15 @@ texts), and the sanitizer's result of an input of 32 KB or more is kept by its
 SHA-256 (32 MiB). Measured on 2026-11-17 on an Apple M-series laptop with v8e
 (`go test -tags onnx ./cmd/gateway -run ChunkCacheChatLoop`): a chat
 completions conversation over a 183k-token document takes 22.7 s on its first
-turn and 85 ms at the median on each later turn (99.9% of windows from the
-cache; the rest is scoring the changed last window, about 50 ms on one ONNX
-thread, `ONNX_INTRA_OP_THREADS=1`; the gateway's default with L2 and L3 is up
-to 4, and the conversation window). With Redis, a second replica with an
-empty in-process cache took 53 to 60 ms for the whole conversation.
+turn and 63 to 72 ms at the median on each later turn on one ONNX thread
+(`INFERENCE_INTRA_OP_THREADS=1`), 54 ms on 4 (99.9% of windows from the cache;
+the rest is scoring the changed last window, about 50 ms on one thread, and the
+conversation window, scored at the same time). The second to fourth turns take
+about 250 ms on one thread: the conversation window (the last 4 user turns)
+still holds the head and tail of the document, about 3 model windows, scored
+again each turn because the window's share per turn changes. With Redis, a
+second replica with an empty in-process cache took 53 to 60 ms for the whole
+conversation.
 
 **Scanning ahead.** `/guardrail/scan` with `"cache": true` scores its
 `documents` through the same cache, with the org's scan settings, and on the

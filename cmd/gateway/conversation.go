@@ -4,6 +4,7 @@
 package main
 
 import (
+	"context"
 	"strings"
 	"unicode/utf8"
 
@@ -95,36 +96,73 @@ func clipMiddle(s string, n int) string {
 	return s[:head] + " " + s[tail:]
 }
 
-// scoreWindow scores the conversation window text (conversationWindow; ""
-// for none) through the request's cache view, under key, after the per-turn
-// text: joined is the direct text that was just classified and directScores
-// its scores, reused when the window is the same text (a chat request whose
-// classified text is only its user turns). The view writes a new score
-// through to the shared layer, so another replica reads it. It raises
-// v.Direct, and makes the window the strongest finding, when it scores
-// higher.
-func (gw gateway) scoreWindow(v *requestVerdict, view *cacheView, text, key, joined string,
-	directScores inference.Scores) error {
-	if text == "" {
+// pendingWindow is the conversation window's score while it is being
+// computed (startWindow): the window is scored at the same time as the rest
+// of the request (the long path's prescore, the per-turn text), not after it.
+type pendingWindow struct {
+	text, key string
+	scores    inference.Scores
+	ready     bool // scores hold the cached score
+	done      chan struct{}
+	err       error
+	cancel    context.CancelFunc
+}
+
+// startWindow starts scoring the conversation window text (conversationWindow;
+// "" for none) under key, unless the request's cache view holds it or it is
+// the per-turn direct text joined (a chat request whose classified text is
+// only its user turns), whose scores are reused. The window is a short text
+// (CONVERSATION_WINDOW_BYTES at most), scored on the short path like any
+// request within today's limits, so it does not wait for the large lane. Call
+// stop when the request is done; a request refused before finish cancels the
+// scoring.
+func (gw gateway) startWindow(view *cacheView, text, key, joined string) *pendingWindow {
+	w := &pendingWindow{text: text, key: key, cancel: func() {}}
+	if text == "" || text == joined {
+		return w
+	}
+	if hit, ok := view.get(key); ok {
+		w.scores, w.ready = hit.(inference.Scores), true
+		return w
+	}
+	ctx, cancel := context.WithCancel(gw.base)
+	w.cancel, w.done = cancel, make(chan struct{})
+	go func() {
+		defer close(w.done)
+		w.scores, w.err = gw.runner.Scan(ctx, text)
+	}()
+	return w
+}
+
+// stop cancels a window scoring still running. Safe to call more than once.
+func (w *pendingWindow) stop() { w.cancel() }
+
+// finish waits for the window's score and applies it, after the per-turn
+// text: directScores are the scores of joined (startWindow), used when the
+// window is that text. The view writes a new score through to the shared
+// layer, so another replica reads it. It raises v.Direct, and makes the
+// window the strongest finding, when it scores higher.
+func (w *pendingWindow) finish(v *requestVerdict, view *cacheView, directScores inference.Scores) error {
+	if w.text == "" {
 		return nil
 	}
-	var scores inference.Scores
-	if text == joined {
-		scores = directScores
-	} else if hit, ok := view.get(key); ok {
-		scores = hit.(inference.Scores)
-	} else {
-		var err error
-		if scores, err = gw.runner.Scan(gw.base, text); err != nil {
-			return err
+	scores := directScores
+	switch {
+	case w.ready:
+		scores = w.scores
+	case w.done != nil:
+		<-w.done
+		if w.err != nil {
+			return w.err
 		}
-		view.put(cacheWindow, key, scores)
+		scores = w.scores
+		view.put(cacheWindow, w.key, scores)
 	}
 	c := float64(scores.Injection.Confidence)
 	v.Window = c
 	if v.SourceRole == "" || c > v.Direct {
 		v.Scores, v.Direct, v.SourceRole = scores, c, sourceConversation
-		v.DirectTrigger = triggerHash(sourceConversation, text)
+		v.DirectTrigger = triggerHash(sourceConversation, w.text)
 	}
 	return nil
 }

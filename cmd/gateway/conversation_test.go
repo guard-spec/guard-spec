@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"slices"
@@ -411,6 +412,54 @@ func TestConversationWindowCache(t *testing.T) {
 		if slices.Contains(got, earlier) {
 			t.Errorf("earlier turn %q classified again", earlier)
 		}
+	}
+}
+
+// rendezvousBackend runs a and b only together: each waits, up to a few
+// seconds, until the other has started, so texts scored one after the other
+// time out.
+type rendezvousBackend struct {
+	inner    inference.ModelBackend
+	a, b     string
+	aOn, bOn chan struct{}
+	once     [2]sync.Once
+}
+
+func (r *rendezvousBackend) Run(ctx context.Context, text string) ([]inference.Score, error) {
+	var mine, other chan struct{}
+	switch text {
+	case r.a:
+		r.once[0].Do(func() { close(r.aOn) })
+		mine, other = r.aOn, r.bOn
+	case r.b:
+		r.once[1].Do(func() { close(r.bOn) })
+		mine, other = r.bOn, r.aOn
+	}
+	if mine != nil {
+		select {
+		case <-other:
+		case <-time.After(5 * time.Second):
+			return nil, fmt.Errorf("%q scored alone: not at the same time as the other text", text)
+		}
+	}
+	return r.inner.Run(ctx, text)
+}
+
+// The window is scored at the same time as the trailing turn, not after it.
+func TestConversationWindowScoredConcurrently(t *testing.T) {
+	up := newFakeUpstream(t, func(w http.ResponseWriter, _ *http.Request) {
+		anthropicJSON(w, messageResponse(`{"type":"text","text":"ok"}`))
+	})
+	c := multiTurnCase{Lang: "en", Turns: []string{"How do I list files?", "And hidden ones?", "Show me with ls."}}
+	rb := &rendezvousBackend{inner: inference.FusedBackend{F: fusion.New()},
+		a: "How do I list files? And hidden ones? Show me with ls.", b: "Show me with ls.",
+		aOn: make(chan struct{}), bOn: make(chan struct{})}
+	h := startGateway(t, "", func(gw *gateway) {
+		withAnthropic(up.URL)(gw)
+		gw.runner = inference.NewRunnerWith(rb)
+	})
+	if resp, got := h.post(t, "/v1/messages", messagesConversation(c), nil); resp.StatusCode != 200 {
+		t.Fatalf("%d %s", resp.StatusCode, got)
 	}
 }
 

@@ -784,9 +784,13 @@ prompt) cần nhiều hơn. `MAX_SCAN_TOKENS` nâng giới hạn mà không qué
   đoạn khoảng 16 KB (cắt tại một dấu cách đơn, kết quả giống hệt tách cả văn
   bản), và kết quả sanitizer của input từ 32 KB được giữ theo SHA-256 (32
   MiB). Đo ngày 17/11/2026 trên laptop Apple M-series với v8e: hội thoại chat
-  completions trên tài liệu 183k token mất 22,7 giây ở lượt đầu và p50 85 ms ở
-  các lượt sau (99,9% cửa sổ lấy từ cache; phần còn lại là chấm cửa sổ cuối
-  vừa thay đổi, khoảng 50 ms trên một luồng ONNX, và cửa sổ hội thoại). Với
+  completions trên tài liệu 183k token mất 22,7 giây ở lượt đầu, p50 63–72 ms
+  ở các lượt sau trên một luồng ONNX (`INFERENCE_INTRA_OP_THREADS=1`) và 54 ms
+  trên 4 luồng (99,9% cửa sổ lấy từ cache; phần còn lại là chấm cửa sổ cuối
+  vừa thay đổi, khoảng 50 ms trên một luồng, và cửa sổ hội thoại, chấm cùng
+  lúc). Lượt thứ hai đến thứ tư mất khoảng 250 ms trên một luồng: cửa sổ hội
+  thoại (4 lượt user gần nhất) còn chứa đầu và đuôi tài liệu, khoảng 3 cửa sổ
+  model, chấm lại mỗi lượt vì phần chia cho mỗi lượt thay đổi. Với
   Redis, replica thứ hai có cache trong process trống xử lý cả hội thoại trong
   54–60 ms.
 - **Quét trước.** `/guardrail/scan` với `"cache": true` chấm `documents` qua

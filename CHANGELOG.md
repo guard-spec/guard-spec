@@ -9,7 +9,17 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ## [Unreleased]
 
+### Changed
+
+- **The conversation window is scored at the same time as the rest of a request** (RF-df582fa6), not after it: on
+  the long path's prescore and the per-turn text. A request refused before the end cancels it. Measured on a chat
+  completions conversation over a 183k-token document, one ONNX thread: the median later turn drops from about 82 ms
+  to about 70 ms, the second to fourth turns from about 290 ms to about 255 ms. Nothing is scanned less.
+
 ### Fixed
+
+- **README: the ONNX thread count is set with `INFERENCE_INTRA_OP_THREADS`** (RF-df582fa6). The scan cache section
+  named `ONNX_INTRA_OP_THREADS`, which the gateway does not read.
 
 - **Hugging Face: the `main` branch holds the default classifier (v8e)** (RF-da3c34ec). It held v3b, and the model
   card's title still named v3b, although v8e has been the default since v0.9.0. v3b moved to the `v3b` branch.

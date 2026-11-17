@@ -22,7 +22,8 @@ import (
 )
 
 // liveRunner loads the model layers behind ml.Live, as the gateway does, with
-// one ONNX thread per run (the production compose setting).
+// one ONNX thread per run (the production compose setting) unless
+// INFERENCE_INTRA_OP_THREADS is set.
 func liveRunner(t testing.TB) *inference.Runner {
 	t.Helper()
 	root, err := filepath.Abs(filepath.Join("..", ".."))
@@ -43,7 +44,9 @@ func liveRunner(t testing.TB) *inference.Runner {
 	if onnx.LibraryPath() == "" || ml.DefaultL2Dir(models) == "" {
 		t.Skip("models or libonnxruntime absent; see models/manifest.yaml and `make onnx-deps`")
 	}
-	t.Setenv(onnx.EnvIntraOpThreads, "1")
+	if os.Getenv(onnx.EnvIntraOpThreads) == "" { // set it to measure another count
+		t.Setenv(onnx.EnvIntraOpThreads, "1")
+	}
 	s, err := ml.Build(context.Background(), ml.Config{ModelDir: models, Layers: [3]bool{true, true, true}, Fusion: "logreg"}, nil)
 	if err != nil {
 		t.Fatal(err)
