@@ -33,7 +33,7 @@ func benchStack(b testing.TB, layers [3]bool) *inference.Runner {
 	if models == "" {
 		models = filepath.Join(root, "models")
 	}
-	cfg := ml.Config{ModelDir: models, Layers: layers, Fusion: "logreg"}
+	cfg := ml.Config{ModelDir: models, Layers: layers, Fusion: "logreg", L1Floor: ml.DefaultL1Floor, UntrustedL1Floor: ml.DefaultUntrustedL1Floor}
 	l3, l3err := ml.ResolveL3Dir(cfg)
 	if onnx.LibraryPath() == "" || ml.DefaultL2Dir(models) == "" ||
 		l3err != nil || !fileExists(filepath.Join(l3, "model.onnx")) {

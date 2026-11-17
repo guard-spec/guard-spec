@@ -3,6 +3,7 @@ package rules
 import (
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/guard-spec/guard-spec/internal/inference/skeleton"
@@ -491,6 +492,40 @@ func New() *Engine {
 		seq: seq(b.or(overrideVerb, keVerb), target, qualPost, b.t("cho minh", "cho minh xem", "cho toi",
 			"cho toi xem", "cho xem", "dua minh", "dua toi", "dua cho minh", "dua cho toi", "in ra", "noi ra",
 			"tiet lo", "viet ra", "liet ke", "gui minh", "gui cho minh", "give me", "show me", "tell me")), notAfter: notKe})
+
+	// Payload splitting: the override is cut into pieces ("fragment A:
+	// \"ignore all\". Fragment B: \"previous instructions\"", "Đặt X = \"bỏ qua
+	// toàn bộ\". Đặt Y = \"hướng dẫn trước đó\"") and the text asks for the
+	// pieces to be joined and acted on. A classifier reads the pieces as a
+	// word game; the join-and-act command next to an override is the
+	// payload, so the rule is decisive (fusion's L1 floor) and weighs 0.98:
+	// a calibrated 0.986 on its own. Both parts are required: the override
+	// words (across sentences, a short gap) and the concat flag.
+	concatEN := `(?:concatenat|combin|join|merg|glu|append|stitch|assembl|put (?:them|these|those|it|the (?:two|parts|pieces|fragments|halves)) together)[a-z]*`
+	// The flag regexes run on skeleton.Analysis.Folded: lowercased, no
+	// diacritics ("ghép" is "ghep", "rồi" is "roi").
+	concatVI := `(?:ghep|noi|gop|ket hop|cong|rap lai|xau lai|xau chuoi)`
+	act := `(?:do|follow|execute|run|obey|perform|carry out|act on|apply|comply|lam theo|thuc hien|lam|chay|tuan theo|nghe theo|ap dung)`
+	join := `(?:and|then|roi|va|sau do|,|;)\s*(?:then\s+|hay\s+)?`
+	end := `(?:$|[^\p{L}])`
+	// The join word, a short stretch of the same sentence, then and/rồi and
+	// the act.
+	gapTo := func(n int) string { return `[^\p{L}](?:[^.!?\n]{0,` + strconv.Itoa(n) + `}?[^\p{L}])?` }
+	b.flag("di.concat", "", 0, "concat", `(?:^|[^\p{L}])(?:`+concatEN+`|`+concatVI+`)`+gapTo(80)+join+act+end+`|`+
+		`(?:^|[^\p{L}])\p{L}\d?\s*\+\s*\p{L}\d?`+gapTo(40)+join+act+end)
+	// What the pieces override: instruction words, not "những gì mình nói"
+	// (everything I said about the soup). An override that is negated ("don't
+	// ignore", "đừng bỏ qua") is not one.
+	splitTarget := b.or(targetStrong, b.t("rules", "rule", "policies", "policy", "commands", "huong dan",
+		"quy tac", "quy dinh", "nguyen tac", "luat", "luat le", "lenh", "cau lenh", "menh lenh"))
+	// "toi": skeleton reads the t of "don't", "can't" as the teencode of
+	// "tôi", so a negated "don't ignore" is "don toi ignore".
+	notSplit := keys("liet", "thong", "thiet", "gia", "cai", "dung", "khong", "chua", "dont", "toi", "not", "never",
+		"cannot")
+	b.add(rule{id: "di.override.payload_split", decisive: true, cat: DirectInjection, w: 0.98, gap: 6, crossSent: true,
+		needFlag: "concat", seq: seq(b.or(overrideVerb, keVerb), b.or(qualCore, qualWeak), splitTarget), notAfter: notSplit})
+	b.add(rule{id: "di.override.payload_split_post", decisive: true, cat: DirectInjection, w: 0.98, gap: 6, crossSent: true,
+		needFlag: "concat", seq: seq(b.or(overrideVerb, keVerb), splitTarget, qualPost), notAfter: notSplit})
 
 	// ------------------------------------------------- role hijack for answers
 	// "giờ bạn là giáo viên, đưa mình đáp án đề thi": a role switch to an
