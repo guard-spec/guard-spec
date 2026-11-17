@@ -9,6 +9,16 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-17
+
+### Upgrade notes
+
+- **The shared scan cache's key format changes to `v2`.** Entries written by 0.9.0 and earlier are not read and expire
+  within 6 hours: running sessions are scanned again once after the upgrade.
+- **The scan cache holds more entries.** Chat completions now use it, and long texts keep one entry per window (about
+  100 bytes; a 200k-token text has about 1,000 windows). Size Redis or Postgres accordingly.
+- No database migration. See [docs/upgrade.md](docs/upgrade.md).
+
 ### Added
 
 - **Scan cache per long-path window** (kind `chunk`, RF-bf0337ef). On the long path (`MAX_SCAN_TOKENS`) the cache keeps
@@ -1750,7 +1760,8 @@ First release.
 - List endpoints still answer the older `{"data": [...]}` shape when called
   without `limit` and `cursor`; use the paginated form.
 
-[Unreleased]: https://github.com/guard-spec/guard-spec/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/guard-spec/guard-spec/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/guard-spec/guard-spec/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/guard-spec/guard-spec/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/guard-spec/guard-spec/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/guard-spec/guard-spec/compare/v0.6.0...v0.7.0

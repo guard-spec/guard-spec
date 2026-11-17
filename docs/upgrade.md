@@ -101,6 +101,10 @@ curl -s localhost:8080/readyz | jq .detector        # 6. or https://<GATEWAY_HOS
   production default, a failed pull stops `up` before the new gateway
   starts). With `L2_MODEL` / `L3_MODEL` pinned, the gateway
   keeps the pinned version.
+- **0.10.0 changes the shared scan cache's key format to `v2`.** After the upgrade, entries written by 0.9.0 and
+  earlier are not read (they expire within 6 hours): the first turns of running sessions are scanned again, which costs
+  CPU once. Chat completions now use the scan cache too, and a long text keeps per-window entries, so a Redis or
+  Postgres cache holds more entries (about 100 bytes each; a 200k-token text has about 1,000 windows). No migration.
 - **0.9.0 changes the recommended classifier from v3b to v8e.**
   - `models-init` pulls v8e before the gateway starts.
   - A gateway without `models-init` that only has v3b keeps using it, with a warning in the log, until v8e is pulled.
