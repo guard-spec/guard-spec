@@ -101,6 +101,10 @@ curl -s localhost:8080/readyz | jq .detector        # 6. or https://<GATEWAY_HOS
   nó trước khi gateway khởi động (với `DETECTOR_REQUIRE_ML=true`, mặc định
   của production, một lần tải lỗi sẽ dừng `up` trước khi gateway mới khởi
   động). Khi đã ghim `L2_MODEL` / `L3_MODEL`, gateway giữ phiên bản đã ghim.
+- **0.10.0 đổi định dạng khoá của scan cache dùng chung sang `v2`.** Sau khi nâng cấp, các mục do 0.9.0 trở về trước
+  ghi sẽ không được đọc (chúng hết hạn trong 6 giờ): các lượt đầu của những phiên đang chạy được quét lại, tốn CPU một
+  lần. Chat completions nay cũng dùng scan cache, và văn bản dài có mục cache theo từng cửa sổ, nên cache Redis hoặc
+  Postgres giữ nhiều mục hơn (khoảng 100 byte mỗi mục; văn bản 200k token có khoảng 1.000 cửa sổ). Không có migration.
 - **0.9.0 đổi classifier khuyến nghị từ v3b sang v8e.**
   - `models-init` tải v8e trước khi gateway khởi động.
   - Gateway không chạy `models-init` mà chỉ có v3b vẫn dùng v3b, kèm cảnh báo trong log, cho tới khi v8e được tải.
