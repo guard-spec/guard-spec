@@ -269,7 +269,7 @@ settings fails the request closed (503).
 
 With more than one gateway replica, `SCAN_CACHE_BACKEND=redis` or `postgres`
 shares the scan cache (README, [Scan cache](../../README.md#scan-cache)), so a
-long `/v1/messages` or `/v1/responses` session does not have to classify its whole history again
+long chat session does not have to classify its whole history again
 on another replica or after a restart.
 
 **What it stores.** For each text: the detector's scores and verdict metadata,
@@ -278,6 +278,9 @@ org, the kind of text, its full content and the model identity. No text, no
 tool name, nothing an attacker who reads the cache could turn back into the
 content, except by guessing a text and hashing it (the key is unsalted, so a
 reader can confirm that a known text was sent by that org within 6 hours).
+For a long text on the long path it also stores, per 256-token window, the
+window's fused scores (kind `chunk`), keyed on the window's token ids and text
+in the same way: a reader can confirm a guessed window, never read one.
 
 **Threats.**
 
@@ -293,7 +296,8 @@ reader can confirm that a known text was sent by that org within 6 hours).
   row level security binds every row to its org: a replica or a stolen
   connection scoped to one org cannot plant entries for another.
 - *Stale scores.* An entry keys on the exact model identity (gateway binary,
-  model files, calibration, detector configuration), so a model change can
+  model files, calibration, detector configuration, `UNTRUSTED_L1_FLOOR`,
+  `TOOL_CODE_CORROBORATION`), so a model change can
   never reuse an old score; per-org exemplars added later apply once an entry
   expires (6 h), as with the in-process cache.
 - *Availability.* A slow or failing backend is skipped after

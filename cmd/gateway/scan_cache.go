@@ -31,6 +31,10 @@ type scanCache struct {
 	ttl time.Duration
 	now func() time.Time
 
+	// chunks is the in-process layer of chunk entries (scan_cache_chunk.go),
+	// with the same shared layer; nil on the chunk cache itself.
+	chunks *scanCache
+
 	// shared is the second layer; nil: this process only.
 	shared sharedStore
 	// timeout bounds each call to shared; a slower call counts as an error.

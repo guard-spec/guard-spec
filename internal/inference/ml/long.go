@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"sort"
 	"sync"
@@ -125,10 +126,12 @@ func ScoreLong(ctx context.Context, f *fusion.Fuser, l2 *ClassifierLayer, in []i
 
 	// Windows, deduplicated.
 	type unit struct {
-		win  onnx.TokenWindow
-		text string
-		pt   fusion.Partial
-		res  fusion.Result
+		win    onnx.TokenWindow
+		text   string
+		key    [sha256.Size]byte
+		pt     fusion.Partial
+		res    fusion.Result
+		cached bool // res came from o.Windows
 	}
 	var (
 		st         inference.LongStats
@@ -158,7 +161,7 @@ func ScoreLong(ctx context.Context, f *fusion.Fuser, l2 *ClassifierLayer, in []i
 			} else {
 				u = len(units)
 				index[key] = u
-				units = append(units, &unit{win: w, text: span})
+				units = append(units, &unit{win: w, text: span, key: key})
 				owners = append(owners, nil)
 			}
 			if k := len(owners[u]); k == 0 || owners[u][k-1] != i {
@@ -169,17 +172,42 @@ func ScoreLong(ctx context.Context, f *fusion.Fuser, l2 *ClassifierLayer, in []i
 		}
 	}
 
-	// L1 on every window, workers at a time: rules only, no model.
-	if err := parallel(ctx, workers, len(units), func(u int) {
-		units[u].pt = f.Begin(ctx, units[u].text)
+	// Windows an earlier request scored (o.Windows), in one lookup.
+	var cached, fresh []int
+	if o.Windows != nil && len(units) > 0 {
+		keys := make([]string, len(units))
+		for u, x := range units {
+			keys[u] = cacheWindowKey(x.key)
+		}
+		hits := o.Windows.Lookup(ctx, keys)
+		for u, x := range units {
+			if r, ok := hits[keys[u]]; ok {
+				x.res, x.cached = r, true
+				cached = append(cached, u)
+			} else {
+				fresh = append(fresh, u)
+			}
+		}
+	} else {
+		fresh = make([]int, len(units))
+		for u := range units {
+			fresh[u] = u
+		}
+	}
+
+	// L1 on every window to score, workers at a time: rules only, no model.
+	if err := parallel(ctx, workers, len(fresh), func(i int) {
+		units[fresh[i]].pt = f.Begin(ctx, units[fresh[i]].text)
 	}); err != nil {
 		return nil, st, err
 	}
 
-	// Windows the cascade decided need no model run; they go first, then
-	// the others with the strongest L1 signal first.
+	// Cached windows go first (no work), then the windows the cascade
+	// decided (no model run), then the others with the strongest L1 signal
+	// first.
 	var quick, model []int
-	for u, x := range units {
+	for _, u := range fresh {
+		x := units[u]
 		if f.WantsL2(x.pt) {
 			model = append(model, u)
 		} else {
@@ -190,7 +218,7 @@ func ScoreLong(ctx context.Context, f *fusion.Fuser, l2 *ClassifierLayer, in []i
 		return units[model[a]].pt.L1Raw() > units[model[b]].pt.L1Raw()
 	})
 	var batches [][]int
-	for _, list := range [][]int{quick, model} {
+	for _, list := range [][]int{cached, quick, model} {
 		for start := 0; start < len(list); start += o.BatchSize {
 			batches = append(batches, list[start:min(start+o.BatchSize, len(list))])
 		}
@@ -214,6 +242,12 @@ func ScoreLong(ctx context.Context, f *fusion.Fuser, l2 *ClassifierLayer, in []i
 	scored, err := inference.RunLongBatchesOwned(ctx, workers, owners, thresholds, batches,
 		func(ctx context.Context, us []int) ([]float64, error) {
 			out := make([]float64, len(us))
+			if units[us[0]].cached {
+				for i, u := range us {
+					out[i] = units[u].res.Score
+				}
+				return out, nil
+			}
 			if !f.WantsL2(units[us[0]].pt) {
 				for i, u := range us {
 					units[u].res = f.Finish(units[u].pt, fusion.LayerResult{}, nil)
@@ -254,12 +288,24 @@ func ScoreLong(ctx context.Context, f *fusion.Fuser, l2 *ClassifierLayer, in []i
 	if err != nil {
 		return nil, st, err
 	}
-	for _, ok := range scored {
-		if ok {
-			st.Scored++
-		} else {
+	var store map[string]fusion.Result
+	for u, ok := range scored {
+		switch {
+		case !ok:
 			st.Skipped++
+			continue
+		case units[u].cached:
+			st.Cached++
+		case o.Windows != nil:
+			if store == nil {
+				store = map[string]fusion.Result{}
+			}
+			store[cacheWindowKey(units[u].key)] = units[u].res
 		}
+		st.Scored++
+	}
+	if len(store) > 0 {
+		o.Windows.Store(ctx, store)
 	}
 
 	// A text's score is its strongest window, the first of equal ones.
@@ -317,6 +363,20 @@ func windowKey(ids []int64, text string) [sha256.Size]byte {
 	var k [sha256.Size]byte
 	h.Sum(k[:0])
 	return k
+}
+
+// windowCacheVersion versions what a window's cache key stands for: the
+// window's token ids and text (windowKey) scored by ScoreLong's fusion,
+// L3 left out. The model and its tokenizer are the cache's to key on.
+const windowCacheVersion = "guardspec-long-window/v1"
+
+// cacheWindowKey is the key of a window in inference.WindowCache.
+func cacheWindowKey(k [sha256.Size]byte) string {
+	h := sha256.New()
+	h.Write([]byte(windowCacheVersion))
+	h.Write([]byte{0})
+	h.Write(k[:])
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // parallel runs fn(0..n-1) on up to workers goroutines; it stops handing out

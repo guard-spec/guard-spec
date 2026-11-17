@@ -1,6 +1,7 @@
 package sanitizer
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"html"
 	"regexp"
@@ -48,13 +49,25 @@ type Result struct {
 }
 
 // Clean returns both views of a text. Call it where the text is forwarded;
-// Sanitize where it is only scored.
+// Sanitize where it is only scored. The result of a large input is cached
+// (cache.go).
 func Clean(input string) (Result, error) {
+	var key [32]byte
+	if len(input) >= cleanCacheMin {
+		key = sha256.Sum256([]byte(input))
+		if r, ok := cleaned.get(key); ok {
+			return r, nil
+		}
+	}
 	scan, report, err := Sanitize(input)
 	if err != nil {
 		return Result{}, err
 	}
-	return Result{Scan: scan, Forward: forward(input, report.HadFakeMarker), Report: report}, nil
+	r := Result{Scan: scan, Forward: forward(input, report.HadFakeMarker), Report: report}
+	if len(input) >= cleanCacheMin {
+		cleaned.put(key, r)
+	}
+	return r, nil
 }
 
 // forward removes what a reader cannot see and spoofed markers, and nothing

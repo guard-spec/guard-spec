@@ -323,3 +323,87 @@ func TestScoreLongAdjustPerWindow(t *testing.T) {
 		}
 	}
 }
+
+// memWindows is an inference.WindowCache in a map.
+type memWindows struct {
+	mu      sync.Mutex
+	m       map[string]fusion.Result
+	lookups int
+}
+
+func (c *memWindows) Lookup(_ context.Context, keys []string) map[string]fusion.Result {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.lookups++
+	out := map[string]fusion.Result{}
+	for _, k := range keys {
+		if r, ok := c.m[k]; ok {
+			out[k] = r
+		}
+	}
+	return out
+}
+
+func (c *memWindows) Store(_ context.Context, rs map[string]fusion.Result) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.m == nil {
+		c.m = map[string]fusion.Result{}
+	}
+	for k, r := range rs {
+		c.m[k] = r
+	}
+}
+
+// A document that grows turn by turn is served from the window cache except
+// for its new windows, and the verdicts equal a scan without the cache, per
+// text Adjust and long document rule included.
+func TestScoreLongWindowCache(t *testing.T) {
+	ctx := context.Background()
+	wc := newWindowFake()
+	f, l2, _ := longFuser(t, wc)
+	half := func(_ string, s inference.Score) inference.Score { s.Confidence /= 2; return s }
+	rule := NewLongDocRule(&LongDoc{MinWindows: 10, Corroborate: true})
+	cache := &memWindows{}
+	doc := filler(600)
+	for turn := range 4 {
+		doc += " " + filler(40)
+		if turn == 2 {
+			doc += " EVIL"
+		}
+		in := []inference.LongInput{{Text: doc}, {Text: doc, Adjust: half}}
+		want, _, err := ScoreLong(ctx, f, l2, in, inference.LongOptions{BatchSize: 8, LongDoc: rule})
+		if err != nil {
+			t.Fatal(err)
+		}
+		before := wc.runs.Load()
+		got, st, err := ScoreLong(ctx, f, l2, in, inference.LongOptions{BatchSize: 8, LongDoc: rule, Windows: cache})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("turn %d: cached %+v, fresh %+v", turn, got, want)
+		}
+		if turn > 0 && (st.Cached*100 < (st.Scored)*90 || wc.runs.Load()-before > 2) {
+			t.Fatalf("turn %d: %d of %d windows cached, %d model runs", turn, st.Cached, st.Scored, wc.runs.Load()-before)
+		}
+	}
+	if cache.lookups != 4 {
+		t.Fatalf("%d lookups, want one per call", cache.lookups)
+	}
+}
+
+// Windows an early exit skipped are not stored.
+func TestScoreLongWindowCacheSkipsUnscored(t *testing.T) {
+	wc := newWindowFake()
+	f, l2, _ := longFuser(t, wc)
+	cache := &memWindows{}
+	in := []inference.LongInput{{Text: "EVIL " + filler(400), Threshold: 0.5}}
+	_, st, err := ScoreLong(context.Background(), f, l2, in, inference.LongOptions{BatchSize: 2, Limiter: onnx.NewLimiter(1), Windows: cache})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Skipped == 0 || len(cache.m) != st.Scored {
+		t.Fatalf("stats %+v, %d stored", st, len(cache.m))
+	}
+}

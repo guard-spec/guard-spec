@@ -70,7 +70,7 @@ func (c *Classifier) LongWindows(text string) ([]TokenWindow, int, error) {
 	if !ok {
 		return nil, 0, ErrNoOffsets
 	}
-	ids, offs, err := ot.EncodeOffsets(text)
+	ids, offs, err := m.segs.encode(ot, text)
 	if err != nil {
 		return nil, 0, err
 	}

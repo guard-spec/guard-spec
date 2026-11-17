@@ -769,8 +769,33 @@ prompt) cần nhiều hơn. `MAX_SCAN_TOKENS` nâng giới hạn mà không qué
 - **Lượt cũ** mà scan cache chưa có được tối đa `max(1 MiB, 32 × MAX_SCAN_TOKENS)`
   byte và không tính vào trần. Kết quả đường dài được cache riêng với kết quả
   quét theo đoạn; kết quả dừng sớm không được cache.
+- **Cache theo cửa sổ.** Scan cache còn giữ điểm của từng cửa sổ 256 token
+  (kind `chunk`): kết quả hợp nhất L1 + L2 của riêng cửa sổ đó, trước các
+  điều chỉnh theo nguồn (`CAP_L2`, `UNTRUSTED_L1_FLOOR`, code corroboration)
+  và quy tắc tài liệu dài; mỗi request áp lại các bước này. Hội thoại dài dần
+  qua từng lượt, hay tài liệu sửa ở gần cuối, giữ được các cửa sổ cũ: chỉ cửa
+  sổ thay đổi mới phải chấm. Khoá là token id và văn bản của cửa sổ; đường dài
+  bỏ L3 nên exemplar theo tổ chức không làm cũ mục cache. Cửa sổ bị bỏ qua do
+  dừng sớm không được lưu. Các mục này có LRU riêng trong process (8 ×
+  `SCAN_CACHE_SIZE`); mỗi request tra tối đa 8.192 cửa sổ trong một lần gọi.
+  Chat completions (`/v1/chat/completions`, `/v1/completions`) nay cũng dùng
+  scan cache cho kết quả tool, tài liệu, mô tả tool và cửa sổ hội thoại.
+  Thêm hai cache nhỏ trong process: token của văn bản dài được giữ theo từng
+  đoạn khoảng 16 KB (cắt tại một dấu cách đơn, kết quả giống hệt tách cả văn
+  bản), và kết quả sanitizer của input từ 32 KB được giữ theo SHA-256 (32
+  MiB). Đo ngày 17/11/2026 trên laptop Apple M-series với v8e: hội thoại chat
+  completions trên tài liệu 183k token mất 22,7 giây ở lượt đầu và p50 85 ms ở
+  các lượt sau (99,9% cửa sổ lấy từ cache; phần còn lại là chấm cửa sổ cuối
+  vừa thay đổi, khoảng 50 ms trên một luồng ONNX, và cửa sổ hội thoại). Với
+  Redis, replica thứ hai có cache trong process trống xử lý cả hội thoại trong
+  54–60 ms.
+- **Quét trước.** `/guardrail/scan` với `"cache": true` chấm `documents` qua
+  cùng cache, theo cài đặt quét của tổ chức, và theo đường dài khi
+  `MAX_SCAN_TOKENS` cho phép (khi đó không áp giới hạn 128 KiB). Ứng dụng có
+  thể quét file lúc upload; request chat mang file đó sau này lấy điểm (hoặc
+  các cửa sổ) từ cache. Không có `"cache": true` thì endpoint hoạt động như cũ.
 - **Số liệu.** `guardspec_gateway_scan_windows_total{result}` (`scored`,
-  `duplicate`, `skipped`), `guardspec_gateway_scan_tokens` (histogram số
+  `cached`, `duplicate`, `skipped`), `guardspec_gateway_scan_tokens` (histogram số
   token mỗi request lớn), `guardspec_gateway_scan_queue_wait_seconds{outcome}`
   (`admitted`, `timeout`, `full`, `canceled`).
 
@@ -783,7 +808,8 @@ hiện chạy shadow mode) giảm việc này cho tool result và tài liệu; m
 không đạt, vòng sau đó là R7, task RF-3a9ce3f9, cũng không đạt). Hãy thử với tài
 liệu của bạn và xem điểm trong
 nhật ký yêu cầu trước. Quét một tài liệu 200k token mất vài chục giây trên vài
-lõi CPU. `POST /guardrail/scan` và `/v1/embeddings` giữ giới hạn hiện tại.
+lõi CPU. `POST /guardrail/scan` và `/v1/embeddings` giữ giới hạn hiện tại, trừ
+`/guardrail/scan` với `"cache": true` (tài liệu đi đường dài).
 
 ### Quản trị
 
