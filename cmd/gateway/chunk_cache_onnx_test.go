@@ -134,3 +134,45 @@ func TestChunkCacheChatLoopWithModels(t *testing.T) {
 		t.Errorf("replica b read %.0f of %.0f windows from Redis in %v; want ≥ 95%% within 500ms", dc, dc+ds, took)
 	}
 }
+
+// A ~200k-token file scanned ahead through /guardrail/scan with "cache": true
+// is not scored again when a chat request carries it as a tool result.
+func TestScanAheadLongDocumentWithModels(t *testing.T) {
+	runner := liveRunner(t)
+	up := newFakeUpstream(t, okUpstream)
+	h := largeGateway(t, up.URL, 300_000, laneConfig(defaultLargeConcurrency()), func(gw *gateway) {
+		gw.runner = runner
+		gw.cache = chunkCacheFor(t)
+	})
+	doc := benignDoc(800_000) + " end of the uploaded file."
+	start := time.Now()
+	resp, got := h.post(t, "/guardrail/scan", `{"cache":true,"documents":[{"id":"upload-1","source":"tool","content":`+jsonQuote(doc)+`}]}`, nil)
+	if resp.StatusCode != 200 || !strings.Contains(got, `"verdict":"allow"`) {
+		t.Fatalf("scan ahead: %d %.300s", resp.StatusCode, got)
+	}
+	t.Logf("scan ahead: %v", time.Since(start))
+	s0, c0 := windowCount("scored"), windowCount("cached")
+	start = time.Now()
+	resp, got = h.post(t, "/v1/chat/completions", chatWithTool(doc, "Summarize the file."), nil)
+	if resp.StatusCode != 200 {
+		t.Fatalf("chat: %d %.300s", resp.StatusCode, got)
+	}
+	took := time.Since(start)
+	ds, dc := windowCount("scored")-s0, windowCount("cached")-c0
+	t.Logf("chat with the scanned file: %v, windows scored %.0f, cached %.0f", took, ds, dc)
+	if ds > 2 || took > 2*time.Second {
+		t.Errorf("chat rescanned %.0f windows in %v", ds, took)
+	}
+
+	// The same file with an attack appended: its earlier windows come from
+	// the cache, the new end is scored, and the request is blocked.
+	s0, c0 = windowCount("scored"), windowCount("cached")
+	start = time.Now()
+	resp, got = h.post(t, "/v1/chat/completions", chatWithTool(doc+" "+largeAttack, "Summarize the file."), nil)
+	took = time.Since(start)
+	ds, dc = windowCount("scored")-s0, windowCount("cached")-c0
+	t.Logf("file with an attack appended: %d in %v, windows scored %.0f, cached %.0f", resp.StatusCode, took, ds, dc)
+	if resp.StatusCode != 400 || ds > 2 || dc < 900 {
+		t.Errorf("attack appended: %d %.200s (scored %.0f, cached %.0f)", resp.StatusCode, got, ds, dc)
+	}
+}
