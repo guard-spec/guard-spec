@@ -13,7 +13,7 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/cel-go v0.20.1
 	github.com/google/uuid v1.6.0
-	github.com/jackc/pgx/v5 v5.12.0
+	github.com/jackc/pgx/v5 v5.13.0
 	github.com/klippa-app/go-pdfium v1.21.4
 	github.com/prometheus/client_golang v1.25.0
 	github.com/prometheus/client_model v0.6.3
