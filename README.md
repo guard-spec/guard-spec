@@ -2972,8 +2972,9 @@ SHA-256 (32 MiB). Measured on 2026-11-17 on an Apple M-series laptop with v8e
 completions conversation over a 183k-token document takes 22.7 s on its first
 turn and 85 ms at the median on each later turn (99.9% of windows from the
 cache; the rest is scoring the changed last window, about 50 ms on one ONNX
-thread, and the conversation window). With Redis, a second replica with an
-empty in-process cache took 54 to 60 ms for the whole conversation.
+thread, `ONNX_INTRA_OP_THREADS=1`; the gateway's default with L2 and L3 is up
+to 4, and the conversation window). With Redis, a second replica with an
+empty in-process cache took 53 to 60 ms for the whole conversation.
 
 **Scanning ahead.** `/guardrail/scan` with `"cache": true` scores its
 `documents` through the same cache, with the org's scan settings, and on the

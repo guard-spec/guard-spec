@@ -17,8 +17,8 @@ import (
 // window).
 //
 // The result is exactly the tokenization of the whole text. A segment ends at
-// a single space between two bytes that are not whitespace or control
-// characters: for the classifiers' tokenizers (SentencePiece with a
+// a single space between two printable ASCII characters (splitAt): for the
+// classifiers' tokenizers (SentencePiece with a
 // Metaspace pre-tokenizer, WordPiece with a whitespace pre-tokenizer) the
 // tokens of text are then the tokens of the part before the space followed by
 // those of the rest, the space included. A model checks this once on a
@@ -43,12 +43,21 @@ func segmentCuts(text string) []int {
 	}
 	var cuts []int
 	for p := segmentBytes; p < len(text)-1; p++ {
-		if text[p] == ' ' && text[p-1] > ' ' && text[p+1] > ' ' {
+		if splitAt(text, p) {
 			cuts = append(cuts, p)
 			p += segmentBytes - 1
 		}
 	}
 	return append(cuts, len(text))
+}
+
+// splitAt reports whether text may be cut at p: a single ASCII space
+// between two printable ASCII characters. A multibyte neighbour is never cut
+// next to: a tokenizer's normalizer may turn it into a space (NBSP, U+3000)
+// or drop it (zero-width characters), and the space would then join a run.
+func splitAt(text string, p int) bool {
+	ok := func(b byte) bool { return b > ' ' && b < 0x7f }
+	return text[p] == ' ' && ok(text[p-1]) && ok(text[p+1])
 }
 
 // segment is the tokens of one segment, offsets relative to its start.
@@ -110,7 +119,8 @@ func (c *segmentCache) put(k [sha256.Size]byte, s segment) {
 // words, numbers, punctuation, Vietnamese, CJK, emoji and code.
 const splitSample = "The quarterly report shows 12.5% growth. Dữ liệu tiếng Việt có dấu, " +
 	"không dấu va teencode ko bik. 東京の天気 😀 emoji, func main() { x := a+b } " +
-	"https://example.com/a?b=c don't re-run it's café naïve 1,000 $5 #tag @user"
+	"https://example.com/a?b=c don't re-run it's café naïve 1,000 $5 #tag @user " +
+	"nbsp\u00a0 word ideographic\u3000 space zero\u200b width\u200d join\ufeff bom 全角　空白 x\u00a0y"
 
 // splitExact reports whether tokenizing splitSample in two at each of its
 // split points gives the tokens of the whole sample.
@@ -121,7 +131,7 @@ func splitExact(ot offsetTokenizer) bool {
 	}
 	s := splitSample
 	for p := 1; p < len(s)-1; p++ {
-		if s[p] != ' ' || s[p-1] <= ' ' || s[p+1] <= ' ' {
+		if !splitAt(s, p) {
 			continue
 		}
 		a, _, err1 := ot.EncodeOffsets(s[:p])

@@ -64,7 +64,7 @@ func TestSegmentCuts(t *testing.T) {
 		t.Fatalf("cuts %v", cuts)
 	}
 	for _, c := range cuts[:len(cuts)-1] {
-		if text[c] != ' ' || text[c-1] <= ' ' || text[c+1] <= ' ' {
+		if !splitAt(text, c) {
 			t.Fatalf("cut at %d: %q", c, text[c-1:c+2])
 		}
 	}

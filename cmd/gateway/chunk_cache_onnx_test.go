@@ -85,7 +85,7 @@ func TestChunkCacheChatLoopWithModels(t *testing.T) {
 	const turns = 12
 	var cold time.Duration
 	var warm []time.Duration
-	var scored, cached float64
+	var scored, cached, maxScored float64
 	for turn := range turns {
 		s0, c0 := windowCount("scored"), windowCount("cached")
 		start := time.Now()
@@ -100,17 +100,22 @@ func TestChunkCacheChatLoopWithModels(t *testing.T) {
 			cold = took
 		} else {
 			warm = append(warm, took)
-			scored, cached = scored+ds, cached+dc
+			scored, cached, maxScored = scored+ds, cached+dc, max(maxScored, ds)
 		}
 	}
 	slices.Sort(warm)
 	p50 := warm[len(warm)/2]
 	ratio := cached / (cached + scored)
 	t.Logf("document %d tokens; warm turns: p50 %v, max %v; %.1f%% of windows cached", tokens, p50, warm[len(warm)-1], 100*ratio)
-	// A new turn changes the text's last window, which is scored (about
-	// 50 ms on one ONNX thread); everything before it comes from the cache.
-	if ratio < 0.95 || p50 > cold/20 {
-		t.Errorf("warm turns: %.1f%% cached, p50 %v (first turn %v); want ≥ 95%% and ≤ 1/20 of the first", 100*ratio, p50, cold)
+	// A new turn changes the text's last window or two, which are scored
+	// (about 50 ms each on one ONNX thread); everything before them comes
+	// from the cache. The windows scored are the invariant; the times are
+	// for the reference laptop (README, Scan cache) and catch regressions.
+	if ratio < 0.95 || maxScored > 2 {
+		t.Errorf("warm turns: %.1f%% cached, up to %.0f windows scored per turn; want ≥ 95%% and ≤ 2", 100*ratio, maxScored)
+	}
+	if p50 > 150*time.Millisecond || warm[len(warm)-1] > 400*time.Millisecond {
+		t.Errorf("warm turns: p50 %v, max %v (first turn %v); want ≤ 150ms and ≤ 400ms", p50, warm[len(warm)-1], cold)
 	}
 
 	if os.Getenv("CHUNK_CACHE_REDIS_URL") == "" {
@@ -122,9 +127,10 @@ func TestChunkCacheChatLoopWithModels(t *testing.T) {
 	if resp, got := b.post(t, "/v1/chat/completions", chatLoop(doc, turns), nil); resp.StatusCode != 200 {
 		t.Fatalf("replica b: %d %.200s", resp.StatusCode, got)
 	}
+	took := time.Since(start)
 	ds, dc := windowCount("scored")-s0, windowCount("cached")-c0
-	t.Logf("replica b, first request: %v, windows scored %.0f, cached %.0f", time.Since(start), ds, dc)
-	if dc/(dc+ds) < 0.95 {
-		t.Errorf("replica b read %.0f of %.0f windows from Redis", dc, dc+ds)
+	t.Logf("replica b, first request: %v, windows scored %.0f, cached %.0f", took, ds, dc)
+	if dc/(dc+ds) < 0.95 || took > 500*time.Millisecond {
+		t.Errorf("replica b read %.0f of %.0f windows from Redis in %v; want ≥ 95%% within 500ms", dc, dc+ds, took)
 	}
 }
