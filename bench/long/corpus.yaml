@@ -1894,6 +1894,393 @@ sources:
     terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
     sha256: 238b5d3aa6ec2eebab6f84bdecc8a4a671025232f7dbef495dec8d59758ed385
 
+  # ---------------------------------------------------------------------
+  # Sources of the `long9` profile (2026-11-19, RF-f9e76bb6 R8c): long
+  # technical documents only (genres docs, rfc, readme, man), from
+  # repositories, RFCs and pages that no other profile, no training source
+  # (train/data/sources_v*.yaml, DATA_LICENSES.md) and none of the R8c `L`
+  # training sources (train/data/sources_r8c.yaml) use.
+  vscode-docs-l9-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    # The Visual Studio Code documentation (microsoft/vscode-docs at a pinned
+    # commit of main; documentation CC-BY-3.0-US, code MIT, LICENSE.md): docs/
+    # and api/; with the OpenTelemetry and Traefik documentation one `docs` pool.
+    repo: microsoft/vscode-docs
+    commit: c70b98c6db768eceb7c2a233f0d281ce5f6973ed
+    prefix: docs
+    tree_sha: f755b62d38d758a6521a043b5496f1f0efbabf7f
+    suffixes: [.md]
+    min_bytes: 2000
+    strip: front-matter
+    max_unit_chars: 60000
+    license: CC-BY-3.0-US (microsoft/vscode-docs LICENSE.md, documentation)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 6d8ebf31d4fb65b529de78557c988e11438637883dbcd08b220c060897eaf3a9
+  vscode-api-l9-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    repo: microsoft/vscode-docs
+    commit: c70b98c6db768eceb7c2a233f0d281ce5f6973ed
+    prefix: api
+    tree_sha: 9df219b2a135d57c540cf9a644e6d62ddf406809
+    suffixes: [.md]
+    min_bytes: 2000
+    strip: front-matter
+    max_unit_chars: 60000
+    license: CC-BY-3.0-US (microsoft/vscode-docs LICENSE.md, documentation)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 2743d540d2f78a5f2d39af16225e9063967b1735e3ab2263d35c43cd52fe2e59
+  otel-docs-l9-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    # The OpenTelemetry documentation (open-telemetry/opentelemetry.io at a
+    # pinned commit of main, content/en/docs, CC-BY-4.0).
+    repo: open-telemetry/opentelemetry.io
+    commit: c623aaf368e162473bd208fbc9fa9a0e9ca803a5
+    prefix: content/en/docs
+    tree_sha: 7a6146170588337308272e1c752ac724bdd38db1
+    suffixes: [.md]
+    min_bytes: 2000
+    strip: front-matter
+    max_unit_chars: 60000
+    license: CC-BY-4.0 (open-telemetry/opentelemetry.io LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 7db36f3b1a5c32220dfa0ec752e1a767cc70b41834aa95d8367a806bbeba8a1d
+  traefik-docs-l9-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    # The Traefik documentation (traefik/traefik at the v3.7.19 tag, docs/content, MIT).
+    repo: traefik/traefik
+    commit: 7dafd6dba371bd1aee70c443c2975c229c969711
+    prefix: docs/content
+    tree_sha: 011e5c6bb95398b24350eb14d26b03e0d6c58391
+    suffixes: [.md]
+    min_bytes: 2000
+    strip: front-matter
+    max_unit_chars: 60000
+    license: MIT (traefik/traefik LICENSE.md)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: b73c07cbe24521d66c3602bbc6d35492f84f7fce26ac45503ac2560e7c980221
+  rfc-l9-en:
+    lang: en
+    genre: rfc
+    kind: http-text
+    # RFCs that no profile, no training source and no R8c `L` source uses
+    # (IETF Trust Legal Provisions, BCP 78): of the RFCs from 2000 on of 40
+    # to 200 pages, with a text file, not obsoleted, on the standards track,
+    # BCP or informational, and not named in bench/, train/ or eval/
+    # (rfc-index.xml of 2026-11-19, SHA-256
+    # 12be47b6f80fbc27723f3df0ea14e85883050da0d2c76d28ef389f10416ce9c7;
+    # 815 candidates sorted by number), every tenth from the first. `L` takes
+    # every twentieth from the sixth (train/data/sources_r8c.yaml).
+    base: https://www.rfc-editor.org/rfc/
+    file_header: ""
+    strip: rfc
+    max_unit_chars: 60000
+    paths:
+      - rfc2006.txt
+      - rfc2157.txt
+      - rfc2332.txt
+      - rfc2491.txt
+      - rfc2613.txt
+      - rfc2725.txt
+      - rfc2812.txt
+      - rfc2954.txt
+      - rfc3083.txt
+      - rfc3219.txt
+      - rfc3331.txt
+      - rfc3464.txt
+      - rfc3551.txt
+      - rfc3644.txt
+      - rfc3726.txt
+      - rfc3806.txt
+      - rfc3873.txt
+      - rfc3971.txt
+      - rfc4037.txt
+      - rfc4118.txt
+      - rfc4187.txt
+      - rfc4319.txt
+      - rfc4414.txt
+      - rfc4497.txt
+      - rfc4575.txt
+      - rfc4678.txt
+      - rfc4750.txt
+      - rfc4807.txt
+      - rfc4878.txt
+      - rfc4997.txt
+      - rfc5061.txt
+      - rfc5209.txt
+      - rfc5359.txt
+      - rfc5477.txt
+      - rfc5563.txt
+      - rfc5630.txt
+      - rfc5777.txt
+      - rfc5851.txt
+      - rfc5921.txt
+      - rfc6077.txt
+      - rfc6163.txt
+      - rfc6283.txt
+      - rfc6353.txt
+      - rfc6445.txt
+      - rfc6560.txt
+      - rfc6759.txt
+      - rfc6871.txt
+      - rfc6986.txt
+      - rfc7133.txt
+      - rfc7257.txt
+      - rfc7402.txt
+      - rfc7476.txt
+      - rfc7609.txt
+      - rfc7698.txt
+      - rfc7788.txt
+      - rfc7868.txt
+      - rfc7940.txt
+      - rfc8045.txt
+      - rfc8141.txt
+      - rfc8194.txt
+      - rfc8299.txt
+      - rfc8343.txt
+      - rfc8431.txt
+      - rfc8492.txt
+      - rfc8531.txt
+      - rfc8601.txt
+      - rfc8684.txt
+      - rfc8878.txt
+      - rfc8984.txt
+      - rfc9043.txt
+      - rfc9115.txt
+      - rfc9173.txt
+      - rfc9244.txt
+      - rfc9361.txt
+      - rfc9458.txt
+      - rfc9559.txt
+      - rfc9623.txt
+      - rfc9684.txt
+      - rfc9777.txt
+      - rfc9868.txt
+      - rfc9922.txt
+      - rfc10006.txt
+    license: IETF Trust Legal Provisions (BCP 78)
+    terms: RFC Editor text files; used locally for measurement, never redistributed.
+    sha256: d23025a5f45622894ad7e5a6c81aed37741b213af31f47d4780feeb9b1cb7860
+  otel-receiver-readme-l9-en:
+    lang: en
+    genre: readme
+    kind: github-tree
+    # README files of the OpenTelemetry Collector components
+    # (open-telemetry/opentelemetry-collector-contrib at the v0.165.1 tag,
+    # Apache-2.0; receiver, exporter, processor, extension, connector), of
+    # the AWS CDK library modules (aws/aws-cdk at v2.277.0,
+    # packages/aws-cdk-lib, Apache-2.0) and of the TensorFlow Model Garden
+    # (tensorflow/models at a pinned commit, official and research,
+    # Apache-2.0): one `readme` pool.
+    repo: open-telemetry/opentelemetry-collector-contrib
+    commit: 6083b2c53d78b21d0925b703194aaed920c01af5
+    prefix: receiver
+    tree_sha: 9e4d6bc0701ac9af8a51f8e943513b72b621f5a9
+    suffixes: [README.md]
+    min_bytes: 2000
+    file_header: "# File: {path}\n"
+    max_unit_chars: 60000
+    license: Apache-2.0 (open-telemetry/opentelemetry-collector-contrib LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: a327d4fc2e2c04163d5d3c98d922a913f8fa8d0f0e474e9f4fe2d301974c8757
+  otel-exporter-readme-l9-en:
+    lang: en
+    genre: readme
+    kind: github-tree
+    repo: open-telemetry/opentelemetry-collector-contrib
+    commit: 6083b2c53d78b21d0925b703194aaed920c01af5
+    prefix: exporter
+    tree_sha: 3c6c558ede980dff3b0cca94de00b50f6766b6c2
+    suffixes: [README.md]
+    min_bytes: 2000
+    file_header: "# File: {path}\n"
+    max_unit_chars: 60000
+    license: Apache-2.0 (open-telemetry/opentelemetry-collector-contrib LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: b77504fa3be6d3f9b66710d62817e74316b21948614533c88b943e123221cfab
+  otel-processor-readme-l9-en:
+    lang: en
+    genre: readme
+    kind: github-tree
+    repo: open-telemetry/opentelemetry-collector-contrib
+    commit: 6083b2c53d78b21d0925b703194aaed920c01af5
+    prefix: processor
+    tree_sha: e5bba6f6d01c30111ba7b34dfc69908e4241753c
+    suffixes: [README.md]
+    min_bytes: 2000
+    file_header: "# File: {path}\n"
+    max_unit_chars: 60000
+    license: Apache-2.0 (open-telemetry/opentelemetry-collector-contrib LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 0a0194fd1b9124e8526e2547e7a3bf8a0ce9bb796ea29d61b170688d8da1ef0a
+  otel-extension-readme-l9-en:
+    lang: en
+    genre: readme
+    kind: github-tree
+    repo: open-telemetry/opentelemetry-collector-contrib
+    commit: 6083b2c53d78b21d0925b703194aaed920c01af5
+    prefix: extension
+    tree_sha: f73098a2950426e1f992a0099468020bdade0d99
+    suffixes: [README.md]
+    min_bytes: 2000
+    file_header: "# File: {path}\n"
+    max_unit_chars: 60000
+    license: Apache-2.0 (open-telemetry/opentelemetry-collector-contrib LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 67a3d08b81185c033d5602101e7730cc59bec4a01a01efe5922d17fbeea3c3d7
+  otel-connector-readme-l9-en:
+    lang: en
+    genre: readme
+    kind: github-tree
+    repo: open-telemetry/opentelemetry-collector-contrib
+    commit: 6083b2c53d78b21d0925b703194aaed920c01af5
+    prefix: connector
+    tree_sha: 1317f14ec289d418cade116fba410b35c75ae18c
+    suffixes: [README.md]
+    min_bytes: 2000
+    file_header: "# File: {path}\n"
+    max_unit_chars: 60000
+    license: Apache-2.0 (open-telemetry/opentelemetry-collector-contrib LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 5c105a1be11ea91d4709cf6ed37915fa6c305b7cc586ccdce6db34981f027a3f
+  cdk-readme-l9-en:
+    lang: en
+    genre: readme
+    kind: github-tree
+    repo: aws/aws-cdk
+    commit: 1c78b1b74386cb0e2b9c8bb736487bb99fccb98c
+    prefix: packages/aws-cdk-lib
+    tree_sha: 371eb400dcd9435ef2b78947a364a4cf0c82fd92
+    suffixes: [README.md]
+    min_bytes: 2000
+    file_header: "# File: {path}\n"
+    max_unit_chars: 60000
+    license: Apache-2.0 (aws/aws-cdk LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 74794176abbc05bebfaac7a41a759f174b00df5945e208f1215085421af9613a
+  tfmodels-official-readme-l9-en:
+    lang: en
+    genre: readme
+    kind: github-tree
+    repo: tensorflow/models
+    commit: 8f3b2e48fff92a7fa8d504908b51a6eb51e868a0
+    prefix: official
+    tree_sha: dc9435e1ad28af2d27a570828a4b2b03cbe0a843
+    suffixes: [README.md]
+    min_bytes: 2000
+    file_header: "# File: {path}\n"
+    max_unit_chars: 60000
+    license: Apache-2.0 (tensorflow/models LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 476874a89fa44936b81ed1fc90d46d5801615ef33535094db6f138e6b4cc10d0
+  tfmodels-research-readme-l9-en:
+    lang: en
+    genre: readme
+    kind: github-tree
+    repo: tensorflow/models
+    commit: 8f3b2e48fff92a7fa8d504908b51a6eb51e868a0
+    prefix: research
+    tree_sha: d823b2eb44ffba15cdc7d9e7f116d6d727ab6790
+    suffixes: [README.md]
+    min_bytes: 2000
+    file_header: "# File: {path}\n"
+    max_unit_chars: 60000
+    license: Apache-2.0 (tensorflow/models LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: a4ec590abcba360d97fbf2f0fc72cf91582e7575f8ef57c1836477360eea22a9
+  manpages-man2-l9-en:
+    lang: en
+    genre: man
+    kind: github-tree
+    # The Linux man-pages project (mkerrisk/man-pages, the GitHub mirror, at
+    # the man-pages-5.13 tag): sections 2, 3, 4, 5 and 7, roff turned into
+    # plain text (build.py strip_roff); alias pages (`.so`) fall under
+    # min_bytes. Each page carries its own licence (mostly the Linux man-pages
+    # Verbatim licence, some GPL or BSD); one `man` pool.
+    repo: mkerrisk/man-pages
+    commit: 091fbf1fef4808f0ccfe0ff8c333aedf833b8782
+    prefix: man2
+    tree_sha: aba0babd10f32ec8765463e4359011d774d708f4
+    suffixes: [".2"]
+    min_bytes: 2000
+    strip: roff
+    file_header: "# File: {path}\n"
+    max_unit_chars: 60000
+    license: Per-page licences of the Linux man-pages project (mostly Verbatim; some GPL-2.0+ or BSD)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 360ddc4b0a74424afb7a78e679e6d34e9417e97514d38eec37c6a1db9c2f76a5
+  manpages-man3-l9-en:
+    lang: en
+    genre: man
+    kind: github-tree
+    repo: mkerrisk/man-pages
+    commit: 091fbf1fef4808f0ccfe0ff8c333aedf833b8782
+    prefix: man3
+    tree_sha: 867e5ad5847a93c95145c2a67048e1136b588c52
+    suffixes: [".3"]
+    min_bytes: 2000
+    strip: roff
+    file_header: "# File: {path}\n"
+    max_unit_chars: 60000
+    license: Per-page licences of the Linux man-pages project (mostly Verbatim; some GPL-2.0+ or BSD)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 9a9132a1109e6a2ecc8016e0d4b41dc6f3060d5d10f4a1610b741b83f270451c
+  manpages-man4-l9-en:
+    lang: en
+    genre: man
+    kind: github-tree
+    repo: mkerrisk/man-pages
+    commit: 091fbf1fef4808f0ccfe0ff8c333aedf833b8782
+    prefix: man4
+    tree_sha: 2175a63735ca9e6338bb8625d78af072af6ab6c9
+    suffixes: [".4"]
+    min_bytes: 2000
+    strip: roff
+    file_header: "# File: {path}\n"
+    max_unit_chars: 60000
+    license: Per-page licences of the Linux man-pages project (mostly Verbatim; some GPL-2.0+ or BSD)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 7c873d8a59ec8c1606ec4586b28c2c5b838e6028cd5f00f6a513dbdd3ac90c4c
+  manpages-man5-l9-en:
+    lang: en
+    genre: man
+    kind: github-tree
+    repo: mkerrisk/man-pages
+    commit: 091fbf1fef4808f0ccfe0ff8c333aedf833b8782
+    prefix: man5
+    tree_sha: 2e4ec9a1acc54639dc5cf2e0e340e6b5f18bb6f8
+    suffixes: [".5"]
+    min_bytes: 2000
+    strip: roff
+    file_header: "# File: {path}\n"
+    max_unit_chars: 60000
+    license: Per-page licences of the Linux man-pages project (mostly Verbatim; some GPL-2.0+ or BSD)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 29dbe64b295adee9fd3b55541ad499400137b1e360c68a9e6b13ced0393d87f8
+  manpages-man7-l9-en:
+    lang: en
+    genre: man
+    kind: github-tree
+    repo: mkerrisk/man-pages
+    commit: 091fbf1fef4808f0ccfe0ff8c333aedf833b8782
+    prefix: man7
+    tree_sha: b191252bcadbf6733167d3826d5b652b9ce8285f
+    suffixes: [".7"]
+    min_bytes: 2000
+    strip: roff
+    file_header: "# File: {path}\n"
+    max_unit_chars: 60000
+    license: Per-page licences of the Linux man-pages project (mostly Verbatim; some GPL-2.0+ or BSD)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 6552007f27bd7ced17481efcd377f9f518978d14bd92b6f4226681eb74ab3a4b
+
 # Synthetic genres: generated by build.py from a fixed seed (project-written,
 # Apache-2.0). "hardneg" is benign text about prompt injection and security.
 synthetic:
@@ -2168,6 +2555,38 @@ profiles:
     host_tokens: 2000
     segment_host_bytes: 28000
 
+  long9:
+    # The holdout of R8c (RF-f9e76bb6, train/reports/r8c_preregistration.md):
+    # long technical documents of 100k and 200k tokens from the `long9`
+    # sources only (no synthetic genre, no Vietnamese text): documentation
+    # sites, RFCs, README files and man pages, the genres in which arm E+P of
+    # R8b blocked benign documents. Every document is R8c holdout (the `split`
+    # field still follows the hash rule). The embedded attack documents are
+    # built from these hosts by bench/long/embed_long.py with eval/ dev-half
+    # payloads no earlier profile used (--eval-payloads 24 --eval-skip 144 --langs en:
+    # the English rows 144 to 167; the Vietnamese ones stay unused).
+    # Ids carry the prefix `long9-`.
+    sources: [vscode-docs-l9-en, vscode-api-l9-en, otel-docs-l9-en, traefik-docs-l9-en, rfc-l9-en,
+              otel-receiver-readme-l9-en, otel-exporter-readme-l9-en, otel-processor-readme-l9-en,
+              otel-extension-readme-l9-en, otel-connector-readme-l9-en, cdk-readme-l9-en,
+              tfmodels-official-readme-l9-en, tfmodels-research-readme-l9-en, manpages-man2-l9-en,
+              manpages-man3-l9-en, manpages-man4-l9-en, manpages-man5-l9-en, manpages-man7-l9-en]
+    synthetic: []
+    synthetic_seed: 20261119
+    id_prefix: long9-
+    sizes:
+      default: [100000, 200000]
+      synthetic: [100000, 200000]
+    docs_per_size:
+      default: 0
+      docs-en: 9
+      rfc-en: 7
+      readme-en: 5
+      man-en: 4
+    payloads_per_lang: 0
+    host_tokens: 2000
+    segment_host_bytes: 28000
+
 # Dev/holdout split of every document (build.py split_of, the eval/ convention):
 # the last hex digit of SHA-256(key) is 0-7 for dev and 8-f for holdout, with
 # key the payload id of an attack or control document (every variant of a
@@ -2207,6 +2626,10 @@ outputs:
   # 90.53M tokens (EN 152 + 152, VI 150 + 150 at 100k + 200k), after exclude.json.
   # The R8a holdout: scored once per model (train/reports/r8a_preregistration.md).
   long8: ff7356eeef0357d3f2cbe4131c195081d6555de4a69913ceae9f2049190621ff
+  # long9: pinned on 2026-11-19 (R8c), before any long9 score; 49 benign English documents,
+  # 7.30M tokens (docs 9 + 9, rfc 7 + 6, readme 5 + 5, man 4 + 4 at 100k + 200k), after
+  # exclude.json. The R8c holdout: scored once per model (train/reports/r8c_preregistration.md).
+  long9: f2ddd0e50a68639ab46d370c744f3e2de41e4a635bde05807dd9ed551d0649f2
 
 dropped:
   - source: Project Gutenberg (gutenberg.org)

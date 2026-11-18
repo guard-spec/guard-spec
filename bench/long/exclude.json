@@ -10,7 +10,8 @@
   "R5 (2026-11-11, RF-895d3533): the sources of the `long5` profile were checked the same way against the same rows; their units are listed under their own names (k8s-kubelet5-en after its licence comment is stripped), together with the units of which 20% or more of the 50-token shingles occur in a benign or host document of the quick, full or long profile (other versions of the same law on Wikisource, U.S. Code text repeated across titles), so that no long5 document repeats text whose scores R2b or R3 read.",
   "R6 (2026-11-12, RF-895d3533): the sources of the `long6` profile (the v7 holdout) were checked the same way against the v6 training and validation rows and the v4-A training and validation rows (64,174 rows), and with R5's near-duplicate rule (20% of the 50-token shingles in a benign or host document of quick, full, long or long5); their units are listed under their own names.",
   "R7 (2026-11-13, RF-3a9ce3f9): the sources of the `long7` profile (the v8 holdout) were checked the same way against the v4-A, v6 and v7 training and validation rows and the v7 training pool documents (the hosts of the v8 training data), and with R5's near-duplicate rule (20% of the 50-token shingles in a benign or host document of quick, full, long, long5 or long6) (75,919 rows and documents). bench_guard on the built long7 file against the same rows: 0 overlaps, so no second pass was needed. Their units are listed under their own names.",
-  "R8a (2026-11-14, RF-35fd836c): the sources of the `long8` profile (the R8a holdout) were checked the same way against the v4-A, v6, v7 and v8 training and validation rows and the v7 training pool documents (the v8 hosts), and with R5's near-duplicate rule (20% of the 50-token shingles in a benign or host document of quick, full, long, long5, long6 or long7) (115,365 rows and documents). bench_guard on the built long8 file against the same rows: 0 overlaps, so no second pass was needed. Their units are listed under their own names."
+  "R8a (2026-11-14, RF-35fd836c): the sources of the `long8` profile (the R8a holdout) were checked the same way against the v4-A, v6, v7 and v8 training and validation rows and the v7 training pool documents (the v8 hosts), and with R5's near-duplicate rule (20% of the 50-token shingles in a benign or host document of quick, full, long, long5, long6 or long7) (115,365 rows and documents). bench_guard on the built long8 file against the same rows: 0 overlaps, so no second pass was needed. Their units are listed under their own names.",
+  "R8c (2026-11-19, RF-f9e76bb6): the sources of the `long9` profile (the R8c holdout) were checked the same way against arm E's training and validation rows (v4-A, v6, v8e), R8b's persona_neg_train and the v7 training pool documents, and with R5's near-duplicate rule (20% of the 50-token shingles in a benign or host document of quick, full, long, long5, long6, long7 or long8). Their units are listed under their own names. The R8c training rows (L, S) come from other sources and are checked against the built long9 documents by data/build_r8c.py check."
  ],
  "rows": 22461,
  "k": 50,
@@ -4986,6 +4987,44 @@
    454,
    463,
    464
+  ],
+  "traefik-docs-l9-en": [
+   22
+  ],
+  "rfc-l9-en": [
+   8,
+   9,
+   14,
+   15,
+   16,
+   22,
+   26,
+   28,
+   30,
+   48,
+   72,
+   97,
+   127,
+   136,
+   139,
+   143,
+   146,
+   147,
+   148,
+   161,
+   163,
+   172,
+   173,
+   174,
+   175,
+   176,
+   177,
+   181,
+   183,
+   184
+  ],
+  "manpages-man7-l9-en": [
+   77
   ]
  }
 }
