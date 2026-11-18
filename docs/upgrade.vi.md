@@ -101,6 +101,8 @@ curl -s localhost:8080/readyz | jq .detector        # 6. or https://<GATEWAY_HOS
   nó trước khi gateway khởi động (với `DETECTOR_REQUIRE_ML=true`, mặc định
   của production, một lần tải lỗi sẽ dừng `up` trước khi gateway mới khởi
   động). Khi đã ghim `L2_MODEL` / `L3_MODEL`, gateway giữ phiên bản đã ghim.
+- **0.10.1 không cần migration và không đổi cấu hình.** Như mọi lần thay binary gateway, các mục của scan cache dùng
+  chung do bản trước ghi sẽ không được đọc (khoá có hash của binary), nên các phiên đang chạy được quét lại một lần.
 - **0.10.0 đổi định dạng khoá của scan cache dùng chung sang `v2`.** Sau khi nâng cấp, các mục do 0.9.0 trở về trước
   ghi sẽ không được đọc (chúng hết hạn trong 6 giờ): các lượt đầu của những phiên đang chạy được quét lại, tốn CPU một
   lần. Chat completions nay cũng dùng scan cache, và văn bản dài có mục cache theo từng cửa sổ, nên cache Redis hoặc
