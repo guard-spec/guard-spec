@@ -1,0 +1,36 @@
+{
+ "seed": 20261119,
+ "community": {
+  "en:dropped_attack_marker": 19,
+  "en:dropped_length": 24,
+  "en:dropped_near_duplicate": 29,
+  "en:dropped_not_latin": 1,
+  "en:dropped_overlap:E": 1,
+  "en:dropped_overlap:persona1": 4,
+  "en:dropped_overlap:persona_neg_train": 2,
+  "en:persona_shaped": 1009,
+  "en:pool": 929,
+  "vi:persona_shaped": 22,
+  "vi:pool": 22
+ },
+ "arena_sha256": {
+  "train-00000-of-00007.parquet": "7b871a964dc9b238fe0d59f817dbe1a7a56934e23ec4d989f86e6891e5a891cf",
+  "train-00001-of-00007.parquet": "0cd29a6e3261159f41a69b28cd7f08c0bbbc1ef08ba18438d386a1b0c144af8a",
+  "train-00002-of-00007.parquet": "c633264fe8f0fa26cc9aa49961a75dc428791f70c7a476cbed766963b88bee24",
+  "train-00003-of-00007.parquet": "5bcf04c9f4488006a4a7ee944d886ee123e118b7f7d2db04b4ff6dbd8125e6b0",
+  "train-00004-of-00007.parquet": "2c50b4b3f6a5c02d660f5a70d5006332ddc00f5eb21f8e4d92bde3856647969b",
+  "train-00005-of-00007.parquet": "de59f74dce7477beaec55936b31a88537b93c5cbb4b483cfc6879a6862ce5e3b",
+  "train-00006-of-00007.parquet": "1a32a1c6934ebcaa3019643a08fb57563ee0a9be282d3222def3c572a49e9f4c"
+ },
+ "arena_rows_en_vi_unique": 67226,
+ "candidates": {
+  "en:enterprise_en": 96,
+  "vi:enterprise_vi": 96,
+  "en:arena_en": 330,
+  "vi:arena_vi": 22
+ },
+ "candidates_sha256": {
+  "en.jsonl": "cacb4515a9da9043d4173a0255933a3c10150bbef15a80b3dd1f09cf83caba23",
+  "vi.jsonl": "d67cb6edd9d0639cc6f923b8d8b90787eb1213ec45ca69cee8ebea9e9d4d941f"
+ }
+}
