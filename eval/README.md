@@ -8,7 +8,7 @@ detection number we publish should come from this set.
 - `build/build.py`: deterministic generator (pinned dependencies, fixed seed).
 - `baseline.json`: metrics of the production detector (`fusion`, L1 v2 rules today); CI fails on regressions.
 - `baseline-regex.json`: metrics of the legacy regex detector, kept for comparison.
-- `baseline-onnx.json`: metrics of `fusion-ml:l1,l2,l3/logreg` (L1 rules, L2 classifier v8e, L3 embeddings; needs `-tags onnx` and the models). The onnx CI job pulls the default models from Hugging Face (SHA-256 pinned, cached by the manifest) and checks it, with the three tool-path ONNX baselines below; it uploads its reports as the artifact `eval-onnx-reports`.
+- `baseline-onnx.json`: metrics of `fusion-ml:l1,l2,l3/logreg` (L1 rules, L2 classifier v8e, L3 embeddings; needs `-tags onnx` and the models). The onnx CI job pulls the default models from Hugging Face (SHA-256 pinned, cached by the manifest) and runs it, with the three tool-path ONNX baselines below; it uploads its reports as the artifact `eval-onnx-reports`. A move past a baseline is a warning for now, not a failure: the same code differs by a few rows on small slices between GitHub-hosted runner CPUs.
 - `fingerprints.txt`: leakage guard for training (see below).
 - `codelog/`: benign code/log tool output; `embedded/`: these rows hidden in code/log hosts (sections below).
 - `LICENSES.md`: sources, licenses and row counts (generated).
@@ -207,7 +207,7 @@ repository's own files at the commit pinned in `build.py` (`823de5b` on
 `main`; the rows are the same on every branch that carries the set), without the files
 that discuss or test prompt injection, and synthetic logs, stack traces, JSON
 and CSV; all Apache-2.0. The eval workflow checks `baseline.json` (L1 only);
-the onnx CI job checks `baseline-onnx.json` with the default models.
+the onnx CI job runs `baseline-onnx.json` with the default models (warnings only).
 
 At 0.85 on the tool path (gateway decision, dev / holdout):
 
