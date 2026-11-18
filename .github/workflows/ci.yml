@@ -68,19 +68,46 @@ jobs:
       # Models are not downloaded in CI: the model tests skip, the unit tests
       # and the runtime/tokenizer load test run against the real libraries.
       - run: go test -race -tags onnx ./internal/onnx/ ./internal/inference/... ./cmd/...
-      # The model-layer eval baseline (L1+L2+L3). Our classifier is not
-      # published, so this skips unless a runner provides models/.
+      # The model-layer eval baselines (L1+L2+L3, the default classifier).
+      # The models are pulled after the tests, so the model tests above
+      # (minutes each under -race) keep skipping. `models pull` checks every
+      # file's SHA-256 against models/manifest.yaml; the cache key is the
+      # manifest, so a new model version is pulled once.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: models-cache
+        with:
+          path: models/cache
+          key: models-${{ hashFiles('models/manifest.yaml') }}
+      - name: Pull the default models (Hugging Face, SHA-256 pinned)
+        if: steps.models-cache.outputs.cache-hit != 'true'
+        run: go run ./cmd/models pull -dir models/cache -models guardspec-classifier,multilingual-e5-small
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: steps.models-cache.outputs.cache-hit != 'true'
+        with:
+          path: models/cache
+          key: ${{ steps.models-cache.outputs.cache-primary-key }}
+      # Every run writes its reports (artifact eval-onnx-reports), so a
+      # baseline can be refreshed from this runner's numbers. All four run;
+      # the step fails when any of them regresses.
       - name: Detector eval with model layers vs baseline
         run: |
-          if [ -f models/cache/multilingual-e5-small/model.onnx ] && \
-             { [ -f models/local/guardspec-classifier-v1/config.json ] || [ -f models/local/guardspec-classifier-v0/config.json ]; }; then
-            go run -tags onnx ./cmd/eval -detector fusion-ml -baseline eval/baseline-onnx.json -max-regression 0.02
-            go run -tags onnx ./cmd/eval -detector fusion-ml -data eval/codelog -path tool -baseline eval/codelog/baseline-onnx.json -max-regression 0.02
-            go run -tags onnx ./cmd/eval -detector fusion-ml -data eval/embedded -path tool -baseline eval/embedded/baseline-onnx.json -max-regression 0.02
-            go run -tags onnx ./cmd/eval -detector fusion-ml -data eval/embedded -path tool -corroboration off -baseline eval/embedded/baseline-onnx-no-corroboration.json -max-regression 0.02
-          else
-            echo "models absent: skipping eval/baseline-onnx.json, eval/codelog/baseline-onnx.json and eval/embedded/baseline-onnx*.json"
-          fi
+          mkdir -p eval-reports
+          rc=0
+          go run -tags onnx ./cmd/eval -detector fusion-ml -baseline eval/baseline-onnx.json -max-regression 0.02 \
+            -json eval-reports/baseline-onnx.json || rc=1
+          go run -tags onnx ./cmd/eval -detector fusion-ml -data eval/codelog -path tool -baseline eval/codelog/baseline-onnx.json -max-regression 0.02 \
+            -json eval-reports/codelog-baseline-onnx.json || rc=1
+          go run -tags onnx ./cmd/eval -detector fusion-ml -data eval/embedded -path tool -baseline eval/embedded/baseline-onnx.json -max-regression 0.02 \
+            -json eval-reports/embedded-baseline-onnx.json || rc=1
+          go run -tags onnx ./cmd/eval -detector fusion-ml -data eval/embedded -path tool -corroboration off -baseline eval/embedded/baseline-onnx-no-corroboration.json -max-regression 0.02 \
+            -json eval-reports/embedded-baseline-onnx-no-corroboration.json || rc=1
+          exit $rc
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: eval-onnx-reports
+          path: eval-reports/
+          retention-days: 30
 
   integration:
     name: Integration tests (Postgres)
