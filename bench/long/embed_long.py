@@ -31,6 +31,9 @@ gateway's sanitizer rejects are left out as hosts (--exclude-hosts).
         --full $BENCH_CACHE/long/full/docs.jsonl --long $BENCH_CACHE/long/long/docs.jsonl \\
         --split dev --out <dir> [--exclude-hosts ids.txt]
 
+R8c (train/reports/r8c_preregistration.md) builds the long9 attack documents with --eval-payloads 24
+--eval-skip 144 --langs en: long9 holds English documents only, so only the English payloads are used.
+
 R5 (train/reports/r5_preregistration.md) takes payloads the R3 documents did
 not use: with --eval-payloads N --eval-skip K, the payloads are the attack
 rows of the eval/ dev half in build.py's seeded order (load_payloads, the
@@ -117,7 +120,10 @@ def main() -> int:
     ap.add_argument("--out", required=True)
     ap.add_argument("--exclude-hosts", help="file of host ids to leave out (one per line)")
     ap.add_argument("--tokenizer")
+    ap.add_argument("--langs", help="payload languages to use, comma-separated (default: all); R8c's long9 has "
+                    "English hosts only (--langs en)")
     args = ap.parse_args()
+    langs = set(args.langs.split(",")) if args.langs else None
 
     tok = Tokenizer.from_file(str(find_tokenizer(args.tokenizer)))
     tok.no_truncation()
@@ -135,6 +141,8 @@ def main() -> int:
         for r in rows:
             by_lang.setdefault(r["lang"], []).append(r)
         for lang, lst in sorted(by_lang.items()):
+            if langs is not None and lang not in langs:
+                continue
             for r in lst[args.eval_skip:per_lang]:
                 d = {"id": f"control-{r['id']}", "kind": "control", "lang": lang, "genre": "payload", "text": r["text"],
                      "variant": "control", "spans": [[0, len(r["text"].encode("utf-8"))]], "payload_id": r["id"],
