@@ -13,6 +13,8 @@ Bundled native libraries (gateway image and builds with -tags onnx)
 ONNX Runtime 1.31.1
   Copyright (c) Microsoft Corporation
   MIT License. https://github.com/microsoft/onnxruntime
+  The library comes from Microsoft's onnxruntime wheel on PyPI
+  (https://pypi.org/project/onnxruntime/1.31.1/), pinned by SHA-256.
   The license ships in the gateway image at /usr/share/doc/onnxruntime/LICENSE.
 
 Hugging Face tokenizers (libtokenizers.a, linked statically)

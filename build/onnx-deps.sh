@@ -5,7 +5,10 @@
 #   build/onnx-deps.sh <dest-dir> [os] [arch] [flavor]
 #
 # <dest-dir>/lib gets:
-#   libonnxruntime.{so,dylib}*  ONNX Runtime CPU (MIT), loaded at run time via dlopen
+#   libonnxruntime.{so,dylib}*  ONNX Runtime CPU (MIT), loaded at run time via dlopen,
+#                               taken from Microsoft's onnxruntime wheel on PyPI
+#                               (the C API library inside it; the Python
+#                               bindings are not used)
 #   libtokenizers.a             Hugging Face tokenizers (Rust, Apache-2.0) wrapped by
 #                               github.com/daulet/tokenizers (MIT), linked statically
 #
@@ -45,25 +48,35 @@ case "$flavor-$os-$arch" in
   *) echo "unsupported flavor: $flavor on $os-$arch (gpu is linux amd64 only)" >&2; exit 1 ;;
 esac
 
+# ONNX Runtime comes from Microsoft's wheels on PyPI (files.pythonhosted.org):
+# the GitHub releases of microsoft/onnxruntime were unreachable (404) on
+# 2026-11-18, and the wheels carry the same C API library (libonnxruntime),
+# checked to score eval/ identically on darwin-arm64 (2,176 rows, max
+# difference 0). The wheel is pinned by SHA-256 like the archive was.
+pypi=https://files.pythonhosted.org/packages
 case "$os-$arch" in
   linux-amd64)
-    ort_pkg=onnxruntime-linux-x64-$ORT_VERSION
-    ort_sha=c849e36a1ef3e22d4ff217b9d1ce4a3cf5b9467b975610913ae959ad5b16bdc9
+    ort_url=$pypi/eb/27/c6a823bac55b2977bea2027c3ec9393a2c1002cb9a09eb40354563e02730/onnxruntime-$ORT_VERSION-cp312-cp312-manylinux_2_28_x86_64.whl
+    ort_sha=1f3dea47f2f0e5117c2404cea7d21fd253ae7836a3bf167a501cdfbb2600d536
+    ort_member=onnxruntime/capi/libonnxruntime.so.$ORT_VERSION
     tok_sha=72556cdca798dd4ea7cdaba308e5f0d68a8cb93b67c96edf485b7a0edd7b07f4 ;;
   linux-arm64)
-    ort_pkg=onnxruntime-linux-aarch64-$ORT_VERSION
-    ort_sha=5317505e2da99be65f8e2775ba3c2afd6d2961fd78aba1bd8f56159f48820c78
+    ort_url=$pypi/ba/e4/1ed1a7a5f4702d899091fa2b976d377995250c307326ec8dc9ae6378aa13/onnxruntime-$ORT_VERSION-cp312-cp312-manylinux_2_28_aarch64.whl
+    ort_sha=0b9a492176886992e0e875f06bc0367e333f5fff11711a2d642e18b02f3009cc
+    ort_member=onnxruntime/capi/libonnxruntime.so.$ORT_VERSION
     tok_sha=e96545ad05930c26f51f63d932ee6d3bbd32bbed149e102c5290d587a2293067 ;;
   darwin-arm64)
-    ort_pkg=onnxruntime-osx-arm64-$ORT_VERSION
-    ort_sha=2e1344a1926ee50eb25b38153cb6992c3567515aef0e677a1a520a1798896d6f
+    ort_url=$pypi/0e/f7/cecc0efeeea83bff2f7789ae1b80f27fa0f0210d6d9d66d1f0031a6b5e47/onnxruntime-$ORT_VERSION-cp312-cp312-macosx_14_0_arm64.whl
+    ort_sha=96dd2564b10ea7153ad9c207e7cd8e5917cb3ba521e0e0a62ac03486fdc8d56c
+    ort_member=onnxruntime/capi/libonnxruntime.$ORT_VERSION.dylib
     tok_sha=fb84b8b2e349a5952767ffe80ccd862fc44084de47f3b0cc3f0b7c9d4e649cf7 ;;
   *) echo "unsupported platform: $os-$arch" >&2; exit 1 ;;
 esac
 if [ "$flavor" = gpu ]; then
-  # ONNX Runtime GPU, CUDA 12 build (cuDNN 9), for build/gateway-gpu.Dockerfile.
-  ort_pkg=onnxruntime-linux-x64-gpu_cuda12-$ORT_VERSION
-  ort_sha=57cd51f677eca19a269cdba31b0c16c15d73a8feea41f170aa8b750447ab1f70
+  # ONNX Runtime GPU, CUDA 12 build (cuDNN 9), for build/gateway-gpu.Dockerfile:
+  # the onnxruntime-gpu wheel.
+  ort_url=$pypi/22/97/9531b4d9e566cf2a0f04b4b5c26a3bc0ef2e2e0b6bc943a02c0eead98cf7/onnxruntime_gpu-$ORT_VERSION-cp312-cp312-manylinux_2_28_x86_64.whl
+  ort_sha=05d548956197b9d01f59b625de740e0d6be3593f874e241a12dc0362650ecdf7
 fi
 
 sha256() {
@@ -101,21 +114,67 @@ mkdir -p "$dest/lib"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
-fetch "https://github.com/microsoft/onnxruntime/releases/download/v$ORT_VERSION/$ort_pkg.tgz" "$ort_sha" "$tmp/ort.tgz"
-tar -xzf "$tmp/ort.tgz" -C "$tmp"
-# Only the CPU runtime, as one dereferenced file: it is dlopen()ed by path, so
-# the versioned symlinks and the CUDA/TensorRT provider bridge are not needed.
+# unzip_member <zip> <member> <out>: a wheel is a zip file. unzip, python3 or
+# go, whichever the machine has (the golang builder image has only go).
+unzip_member() {
+  if command -v unzip >/dev/null 2>&1; then
+    unzip -p "$1" "$2" > "$3"
+  elif command -v python3 >/dev/null 2>&1; then
+    python3 -c 'import sys,zipfile; open(sys.argv[3],"wb").write(zipfile.ZipFile(sys.argv[1]).read(sys.argv[2]))' "$1" "$2" "$3"
+  elif command -v go >/dev/null 2>&1; then
+    mkdir -p "$tmp/unzip"
+    cat > "$tmp/unzip/main.go" <<'GO'
+package main
+
+import (
+	"archive/zip"
+	"io"
+	"os"
+)
+
+func main() {
+	r, err := zip.OpenReader(os.Args[1])
+	if err != nil {
+		panic(err)
+	}
+	f, err := r.Open(os.Args[2])
+	if err != nil {
+		panic(err)
+	}
+	out, err := os.Create(os.Args[3])
+	if err != nil {
+		panic(err)
+	}
+	if _, err := io.Copy(out, f); err != nil {
+		panic(err)
+	}
+	if err := out.Close(); err != nil {
+		panic(err)
+	}
+}
+GO
+    (cd "$tmp/unzip" && go run main.go "$1" "$2" "$3")
+  else
+    echo "onnx-deps.sh needs unzip, python3 or go to read the wheel" >&2; exit 1
+  fi
+  [ -s "$3" ] || { echo "$2 not found in ${1##*/}" >&2; exit 1; }
+}
+
+fetch "$ort_url" "$ort_sha" "$tmp/${ort_url##*/}"
+whl=$tmp/${ort_url##*/}
+# Only the runtime, as one file: it is dlopen()ed by path, so the versioned
+# symlinks, the Python bindings and the TensorRT provider are not needed.
 case "$os" in
   darwin) ort_lib=libonnxruntime.dylib ;;
   *)      ort_lib=libonnxruntime.so ;;
 esac
-cp -L "$tmp/$ort_pkg/lib/$ort_lib" "$dest/lib/$ort_lib"
-cp "$tmp/$ort_pkg/LICENSE" "$dest/LICENSE.onnxruntime"
+unzip_member "$whl" "$ort_member" "$dest/lib/$ort_lib"
+unzip_member "$whl" onnxruntime/LICENSE "$dest/LICENSE.onnxruntime"
 if [ "$flavor" = gpu ]; then
   for p in libonnxruntime_providers_cuda.so libonnxruntime_providers_shared.so; do
-    cp -L "$tmp/$ort_pkg/lib/$p" "$dest/lib/$p"
+    unzip_member "$whl" "onnxruntime/capi/$p" "$dest/lib/$p"
   done
-  cp "$tmp/$ort_pkg/ThirdPartyNotices.txt" "$dest/ThirdPartyNotices.onnxruntime.txt"
+  unzip_member "$whl" onnxruntime/ThirdPartyNotices.txt "$dest/ThirdPartyNotices.onnxruntime.txt"
   echo "$ORT_VERSION (gpu_cuda12)" > "$dest/lib/VERSION.onnxruntime"
 fi
 
