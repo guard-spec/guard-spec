@@ -171,14 +171,48 @@ def guard(a, cfg):
     return ix, stats, short, holdouts, bench
 
 
-def word_guard(a) -> "H.Guard":
-    """build_r8c_holdouts' 8-word shingle guard over the short hold-out rows and persona1/2/3, eval/."""
+class Contained:
+    """The other direction of the 8-word rule, pair by pair: a guarded text of which half or more of the
+    shingles occur in one given text (a hold-out row inside a longer training row)."""
+
+    def __init__(self, sources: dict[str, list[str]]):
+        self.rows: list[tuple[str, int]] = []
+        self.inv: dict[int, list[int]] = collections.defaultdict(list)
+        for name, texts in sources.items():
+            for t in texts:
+                sh = H.shingles(t) if t else set()
+                if not sh:
+                    continue
+                j = len(self.rows)
+                self.rows.append((name, len(sh)))
+                for x in sh:
+                    self.inv[x].append(j)
+
+    def hit(self, text: str) -> tuple[str, float] | None:
+        c: collections.Counter = collections.Counter()
+        for x in H.shingles(text):
+            for j in self.inv.get(x, ()):
+                c[j] += 1
+        for j, n in c.most_common():
+            share = n / self.rows[j][1]
+            if share >= H.OVERLAP:
+                return self.rows[j][0], round(share, 3)
+        return None
+
+
+def guard_sources(a) -> dict[str, list[str]]:
     src: dict[str, list[str]] = {"short_holdouts": [r["text"] for r in short_holdout_rows(a.holdouts)]}
     for p in holdout_paths(a)[:-1]:
         src[f"holdout:{p.parent.parent.parent.name}/{p.parent.parent.name}/{p.name}"] = [r.get("text") or "" for r in H.read_jsonl(p)]
     for p in sorted(glob.glob(str(REPO / "eval" / "**" / "*.jsonl"), recursive=True)):
         src[f"eval:{Path(p).relative_to(REPO / 'eval')}"] = [r.get("text") or "" for r in H.read_jsonl(Path(p))]
-    return H.Guard(src)
+    return src
+
+
+def word_guards(a) -> tuple["H.Guard", Contained]:
+    """The 8-word rule in both directions over the short hold-out rows, persona1/2/3 and eval/."""
+    src = guard_sources(a)
+    return H.Guard(src), Contained(src)
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -342,6 +376,13 @@ def stage_rows(a) -> int:
     # attack windows: build_v8's scheme, one per host
     pcfg = {"payloads": cfg["payloads"], "seed": seed}
     payloads = V8.load_payloads(pcfg, tok, ix, short, V8.held_texts(holdouts), V8.eval_fingerprints(), counts)
+    # The 8-word rule as well: the L3 exemplars are copies of data/train.jsonl rows, so a payload can be one.
+    wg, wc = word_guards(a)
+    for lang in payloads:
+        keep = [p for p in payloads[lang] if not wg.hit(p["text"]) and not wc.hit(p["text"])]
+        counts[f"payload:skipped:holdout_word8:{lang}"] = len(payloads[lang]) - len(keep)
+        counts[f"payload:usable:{lang}"] = len(keep)
+        payloads[lang] = keep
     cursor = {lang: 0 for lang in payloads}
     clean_b = {k: v.encode("utf-8") for k, v in clean.items()}
     rows = []
@@ -393,10 +434,9 @@ def stage_rows(a) -> int:
         L.append(r)
 
     # S
-    wg = word_guard(a)
 
     def reject(t: str) -> bool:
-        if hit(t) or wg.hit(t):
+        if hit(t) or wg.hit(t) or wc.hit(t):
             counts["S:rejected_overlap"] += 1
             return True
         return False
@@ -452,7 +492,7 @@ def stage_check(a) -> int:
     out = out_dir()
     cfg = load_cfg()
     ix, gstats, short, _, _ = guard(a, cfg)
-    wg = word_guard(a)
+    wg, wc = word_guards(a)
     rep = {"k": 50, "short_k": 12, "index": gstats, "index_shingles": ix.shingles, "files": {}}
     ok = True
     for name in ("r8c_L_train", "r8c_S_train"):
@@ -465,12 +505,11 @@ def stage_check(a) -> int:
         # 8-word rule, both directions: a new row mostly made of hold-out text, or a hold-out row mostly
         # contained in a new row
         words = [r["id"] for r in rows if wg.hit(r["text"])]
-        new = H.Guard({name: [r["text"] for r in rows]})
         rev = []
-        for src_text_norm, src in wg.exact.items():
-            hh = new.hit(src_text_norm)
+        for r in rows:
+            hh = wc.hit(r["text"])
             if hh:
-                rev.append({"holdout_source": src, "kind": hh[0], "share": hh[1]})
+                rev.append({"row": r["id"], "holdout_source": hh[0], "share": hh[1]})
         rep["files"][name] = {"rows": len(rows), "rows_clean_50token": len(kept), "short_holdout_12token_overlap": contained,
                               "word8_overlap": words, "holdout_rows_contained": rev[:50], "counts": dict(counts),
                               "examples": examples, "sha256": V8.sha256_file(p)}
