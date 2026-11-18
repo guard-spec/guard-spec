@@ -6,8 +6,10 @@ Written on 2026-11-19, before any R8c training job, and before `persona3`, `long
 model or rule layer. The data was built on the laptop only (`train/data/build_r8c_holdouts.py`,
 `train/data/build_r8c.py`); nothing has left it.
 
-> **TODO (lead):** the owner approved sending the EPL training data (E's data, owner rows included,
-> `persona_neg_train.jsonl` and the R8c files below) to Colab for these jobs: _date, link to the approval_.
+> **Data approval.** The owner approved sending the EPL training data (E's data, owner rows included,
+> `persona_neg_train.jsonl` and the R8c files below) to Colab for these three jobs, in chat on 2026-11-19
+> ("Đồng ý cho gửi dữ liệu lên colab"). No hold-out set (persona3, long9, split1, the eval/data hold-out half,
+> `user_holdout.jsonl`) is sent to Colab: every model is scored on the laptop.
 
 ## Problem and hypothesis
 
