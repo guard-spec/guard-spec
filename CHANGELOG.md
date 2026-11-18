@@ -28,11 +28,13 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
   blocks 24 of 24 attacks with L1+L2+L3 (20 before; 22 with v3b), with every benign conversation allowed. On `eval/`
   no benign row changes score (L1 and L1+L2+L3), nor on `eval/codelog` and `eval/embedded`.
 
-- **The ONNX eval baselines hold v8e, and CI checks them** (RF-74b49ec4). `eval/baseline-onnx.json` held the v3b run
+- **The ONNX eval baselines hold v8e, and CI runs them** (RF-74b49ec4). `eval/baseline-onnx.json` held the v3b run
   of 2026-11-07, and the three tool-path ONNX baselines (`eval/codelog`, `eval/embedded`) were also measured with v3b;
   none was refreshed when v8e became the default in v0.9.0. The onnx CI job never ran them: it looked for model
   paths that no longer exist. It now pulls the default models from Hugging Face (`models pull`, SHA-256 pinned,
   cached by the manifest) after the tests, runs the four evals against their baselines, and uploads the reports.
+  A move past a baseline is a warning for now, not a failure: runs of the same code on different GitHub-hosted
+  runners differed by 2 to 5 points on small slices at the 0.60 threshold.
   v8e against v3b, at the gateway's decision: `eval/` TPR 0.950 → 0.939 and FPR 1.4% → 0.2% (the v0.9.0
   trade-off); `eval/codelog` FPR 8.7% → 4.5%; `eval/embedded` TPR 0.873 → 0.886, FPR 4.5% → 3.3%. The baselines
   are the CI runner's own reports (Linux x86): measured on Apple silicon, five numbers at the 0.60 threshold
