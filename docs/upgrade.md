@@ -101,7 +101,7 @@ curl -s localhost:8080/readyz | jq .detector        # 6. or https://<GATEWAY_HOS
   production default, a failed pull stops `up` before the new gateway
   starts). With `L2_MODEL` / `L3_MODEL` pinned, the gateway
   keeps the pinned version.
-- **0.10.1 needs no migration and no configuration change.** As after any new gateway binary, the shared scan
+- **0.10.2 needs no migration and no configuration change.** As after any new gateway binary, the shared scan
   cache's entries of the previous release are not read (the key includes the binary's hash), so running sessions are
   scanned again once.
 - **0.10.0 changes the shared scan cache's key format to `v2`.** After the upgrade, entries written by 0.9.0 and
