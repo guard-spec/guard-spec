@@ -212,11 +212,11 @@ func (r *LongDocRule) orNil() inference.LongDocRule {
 }
 
 // long_doc is optional: calibrations without it marshal as before (v8e is
-// the first built-in with one), and one with it round-trips through
-// calibration.json.
+// the first built-in with one, v8f the second), and one with it round-trips
+// through calibration.json.
 func TestLongDocCalibrationRoundTrip(t *testing.T) {
 	for name, c := range BuiltinCalibrations {
-		if name == "guardspec-classifier-v8e" {
+		if name == "guardspec-classifier-v8e" || name == "guardspec-classifier-v8f" {
 			continue
 		}
 		data, err := json.Marshal(c)

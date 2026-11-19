@@ -105,12 +105,13 @@ func TestCapL2(t *testing.T) {
 }
 
 // Without the field nothing changes: the built-in calibrations other than
-// v5's, v6's and v8e's, the shipped v3b file and a file that does not set
-// it give no adjust. v5, v6 and v8e are the only built-in calibrations with
-// a cap.
+// v5's, v6's, v8e's and v8f's, the shipped v3b file and a file that does not
+// set it give no adjust. v5, v6, v8e and v8f are the only built-in
+// calibrations with a cap.
 func TestCapL2OffByDefault(t *testing.T) {
 	for name, c := range BuiltinCalibrations {
-		if name == "guardspec-classifier-v5" || name == "guardspec-classifier-v6" || name == "guardspec-classifier-v8e" {
+		if name == "guardspec-classifier-v5" || name == "guardspec-classifier-v6" || name == "guardspec-classifier-v8e" ||
+			name == "guardspec-classifier-v8f" {
 			if c.L2UntrustedMax != 0.88 || CapL2(c, true) == nil {
 				t.Errorf("%s: want the 0.88 cap, got %v", name, c.L2UntrustedMax)
 			}
