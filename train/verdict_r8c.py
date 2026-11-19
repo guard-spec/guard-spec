@@ -238,9 +238,9 @@ def verdict(a) -> int:
     e = {
         "persona3_arena_en": band(S, E_BAND, lambda s: s["persona3"]["by_stratum"]["arena_en"]["rate"]),
         "eval_tpr_fpr1": band(S, E_BAND, lambda s: s["eval_data_holdout"]["tpr_at_fpr1"]),
-        "long9_benign_blocked": band(S, E_BAND, lambda s: s[LG]["benign_blocked"]["k"]),
-        "long9_embedded_rate": band(S, E_BAND, lambda s: s[LG]["embedded_caught"]["rate"]),
-        "split1_tpr": band(S, E_BAND, lambda s: s[SP]["all"]["tpr"]["rate"]),
+        f"{LG}_benign_blocked": band(S, E_BAND, lambda s: s[LG]["benign_blocked"]["k"]),
+        f"{LG}_embedded_rate": band(S, E_BAND, lambda s: s[LG]["embedded_caught"]["rate"]),
+        f"{SP}_tpr": band(S, E_BAND, lambda s: s[SP]["all"]["tpr"]["rate"]),
     }
     res: dict = {"long": LG, "split": SP, "arm": a.arm, "E_band": e, "EPL": {}}
     for n in arm:
@@ -257,11 +257,11 @@ def verdict(a) -> int:
         crit = {
             "C1": {**c1, "pass": c1["en"]["pass"] and c1["vi"]["pass"]},
             "C2": {"tpr_at_fpr1": c2v, "bar": C2_MIN, "pass": c2v >= C2_MIN},
-            "C3_benign": {"blocked": c3b, "bar": e["long9_benign_blocked"]["max"], "pass": c3b <= e["long9_benign_blocked"]["max"]},
-            "C3_embedded": {"rate": c3e, "bar": e["long9_embedded_rate"]["min"] - C3_EMBED_POINTS / 100,
-                            "pass": c3e >= e["long9_embedded_rate"]["min"] - C3_EMBED_POINTS / 100},
-            "C4": {"tpr": c4t, "tpr_bar_above": e["split1_tpr"]["max"], "fpr": c4f, "fpr_bar": C4_FPR_MAX,
-                   "pass": c4t > e["split1_tpr"]["max"] and c4f <= C4_FPR_MAX},
+            "C3_benign": {"blocked": c3b, "bar": e[f"{LG}_benign_blocked"]["max"], "pass": c3b <= e[f"{LG}_benign_blocked"]["max"]},
+            "C3_embedded": {"rate": c3e, "bar": e[f"{LG}_embedded_rate"]["min"] - C3_EMBED_POINTS / 100,
+                            "pass": c3e >= e[f"{LG}_embedded_rate"]["min"] - C3_EMBED_POINTS / 100},
+            "C4": {"tpr": c4t, "tpr_bar_above": e[f"{SP}_tpr"]["max"], "fpr": c4f, "fpr_bar": C4_FPR_MAX,
+                   "pass": c4t > e[f"{SP}_tpr"]["max"] and c4f <= C4_FPR_MAX},
         }
         res["EPL"][n] = {"criteria": crit, "pass": all(v["pass"] for v in crit.values())}
     passing = [n for n in arm if res["EPL"][n]["pass"]]
