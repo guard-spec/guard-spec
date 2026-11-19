@@ -60,3 +60,25 @@ func TestCalibrationForCPUIgnoresFP16(t *testing.T) {
 		t.Fatalf("%+v from %s", cal, src)
 	}
 }
+
+// The built-in calibrations with an FP16 block (v8e, v8g): model_fp16.onnx gets the block's Platt and
+// logistic regression, keeps the cap, and takes the top-level long document rule; model_int8.onnx gets the
+// top level.
+func TestBuiltinFP16Blocks(t *testing.T) {
+	for _, name := range []string{"guardspec-classifier-v8e", "guardspec-classifier-v8g"} {
+		c := BuiltinCalibrations[name]
+		if c.FP16 == nil {
+			t.Fatalf("%s: no fp16 block", name)
+		}
+		got, fp16 := c.forModelFile(onnx.ModelFP16File)
+		if !fp16 || got.Platt != c.FP16.Platt || got.LogReg["l1,l2,l3"] != c.FP16.LogReg["l1,l2,l3"] ||
+			got.L2UntrustedMax != 0.88 || got.LongDoc == nil || got.LongDoc.MinL2 != c.LongDoc.MinL2 ||
+			got.LongDoc.MinWindows != c.LongDoc.MinWindows || got.Model != name {
+			t.Errorf("%s fp16: %+v %v", name, got, fp16)
+		}
+		got, fp16 = c.forModelFile(onnx.ModelInt8File)
+		if fp16 || got.Platt != c.Platt || got.FP16 != nil {
+			t.Errorf("%s int8: %+v %v", name, got, fp16)
+		}
+	}
+}

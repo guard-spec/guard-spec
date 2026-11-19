@@ -176,7 +176,7 @@ func TestV8eCalibrationFile(t *testing.T) { checkPackagedCalibration(t, "v8e") }
 // TestPackagedCalibrationFiles: train/hf/<version>/calibration.json is the
 // built-in calibration of that version, byte for byte.
 func TestPackagedCalibrationFiles(t *testing.T) {
-	for _, v := range []string{"v8e", "v8f"} {
+	for _, v := range []string{"v8e", "v8f", "v8g"} {
 		t.Run(v, func(t *testing.T) { checkPackagedCalibration(t, v) })
 	}
 }

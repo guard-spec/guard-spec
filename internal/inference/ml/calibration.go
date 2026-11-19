@@ -134,6 +134,36 @@ var BuiltinCalibrations = map[string]CalibrationFile{
 			L2UntrustedMax: 0.88,
 		},
 	},
+	// v8g (the default from the next gateway release; v8e becomes the earlier default): R8d's arm EPL2, seed
+	// 20261107, which met R8d's pre-registered criteria on every seed (train/reports/r8d_report.md). The
+	// calibration.json of train/hf/v8g, byte for byte (TestPackagedCalibrationFiles). FP16 (the GPU option,
+	// train/reports/fp16_agreement_v8g.md) takes the top-level LongDoc (forModelFile).
+	"guardspec-classifier-v8g": {
+		Model:    "guardspec-classifier-v8g",
+		FittedOn: "v4-A build val.jsonl + val_hard.jsonl + val_vi_variants.jsonl + val_v3.jsonl + val_v4.jsonl, with the owner-supplied and OTP/KYC validation rows, plus v6_val.jsonl + val_v6.jsonl of the v6 build (12785 rows, the rows of v8e), 2026-11-19 (R8d arm EPL2, seed 20261107)",
+		Platt:    fusion.Calibration{A: 0.8104254182173567, B: -0.6559804711863502},
+		LogReg: map[string]fusion.LogReg{
+			"l1,l2":    {W: [3]float64{0.41223159738530435, 0.9399051661492243, 0}, B: 0.31538610174514387},
+			"l1,l2,l3": {W: [3]float64{0.3747798856302468, 0.9124231821529315, 0.4230189982502541}, B: 0.6366758257151726},
+		},
+		L2UntrustedMax: 0.88,
+		LongDoc: &LongDoc{
+			MinWindows:    30,
+			CorroborateL1: 0.75,
+			MinL2:         0.95,
+			Base:          0.85,
+			FittedOn:      "R8a (train/reports/r8a_preregistration.md, r8a_holdout.md): strong75_l2, n0 30, L1 bar 0.75 raw, L2 bar 0.95; met on the long8 holdout",
+		},
+		FP16: &CalibrationFile{
+			FittedOn: "the same 12785 validation rows, scored with model_fp16.onnx on the CPU, 2026-11-19",
+			Platt:    fusion.Calibration{A: 0.8220525654153282, B: -0.6154882422860688},
+			LogReg: map[string]fusion.LogReg{
+				"l1,l2":    {W: [3]float64{0.44704369424302964, 0.9435760784032461, 0}, B: 0.35722330252752565},
+				"l1,l2,l3": {W: [3]float64{0.4076445898560811, 0.918012770692796, 0.3826672675039538}, B: 0.6207988818739325},
+			},
+			L2UntrustedMax: 0.88,
+		},
+	},
 	// v8f (a shadow candidate; v8e stays the default): R8c's arm EPL, seed
 	// 20261107. It did not meet R8c's pre-registered criteria as an arm (two
 	// of its three seeds missed one criterion each, train/reports/r8c_report.md);
