@@ -6,7 +6,7 @@ v8g is R8d's arm EPL2, seed 20261107 (EPL2-s3, `train/reports/r8d_report.md`).
 
 - **When and where:** measured on 2026-11-19/20 on the CPU (Apple M3 Max), binaries built at `5fd6e22`, ONNX Runtime
   1.31.1. These numbers compare the two model files, not the GPU. CUDA against the CPU on the same FP16 file is the
-  GPU part below, still pending.
+  GPU part, measured on 2026-11-20 (below).
 - **Holdouts:** no holdout was scored for this report.
   - eval/data is read as in v8e's report.
   - val_v3 is a validation split.
@@ -21,7 +21,7 @@ v8g is R8d's arm EPL2, seed 20261107 (EPL2-s3, `train/reports/r8d_report.md`).
 | `tokenizer.json` | `6879d3648d0329c894b1cbb0c89096430e24d3c7cf5d359d4ccc87ce585c4ae4` | unchanged |
 | `config.json` | `a74903e3d5f0f21799228d520b0b08aa2a2ac9c779bafd78c2d800f9e8a29d7a` | unchanged |
 | `thresholds.json` | `a7b90ccbec1f97793c6915e9ab957387d0f2ec7a00db5ef37117f1e78c397325` | the R8d export's, `model` set to `guardspec-classifier-v8g` |
-| `calibration.json` | `5765545937a7ef84dfc7be8eb9b3bc4f5e4abb3a20d5fd1d57bf0738f053b3ed` | below |
+| `calibration.json` | `3ae1c55facba15c978bd852b0e3ea586c9931d3c53e7c5961171aad4cc4a970a` | below; `train/hf/v8g/calibration.json` and the built-in calibration of v8g, byte for byte |
 
 The FP16 file was checked against FP32 on 1,024 validation windows:
 - FP16 vs FP32: max |Δp| 0.0026, mean 1.3e-5; risk max |Δ| 0.0022;
@@ -49,6 +49,9 @@ laptop.
 - **Out of fold (FP16, 5 folds):** L2 alone AUC 0.9984, TPR at FPR ≤ 1% 0.9865; `logreg(l1,l2,l3)` AUC 0.9981,
   TPR at FPR ≤ 1% 0.9875.
 - **No local paths:** the `fitted_on` texts name the splits, not local paths.
+- **File version:** the CPU measures and the GPU run read an earlier serialization of the same values
+  (SHA-256 `57655459…`). It was then rewritten as the gateway marshals its built-in calibration, with v8e's wording
+  of the top-level `fitted_on`; no number changed.
 - **Long-path rule in FP16:** the FP16 block has no `long_doc` of its own, so `model_fp16.onnx` takes the top-level
   rule (`ml.forModelFile`), as in v8e.
 
@@ -99,12 +102,44 @@ calibration. A document counts when its doc score reaches 0.85.
 - **FP16 catches slightly more on the short path at 0.85 and blocks two more benign rows** (11 against 9 on all of
   eval/data; equal on the hold-out half). This is the same direction as v8e.
 - **The GPU option looks fit for v8g on these CPU numbers,** with the same caveat as v8e: about 1% of decisions near
-  the threshold differ between a GPU gateway and a CPU gateway. CUDA has not been measured yet.
+  the threshold differ between a GPU gateway and a CPU gateway. The GPU run below confirms it on CUDA.
 
-## GPU: pending
+## GPU run: FP16 on CUDA, and the long path (2026-11-20)
 
-- **Still to measure:** CUDA on a Colab L4, comparing the same `model_fp16.onnx` on CUDA with the CPU. This covers
-  short-path parity on eval/data, the `quick` long-input windows, and the long path on long5 with `long_doc`, as in
-  v8e's GPU run.
-- **Who runs it:** the lead, separately. Its results go into this section.
-- **Until then:** nothing here says how FP16 behaves on CUDA.
+Colab job `gs-v8g-fp16`:
+- NVIDIA L4, driver 580.82.07, ONNX Runtime 1.31.1 (`gpu_cuda12`), commit `4ac27e7`;
+- `STEPS="parity longdoc" bash bench/gpu/colab_gpu_bench.sh`.
+- **Data sent:** the v8g package without `model_int8.onnx`, and v8e's staged `quick` and `long5` corpora. No owner
+  data. The top-level `fitted_on` of the staged calibration copy was shortened, because colab_job.py flags the words
+  "owner-supplied"; the values were unchanged.
+- **Compute units:** 567.11 before and 565.17 after (1.94).
+
+**CUDA against the CPU, same FP16 file.**
+- `eval/data` rows (L2 alone, `fusion-ml:l2`): 2,176 rows, the decisions at 0.85 agree 100%, max |Δscore| 0.0089,
+  and the gateway decisions agree 100%.
+- `quick` long-input windows: 100% agreement.
+  - L2: 5,341 windows, max |Δ| 0.013.
+  - `l1,l2`: 2,456 chunks, max |Δ| 0.0040.
+- Latency of one eval/data row: p50 3.0 ms on CUDA, against 9.3 ms on the Colab CPU (Xeon, 12 vCPU).
+
+**Long path on CUDA with `long_doc`.** This is `long5` dev: 74 benign documents and 376 attack documents. It has been
+dev since R5, so this is a dev measure, compared with the INT8 and FP16 CPU runs above on the same documents:
+
+| | FP16, CUDA | FP16, CPU | INT8, CPU |
+|---|---|---|---|
+| benign documents blocked | 0 / 74 | 0 / 74 | 0 / 74 |
+| embedded attacks caught (all intact) | 286 / 329 | 286 / 329 | 285 / 329 |
+| payloads alone | 43 / 47 | 43 / 47 | 43 / 47 |
+| documents rejected | 0 | 0 | 0 |
+
+- **CUDA against CPU, FP16:** 0 of 450 documents differ; max |Δ doc score| 0.0056 on benign documents and 0.0013 on
+  attack documents.
+- **FP16 on CUDA against INT8 on CPU:** 3 of 450 differ, the same 3 Vietnamese attack documents as on the CPU (two
+  caught only by FP16, one only by INT8).
+- **Speed:** about 110k tokens/s on the L4. The full `long5` (150 benign documents, 22.4M tokens) took 204 s; the
+  holdout half was scored too but is not read here.
+
+**Reading.** CUDA decides like the CPU on the same FP16 file. Under the `long_doc` rule, FP16 on a GPU decides long
+documents like INT8 on the CPU, within one document of the near-threshold attacks. The GPU option is fit for v8g, with
+the caveat of v8e: about 1% of short-path decisions near the threshold differ between a GPU gateway (FP16) and a CPU
+gateway (INT8). No fresh long holdout was scored in FP16.
