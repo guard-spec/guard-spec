@@ -1,0 +1,216 @@
+{
+ "E_band": {
+  "persona3_arena_en": {
+   "min": 0.02,
+   "max": 0.023333333333333334,
+   "by_model": {
+    "E": 0.02,
+    "E-s2": 0.023333333333333334,
+    "E-s3": 0.02
+   }
+  },
+  "eval_tpr_fpr1": {
+   "min": 0.9153,
+   "max": 0.9601,
+   "by_model": {
+    "E": 0.9601,
+    "E-s2": 0.9153,
+    "E-s3": 0.9252
+   }
+  },
+  "long9_benign_blocked": {
+   "min": 3,
+   "max": 5,
+   "by_model": {
+    "E": 3,
+    "E-s2": 4,
+    "E-s3": 5
+   }
+  },
+  "long9_embedded_rate": {
+   "min": 0.8690476190476191,
+   "max": 0.8869047619047619,
+   "by_model": {
+    "E": 0.8809523809523809,
+    "E-s2": 0.8690476190476191,
+    "E-s3": 0.8869047619047619
+   }
+  },
+  "split1_tpr": {
+   "min": 0.6333333333333333,
+   "max": 0.7166666666666667,
+   "by_model": {
+    "E": 0.6333333333333333,
+    "E-s2": 0.6333333333333333,
+    "E-s3": 0.7166666666666667
+   }
+  }
+ },
+ "EPL": {
+  "EPL-s1": {
+   "criteria": {
+    "C1": {
+     "en": {
+      "k": 2,
+      "n": 396,
+      "rate": 0.005050505050505051,
+      "cp95_upper": 0.018124202920923815,
+      "pass": true
+     },
+     "vi": {
+      "k": 0,
+      "n": 117,
+      "rate": 0.0,
+      "cp95_upper": 0.031037031693111727,
+      "pass": true
+     },
+     "arena_en_reported": {
+      "k": 2,
+      "n": 300,
+      "rate": 0.006666666666666667,
+      "cp95_upper": 0.02387349757217444,
+      "below_E_band": true
+     },
+     "pass": true
+    },
+    "C2": {
+     "tpr_at_fpr1": 0.9452,
+     "bar": 0.915,
+     "pass": true
+    },
+    "C3_benign": {
+     "blocked": 2,
+     "bar": 5,
+     "pass": true
+    },
+    "C3_embedded": {
+     "rate": 0.8630952380952381,
+     "bar": 0.849047619047619,
+     "pass": true
+    },
+    "C4": {
+     "tpr": 0.9333333333333333,
+     "tpr_bar_above": 0.7166666666666667,
+     "fpr": 0.06666666666666667,
+     "fpr_bar": 0.05,
+     "pass": false
+    }
+   },
+   "pass": false
+  },
+  "EPL-s2": {
+   "criteria": {
+    "C1": {
+     "en": {
+      "k": 3,
+      "n": 396,
+      "rate": 0.007575757575757576,
+      "cp95_upper": 0.0219788712213988,
+      "pass": true
+     },
+     "vi": {
+      "k": 0,
+      "n": 117,
+      "rate": 0.0,
+      "cp95_upper": 0.031037031693111727,
+      "pass": true
+     },
+     "arena_en_reported": {
+      "k": 3,
+      "n": 300,
+      "rate": 0.01,
+      "cp95_upper": 0.02894451125569225,
+      "below_E_band": true
+     },
+     "pass": true
+    },
+    "C2": {
+     "tpr_at_fpr1": 0.9369,
+     "bar": 0.915,
+     "pass": true
+    },
+    "C3_benign": {
+     "blocked": 1,
+     "bar": 5,
+     "pass": true
+    },
+    "C3_embedded": {
+     "rate": 0.8392857142857143,
+     "bar": 0.849047619047619,
+     "pass": false
+    },
+    "C4": {
+     "tpr": 0.9,
+     "tpr_bar_above": 0.7166666666666667,
+     "fpr": 0.05,
+     "fpr_bar": 0.05,
+     "pass": true
+    }
+   },
+   "pass": false
+  },
+  "EPL-s3": {
+   "criteria": {
+    "C1": {
+     "en": {
+      "k": 2,
+      "n": 396,
+      "rate": 0.005050505050505051,
+      "cp95_upper": 0.018124202920923815,
+      "pass": true
+     },
+     "vi": {
+      "k": 1,
+      "n": 117,
+      "rate": 0.008547008547008548,
+      "cp95_upper": 0.04670085245379535,
+      "pass": true
+     },
+     "arena_en_reported": {
+      "k": 2,
+      "n": 300,
+      "rate": 0.006666666666666667,
+      "cp95_upper": 0.02387349757217444,
+      "below_E_band": true
+     },
+     "pass": true
+    },
+    "C2": {
+     "tpr_at_fpr1": 0.9402,
+     "bar": 0.915,
+     "pass": true
+    },
+    "C3_benign": {
+     "blocked": 0,
+     "bar": 5,
+     "pass": true
+    },
+    "C3_embedded": {
+     "rate": 0.8630952380952381,
+     "bar": 0.849047619047619,
+     "pass": true
+    },
+    "C4": {
+     "tpr": 0.85,
+     "tpr_bar_above": 0.7166666666666667,
+     "fpr": 0.016666666666666666,
+     "fpr_bar": 0.05,
+     "pass": true
+    }
+   },
+   "pass": true
+  }
+ },
+ "decision": {
+  "all_seeds_pass": false,
+  "candidate": "E (v8e)",
+  "failed": {
+   "EPL-s1": [
+    "C4"
+   ],
+   "EPL-s2": [
+    "C3_embedded"
+   ]
+  }
+ }
+}
