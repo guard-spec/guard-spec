@@ -1,0 +1,384 @@
+{
+ "task": "RF-e82b0347 (R8d)",
+ "holdouts": {
+  "split2": {
+   "path": "split2/split2.json",
+   "sha256": "15b6518435ed775594386d5b9bd222ae9d5a11ed914e2ab93cc006ed3cd13146",
+   "counts": {
+    "en:attack": 30,
+    "en:benign": 30,
+    "vi:attack": 30,
+    "vi:benign": 30
+   }
+  },
+  "long10/benign": {
+   "path": "long10/benign/docs.jsonl",
+   "sha256": "85f568096c2b3fd1bcc6407656760d117397491f2520897803bcff30c7fd1174",
+   "counts": {
+    "en:benign": 52
+   }
+  },
+  "long10/attack": {
+   "path": "long10/attack/docs.jsonl",
+   "sha256": "77408aeb9351238d63219e1cf178075383b6cc4c75241a99702e623391c34c2d",
+   "counts": {
+    "en:attack": 168,
+    "en:control": 24
+   }
+  }
+ },
+ "long10_exclude": {
+  "training_rows": {
+   "train.jsonl": 33366,
+   "val.jsonl": 5269,
+   "val_hard.jsonl": 829,
+   "val_vi_variants.jsonl": 1408,
+   "val_v3.jsonl": 508,
+   "val_v4.jsonl": 333,
+   "v6_train.jsonl": 15785,
+   "v6_val.jsonl": 2211,
+   "val_v6.jsonl": 2227,
+   "v8e_train.jsonl": 16906,
+   "persona_neg_train.jsonl": 1573,
+   "docs.jsonl": 475,
+   "r8c_L_train.jsonl": 2996,
+   "r8c_S_train.jsonl": 800
+  },
+  "bench_docs": 1315,
+  "sources": {
+   "sklearn-docs-l10-en": {
+    "units": 115,
+    "excluded": 1,
+    "by_reason": {
+     "training": 1
+    }
+   },
+   "knative-docs-l10-en": {
+    "units": 275,
+    "excluded": 0,
+    "by_reason": {}
+   },
+   "rustc-dev-guide-l10-en": {
+    "units": 206,
+    "excluded": 0,
+    "by_reason": {}
+   },
+   "rust-reference-l10-en": {
+    "units": 92,
+    "excluded": 0,
+    "by_reason": {}
+   },
+   "grpc-docs-l10-en": {
+    "units": 117,
+    "excluded": 1,
+    "by_reason": {
+     "training": 1
+    }
+   },
+   "numpy-docs-l10-en": {
+    "units": 232,
+    "excluded": 0,
+    "by_reason": {}
+   },
+   "rfc-l10-en": {
+    "units": 198,
+    "excluded": 29,
+    "by_reason": {
+     "training": 20,
+     "bench_near_dup": 9
+    }
+   },
+   "bitnami-readme-l10-en": {
+    "units": 167,
+    "excluded": 114,
+    "by_reason": {
+     "training": 114
+    }
+   },
+   "serverless-readme-l10-en": {
+    "units": 1076,
+    "excluded": 2,
+    "by_reason": {
+     "training": 2
+    }
+   },
+   "freebsd-man4-l10-en": {
+    "units": 540,
+    "excluded": 25,
+    "by_reason": {
+     "training": 25
+    }
+   },
+   "freebsd-man5-l10-en": {
+    "units": 42,
+    "excluded": 0,
+    "by_reason": {}
+   },
+   "freebsd-man7-l10-en": {
+    "units": 33,
+    "excluded": 1,
+    "by_reason": {
+     "bench_near_dup": 1
+    }
+   },
+   "freebsd-man9-l10-en": {
+    "units": 261,
+    "excluded": 0,
+    "by_reason": {}
+   }
+  }
+ },
+ "holdout_check": {
+  "result": "clean",
+  "overlap_rule": "exact, or >= 0.5 of the 8-word shingles",
+  "guard_sources": {
+   "E:data-v4A/train.jsonl": 33366,
+   "E:data-v4A/val.jsonl": 5269,
+   "E:data-v4A/val_hard.jsonl": 829,
+   "E:data-v4A/val_vi_variants.jsonl": 1408,
+   "E:data-v4A/val_v3.jsonl": 508,
+   "E:data-v4A/val_v4.jsonl": 333,
+   "E:out-full/v6_train.jsonl": 15785,
+   "E:out-full/v6_val.jsonl": 2211,
+   "E:out-full/val_v6.jsonl": 2227,
+   "E:data/v8e_train.jsonl": 16906,
+   "persona_neg_train": 1573,
+   "train_extra:r8c_L_train.jsonl": 2996,
+   "train_extra:r8c_S_train.jsonl": 800,
+   "train_extra:r8d_Lplus_train.jsonl": 1000,
+   "train_extra:r8d_N_train.jsonl": 400,
+   "eval:codelog/codelog.jsonl": 310,
+   "eval:data/en.jsonl": 926,
+   "eval:data/vi.jsonl": 1250,
+   "eval:embedded/embedded.jsonl": 2176,
+   "persona1:dev/en.jsonl": 896,
+   "persona1:dev/vi.jsonl": 96,
+   "persona1:holdout/en.jsonl": 887,
+   "persona1:holdout/vi.jsonl": 96,
+   "persona1:holdout_audited/en.jsonl": 850,
+   "persona1:holdout_audited/vi.jsonl": 96,
+   "persona2:en.jsonl": 396,
+   "persona2:vi.jsonl": 96,
+   "exemplars": 579,
+   "multiturn.json": 186,
+   "payload_split_test.go": 42,
+   "train/data:pilot_labels.jsonl": 200,
+   "train/data:probe_v4.jsonl": 4,
+   "train/data:train.jsonl": 31522,
+   "train/data:val.jsonl": 5125,
+   "train/data:val_hard.jsonl": 829,
+   "train/data:val_realistic_holdout.jsonl": 613,
+   "train/data:val_v3.jsonl": 508,
+   "train/data:val_v3_holdout.jsonl": 1510,
+   "train/data:val_v4.jsonl": 333,
+   "train/data:val_v4_holdout.jsonl": 141,
+   "train/data:val_vi_variants.jsonl": 1408,
+   "persona3:en": 396,
+   "persona3:vi": 117,
+   "split1": 459
+  },
+  "files": {
+   "split2": {
+    "rows": 438,
+    "overlaps": 0
+   },
+   "long10/benign": {
+    "docs": 52,
+    "overlaps": 0
+   },
+   "long10/attack": {
+    "docs": 192,
+    "overlaps": 0
+   }
+  }
+ },
+ "pool": {
+  "sources": {
+   "airflow-docs-r8d-en": {
+    "units": 136,
+    "kept": 136,
+    "trimmed": 1,
+    "dropped": 0,
+    "sha256": "f98b88ef46032bdb4658bf74564191d936d28eba0b33ba98040166e8736b334d"
+   },
+   "opa-docs-r8d-en": {
+    "units": 214,
+    "kept": 214,
+    "trimmed": 9,
+    "dropped": 0,
+    "sha256": "0b573a44383216d0fd75f7fe4e0351216b9634a838eda81eba8e4edbfe973fd9"
+   },
+   "certmanager-docs-r8d-en": {
+    "units": 149,
+    "kept": 146,
+    "trimmed": 2,
+    "dropped": 3,
+    "sha256": "899168f0d3c62c9ff23ff833610387da3f6181f9a8ec1d3f8648f253b540d70c"
+   },
+   "rfc-r8d-en": {
+    "units": 95,
+    "kept": 58,
+    "trimmed": 47,
+    "dropped": 37,
+    "sha256": "6b1896566c88d7ea26821c60a2c08b9f170c291472628fdad1dace27808b54ce"
+   },
+   "datadog-readme-r8d-en": {
+    "units": 341,
+    "kept": 341,
+    "trimmed": 1,
+    "dropped": 0,
+    "sha256": "0104bff3852e0bf93c5672ff72cde36dbc0ddf8e7cb7b4a47de512c55962c68a"
+   }
+  },
+  "pool": {
+   "docs": {
+    "docs": 53,
+    "tokens": 1724751
+   },
+   "rfc": {
+    "docs": 21,
+    "tokens": 830208
+   },
+   "readme": {
+    "docs": 21,
+    "tokens": 655452
+   }
+  },
+  "pool_sha256": "840eed7553e44e5628e464e4f596c0fccb0de232e043b09e880a3479652a8c43",
+  "unpinned": {}
+ },
+ "training_stats": {
+  "seed": 20261120,
+  "inputs": {
+   "pool_sha256": "840eed7553e44e5628e464e4f596c0fccb0de232e043b09e880a3479652a8c43",
+   "sanitized_sha256": "1e9439ca41e4a7bca668317a6d67f3da40019af4bcb7eea4ff49ddea7da3fa03",
+   "payload_file_sha256": "4886a86dcbebf18c1d3c3c5876a7c47bf71b7b1ec66701cf204c1e0275199c16",
+   "sources_r8d_sha256": "1329dd9947fbc563fc64842bfee7e70d8f70e7b85a953918094b7987eb5217e9",
+   "r8d_templates_sha256": "7b4716f6febe6b7a6a97a72c956cbedf78631738da4fd9f5d52393228f035561",
+   "tokenizer": "tokenizer.json",
+   "tokenizer_sha256": "0b44a9d7b51c3c62626640cda0e2c2f70fdacdc25bbbd68038369d14ebdf4c39"
+  },
+  "index_shingles": 489583649,
+  "build": {
+   "attack:taken:docs": 450,
+   "attack:taken:readme": 250,
+   "attack:taken:rfc": 300,
+   "embed_failed:split_adjacent": 1,
+   "embed_failed:split_within": 24,
+   "host:available:docs": 8643,
+   "host:available:readme": 3385,
+   "host:available:rfc": 4059,
+   "host_without_attack:split_within": 2,
+   "payload:attack_rows": 4462,
+   "payload:skipped:guard": 633,
+   "payload:skipped:holdout_word8:en": 101,
+   "payload:skipped:in_val_holdout_probe": 103,
+   "payload:skipped:length": 461,
+   "payload:skipped:not_set_A": 793,
+   "payload:skipped:too_long": 5,
+   "payload:usable:en": 2366
+  },
+  "r8d_Lplus_train": {
+   "rows": 1000,
+   "by_kind_lang": {
+    "r8d_attack:en": 1000
+   },
+   "by_kind_genre": {
+    "r8d_attack:docs": 450,
+    "r8d_attack:readme": 250,
+    "r8d_attack:rfc": 300
+   },
+   "labels": {
+    "data_exfiltration+direct_injection+indirect_injection+obfuscation+prompt_extraction": 1,
+    "data_exfiltration+indirect_injection": 77,
+    "data_exfiltration+indirect_injection+obfuscation": 35,
+    "data_exfiltration+indirect_injection+obfuscation+tool_poisoning": 1,
+    "data_exfiltration+indirect_injection+tool_poisoning": 23,
+    "direct_injection+indirect_injection": 279,
+    "direct_injection+indirect_injection+jailbreak": 6,
+    "direct_injection+indirect_injection+jailbreak+obfuscation": 1,
+    "direct_injection+indirect_injection+jailbreak+prompt_extraction": 7,
+    "direct_injection+indirect_injection+obfuscation": 21,
+    "direct_injection+indirect_injection+obfuscation+prompt_extraction": 3,
+    "direct_injection+indirect_injection+prompt_extraction": 104,
+    "indirect_injection": 80,
+    "indirect_injection+jailbreak": 93,
+    "indirect_injection+jailbreak+obfuscation": 26,
+    "indirect_injection+jailbreak+prompt_extraction+tool_poisoning": 1,
+    "indirect_injection+jailbreak+tool_poisoning": 2,
+    "indirect_injection+obfuscation": 12,
+    "indirect_injection+obfuscation+prompt_extraction": 28,
+    "indirect_injection+obfuscation+tool_poisoning": 5,
+    "indirect_injection+prompt_extraction": 166,
+    "indirect_injection+prompt_extraction+tool_poisoning": 14,
+    "indirect_injection+tool_poisoning": 15
+   },
+   "windows": {
+    "r8d_attack:attack": 1047,
+    "r8d_attack:benign": 77,
+    "r8d_attack:dropped": 96
+   },
+   "placement": {
+    "end": 119,
+    "mid": 304,
+    "split_adjacent": 142,
+    "split_within": 168,
+    "start": 120,
+    "straddle_window": 147
+   },
+   "payloads_used": 1000,
+   "payload_uses_max": 1,
+   "sha256": "dae8aba367cc59c15bdb53b7d01310c684b5e77bb4d1fb2038e2968d43d77a79"
+  },
+  "r8d_N_train": {
+   "rows": 400,
+   "by_kind_lang": {
+    "r8d_neg_negated:en": 67,
+    "r8d_neg_negated:vi": 67,
+    "r8d_neg_quoted:en": 67,
+    "r8d_neg_quoted:vi": 67,
+    "r8d_neg_split:en": 66,
+    "r8d_neg_split:vi": 66
+   },
+   "by_kind_genre": {
+    "r8d_neg_negated:-": 134,
+    "r8d_neg_quoted:-": 134,
+    "r8d_neg_split:-": 132
+   },
+   "labels": {
+    "benign": 400
+   },
+   "windows": {
+    "r8d_neg_negated:benign": 134,
+    "r8d_neg_quoted:benign": 134,
+    "r8d_neg_split:benign": 132
+   },
+   "placement": {},
+   "payloads_used": 0,
+   "payload_uses_max": 0,
+   "sha256": "e6b9b47e119740fcd47e5e1b27f9b0acaa09c8ed9b0b00d56f45259fb22c6cab"
+  }
+ },
+ "training_guard": {
+  "result": "clean",
+  "index_shingles": 489583649,
+  "files": {
+   "r8d_Lplus_train": {
+    "rows": 1000,
+    "rows_clean_50token": 1000,
+    "short_holdout_12token_overlap": [],
+    "word8_overlap": [],
+    "holdout_rows_contained": [],
+    "sha256": "dae8aba367cc59c15bdb53b7d01310c684b5e77bb4d1fb2038e2968d43d77a79"
+   },
+   "r8d_N_train": {
+    "rows": 400,
+    "rows_clean_50token": 400,
+    "short_holdout_12token_overlap": [],
+    "word8_overlap": [],
+    "holdout_rows_contained": [],
+    "sha256": "e6b9b47e119740fcd47e5e1b27f9b0acaa09c8ed9b0b00d56f45259fb22c6cab"
+   }
+  }
+ }
+}
