@@ -17,11 +17,16 @@
 #
 # Environment: R8C (default ~/WorkingSpace/AI_R_D/guardspec-data/v9/r8c), ONNX_LIB (directory of
 # libonnxruntime.dylib and libtokenizers.a), MODEL_ROOT (the MODEL_DIR whose cache/ holds multilingual-e5-small, the L3 embedder),
-# ONLY (space-separated subset of: data persona3 split1 long9).
+# ONLY (space-separated subset of: data persona3 split long), and for later rounds HOLDOUTS (the round's holdout
+# directory with its SHA256SUMS, default $R/out), P3_DIR (the persona3 holdout, default
+# $HOLDOUTS/persona3/holdout/direct), LONG (long9) and SPLIT (split1): R8d runs with R8C=.../v9/r8d LONG=long10
+# SPLIT=split2 P3_DIR=.../v9/r8c/out/persona3/holdout/direct.
 set -euo pipefail
 n=$1; m=$2
 R=${R8C:-$HOME/WorkingSpace/AI_R_D/guardspec-data/v9/r8c}
-H=$R/out
+H=${HOLDOUTS:-$R/out}
+LONG=${LONG:-long9}; SPLIT=${SPLIT:-split1}
+P3=${P3_DIR:-$H/persona3/holdout/direct}
 O=$R/measure/$n; mkdir -p "$O"
 W=$(cd "$(dirname "$0")/.." && pwd)
 : "${ONNX_LIB:?set ONNX_LIB}" "${MODEL_ROOT:?set MODEL_ROOT}"
@@ -42,6 +47,7 @@ cp "$B/commit.txt" "$O/commit.txt"
 
 # the holdout files must be the pre-registered ones
 (cd "$H" && shasum -a 256 -c SHA256SUMS)
+[ -z "${P3_DIR:-}" ] || (cd "$P3/../../.." && grep "  persona3/" SHA256SUMS | shasum -a 256 -c -)
 
 once() {  # once <holdout>: refuse to score a holdout twice with one model
   if [ -e "$O/$1.lock" ]; then echo "$n: $1 already scored" >&2; return 1; fi
@@ -57,25 +63,25 @@ if want data && once data; then
 fi
 if want persona3 && once persona3; then
   s=$SECONDS
-  L2_MODEL_DIR=$m "$B/eval" -detector fusion-ml -path direct -data "$H/persona3/holdout/direct" \
+  L2_MODEL_DIR=$m "$B/eval" -detector fusion-ml -path direct -data "$P3" \
     -json "$O/persona3.json" -scores "$O/persona3.scores.jsonl" > "$O/persona3.log" 2>&1
   t "persona3 done in $((SECONDS - s)) s"
 fi
-if want split1 && once split1; then
+if want split && once "$SPLIT"; then
   s=$SECONDS
-  python3 train/verdict_r8c.py prep-split1 --split1 "$H/split1/split1.json" --out "$R/measure/split1-eval" > /dev/null
-  L2_MODEL_DIR=$m "$B/eval" -layers l2 -path direct -data "$R/measure/split1-eval/window" \
-    -json "$O/split1.json" -scores "$O/split1.scores.jsonl" > "$O/split1.log" 2>&1
-  L2_MODEL_DIR=$m "$B/eval" -layers l2 -path direct -data "$R/measure/split1-eval/turns" \
-    -json "$O/split1_turns.json" -scores "$O/split1_turns.scores.jsonl" > "$O/split1_turns.log" 2>&1
-  t "split1 done in $((SECONDS - s)) s"
+  python3 train/verdict_r8c.py prep-split1 --split1 "$H/$SPLIT/$SPLIT.json" --out "$R/measure/$SPLIT-eval" > /dev/null
+  L2_MODEL_DIR=$m "$B/eval" -layers l2 -path direct -data "$R/measure/$SPLIT-eval/window" \
+    -json "$O/$SPLIT.json" -scores "$O/$SPLIT.scores.jsonl" > "$O/$SPLIT.log" 2>&1
+  L2_MODEL_DIR=$m "$B/eval" -layers l2 -path direct -data "$R/measure/$SPLIT-eval/turns" \
+    -json "$O/${SPLIT}_turns.json" -scores "$O/${SPLIT}_turns.scores.jsonl" > "$O/${SPLIT}_turns.log" 2>&1
+  t "$SPLIT done in $((SECONDS - s)) s"
 fi
-if want long9 && once long9; then
+if want long && once "$LONG"; then
   for k in benign attack; do
     s=$SECONDS
-    L2_MODEL_DIR=$m "$B/benchlong" -corpus "$H/long9/$k" -profile "r8c-$n-$k" -layers none -l2pass off -long on \
-      -dump "$O/long9-$k" -skip-latency -workers 4 -host m3max-r8c -out "$O/long9-$k.json" > "$O/long9-$k.log" 2>&1
-    t "long9 $k done in $((SECONDS - s)) s"
+    L2_MODEL_DIR=$m "$B/benchlong" -corpus "$H/$LONG/$k" -profile "$(basename "$R")-$n-$k" -layers none -l2pass off -long on \
+      -dump "$O/$LONG-$k" -skip-latency -workers 4 -host m3max-$(basename "$R") -out "$O/$LONG-$k.json" > "$O/$LONG-$k.log" 2>&1
+    t "$LONG $k done in $((SECONDS - s)) s"
   done
 fi
 python3 train/verdict_r8c.py summarize --dir "$O" > /dev/null

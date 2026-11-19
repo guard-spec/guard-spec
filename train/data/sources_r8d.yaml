@@ -1,0 +1,180 @@
+# Inputs and recipe of the R8d training additions L+ and N (RF-e82b0347, data/build_r8d.py).
+#
+# Copyright The Guard Spec Authors. Licensed under the Apache License 2.0.
+#
+# R8c's arm EPL (train/reports/r8c_report.md) was not met: EPL-s2 caught 83.9% of long9's embedded attacks against
+# a bar of 84.9%, and EPL-s1 blocked 4 of 60 benign split1 conversations, three of them "don't ignore the previous
+# instructions". R8d keeps EPL's data and adds:
+#   L+  payload-carrying windows only (the build_v8 scheme, training payload set A, English hosts) in long technical
+#       documentation from new sources, so that L's benign : attack goes from 1 : 1 to about 1 : 1.7;
+#   N   hard negatives of negated or quoted overrides ("don't ignore the previous instructions", "làm theo hướng dẫn
+#       trước đó", quotes and discussions of prompt injection), single texts and turns joined with a space.
+#
+# Same schema and loader as sources_r8c.yaml. Disjointness: other repositories and RFCs than every bench/long
+# profile (long9 and long10 included), every earlier training source and R8c's L.
+
+version: 1
+seed: 20261120
+
+sources:
+  airflow-docs-r8d-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    # The Apache Airflow documentation (apache/airflow at the 3.4.0 tag, airflow-core/docs,
+    # reStructuredText, Apache-2.0); with OPA and cert-manager one `docs` pool.
+    repo: apache/airflow
+    commit: 619a787ac81e8b7c8a9102fc78e3f0b00625d04e
+    prefix: airflow-core/docs
+    tree_sha: a2c89d444cff4c35d13195ef95c7cbb249215753
+    suffixes: [".rst"]
+    min_bytes: 2000
+    max_unit_chars: 60000
+    license: Apache-2.0 (apache/airflow LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; training rows are not redistributed.
+    sha256: f98b88ef46032bdb4658bf74564191d936d28eba0b33ba98040166e8736b334d
+  opa-docs-r8d-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    # The Open Policy Agent documentation (open-policy-agent/opa at the v1.22.4 tag, docs/, Apache-2.0).
+    repo: open-policy-agent/opa
+    commit: ba39415db4b3c90cd68942a74b3cc2223ec2b23c
+    prefix: docs
+    tree_sha: dea94b39361486dd37f454b730ec7f438a3dadb0
+    suffixes: [".md", ".mdx"]
+    min_bytes: 2000
+    strip: front-matter
+    max_unit_chars: 60000
+    license: Apache-2.0 (open-policy-agent/opa LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; training rows are not redistributed.
+    sha256: 0b573a44383216d0fd75f7fe4e0351216b9634a838eda81eba8e4edbfe973fd9
+  certmanager-docs-r8d-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    # The cert-manager documentation (cert-manager/website at a pinned commit of master, content/docs, Apache-2.0).
+    repo: cert-manager/website
+    commit: f01388b8aaae8d6c390c1648fd29d4a30810eb40
+    prefix: content/docs
+    tree_sha: d136216d6722c053d5be46e28ff1a0f960aff73b
+    suffixes: [".md"]
+    min_bytes: 2000
+    strip: front-matter
+    max_unit_chars: 60000
+    license: Apache-2.0 (cert-manager/website LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; training rows are not redistributed.
+    sha256: 899168f0d3c62c9ff23ff833610387da3f6181f9a8ec1d3f8648f253b540d70c
+  rfc-r8d-en:
+    lang: en
+    genre: rfc
+    kind: http-text
+    # RFCs no profile, no earlier training source, long9, long10 and R8c's L use (IETF Trust Legal Provisions,
+    # BCP 78): the 815 candidates of corpus.yaml `rfc-l9-en`, every twentieth from the eighth.
+    base: https://www.rfc-editor.org/rfc/
+    file_header: ""
+    strip: rfc
+    max_unit_chars: 60000
+    paths:
+      - rfc2127.txt
+      - rfc2412.txt
+      - rfc2677.txt
+      - rfc2895.txt
+      - rfc3196.txt
+      - rfc3441.txt
+      - rfc3611.txt
+      - rfc3796.txt
+      - rfc3961.txt
+      - rfc4104.txt
+      - rfc4259.txt
+      - rfc4464.txt
+      - rfc4655.txt
+      - rfc4793.txt
+      - rfc4947.txt
+      - rfc5189.txt
+      - rfc5456.txt
+      - rfc5601.txt
+      - rfc5844.txt
+      - rfc6043.txt
+      - rfc6272.txt
+      - rfc6378.txt
+      - rfc6726.txt
+      - rfc6956.txt
+      - rfc7200.txt
+      - rfc7455.txt
+      - rfc7667.txt
+      - rfc7852.txt
+      - rfc8010.txt
+      - rfc8173.txt
+      - rfc8334.txt
+      - rfc8480.txt
+      - rfc8576.txt
+      - rfc8845.txt
+      - rfc9022.txt
+      - rfc9148.txt
+      - rfc9314.txt
+      - rfc9543.txt
+      - rfc9649.txt
+      - rfc9838.txt
+      - rfc9964.txt
+    license: IETF Trust Legal Provisions (BCP 78)
+    terms: RFC Editor text files; training rows are not redistributed.
+    sha256: 6b1896566c88d7ea26821c60a2c08b9f170c291472628fdad1dace27808b54ce
+  datadog-readme-r8d-en:
+    lang: en
+    genre: readme
+    kind: github-tree
+    # README files of the Datadog Agent integrations (DataDog/integrations-core at a pinned commit of master, the
+    # whole tree, BSD-3-Clause).
+    repo: DataDog/integrations-core
+    commit: 20667183408fc0119daf1344692febe79c2cd846
+    tree_sha: 920431864dbb6c21462162a5106f424ba9cf5071
+    suffixes: ["README.md"]
+    min_bytes: 2000
+    file_header: "# File: {path}\n"
+    max_unit_chars: 60000
+    license: BSD-3-Clause (DataDog/integrations-core LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; training rows are not redistributed.
+    sha256: 0104bff3852e0bf93c5672ff72cde36dbc0ddf8e7cb7b4a47de512c55962c68a
+
+# The pool: as sources_r8c.yaml (documents of about 30k tokens per genre, sanitized by the gateway's sanitizer).
+pool:
+  doc_tokens: 30000
+
+# Host windows per genre: a seeded sample of the gateway windows of the sanitized pool; each gets one payload
+# and only the attack row is written (L+ has no benign rows).
+windows:
+  docs: 450
+  rfc: 300
+  readme: 250
+
+payloads:
+  file: data/train.jsonl
+  langs: [en]
+  min_chars: 30
+  max_chars: 600
+  max_tokens: 170
+  payload_set: A
+placements:
+  mid: 0.30
+  split_adjacent: 0.15
+  split_within: 0.15
+  straddle_window: 0.15
+  start: 0.125
+  end: 0.125
+# Bridge sentences of split_adjacent: other sentences than bench/long's, build_v5's, sources_v8.yaml's and
+# sources_r8c.yaml's.
+bridges:
+  en:
+    - "The next paragraph covers the remaining options."
+    - "Refer to the release notes for version differences."
+    - "Default values are listed at the end of this page."
+    - "This section assumes a working installation."
+
+# N: hard negatives of negated or quoted overrides (data/r8d_templates.py).
+negatives:
+  rows: 400
+  vi_share: 0.5
+
+guard:
+  profiles: [quick, full, long, long5, long6, long7, long8, long9, long10]
