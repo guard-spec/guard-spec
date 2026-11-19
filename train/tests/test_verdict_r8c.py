@@ -79,7 +79,7 @@ class VerdictTest(unittest.TestCase):
                 (Path(d) / n).mkdir()
                 (Path(d) / n / "summary.json").write_text(json.dumps(s))
             out = Path(d) / "v.json"
-            V.verdict(argparse.Namespace(measure=d, out=str(out)))
+            V.verdict(argparse.Namespace(measure=[d], out=str(out), arm="EPL", long="long9", split="split1"))
             return json.loads(out.read_text())
 
     def test_all_pass_and_one_fail(self):
@@ -102,9 +102,30 @@ class VerdictTest(unittest.TestCase):
         r = self.run_verdict(S)  # EPL equal to E's best split1 TPR: not above the band
         self.assertEqual(set(r["decision"]["failed"]), set(V.EPL))
 
+    def test_r8d_merges_two_measure_dirs(self):
+        """R8d: E's persona3 and eval/data from one directory, long10 and split2 from another, arm EPL2."""
+        full = {n: summary(1, 0, 0.01, 0.95, 0, 140, 40, 1) for n in V.E_BAND}
+        full.update({f"EPL2-s{k}": summary(1, 0, 0.01, 0.95, 0, 140, 50, 1) for k in (1, 2, 3)})
+        with tempfile.TemporaryDirectory() as d1, tempfile.TemporaryDirectory() as d2:
+            for n, s in full.items():
+                old = {k: s[k] for k in ("persona3", "eval_data_holdout")}
+                new = {"long10": s["long9"], "split2": s["split1"]}
+                if n.startswith("EPL2"):
+                    new.update(old)
+                else:
+                    (Path(d1) / n).mkdir()
+                    (Path(d1) / n / "summary.json").write_text(json.dumps(old))
+                (Path(d2) / n).mkdir()
+                (Path(d2) / n / "summary.json").write_text(json.dumps(new))
+            out = Path(d2) / "v.json"
+            V.verdict(argparse.Namespace(measure=[d1, d2], out=str(out), arm="EPL2", long="long10", split="split2"))
+            r = json.loads(out.read_text())
+        self.assertTrue(r["decision"]["all_seeds_pass"])
+        self.assertEqual(sorted(r["EPL"]), ["EPL2-s1", "EPL2-s2", "EPL2-s3"])
+
     def test_needs_six_models(self):
         with tempfile.TemporaryDirectory() as d, self.assertRaises(SystemExit):
-            V.verdict(argparse.Namespace(measure=d, out=str(Path(d) / "v.json")))
+            V.verdict(argparse.Namespace(measure=[d], out=str(Path(d) / "v.json"), arm="EPL", long="long9", split="split1"))
 
 
 if __name__ == "__main__":
