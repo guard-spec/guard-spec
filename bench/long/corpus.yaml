@@ -2281,6 +2281,303 @@ sources:
     terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
     sha256: 6552007f27bd7ced17481efcd377f9f518978d14bd92b6f4226681eb74ab3a4b
 
+  # ---------------------------------------------------------------------
+  # Sources of the `long10` profile (2026-11-19, RF-e82b0347 R8d): long
+  # technical documents (docs, rfc, readme, man) from repositories, RFCs and
+  # pages that no other profile, no training source (sources_v*.yaml,
+  # sources_r8c.yaml, sources_r8d.yaml) and long9 use.
+  sklearn-docs-l10-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    # The scikit-learn user guide and documentation (scikit-learn/scikit-learn at the 1.9.1 tag, doc/,
+    # reStructuredText, BSD-3-Clause); with Knative, the rustc dev guide, the Rust reference, gRPC and NumPy one
+    # `docs` pool.
+    repo: scikit-learn/scikit-learn
+    commit: 866c0f51e7560ef0303cbcc5f159df5382ea9e3f
+    prefix: doc
+    tree_sha: 59d1e657e2a44e4a1c14b0c63a85c087fb4a677d
+    suffixes: [".rst"]
+    min_bytes: 2000
+    max_unit_chars: 60000
+    license: BSD-3-Clause (scikit-learn/scikit-learn COPYING)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: d9317058b1b0dcdb11afe3e5be30b100e73c707973b5788eaed241b8b4c88b77
+  knative-docs-l10-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    # The Knative documentation (knative/docs at a pinned commit of main, docs/, Apache-2.0).
+    repo: knative/docs
+    commit: 540efd45632b978a6d33c609fa2f356dd6f80a5a
+    prefix: docs
+    tree_sha: a296fb2c5c4ce0b71e7a64a9f303073f48cf27eb
+    suffixes: [".md"]
+    min_bytes: 2000
+    strip: front-matter
+    max_unit_chars: 60000
+    license: Apache-2.0 (knative/docs LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 446059425c47ab24a3856cac1159d4fab31cdb5c2332984907aa6e686bcc53c7
+  rustc-dev-guide-l10-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    # The rustc dev guide (rust-lang/rustc-dev-guide at a pinned commit, src/, MIT OR Apache-2.0).
+    repo: rust-lang/rustc-dev-guide
+    commit: d946d7402d269990f3b64baabaf6592409791c11
+    prefix: src
+    tree_sha: 6adec49058dca413faed87df68ebccb7f8d84c2c
+    suffixes: [".md"]
+    min_bytes: 2000
+    max_unit_chars: 60000
+    license: Apache-2.0 OR MIT (rust-lang/rustc-dev-guide LICENSE-APACHE, LICENSE-MIT)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 9ac5b2e90eca298f5055403617255ac1bbf456db0839591d7bfa76911f429a82
+  rust-reference-l10-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    # The Rust reference (rust-lang/reference at a pinned commit, src/, MIT OR Apache-2.0).
+    repo: rust-lang/reference
+    commit: c9cc32825b03fc206d9c6fe73e9ca6a2f3576d6c
+    prefix: src
+    tree_sha: 46a276a70cb650d476d861bcb78143cc4bef623c
+    suffixes: [".md"]
+    min_bytes: 2000
+    max_unit_chars: 60000
+    license: Apache-2.0 OR MIT (rust-lang/reference LICENSE-APACHE, LICENSE-MIT)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 16d67687e44dc0549f04daec91cd6c301a80dded87ed3c6c2a7344a3a36bacbe
+  grpc-docs-l10-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    # The gRPC website (grpc/grpc.io at a pinned commit, content/en; content CC-BY-4.0, code Apache-2.0).
+    repo: grpc/grpc.io
+    commit: d4b80855571d015e4a6df23acc4dd3692c0c7200
+    prefix: content/en
+    tree_sha: 4fba0084a3e0d760ccc3b2d98a6924dd08eb1c8a
+    suffixes: [".md"]
+    min_bytes: 2000
+    strip: front-matter
+    max_unit_chars: 60000
+    license: CC-BY-4.0 (grpc/grpc.io LICENSE, content)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 4be52d1942fae229d1a62dd0de9abd007ba577114d17bd097aa8355857b5028e
+  numpy-docs-l10-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    # The NumPy documentation (numpy/numpy at a pinned commit, doc/source, reStructuredText, BSD-3-Clause).
+    repo: numpy/numpy
+    commit: 32283e0844bf9102962205ca1c4ef414cc555907
+    prefix: doc/source
+    tree_sha: 565fb7c36e5ad2a5d6bb0382752bfb57e6dc98b7
+    suffixes: [".rst"]
+    min_bytes: 2000
+    max_unit_chars: 60000
+    license: BSD-3-Clause (numpy/numpy LICENSE.txt)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 7c0f7891c68beace23f54ed966ea8654f88d5d270ade1bd05d2a4b09de939280
+  rfc-l10-en:
+    lang: en
+    genre: rfc
+    kind: http-text
+    # RFCs that no profile, no training source, long9 and the R8c/R8d training sources use (IETF Trust
+    # Legal Provisions, BCP 78): the 815 candidates of `rfc-l9-en` (rfc-index.xml of 2026-11-19), every
+    # tenth from the third (long9 takes every tenth from the first, R8c L every twentieth from the sixth,
+    # R8d L+ every twentieth from the eighth).
+    base: https://www.rfc-editor.org/rfc/
+    file_header: ""
+    strip: rfc
+    max_unit_chars: 60000
+    paths:
+      - rfc2024.txt
+      - rfc2167.txt
+      - rfc2353.txt
+      - rfc2515.txt
+      - rfc2634.txt
+      - rfc2741.txt
+      - rfc2819.txt
+      - rfc2981.txt
+      - rfc3108.txt
+      - rfc3270.txt
+      - rfc3380.txt
+      - rfc3473.txt
+      - rfc3579.txt
+      - rfc3651.txt
+      - rfc3729.txt
+      - rfc3814.txt
+      - rfc3881.txt
+      - rfc3982.txt
+      - rfc4080.txt
+      - rfc4131.txt
+      - rfc4211.txt
+      - rfc4326.txt
+      - rfc4428.txt
+      - rfc4517.txt
+      - rfc4585.txt
+      - rfc4698.txt
+      - rfc4763.txt
+      - rfc4823.txt
+      - rfc4907.txt
+      - rfc5022.txt
+      - rfc5087.txt
+      - rfc5225.txt
+      - rfc5401.txt
+      - rfc5488.txt
+      - rfc5570.txt
+      - rfc5655.txt
+      - rfc5795.txt
+      - rfc5866.txt
+      - rfc5934.txt
+      - rfc6081.txt
+      - rfc6190.txt
+      - rfc6310.txt
+      - rfc6365.txt
+      - rfc6498.txt
+      - rfc6638.txt
+      - rfc6766.txt
+      - rfc6926.txt
+      - rfc7030.txt
+      - rfc7147.txt
+      - rfc7275.txt
+      - rfc7414.txt
+      - rfc7513.txt
+      - rfc7640.txt
+      - rfc7702.txt
+      - rfc7811.txt
+      - rfc7900.txt
+      - rfc7971.txt
+      - rfc8085.txt
+      - rfc8148.txt
+      - rfc8220.txt
+      - rfc8303.txt
+      - rfc8347.txt
+      - rfc8435.txt
+      - rfc8503.txt
+      - rfc8533.txt
+      - rfc8618.txt
+      - rfc8743.txt
+      - rfc8895.txt
+      - rfc8990.txt
+      - rfc9052.txt
+      - rfc9128.txt
+      - rfc9177.txt
+      - rfc9254.txt
+      - rfc9365.txt
+      - rfc9497.txt
+      - rfc9569.txt
+      - rfc9635.txt
+      - rfc9700.txt
+      - rfc9800.txt
+      - rfc9881.txt
+      - rfc9924.txt
+      - rfc10027.txt
+    license: IETF Trust Legal Provisions (BCP 78)
+    terms: RFC Editor text files; used locally for measurement, never redistributed.
+    sha256: c5f1a6e330f6ba97ddddc315830637f39d39d52cabaf86f53648b3b7aab8bc02
+  bitnami-readme-l10-en:
+    lang: en
+    genre: readme
+    kind: github-tree
+    # README files of the Bitnami Helm charts (bitnami/charts at a pinned commit of main, bitnami/,
+    # Apache-2.0): one `readme` pool.
+    repo: bitnami/charts
+    commit: 2aac71a990b7e7c9a882bdce59855022894ac361
+    prefix: bitnami
+    tree_sha: 4c3047d28a277db0a3dbe368d545f59a3c3d05d3
+    suffixes: ["README.md"]
+    min_bytes: 2000
+    file_header: "# File: {path}\n"
+    max_unit_chars: 60000
+    license: Apache-2.0 (bitnami/charts LICENSE.md)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 145973de38eb62be0fee884ec4865ba0e4cb3aec4144319fc7209ebdb4f12bf6
+  serverless-readme-l10-en:
+    lang: en
+    genre: readme
+    kind: github-tree
+    # README files of the AWS Serverless Patterns collection (aws-samples/serverless-patterns at a pinned commit
+    # of main, the whole tree, MIT-0); with the Bitnami READMEs one `readme` pool.
+    repo: aws-samples/serverless-patterns
+    commit: ecccbd47d47de020a6fc450377c908b76f2edf80
+    tree_sha: 8138e2528383da0b146ad2fda432abcf26d41479
+    suffixes: ["README.md"]
+    min_bytes: 2000
+    file_header: "# File: {path}\n"
+    max_unit_chars: 60000
+    license: MIT-0 (aws-samples/serverless-patterns LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 68b51098c5604861c02e0e478e2d46e9115961a8a0ce3322a96809715cb1e443
+  freebsd-man4-l10-en:
+    lang: en
+    genre: man
+    kind: github-tree
+    # FreeBSD manual pages (the freebsd/freebsd-src GitHub mirror at a pinned commit of main, share/man
+    # sections 4, 5, 7 and 9, mdoc(7), BSD licences in each page), roff turned into plain text; one `man` pool.
+    repo: freebsd/freebsd-src
+    commit: ad0cd01015906ce421cd2c3b7251a0f615bc0a20
+    prefix: share/man/man4
+    tree_sha: f18fecc052e90815adffc21468446ba1f3b33b79
+    suffixes: [".4"]
+    min_bytes: 2000
+    strip: roff
+    file_header: "# File: {path}\n"
+    max_unit_chars: 60000
+    license: BSD-2-Clause / BSD (per-page licence of the FreeBSD manual pages)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: bc7f912bff4f09f60a88d1b148cbb650ea2a2c0aa28aa2b3c1d7d1b2fe38cee4
+  freebsd-man5-l10-en:
+    lang: en
+    genre: man
+    kind: github-tree
+    repo: freebsd/freebsd-src
+    commit: ad0cd01015906ce421cd2c3b7251a0f615bc0a20
+    prefix: share/man/man5
+    tree_sha: b8955a88d294c1a5ff6e62f37dc72c7c45f20c37
+    suffixes: [".5"]
+    min_bytes: 2000
+    strip: roff
+    file_header: "# File: {path}\n"
+    max_unit_chars: 60000
+    license: BSD-2-Clause / BSD (per-page licence of the FreeBSD manual pages)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 945ee8ab6208536710e4e5bf42ffcb7fa0a4c5903215bc0867c393f134fb2389
+  freebsd-man7-l10-en:
+    lang: en
+    genre: man
+    kind: github-tree
+    repo: freebsd/freebsd-src
+    commit: ad0cd01015906ce421cd2c3b7251a0f615bc0a20
+    prefix: share/man/man7
+    tree_sha: 5b8db5c0bd2440a9a126d661514c0f939120ba00
+    suffixes: [".7"]
+    min_bytes: 2000
+    strip: roff
+    file_header: "# File: {path}\n"
+    max_unit_chars: 60000
+    license: BSD-2-Clause / BSD (per-page licence of the FreeBSD manual pages)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 9adf6dd403caffc99b4015943b90c35596fb751430486c836bf4efb6ed6da199
+  freebsd-man9-l10-en:
+    lang: en
+    genre: man
+    kind: github-tree
+    repo: freebsd/freebsd-src
+    commit: ad0cd01015906ce421cd2c3b7251a0f615bc0a20
+    prefix: share/man/man9
+    tree_sha: f4ecf6b3455b4261400d40286f1634a8ee1eb03e
+    suffixes: [".9"]
+    min_bytes: 2000
+    strip: roff
+    file_header: "# File: {path}\n"
+    max_unit_chars: 60000
+    license: BSD-2-Clause / BSD (per-page licence of the FreeBSD manual pages)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 9390eea3fc26b73e230b4aaba427e16d8cd49239f44c4954438365802c5e1f28
+
 # Synthetic genres: generated by build.py from a fixed seed (project-written,
 # Apache-2.0). "hardneg" is benign text about prompt injection and security.
 synthetic:
@@ -2587,6 +2884,34 @@ profiles:
     host_tokens: 2000
     segment_host_bytes: 28000
 
+  long10:
+    # The holdout of R8d (RF-e82b0347, train/reports/r8d_preregistration.md):
+    # long technical documents of 100k and 200k tokens from the `long10`
+    # sources only (no synthetic genre, no Vietnamese text). Every document is
+    # R8d holdout (the `split` field still follows the hash rule). The
+    # embedded attack documents are built from these hosts by
+    # bench/long/embed_long.py with eval/ dev-half payloads no earlier profile
+    # used (--eval-payloads 24 --eval-skip 168 --langs en: the English rows 168
+    # to 191). Ids carry the prefix `long10-`.
+    sources: [sklearn-docs-l10-en, knative-docs-l10-en, rustc-dev-guide-l10-en, rust-reference-l10-en, grpc-docs-l10-en,
+              numpy-docs-l10-en, rfc-l10-en, bitnami-readme-l10-en, serverless-readme-l10-en, freebsd-man4-l10-en, freebsd-man5-l10-en,
+              freebsd-man7-l10-en, freebsd-man9-l10-en]
+    synthetic: []
+    synthetic_seed: 20261120
+    id_prefix: long10-
+    sizes:
+      default: [100000, 200000]
+      synthetic: [100000, 200000]
+    docs_per_size:
+      default: 0
+      docs-en: 8
+      rfc-en: 7
+      readme-en: 7
+      man-en: 4
+    payloads_per_lang: 0
+    host_tokens: 2000
+    segment_host_bytes: 28000
+
 # Dev/holdout split of every document (build.py split_of, the eval/ convention):
 # the last hex digit of SHA-256(key) is 0-7 for dev and 8-f for holdout, with
 # key the payload id of an attack or control document (every variant of a
@@ -2630,6 +2955,10 @@ outputs:
   # 7.30M tokens (docs 9 + 9, rfc 7 + 6, readme 5 + 5, man 4 + 4 at 100k + 200k), after
   # exclude.json. The R8c holdout: scored once per model (train/reports/r8c_preregistration.md).
   long9: f2ddd0e50a68639ab46d370c744f3e2de41e4a635bde05807dd9ed551d0649f2
+  # long10: pinned on 2026-11-19 (R8d), before any long10 score; 52 benign English documents,
+  # 7.80M tokens (docs 8 + 8, rfc 7 + 7, readme 7 + 7, man 4 + 4 at 100k + 200k), after
+  # exclude.json. The R8d holdout: scored once per model (train/reports/r8d_preregistration.md).
+  long10: 85f568096c2b3fd1bcc6407656760d117397491f2520897803bcff30c7fd1174
 
 dropped:
   - source: Project Gutenberg (gutenberg.org)
