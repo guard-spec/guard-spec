@@ -106,7 +106,12 @@ jobs:
           for branch in targets:
               if branch != "main" and branch not in branches:
                   api.create_branch(repo, repo_type="model", branch=branch, exist_ok=True)
+              # delete_patterns="*": the branch ends up holding exactly the
+              # staged package. A new branch is created from main, so without
+              # it files of the version main held stay behind (v8f's first
+              # upload kept v8e's model_fp16.onnx). .gitattributes is kept.
               info = api.upload_folder(repo_id=repo, folder_path=os.environ["STAGE"], revision=branch,
+                                       delete_patterns="*",
                                        commit_message="guardspec-classifier " + version)
               summary.write(f"Uploaded to https://huggingface.co/{repo}/tree/{branch}\n\n")
               summary.write(f"revision: `{info.oid}`\n\nGATEWAY_FULL_L2_SOURCE: `{repo}@{info.oid}`\n\n")
