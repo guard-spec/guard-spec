@@ -9,6 +9,14 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ## [Unreleased]
 
+### Added
+
+- **guardspec-classifier v8f, a shadow-mode candidate, not validated** (RF-408b51a6). One seed of round R8c's arm EPL
+  (persona hard negatives, long technical-document windows, payload-splitting attacks). The arm did not meet R8c's
+  pre-registered criteria, and this seed was picked after the holdout, so it is listed in the manifest only to be run
+  next to v8e with `SHADOW_L2_MODEL=guardspec-classifier@v8f`. v8e stays the default. Hugging Face branch `v8f`
+  (revision `84aa1f63`) and the GitHub Release `model-guardspec-classifier-v8f`; INT8 only.
+
 ### Fixed
 
 - **`publish-model.yml` uploads exactly the staged package** (RF-408b51a6). A new version branch on Hugging Face is

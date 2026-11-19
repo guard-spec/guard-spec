@@ -244,6 +244,39 @@ models:
         size: 1611
         sha256: 3419798d34eb3ba094747d3cef1fe1c68183087e0b15ce394813e2a00e845da6
 
+  # v8f: a shadow-mode candidate, not validated (R8c arm EPL, seed 20261107, picked after the
+  # holdout; train/reports/r8c_report.md). Not recommended: v8e stays the default. INT8 only.
+  - name: guardspec-classifier
+    version: v8f
+    kind: classifier
+    repo: guard-spec/guardspec-classifier
+    revision: "84aa1f6376825f5fea6873a2d01777bf29b8eff7"
+    mirrors:
+      - https://github.com/guard-spec/guard-spec/releases/download/model-guardspec-classifier-v8f/{file}
+    license: Apache-2.0
+    license_url: https://github.com/guard-spec/guard-spec/blob/main/train/MODEL_CARD.md
+    files:
+      - src: model_int8.onnx
+        dest: model_int8.onnx
+        size: 118466001
+        sha256: 79f26effb1b5595c38868735b6e7a474fa7be39a5288e77370e921e3ea1cc244
+      - src: tokenizer.json
+        dest: tokenizer.json
+        size: 17082955
+        sha256: 6879d3648d0329c894b1cbb0c89096430e24d3c7cf5d359d4ccc87ce585c4ae4
+      - src: config.json
+        dest: config.json
+        size: 1272
+        sha256: a74903e3d5f0f21799228d520b0b08aa2a2ac9c779bafd78c2d800f9e8a29d7a
+      - src: thresholds.json
+        dest: thresholds.json
+        size: 4686
+        sha256: ca208f13ba2efe6565453d3f839be671c6e8dafe69ac1ba36d7b566802ed3138
+      - src: calibration.json
+        dest: calibration.json
+        size: 994
+        sha256: 665c646a38c95dbbe5d196b880a8db42d45b38fd12310dae56bbb32796178395
+
   # ProtectAI small v2: gated, requires HF_TOKEN. Optional baseline.
   - name: protectai-deberta-v3-small-pi-v2
     version: d7c8842

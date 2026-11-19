@@ -22,6 +22,7 @@ tool, so the binary always knows its recommended models.
 | `guardspec-classifier` | `v5` | L2 | no: candidate for code, logs and long documents, [shadow mode first](#guardspec-classifier-v5-candidate) | Hugging Face `guard-spec/guardspec-classifier` (branch `v5`), then the GitHub Release `model-guardspec-classifier-v5` |
 | `guardspec-classifier` | `v6` | L2 | no: candidate for long documents, with an FP16 file for the GPU option, [shadow mode first](#guardspec-classifier-v6-candidate) | Hugging Face `guard-spec/guardspec-classifier` (branch `v6`), then the GitHub Release `model-guardspec-classifier-v6` |
 | `guardspec-classifier` | `v8e` | L2 | **yes, since v0.9.0** ([why](#guardspec-classifier-v8e-the-default-since-v090)), with the long-path decision in `calibration.json` and an FP16 file | Hugging Face `guard-spec/guardspec-classifier` (branches `main` and `v8e`), then the GitHub Release `model-guardspec-classifier-v8e` |
+| `guardspec-classifier` | `v8f` | L2 | no: shadow-mode candidate, **not validated** ([why](#guardspec-classifier-v8f-shadow-mode-candidate)); INT8 only | Hugging Face `guard-spec/guardspec-classifier` (branch `v8f`), then the GitHub Release `model-guardspec-classifier-v8f` |
 | `multilingual-e5-small` | `614241f` | L3 | yes | Hugging Face `intfloat/multilingual-e5-small` |
 | `protectai-deberta-v3-small-pi-v2` | `d7c8842` | baseline | optional, gated | Hugging Face |
 | `protectai-deberta-v3-base-pi-v2` | `90c9989` | baseline | optional | Hugging Face |
@@ -298,6 +299,38 @@ and on the tool path the cap keeps embedded attacks that only the classifier
 recognises below the block threshold (`val_v5_holdout`: 0.623 vs 0.665 at
 0.85, although it ranks them far better). The selection rule, every table
 and the data are in [train/MODEL_CARD.md](../train/MODEL_CARD.md) ("v5").
+
+### guardspec-classifier v8f (shadow-mode candidate)
+
+`guardspec-classifier@v8f` is listed in the manifest but is **not**
+recommended and **not validated**: v8e stays the default. It is one seed
+(20261107) of round R8c's arm EPL, which adds to v8e's data persona hard
+negatives, benign long technical-document windows paired with payload
+windows, and payload-splitting attacks with hard negatives. The arm did
+**not** meet R8c's pre-registered criteria (two of its three seeds each
+missed one); this seed met them all but was picked after the holdout was
+scored, so its numbers are optimistic
+([train/reports/r8c_report.md](../train/reports/r8c_report.md)). It is
+published so that you can measure it on your own traffic next to v8e:
+
+| R8c holdouts, INT8 on the CPU | v8f | v8e seed band |
+|---|---|---|
+| persona3 benign blocked, EN | 0.5% | 1.5–2.3% |
+| long9 benign long documents blocked (of 49) | 0 | 3–5 |
+| long9 embedded attacks caught | 86.3% | 86.9–88.7% |
+| split1 payload-splitting attacks, L2 only | 85.0% | 63.3–71.7% |
+
+**Published** on 2026-11-19: Hugging Face branch `v8f` (revision
+`84aa1f63`, pinned in the manifest) and the GitHub Release
+`model-guardspec-classifier-v8f` as the mirror. INT8 only, no FP16 file.
+
+```bash
+docker compose --profile models run --rm models-pull guardspec-classifier@v8f
+# .env: v8e keeps deciding, v8f scores the same traffic.
+L2_MODEL=guardspec-classifier@v8e
+SHADOW_L2_MODEL=guardspec-classifier@v8f
+SHADOW_SAMPLE=1
+```
 
 ### guardspec-classifier v6 (candidate)
 

@@ -22,6 +22,7 @@ binary luôn biết các model nó khuyến nghị.
 | `guardspec-classifier` | `v5` | L2 | không: bản ứng viên cho code, log và tài liệu dài, [shadow mode trước](#guardspec-classifier-v5-bản-ứng-viên) | Hugging Face `guard-spec/guardspec-classifier` (nhánh `v5`), sau đó là GitHub Release `model-guardspec-classifier-v5` |
 | `guardspec-classifier` | `v6` | L2 | không: bản ứng viên cho tài liệu dài, có file FP16 cho tùy chọn GPU, [shadow mode trước](#guardspec-classifier-v6-bản-ứng-viên) | Hugging Face `guard-spec/guardspec-classifier` (nhánh `v6`), sau đó là GitHub Release `model-guardspec-classifier-v6` |
 | `guardspec-classifier` | `v8e` | L2 | **có, từ v0.9.0** ([lý do](#guardspec-classifier-v8e-mặc-định-từ-v090)), có cách quyết định trên đường dài trong `calibration.json` và file FP16 | Hugging Face `guard-spec/guardspec-classifier` (nhánh `main` và `v8e`), sau đó là GitHub Release `model-guardspec-classifier-v8e` |
+| `guardspec-classifier` | `v8f` | L2 | không: ứng viên chạy shadow mode, **chưa đạt chuẩn** ([vì sao](#guardspec-classifier-v8f-ứng-viên-shadow-mode)); chỉ INT8 | Hugging Face `guard-spec/guardspec-classifier` (nhánh `v8f`), sau đó GitHub Release `model-guardspec-classifier-v8f` |
 | `multilingual-e5-small` | `614241f` | L3 | có | Hugging Face `intfloat/multilingual-e5-small` |
 | `protectai-deberta-v3-small-pi-v2` | `d7c8842` | baseline | tùy chọn, cần xin quyền truy cập | Hugging Face |
 | `protectai-deberta-v3-base-pi-v2` | `90c9989` | baseline | tùy chọn | Hugging Face |
@@ -299,6 +300,37 @@ tool, cap giữ các tấn công nhúng mà chỉ classifier nhận ra ở dư�
 (`val_v5_holdout`: 0.623 so với 0.665 ở 0.85, dù xếp hạng tốt hơn nhiều). Quy
 tắc chọn, mọi bảng số và dữ liệu nằm trong
 [train/MODEL_CARD.md](../train/MODEL_CARD.md) (mục "v5").
+
+### guardspec-classifier v8f (ứng viên shadow mode)
+
+`guardspec-classifier@v8f` có trong manifest nhưng **không** được khuyến nghị
+và **chưa đạt chuẩn**: v8e vẫn là mặc định. Đây là một seed (20261107) của
+arm EPL trong vòng R8c. Arm này thêm vào dữ liệu của v8e các prompt persona
+lành, các cửa sổ tài liệu kỹ thuật dài ghép cặp với cửa sổ có payload, và tấn
+công chia mảnh kèm hard negative. Arm **không đạt** tiêu chí đã đăng ký trước
+của R8c (hai trong ba seed mỗi seed trượt một tiêu chí). Seed này đạt mọi
+tiêu chí nhưng được chọn sau khi đã chấm holdout, nên số đo của nó lạc quan
+([train/reports/r8c_report.md](../train/reports/r8c_report.md)). Bản này được
+công bố để bạn đo trên traffic của chính mình, chạy song song với v8e:
+
+| Holdout R8c, INT8 trên CPU | v8f | Dải seed của v8e |
+|---|---|---|
+| persona3 lành bị chặn, EN | 0,5% | 1,5–2,3% |
+| long9 tài liệu dài lành bị chặn (trên 49) | 0 | 3–5 |
+| long9 tấn công cài trong tài liệu bị bắt | 86,3% | 86,9–88,7% |
+| split1 tấn công chia mảnh, chỉ L2 | 85,0% | 63,3–71,7% |
+
+**Công bố** ngày 2026-11-19: nhánh `v8f` trên Hugging Face (revision
+`84aa1f63`, ghim trong manifest) và GitHub Release
+`model-guardspec-classifier-v8f` làm bản mirror. Chỉ có INT8, không có file FP16.
+
+```bash
+docker compose --profile models run --rm models-pull guardspec-classifier@v8f
+# .env: v8e vẫn ra quyết định, v8f chấm cùng traffic.
+L2_MODEL=guardspec-classifier@v8e
+SHADOW_L2_MODEL=guardspec-classifier@v8f
+SHADOW_SAMPLE=1
+```
 
 ### guardspec-classifier v6 (bản ứng viên)
 
