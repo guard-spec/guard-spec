@@ -59,7 +59,9 @@ import os
 import random
 import re
 import sys
+import time
 import unicodedata
+import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -127,8 +129,16 @@ def fetch(url: str, cache: Path) -> bytes:
         # unauthenticated rate limit of 60 requests per hour.
         headers["Authorization"] = "Bearer " + os.environ["GITHUB_TOKEN"]
     req = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(req, timeout=120) as r:
-        data = r.read()
+    for attempt in range(8):
+        try:
+            with urllib.request.urlopen(req, timeout=120) as r:
+                data = r.read()
+            break
+        except urllib.error.HTTPError as e:
+            # raw.githubusercontent.com answers 429 or 503 under load: wait and try again
+            if e.code not in (429, 500, 502, 503, 504) or attempt == 7:
+                raise
+            time.sleep(min(60, 2 ** attempt))
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_suffix(".tmp")
     tmp.write_bytes(data)
@@ -244,6 +254,108 @@ def strip_rfc_pages(s: str) -> str:
     return _RFC_PAGE.sub("", s)
 
 
+# roff (man(7) and mdoc(7)) to plain text for the `man` genre (R8c, RF-f9e76bb6): requests that only set
+# up formatting are dropped, section headings become their own lines, font and character escapes become the
+# characters they stand for, and mdoc's callable macro names inside a line are removed. Not a renderer: the
+# text keeps the words of the page in their order, which is what the classifier reads.
+_ROFF_DROP = {"TH", "Dd", "Dt", "Os", "de", "ds", "nr", "so", "ad", "na", "hy", "nh", "ne", "in", "ti", "ft", "ps",
+              "vs", "ie", "el", "if", "tr", "ig", "ll", "PD", "UC", "AT", "DT", "RS", "RE", "nf", "fi", "Bl", "El",
+              "Bd", "Ed", "Bk", "Ek", "EX", "EE", "Rs", "Re", "Ud", "Bf", "Ef", "rm", "am", "cc", "c2", "ec", "eo",
+              "hw", "ss", "cs", "bd", "lf", "mso", "IX", "Sm", "Db", "ME", "UE", "YS", "SY", "OP", "TS", "TE"}
+_ROFF_PARA = {"PP", "LP", "P", "Pp", "sp", "br", "Lp", "TP", "HP"}
+_ROFF_HEAD = {"SH", "Sh", "SS", "Ss"}
+_ROFF_ALT = {"BR", "RB", "IR", "RI", "BI", "IB"}
+_MDOC_CALL = re.compile(
+    r"^(?:Ns|Op|Oc|Oo|Ar|Cm|Pa|Ev|Sy|Em|Li|Dq|Sq|Pq|Ql|Qq|Ic|Va|Dv|Er|Fa|Fn|Ft|Fo|Fc|Nm|It|Ux|Bx|At|Ox|Nx|Fx|Bsx"
+    r"|Ta|No|Brq|Bro|Brc|Aq|Ao|Ac|Po|Pc|Qo|Qc|So|Sc|Do|Dc|Eo|Ec|Lk|Mt|Sx|Tn|Ms|St|Lb|In|Cd|Ad|An|Ap|Xo|Xc|Bq|Bo"
+    r"|Bc|Dl|D1|Vt|Ot|Pf|Hf|Fr|Rv|Ex|Mx|Lb|%[A-Z])$")
+_ROFF_ESC = [
+    (re.compile(r'\\".*$'), ""), (re.compile(r"\\f(?:\[[^\]]*\]|\(..|.)"), ""), (re.compile(r"\\s[+-]?\d"), ""),
+    (re.compile(r"\\\((?:em|hy)"), "\u2014"), (re.compile(r"\\\(en"), "\u2013"), (re.compile(r"\\\((?:aq|cq|oq)"), "'"),
+    (re.compile(r"\\\((?:dq|lq|rq)"), '"'), (re.compile(r"\\\(bu"), "\u2022"), (re.compile(r"\\\(co"), "\u00a9"),
+    (re.compile(r"\\\(rg"), "\u00ae"), (re.compile(r"\\\(mu"), "\u00d7"), (re.compile(r"\\\(>="), ">="),
+    (re.compile(r"\\\(<="), "<="), (re.compile(r"\\\(ti"), "~"), (re.compile(r"\\\(ha"), "^"),
+    (re.compile(r"\\\(..|\\\[[^\]]*\]"), ""), (re.compile(r"\\\*(?:\(..|\[[^\]]*\]|.)"), ""),
+    (re.compile(r"\\[-]"), "-"), (re.compile(r"\\[~ 0]"), " "), (re.compile(r"\\[&|^c%:)]"), ""),
+    (re.compile(r"\\e"), "\\\\"), (re.compile(r"\\(.)"), r"\1"),
+]
+
+
+def _roff_inline(s: str) -> str:
+    for pat, rep in _ROFF_ESC:
+        s = pat.sub(rep, s)
+    return s
+
+
+def _roff_args(s: str) -> list[str]:
+    out, cur, q = [], "", False
+    for ch in s:
+        if ch == '"':
+            q = not q
+        elif ch in " \t" and not q:
+            if cur:
+                out.append(cur)
+            cur = ""
+        else:
+            cur += ch
+    if cur:
+        out.append(cur)
+    return out
+
+
+def strip_roff(s: str) -> str:
+    """Plain text of a man(7) or mdoc(7) page (see _ROFF_DROP above)."""
+    out: list[str] = []
+    name = ""  # mdoc: a bare `Nm` stands for the name given by the first `Nm`
+    for line in s.replace("\r\n", "\n").split("\n"):
+        if line.startswith((".\\\"", "'\\\"", '.\\"', "\\\"")) or line.strip() in (".", "'"):
+            continue
+        if not line.startswith((".", "'")):
+            out.append(_roff_inline(line))
+            continue
+        m = re.match(r"^[.'][ \t]*(\S+)[ \t]*(.*)$", line)
+        if not m:
+            continue
+        mac, rest = m.group(1), m.group(2)
+        if mac in _ROFF_DROP or mac.startswith(("\\", "}")):
+            continue
+        if mac in _ROFF_PARA:
+            out.append("")
+            continue
+        args = _roff_args(rest)
+        if mac in _ROFF_HEAD:
+            out += ["", _roff_inline(" ".join(args)), ""]
+        elif mac in _ROFF_ALT:
+            out.append(_roff_inline("".join(args)))
+        elif mac in ("IP",):
+            out += ["", _roff_inline(args[0])] if args else [""]
+        elif mac == "Nd":
+            out.append("- " + _roff_inline(" ".join(args)))
+        elif mac == "Xr" and len(args) >= 2:
+            out.append(_roff_inline(f"{args[0]}({args[1]}) " + " ".join(args[2:])).strip())
+        else:
+            # man font macros (B, I, SM, SB, UR, MT) and mdoc lines: the words, without mdoc's callable
+            # macro names; `Fl x` is the option -x.
+            if mac == "Nm" and args and not name:
+                name = args[0]
+            words, flag = ([name] if mac == "Nm" and not args and name else []), mac == "Fl"
+            for w in args:
+                if w == "Fl":
+                    flag = True
+                    continue
+                if w == "Nm" and name:
+                    words.append(name)
+                    continue
+                if _MDOC_CALL.match(w):
+                    continue
+                words.append(("-" if flag else "") + w)
+                flag = False
+            if mac == "Fl" and not args:
+                words = ["-"]
+            out.append(_roff_inline(" ".join(words)))
+    return "\n".join(out)
+
+
 def split_long_units(units: list[str], max_chars: int) -> list[str]:
     """Cut units longer than max_chars at line boundaries, so a long file is not consumed by one
     document and the rest wasted (Pool.take truncates the last unit of a document)."""
@@ -351,6 +463,8 @@ def load_source(name: str, src: dict, cache: Path, sources: dict | None = None) 
             text = raw.decode("utf-8", errors="replace").replace("\r\n", "\n")
             if src.get("strip") == "front-matter":
                 text = strip_front_matter(text)
+            elif src.get("strip") == "roff":
+                text = strip_roff(text)
             elif src.get("strip") == "license-header":
                 # The licence comment every file of the repository starts with: the same text in every file,
                 # and in other code of the training data, so it says nothing about the file (R5).

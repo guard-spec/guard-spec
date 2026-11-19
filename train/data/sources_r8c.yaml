@@ -1,0 +1,212 @@
+# Inputs and recipe of the R8c training additions L and S (RF-f9e76bb6, data/build_r8c.py).
+#
+# Copyright The Guard Spec Authors. Licensed under the Apache License 2.0.
+#
+# R8b's arm E+P (persona hard negatives) blocked 4 of 150 benign long English technical documents of long5
+# (docs and RFCs) against a bar of 1. `L` adds benign gateway windows of long technical documentation
+# (documentation sites, RFCs, README files, man pages) and, for each, one window of the same host with a
+# training payload embedded, exactly the build_v8 scheme (1 : 1 by rows). `S` adds payload-splitting attacks
+# (turns joined with a space, as the conversation window joins them) and their hard negatives from templates
+# of their own (data/build_r8c.py).
+#
+# The schema of `sources` is bench/long/corpus.yaml's (the same loader, bench/long/build.py load_source, the
+# same sha256 pins). Every source is under a licence that allows this use; no owner data. The text is never
+# committed. Disjointness: other repositories and RFCs than every bench/long profile (long5 to long9
+# included), every earlier training source (sources_v5 to v8, DATA_LICENSES.md) and the `long9` sources;
+# build_r8c.py drops every unit that shares a run of 50 classifier tokens with a bench/long document, an
+# embedded-attack document or a hold-out row, and stage `check` checks the final rows again.
+
+version: 1
+seed: 20261119
+
+sources:
+  envoy-docs-r8c-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    # The Envoy documentation (envoyproxy/envoy at the v1.40.2 tag, docs/root, reStructuredText,
+    # Apache-2.0); with the Cilium documentation one `docs` pool.
+    repo: envoyproxy/envoy
+    commit: b2d89e0ae53916f28770771fbdd49c5c99c5c5a2
+    prefix: docs/root
+    tree_sha: 4f884cdfbe64d03a279ce56dc010b9701e343fe6
+    suffixes: [.rst]
+    min_bytes: 2000
+    max_unit_chars: 60000
+    license: Apache-2.0 (envoyproxy/envoy LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; training rows are not redistributed.
+    sha256: 20052d17beacf8cead873cdf9c01a1e9d3a827d64fa1de2d4c84304b1554d295
+  cilium-docs-r8c-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    # The Cilium documentation (cilium/cilium at the v1.20.5 tag, Documentation, reStructuredText,
+    # Apache-2.0).
+    repo: cilium/cilium
+    commit: 150121410c147fad575ac5dcbce6de923be69042
+    prefix: Documentation
+    tree_sha: 834e6bfb485b747589abebdcc93612fe74b25749
+    suffixes: [.rst]
+    min_bytes: 2000
+    max_unit_chars: 60000
+    license: Apache-2.0 (cilium/cilium LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; training rows are not redistributed.
+    sha256: 380fd7929e8d7472efcdc06fb1981472e5356e762b7a669edb8c14c94ff8e764
+  rfc-r8c-en:
+    lang: en
+    genre: rfc
+    kind: http-text
+    # RFCs that no bench profile, no earlier training source and `long9` use (IETF Trust Legal Provisions,
+    # BCP 78): the 815 candidates of corpus.yaml `rfc-l9-en` (rfc-index.xml of 2026-11-19), every
+    # twentieth from the sixth (long9 takes every tenth from the first, so the two lists are disjoint).
+    base: https://www.rfc-editor.org/rfc/
+    file_header: ""
+    strip: rfc
+    max_unit_chars: 60000
+    paths:
+      - rfc2072.txt
+      - rfc2381.txt
+      - rfc2643.txt
+      - rfc2879.txt
+      - rfc3149.txt
+      - rfc3413.txt
+      - rfc3592.txt
+      - rfc3790.txt
+      - rfc3931.txt
+      - rfc4094.txt
+      - rfc4230.txt
+      - rfc4444.txt
+      - rfc4631.txt
+      - rfc4784.txt
+      - rfc4942.txt
+      - rfc5109.txt
+      - rfc5439.txt
+      - rfc5589.txt
+      - rfc5814.txt
+      - rfc6030.txt
+      - rfc6234.txt
+      - rfc6373.txt
+      - rfc6696.txt
+      - rfc6936.txt
+      - rfc7176.txt
+      - rfc7425.txt
+      - rfc7659.txt
+      - rfc7831.txt
+      - rfc7992.txt
+      - rfc8166.txt
+      - rfc8322.txt
+      - rfc8453.txt
+      - rfc8561.txt
+      - rfc8794.txt
+      - rfc9012.txt
+      - rfc9140.txt
+      - rfc9291.txt
+      - rfc9528.txt
+      - rfc9644.txt
+      - rfc9833.txt
+      - rfc9950.txt
+    license: IETF Trust Legal Provisions (BCP 78)
+    terms: RFC Editor text files; training rows are not redistributed.
+    sha256: b31bff1b94a4b8a10a21d94ef784603738718e22c9c23212935c171c1d6c758e
+  telegraf-readme-r8c-en:
+    lang: en
+    genre: readme
+    kind: github-tree
+    # README files of the Telegraf plugins (influxdata/telegraf at the v1.40.3 tag, plugins/, MIT).
+    repo: influxdata/telegraf
+    commit: 41b45388831dbb43018ebf7e475d97b355398c03
+    prefix: plugins
+    tree_sha: 9db46a2f2bcde9c7b582646dd744239ceaab337d
+    suffixes: [README.md]
+    min_bytes: 2000
+    file_header: "# File: {path}\n"
+    max_unit_chars: 60000
+    license: MIT (influxdata/telegraf LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; training rows are not redistributed.
+    sha256: 32af830a1d470b78b256404fdae04de083c62247fb16e806a6f3df0e370bf7cb
+  openbsd-share-man-r8c-en:
+    lang: en
+    genre: man
+    kind: github-tree
+    # OpenBSD manual pages (the openbsd/src GitHub mirror at a pinned commit; share/man and usr.bin,
+    # mdoc(7), ISC or BSD licences in each page), roff turned into plain text (build.py strip_roff).
+    repo: openbsd/src
+    commit: 1cec37fae3090d2c2bdd297b00f348be4dc017a0
+    prefix: share/man
+    tree_sha: 34525c08f9b7a74b00227c1a59d9ef438c98586a
+    suffixes: [".1", ".2", ".3", ".4", ".5", ".6", ".7", ".8", ".9"]
+    min_bytes: 2000
+    strip: roff
+    file_header: "# File: {path}\n"
+    max_unit_chars: 60000
+    license: ISC / BSD (per-page licence of the OpenBSD manual pages)
+    terms: GitHub tree API and raw file URLs at a pinned commit; training rows are not redistributed.
+    sha256: 5594ae88d5683db6be3629783e148a29bdc672e44374fc05562a2a2fbd071f7f
+  openbsd-usrbin-man-r8c-en:
+    lang: en
+    genre: man
+    kind: github-tree
+    repo: openbsd/src
+    commit: 1cec37fae3090d2c2bdd297b00f348be4dc017a0
+    prefix: usr.bin
+    tree_sha: a14a56d0ef7a73b42a3b5d36d994825d9e696206
+    suffixes: [".1", ".2", ".3", ".4", ".5", ".6", ".7", ".8", ".9"]
+    min_bytes: 2000
+    strip: roff
+    file_header: "# File: {path}\n"
+    max_unit_chars: 60000
+    license: ISC / BSD (per-page licence of the OpenBSD manual pages)
+    terms: GitHub tree API and raw file URLs at a pinned commit; training rows are not redistributed.
+    sha256: d0405807ff2873b47f147786b3d2438860f53c0a07454d9de09d78581f1529b9
+
+# The pool: every unit of the sources above that the guard keeps, in documents of about 30k tokens per genre
+# (build_v7's pool format), sanitized by the gateway's sanitizer (stage `sanitize`).
+pool:
+  doc_tokens: 30000
+
+# Benign windows per genre: a seeded sample of the gateway windows (254 content tokens, a new window every
+# 190) of the sanitized pool documents, kind `r8c_benign`; windows under 200 characters are skipped.
+windows:
+  docs: 550
+  rfc: 350
+  readme: 300
+  man: 300
+
+# Payloads, placements and bridges: as sources_v8.yaml (attack rows of data/train.jsonl, payload set A),
+# with this file's seed, so the payload order differs from v8's. The hosts are English, so the payloads are
+# English, as build_v8 matches the payload's language to the host's.
+payloads:
+  file: data/train.jsonl
+  langs: [en]
+  min_chars: 30
+  max_chars: 600
+  max_tokens: 170
+  payload_set: A
+placements:
+  mid: 0.30
+  split_adjacent: 0.15
+  split_within: 0.15
+  straddle_window: 0.15
+  start: 0.125
+  end: 0.125
+# Bridge sentences of split_adjacent: other sentences than bench/long's, build_v5's and sources_v8.yaml's.
+bridges:
+  en:
+    - "The table below summarises the defaults."
+    - "Each option is described in turn."
+    - "See the configuration reference for the full list."
+    - "This behaviour changed in a later release."
+
+# S: payload-splitting attacks and hard negatives (data/build_r8c.py, templates of their own).
+split:
+  attack: 400
+  benign: 400
+  vi_share: 0.5
+
+# The guard: no row may share a run of 50 classifier tokens with a document of these bench/long profiles,
+# with the embedded-attack documents given with --embedded, or with a hold-out row (eval/, val_*_holdout,
+# persona1, persona2, persona3, split1, multiturn.json, the payload_split dev set, the L3 exemplars and the
+# files given with --holdout-rows); hold-out rows under 50 tokens are checked with 12-token runs, and every
+# S row also with build_short1's 8-word shingles (containment 0.5).
+guard:
+  profiles: [quick, full, long, long5, long6, long7, long8, long9]

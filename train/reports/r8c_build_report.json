@@ -1,0 +1,373 @@
+{
+ "task": "RF-f9e76bb6 (R8c)",
+ "holdouts": {
+  "persona3/en": {
+   "path": "persona3/holdout/direct/en.jsonl",
+   "sha256": "07daf55df462dc63468dc06ab3a2caeda5e7a8fef796c37b838e648572dfeadf",
+   "counts": {
+    "en:arena_en": 300,
+    "en:enterprise_en": 96
+   }
+  },
+  "persona3/vi": {
+   "path": "persona3/holdout/direct/vi.jsonl",
+   "sha256": "7dc19996d65e7701cabb7a1b9dd42b3c70f05c98832cf6f8808a92337f7d65dc",
+   "counts": {
+    "vi:arena_vi": 21,
+    "vi:enterprise_vi": 96
+   }
+  },
+  "split1": {
+   "path": "split1/split1.json",
+   "sha256": "4090bde0688a7a5e4edde89f6ec7c723c2635af95ee219152ac0fe78750f27a6",
+   "counts": {
+    "en:attack": 30,
+    "en:benign": 30,
+    "vi:attack": 30,
+    "vi:benign": 30
+   }
+  },
+  "long9/benign": {
+   "path": "long9/benign/docs.jsonl",
+   "sha256": "f2ddd0e50a68639ab46d370c744f3e2de41e4a635bde05807dd9ed551d0649f2",
+   "counts": {
+    "en:benign": 49
+   }
+  },
+  "long9/attack": {
+   "path": "long9/attack/docs.jsonl",
+   "sha256": "67f8d299822c28fc33abd1386dc83cbf03b81a02e5b4fc91d3aa6b1c7b55148f",
+   "counts": {
+    "en:attack": 168,
+    "en:control": 24
+   }
+  }
+ },
+ "long9_exclude": {
+  "training_rows": {
+   "train.jsonl": 33366,
+   "val.jsonl": 5269,
+   "val_hard.jsonl": 829,
+   "val_vi_variants.jsonl": 1408,
+   "val_v3.jsonl": 508,
+   "val_v4.jsonl": 333,
+   "v6_train.jsonl": 15785,
+   "v6_val.jsonl": 2211,
+   "val_v6.jsonl": 2227,
+   "v8e_train.jsonl": 16906,
+   "persona_neg_train.jsonl": 1573,
+   "docs.jsonl": 475
+  },
+  "bench_docs": 1266,
+  "sources": {
+   "vscode-docs-l9-en": {
+    "units": 364,
+    "excluded": 0,
+    "by_reason": {}
+   },
+   "vscode-api-l9-en": {
+    "units": 72,
+    "excluded": 0,
+    "by_reason": {}
+   },
+   "otel-docs-l9-en": {
+    "units": 296,
+    "excluded": 0,
+    "by_reason": {}
+   },
+   "traefik-docs-l9-en": {
+    "units": 150,
+    "excluded": 1,
+    "by_reason": {
+     "training": 1
+    }
+   },
+   "rfc-l9-en": {
+    "units": 185,
+    "excluded": 30,
+    "by_reason": {
+     "training": 26,
+     "bench_near_dup": 4
+    }
+   },
+   "otel-receiver-readme-l9-en": {
+    "units": 116,
+    "excluded": 0,
+    "by_reason": {}
+   },
+   "otel-exporter-readme-l9-en": {
+    "units": 48,
+    "excluded": 0,
+    "by_reason": {}
+   },
+   "otel-processor-readme-l9-en": {
+    "units": 43,
+    "excluded": 0,
+    "by_reason": {}
+   },
+   "otel-extension-readme-l9-en": {
+    "units": 46,
+    "excluded": 0,
+    "by_reason": {}
+   },
+   "otel-connector-readme-l9-en": {
+    "units": 14,
+    "excluded": 0,
+    "by_reason": {}
+   },
+   "cdk-readme-l9-en": {
+    "units": 199,
+    "excluded": 0,
+    "by_reason": {}
+   },
+   "tfmodels-official-readme-l9-en": {
+    "units": 59,
+    "excluded": 0,
+    "by_reason": {}
+   },
+   "tfmodels-research-readme-l9-en": {
+    "units": 28,
+    "excluded": 0,
+    "by_reason": {}
+   },
+   "manpages-man2-l9-en": {
+    "units": 251,
+    "excluded": 0,
+    "by_reason": {}
+   },
+   "manpages-man3-l9-en": {
+    "units": 390,
+    "excluded": 0,
+    "by_reason": {}
+   },
+   "manpages-man4-l9-en": {
+    "units": 23,
+    "excluded": 0,
+    "by_reason": {}
+   },
+   "manpages-man5-l9-en": {
+    "units": 26,
+    "excluded": 0,
+    "by_reason": {}
+   },
+   "manpages-man7-l9-en": {
+    "units": 112,
+    "excluded": 1,
+    "by_reason": {
+     "training": 1
+    }
+   }
+  }
+ },
+ "holdout_check": {
+  "result": "clean",
+  "overlap_rule": "exact, or >= 0.5 of the 8-word shingles",
+  "guard_sources": {
+   "E:data-v4A/train.jsonl": 33366,
+   "E:data-v4A/val.jsonl": 5269,
+   "E:data-v4A/val_hard.jsonl": 829,
+   "E:data-v4A/val_vi_variants.jsonl": 1408,
+   "E:data-v4A/val_v3.jsonl": 508,
+   "E:data-v4A/val_v4.jsonl": 333,
+   "E:out-full/v6_train.jsonl": 15785,
+   "E:out-full/v6_val.jsonl": 2211,
+   "E:out-full/val_v6.jsonl": 2227,
+   "E:data/v8e_train.jsonl": 16906,
+   "persona_neg_train": 1573,
+   "train_extra:r8c_L_train.jsonl": 2996,
+   "train_extra:r8c_S_train.jsonl": 800,
+   "eval:codelog/codelog.jsonl": 310,
+   "eval:data/en.jsonl": 926,
+   "eval:data/vi.jsonl": 1250,
+   "eval:embedded/embedded.jsonl": 2176,
+   "persona1:dev/en.jsonl": 896,
+   "persona1:dev/vi.jsonl": 96,
+   "persona1:holdout/en.jsonl": 887,
+   "persona1:holdout/vi.jsonl": 96,
+   "persona1:holdout_audited/en.jsonl": 850,
+   "persona1:holdout_audited/vi.jsonl": 96,
+   "persona2:en.jsonl": 396,
+   "persona2:vi.jsonl": 96,
+   "exemplars": 579,
+   "multiturn.json": 186,
+   "payload_split_test.go": 42,
+   "train/data:pilot_labels.jsonl": 200,
+   "train/data:probe_v4.jsonl": 4,
+   "train/data:train.jsonl": 31522,
+   "train/data:val.jsonl": 5125,
+   "train/data:val_hard.jsonl": 829,
+   "train/data:val_realistic_holdout.jsonl": 613,
+   "train/data:val_v3.jsonl": 508,
+   "train/data:val_v3_holdout.jsonl": 1510,
+   "train/data:val_v4.jsonl": 333,
+   "train/data:val_v4_holdout.jsonl": 141,
+   "train/data:val_vi_variants.jsonl": 1408
+  },
+  "files": {
+   "persona3/en": {
+    "rows": 396,
+    "overlaps": 0
+   },
+   "persona3/vi": {
+    "rows": 117,
+    "overlaps": 0
+   },
+   "split1": {
+    "rows": 459,
+    "overlaps": 0
+   },
+   "long9/benign": {
+    "docs": 49,
+    "overlaps": 0
+   },
+   "long9/attack": {
+    "docs": 192,
+    "overlaps": 0
+   }
+  }
+ },
+ "training_stats": {
+  "seed": 20261119,
+  "inputs": {
+   "pool_sha256": "032ad96bf49e81bbec1c408bdaec6d49ccbb8984c70ec3676e3cc8804f88777c",
+   "sanitized_sha256": "11eef3a843645e838fee9004f20b56027f97252d1f20785d5627b52b8203781f",
+   "payload_file_sha256": "4886a86dcbebf18c1d3c3c5876a7c47bf71b7b1ec66701cf204c1e0275199c16",
+   "sources_r8c_sha256": "eb1063a973e445c7965b6cebed76c7c6729398837f777f9915253158468328bc",
+   "r8c_templates_sha256": "65912e0fe40f8a6dfd37b7ed67ddea45628eb35f22c8e4b4ce1b3ba4cc5e5a83",
+   "tokenizer": "tokenizer.json",
+   "tokenizer_sha256": "0b44a9d7b51c3c62626640cda0e2c2f70fdacdc25bbbd68038369d14ebdf4c39"
+  },
+  "index_shingles": 456189794,
+  "build": {
+   "benign:available:docs": 6415,
+   "benign:available:man": 6846,
+   "benign:available:readme": 4527,
+   "benign:available:rfc": 3622,
+   "benign:taken:docs": 550,
+   "benign:taken:man": 300,
+   "benign:taken:readme": 300,
+   "benign:taken:rfc": 350,
+   "embed_failed:split_within": 57,
+   "host_without_attack:split_within": 4,
+   "payload:attack_rows": 4462,
+   "payload:skipped:guard": 633,
+   "payload:skipped:holdout_word8:en": 101,
+   "payload:skipped:in_val_holdout_probe": 103,
+   "payload:skipped:length": 461,
+   "payload:skipped:not_set_A": 793,
+   "payload:skipped:too_long": 5,
+   "payload:usable:en": 2366
+  },
+  "r8c_L_train": {
+   "rows": 2996,
+   "by_kind_lang": {
+    "r8c_attack:en": 1496,
+    "r8c_benign:en": 1500
+   },
+   "by_kind_genre": {
+    "r8c_attack:docs": 550,
+    "r8c_attack:man": 300,
+    "r8c_attack:readme": 296,
+    "r8c_attack:rfc": 350,
+    "r8c_benign:docs": 550,
+    "r8c_benign:man": 300,
+    "r8c_benign:readme": 300,
+    "r8c_benign:rfc": 350
+   },
+   "labels": {
+    "benign": 1500,
+    "data_exfiltration+direct_injection+indirect_injection": 1,
+    "data_exfiltration+direct_injection+indirect_injection+obfuscation": 4,
+    "data_exfiltration+indirect_injection": 111,
+    "data_exfiltration+indirect_injection+obfuscation": 42,
+    "data_exfiltration+indirect_injection+tool_poisoning": 40,
+    "direct_injection+indirect_injection": 429,
+    "direct_injection+indirect_injection+jailbreak": 5,
+    "direct_injection+indirect_injection+jailbreak+obfuscation": 2,
+    "direct_injection+indirect_injection+jailbreak+obfuscation+prompt_extraction": 1,
+    "direct_injection+indirect_injection+jailbreak+prompt_extraction": 11,
+    "direct_injection+indirect_injection+obfuscation": 33,
+    "direct_injection+indirect_injection+obfuscation+prompt_extraction": 6,
+    "direct_injection+indirect_injection+prompt_extraction": 149,
+    "indirect_injection": 112,
+    "indirect_injection+jailbreak": 135,
+    "indirect_injection+jailbreak+obfuscation": 40,
+    "indirect_injection+jailbreak+prompt_extraction+tool_poisoning": 1,
+    "indirect_injection+jailbreak+tool_poisoning": 7,
+    "indirect_injection+obfuscation": 13,
+    "indirect_injection+obfuscation+prompt_extraction": 44,
+    "indirect_injection+obfuscation+tool_poisoning": 7,
+    "indirect_injection+prompt_extraction": 263,
+    "indirect_injection+prompt_extraction+tool_poisoning": 20,
+    "indirect_injection+tool_poisoning": 20
+   },
+   "windows": {
+    "r8c_attack:attack": 1570,
+    "r8c_attack:benign": 108,
+    "r8c_attack:dropped": 160,
+    "r8c_benign:benign": 1701
+   },
+   "placement": {
+    "end": 173,
+    "mid": 462,
+    "split_adjacent": 201,
+    "split_within": 220,
+    "start": 199,
+    "straddle_window": 241
+   },
+   "payloads_used": 1496,
+   "payload_uses_max": 1,
+   "sha256": "7bd8a1c0b7a602ab0cf5819240374b45e2e46a8d58d6d3c5953cc98b3d38530b"
+  },
+  "r8c_S_train": {
+   "rows": 800,
+   "by_kind_lang": {
+    "r8c_split_attack:en": 200,
+    "r8c_split_attack:vi": 200,
+    "r8c_split_benign:en": 200,
+    "r8c_split_benign:vi": 200
+   },
+   "by_kind_genre": {
+    "r8c_split_attack:-": 400,
+    "r8c_split_benign:-": 400
+   },
+   "labels": {
+    "benign": 400,
+    "data_exfiltration+obfuscation": 92,
+    "direct_injection+obfuscation": 108,
+    "jailbreak+obfuscation": 100,
+    "obfuscation+prompt_extraction": 100
+   },
+   "windows": {
+    "r8c_split_attack:attack": 400,
+    "r8c_split_benign:benign": 400
+   },
+   "placement": {},
+   "payloads_used": 0,
+   "payload_uses_max": 0,
+   "sha256": "19a9087fa71365ed1bb9a5db58dcdd34c09a998770dd6843da30fe9a9372bff1"
+  }
+ },
+ "training_guard": {
+  "result": "clean",
+  "index_shingles": 456189794,
+  "files": {
+   "r8c_L_train": {
+    "rows": 2996,
+    "rows_clean_50token": 2996,
+    "short_holdout_12token_overlap": [],
+    "word8_overlap": [],
+    "holdout_rows_contained": [],
+    "sha256": "7bd8a1c0b7a602ab0cf5819240374b45e2e46a8d58d6d3c5953cc98b3d38530b"
+   },
+   "r8c_S_train": {
+    "rows": 800,
+    "rows_clean_50token": 800,
+    "short_holdout_12token_overlap": [],
+    "word8_overlap": [],
+    "holdout_rows_contained": [],
+    "sha256": "19a9087fa71365ed1bb9a5db58dcdd34c09a998770dd6843da30fe9a9372bff1"
+   }
+  }
+ }
+}
