@@ -1,0 +1,34 @@
+{
+  "model": "guardspec-classifier-v8f",
+  "fitted_on": "v4-A build val.jsonl + val_hard.jsonl + val_vi_variants.jsonl + val_v3.jsonl + val_v4.jsonl, with the owner-supplied and OTP/KYC validation rows, plus v6_val.jsonl + val_v6.jsonl of the v6 build (12785 rows, the rows of v8e), 2026-11-19 (R8c arm EPL, seed 20261107)",
+  "platt": {
+    "A": 0.7983743217369749,
+    "B": -0.2173737280839137
+  },
+  "logreg": {
+    "l1,l2": {
+      "W": [
+        0.3908652042251886,
+        0.9426684639643704,
+        0
+      ],
+      "B": 0.31041529029347636
+    },
+    "l1,l2,l3": {
+      "W": [
+        0.37011179383606413,
+        0.9194100690900778,
+        0.2615683809863339
+      ],
+      "B": 0.47254135063884817
+    }
+  },
+  "l2_untrusted_max": 0.88,
+  "long_doc": {
+    "min_windows": 30,
+    "corroborate_l1": 0.75,
+    "min_l2": 0.95,
+    "base": 0.85,
+    "fitted_on": "R8a pre-registration (train/reports/r8a_preregistration.md): strong75_l2, n0 30, L2 bar 0.95, chosen on long5 dev"
+  }
+}

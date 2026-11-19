@@ -134,6 +134,29 @@ var BuiltinCalibrations = map[string]CalibrationFile{
 			L2UntrustedMax: 0.88,
 		},
 	},
+	// v8f (a shadow candidate; v8e stays the default): R8c's arm EPL, seed
+	// 20261107. It did not meet R8c's pre-registered criteria as an arm (two
+	// of its three seeds missed one criterion each, train/reports/r8c_report.md);
+	// this seed, chosen after the holdout, is published for shadow mode only.
+	// The calibration.json of train/hf/v8f, byte for byte
+	// (TestPackagedCalibrationFiles).
+	"guardspec-classifier-v8f": {
+		Model:    "guardspec-classifier-v8f",
+		FittedOn: "v4-A build val.jsonl + val_hard.jsonl + val_vi_variants.jsonl + val_v3.jsonl + val_v4.jsonl, with the owner-supplied and OTP/KYC validation rows, plus v6_val.jsonl + val_v6.jsonl of the v6 build (12785 rows, the rows of v8e), 2026-11-19 (R8c arm EPL, seed 20261107)",
+		Platt:    fusion.Calibration{A: 0.7983743217369749, B: -0.2173737280839137},
+		LogReg: map[string]fusion.LogReg{
+			"l1,l2":    {W: [3]float64{0.3908652042251886, 0.9426684639643704, 0}, B: 0.31041529029347636},
+			"l1,l2,l3": {W: [3]float64{0.37011179383606413, 0.9194100690900778, 0.2615683809863339}, B: 0.47254135063884817},
+		},
+		L2UntrustedMax: 0.88,
+		LongDoc: &LongDoc{
+			MinWindows:    30,
+			CorroborateL1: 0.75,
+			MinL2:         0.95,
+			Base:          0.85,
+			FittedOn:      "R8a pre-registration (train/reports/r8a_preregistration.md): strong75_l2, n0 30, L2 bar 0.95, chosen on long5 dev",
+		},
+	},
 	// v6 (a shadow candidate; v3b stays the default): the calibration.json
 	// published with the model, byte for byte. Fitted on the v4 validation
 	// splits plus the v6 validation rows (12,785 rows; the owner-supplied

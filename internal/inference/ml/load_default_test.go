@@ -169,17 +169,29 @@ func TestShippedCalibrationFile(t *testing.T) {
 // TestV8eCalibrationFile: the calibration.json of the v8e package
 // (train/hf/v8e) is the built-in calibration of v8e, marshalled as
 // TestShippedCalibrationFile expects (that test also checks the manifest's
-// checksum of the published file).
-func TestV8eCalibrationFile(t *testing.T) {
-	want, err := os.ReadFile(filepath.Join("..", "..", "..", "train", "hf", "v8e", "calibration.json"))
+// checksum of the published file). The same holds for every packaged version
+// listed here (TestPackagedCalibrationFiles).
+func TestV8eCalibrationFile(t *testing.T) { checkPackagedCalibration(t, "v8e") }
+
+// TestPackagedCalibrationFiles: train/hf/<version>/calibration.json is the
+// built-in calibration of that version, byte for byte.
+func TestPackagedCalibrationFiles(t *testing.T) {
+	for _, v := range []string{"v8e", "v8f"} {
+		t.Run(v, func(t *testing.T) { checkPackagedCalibration(t, v) })
+	}
+}
+
+func checkPackagedCalibration(t *testing.T, version string) {
+	t.Helper()
+	want, err := os.ReadFile(filepath.Join("..", "..", "..", "train", "hf", version, "calibration.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, err := json.MarshalIndent(BuiltinCalibrations["guardspec-classifier-v8e"], "", "  ")
+	data, err := json.MarshalIndent(BuiltinCalibrations["guardspec-classifier-"+version], "", "  ")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := string(append(data, '\n')); got != string(want) {
-		t.Errorf("built-in v8e calibration differs from train/hf/v8e/calibration.json:\n%s", got)
+		t.Errorf("built-in %s calibration differs from train/hf/%s/calibration.json:\n%s", version, version, got)
 	}
 }
