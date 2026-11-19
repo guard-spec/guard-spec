@@ -9,6 +9,12 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ## [Unreleased]
 
+### Fixed
+
+- **`publish-model.yml` uploads exactly the staged package** (RF-408b51a6). A new version branch on Hugging Face is
+  created from `main`, and the upload only added files, so the first upload of v8f kept v8e's `model_fp16.onnx` on the
+  `v8f` branch. The upload now deletes every file the package does not have (`.gitattributes` is kept).
+
 ## [0.10.2] - 2026-11-18
 
 v0.10.1 was tagged but never published: its images could not be built (see Fixed). 0.10.2 carries the same changes
