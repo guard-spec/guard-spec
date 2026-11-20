@@ -30,8 +30,17 @@ func TestRepoManifestIsValid(t *testing.T) {
 			t.Errorf("manifest lacks %s", name)
 		}
 	}
-	if c := m.Recommended("classifier"); c == nil || c.Ref() != "guardspec-classifier@v8e" {
+	if c := m.Recommended("classifier"); c == nil || c.Ref() != "guardspec-classifier@v8g" {
 		t.Errorf("recommended classifier: %+v", c)
+	}
+	// The earlier defaults stay pullable, marked as former defaults (the gateway's fallback when the recommended
+	// version is not installed); a shadow candidate is not one.
+	for ref, former := range map[string]bool{"guardspec-classifier@v3b": true, "guardspec-classifier@v8e": true,
+		"guardspec-classifier@v8f": false, "guardspec-classifier@v6": false} {
+		o, err := m.Lookup(ref)
+		if err != nil || o.Recommended || o.FormerDefault != former {
+			t.Errorf("%s: %+v, %v", ref, o, err)
+		}
 	}
 	if e := m.Recommended("embedder"); e == nil || e.Name != "multilingual-e5-small" {
 		t.Errorf("recommended embedder: %+v", e)

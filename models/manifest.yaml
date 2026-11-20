@@ -1,7 +1,7 @@
 # Models that internal/onnx can load. Fetch them with:
 #
 #   go run ./cmd/models pull                           # every recommended, non-optional model
-#   go run ./cmd/models pull guardspec-classifier@v8e  # one version
+#   go run ./cmd/models pull guardspec-classifier@v8g  # one version
 #   go run ./cmd/models list --available               # what this manifest offers
 #
 # docs/models.md covers versions, pinning, rollback and air-gapped installs.
@@ -42,6 +42,7 @@ models:
   # internal/inference/ml/calibration.go).
   - name: guardspec-classifier
     version: v3b
+    former_default: true
     kind: classifier
     # Hugging Face commit of the upload (Publish model workflow); the GitHub
     # Release mirror below holds the same files.
@@ -195,8 +196,8 @@ models:
         size: 1337
         sha256: ab7281b6b442c2fd970a5c7cb4f232cba37766cd3548ef4f7530aec44617625d
 
-  # v8e, the default classifier since v0.9.0 (RF-3d02f45e; v3b above stays
-  # available with L2_MODEL=guardspec-classifier@v3b). Round R7's arm E
+  # v8e, the default classifier from v0.9.0 until v8g (RF-08b30b92; it stays
+  # available with L2_MODEL=guardspec-classifier@v8e). Round R7's arm E
   # (the v6 data plus benign and attack windows cut from the same long hosts)
   # with the long-path decision of R8a in calibration.json (long_doc:
   # corroborate_l1 0.75, min_l2 0.95). On the long8 holdout it blocked 1 of
@@ -209,7 +210,7 @@ models:
   # the signed GitHub Release model-guardspec-classifier-v8e as the mirror.
   - name: guardspec-classifier
     version: v8e
-    recommended: true
+    former_default: true
     kind: classifier
     repo: guard-spec/guardspec-classifier
     revision: "c9ed6c3b772eb0a016d93f6caf335b26079b765e"
@@ -245,7 +246,7 @@ models:
         sha256: 3419798d34eb3ba094747d3cef1fe1c68183087e0b15ce394813e2a00e845da6
 
   # v8f: a shadow-mode candidate, not validated (R8c arm EPL, seed 20261107, picked after the
-  # holdout; train/reports/r8c_report.md). Not recommended: v8e stays the default. INT8 only.
+  # holdout; train/reports/r8c_report.md). Not recommended. INT8 only.
   - name: guardspec-classifier
     version: v8f
     kind: classifier
@@ -276,6 +277,54 @@ models:
         dest: calibration.json
         size: 994
         sha256: 665c646a38c95dbbe5d196b880a8db42d45b38fd12310dae56bbb32796178395
+
+  # v8g, the default classifier from the release after v0.10.2 (RF-08b30b92;
+  # v8e above stays available with L2_MODEL=guardspec-classifier@v8e). Round
+  # R8d's arm EPL2, seed 20261107: v8e's data plus persona hard negatives, long
+  # technical-document windows (benign and with embedded attacks), payload-
+  # splitting attacks and negated-override hard negatives. The arm met every
+  # pre-registered criterion on every seed against v8e's seed band
+  # (train/reports/r8d_report.md); calibration.json keeps v8e's long_doc.
+  # model_fp16.onnx is the GPU option, with its own fp16 block
+  # (train/reports/fp16_agreement_v8g.md).
+  # Published 2026-11-20: Hugging Face branch v8g at the revision below, and
+  # the GitHub Release model-guardspec-classifier-v8g as the mirror.
+  - name: guardspec-classifier
+    version: v8g
+    recommended: true
+    kind: classifier
+    repo: guard-spec/guardspec-classifier
+    revision: "16c624ba6ff14ecf8319788d6c2ea3e71c7979af"
+    mirrors:
+      - https://github.com/guard-spec/guard-spec/releases/download/model-guardspec-classifier-v8g/{file}
+    license: Apache-2.0
+    license_url: https://github.com/guard-spec/guard-spec/blob/main/train/MODEL_CARD.md
+    files:
+      - src: model_int8.onnx
+        dest: model_int8.onnx
+        size: 118466001
+        sha256: b68cfbe8e0c88f9c48466b5aa57f779867892a87651b0c9e66b705d382c91538
+      - src: model_fp16.onnx
+        dest: model_fp16.onnx
+        size: 235629184
+        sha256: dd79185c16cc1fdd5e7773dde81596cd8f54efb2b984a9732d0b0ef2ac0d72dc
+        provider: cuda
+      - src: tokenizer.json
+        dest: tokenizer.json
+        size: 17082955
+        sha256: 6879d3648d0329c894b1cbb0c89096430e24d3c7cf5d359d4ccc87ce585c4ae4
+      - src: config.json
+        dest: config.json
+        size: 1272
+        sha256: a74903e3d5f0f21799228d520b0b08aa2a2ac9c779bafd78c2d800f9e8a29d7a
+      - src: thresholds.json
+        dest: thresholds.json
+        size: 4664
+        sha256: a7b90ccbec1f97793c6915e9ab957387d0f2ec7a00db5ef37117f1e78c397325
+      - src: calibration.json
+        dest: calibration.json
+        size: 1603
+        sha256: 3ae1c55facba15c978bd852b0e3ea586c9931d3c53e7c5961171aad4cc4a970a
 
   # ProtectAI small v2: gated, requires HF_TOKEN. Optional baseline.
   - name: protectai-deberta-v3-small-pi-v2

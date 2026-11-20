@@ -488,9 +488,9 @@ var builtinManifest = sync.OnceValues(func() (*onnx.Manifest, error) {
 //  2. L2_MODEL=name@version: MODEL_DIR/cache/<name>/<version>; a bare name
 //     is its recommended version in the manifest;
 //  3. the manifest's recommended classifier, MODEL_DIR/cache/<name>/<version>,
-//     when installed; else another installed version of the same model, in
-//     manifest order, with a warning (an install from before the recommended
-//     version changed);
+//     when installed; else another installed version of the same model, with a
+//     warning (an install from before the recommended version changed): a
+//     former default first, newest first (installedFallback);
 //  4. the directories from before versions (L2Defaults), the first installed.
 //
 // Steps 1 and 2 are explicit choices: the directory is returned even when it
@@ -504,6 +504,26 @@ func ResolveL2Dir(cfg Config) (string, error) {
 // with L3_MODEL_DIR, L3_MODEL and L3Defaults.
 func ResolveL3Dir(cfg Config) (string, error) {
 	return resolveDir(cfg.manifest, cfg.ModelDir, cfg.L3Dir, cfg.L3Model, EnvL3Model, "embedder", L3Defaults)
+}
+
+// installedFallback is the installed version of mod's model to use when mod
+// itself is not installed: the newest installed former default (manifest
+// order, last first), else the first other installed non-optional version.
+func installedFallback(m *onnx.Manifest, mod *onnx.ManifestModel, cache string) *onnx.ManifestModel {
+	usable := func(o *onnx.ManifestModel) bool {
+		return o.Name == mod.Name && o.Version != mod.Version && !o.Optional && hasModel(o.Dir(cache))
+	}
+	for i := len(m.Models) - 1; i >= 0; i-- {
+		if o := &m.Models[i]; o.FormerDefault && usable(o) {
+			return o
+		}
+	}
+	for i := range m.Models {
+		if o := &m.Models[i]; usable(o) {
+			return o
+		}
+	}
+	return nil
 }
 
 func resolveDir(manifest func() (*onnx.Manifest, error), modelDir, dir, ref, refEnv, kind string, legacy []string) (string, error) {
@@ -537,20 +557,16 @@ func resolveDir(manifest func() (*onnx.Manifest, error), modelDir, dir, ref, ref
 			}
 			tried = append(tried, d)
 			// An install from before the recommended version changed (v3b
-			// before v0.9.0) keeps working on the version it pulled, with a
-			// warning, instead of starting without the model layer.
-			for i := range m.Models {
-				o := &m.Models[i]
-				if o.Name != mod.Name || o.Version == mod.Version || o.Optional {
-					continue
-				}
+			// before v0.9.0, v8e before v8g) keeps working on the version it
+			// pulled, with a warning, instead of starting without the model
+			// layer: a former default first, newest first, then any other
+			// installed version in manifest order.
+			if o := installedFallback(m, mod, filepath.Join(modelDir, ModelCacheSubdir)); o != nil {
 				od := o.Dir(filepath.Join(modelDir, ModelCacheSubdir))
-				if hasModel(od) {
-					slog.Warn("the recommended model is not installed; using another installed version",
-						"kind", kind, "recommended", mod.Name+"@"+mod.Version, "using", o.Name+"@"+o.Version,
-						"fix", "run `models pull`, or set "+refEnv+"="+o.Name+"@"+o.Version+" to keep it")
-					return od, nil
-				}
+				slog.Warn("the recommended model is not installed; using another installed version",
+					"kind", kind, "recommended", mod.Name+"@"+mod.Version, "using", o.Name+"@"+o.Version,
+					"fix", "run `models pull`, or set "+refEnv+"="+o.Name+"@"+o.Version+" to keep it")
+				return od, nil
 			}
 		}
 	}
