@@ -24,25 +24,28 @@ Copyright 2026 The Guard Spec Authors
 SPDX-License-Identifier: Apache-2.0
 -->
 
-# guardspec-classifier (v8e, default)
+# guardspec-classifier (v8e, earlier default)
 
 A small English + Vietnamese **prompt-injection risk classifier**. It ships as an INT8 ONNX model (118.5 MB) and,
 for GPUs, as the same checkpoint in FP16 (235.6 MB). It is the L2 layer of
 [Guard Spec](https://github.com/guard-spec/guard-spec), a self-hosted prompt-injection guardrail gateway. It is not
 an LLM and does not generate text.
 
-**v8e is Guard Spec's default classifier since v0.9.0.** It replaced v3b, which stays available on the
-[`v3b`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v3b) branch for rollback.
+**v8e was Guard Spec's default classifier from v0.9.0 to v0.10.2.** It replaced v3b, and
+[v8g](https://huggingface.co/guard-spec/guardspec-classifier/tree/v8g) replaces it from v0.11.0. It stays available
+on the [`v8e`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v8e) branch for rollback
+(`L2_MODEL=guardspec-classifier@v8e`).
 
 ## Versions and branches
 
 | branch | version | status | files |
 |---|---|---|---|
-| `main`, [`v8e`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v8e) | **v8e** | **default since Guard Spec v0.9.0** | INT8 (CPU) and FP16 (GPU) |
-| [`v3b`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v3b) | v3b | default until v0.9.0, kept for rollback | INT8 (CPU) |
+| `main`, [`v8g`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v8g) | v8g | **default from Guard Spec v0.11.0** | INT8 (CPU) and FP16 (GPU) |
+| [`v8e`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v8e) | **v8e** | default from v0.9.0 to v0.10.2, kept for rollback (this card) | INT8 (CPU) and FP16 (GPU) |
+| [`v3b`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v3b) | v3b | default until v0.9.0 | INT8 (CPU) |
 | [`v6`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v6), [`v5`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v5), [`v4`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v4) | v6, v5, v4 | earlier candidates | see each branch |
 
-`main` always holds the version Guard Spec recommends; until 2026-11-17 it held v3b. Guard Spec pins every
+`main` always holds the version Guard Spec recommends: v3b until 2026-11-17, then v8e, then v8g. Guard Spec pins every
 version by commit, so a change of `main` never changes a running gateway. Pin a commit (`revision=`) in your
 own code too.
 
@@ -55,7 +58,7 @@ import onnxruntime as ort
 from huggingface_hub import snapshot_download
 from tokenizers import Tokenizer
 
-path = snapshot_download("guard-spec/guardspec-classifier")  # main = v8e; pin revision= in production
+path = snapshot_download("guard-spec/guardspec-classifier", revision="v8e")  # pin a commit in production
 tok = Tokenizer.from_file(f"{path}/tokenizer.json")
 tok.enable_truncation(max_length=256)
 tok.enable_padding()
@@ -80,9 +83,9 @@ alone, or the Platt scaling in `calibration.json`. In Guard Spec (files checked 
 manifest; a signed mirror is on the GitHub release `model-guardspec-classifier-v8e`):
 
 ```sh
-models pull guardspec-classifier@v8e                 # INT8, CPU (the default since v0.9.0)
+models pull guardspec-classifier@v8e                 # INT8, CPU (the default from v0.9.0 to v0.10.2)
 models pull -provider cuda guardspec-classifier@v8e  # also the FP16 file, for the GPU image
-L2_MODEL=guardspec-classifier@v3b                    # roll back to v3b
+L2_MODEL=guardspec-classifier@v8e                    # keep v8e after upgrading to a release that recommends v8g
 ```
 
 ## What v8e changes

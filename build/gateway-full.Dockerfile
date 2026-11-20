@@ -5,11 +5,11 @@
 # gateway-full: the released gateway image with its models baked in, for
 # air-gapped installs (no `models pull`, no /models mount). It adds:
 #
-#   L2  guardspec-classifier-v8e  /models/local/guardspec-classifier-v8e/
+#   L2  guardspec-classifier-v8g  /models/local/guardspec-classifier-v8g/
 #       model_int8.onnx, tokenizer.json, config.json, thresholds.json,
 #       calibration.json; checked against build/gateway-full.l2.sha256 (the
-#       CPU files of train/hf/v8e/SHA256SUMS; the image runs on the CPU, so
-#       model_fp16.onnx is left out). v3b until v0.9.0.
+#       CPU files of train/hf/v8g/SHA256SUMS; the image runs on the CPU, so
+#       model_fp16.onnx is left out). v8e from v0.9.0 to v0.10.2, v3b before.
 #   L3  multilingual-e5-small     /models/cache/multilingual-e5-small/
 #       pulled by the image's own `models` tool from its manifest.yaml, which
 #       pins a Hugging Face commit and the SHA-256 of every file.
@@ -51,7 +51,7 @@ COPY build/gateway-full.l2.sha256 /tmp/l2.sha256
 COPY --from=l2 / /tmp/l2/
 # L2: exactly the files listed in build/gateway-full.l2.sha256, each verified.
 RUN set -eu; \
-    dest=/models/local/guardspec-classifier-v8e; \
+    dest=/models/local/guardspec-classifier-v8g; \
     if [ ! -s /tmp/l2/model_int8.onnx ]; then \
       echo "gateway-full: no L2 model. Pass --build-context l2=<dir> with the files of build/gateway-full.l2.sha256." >&2; \
       exit 1; \
@@ -82,7 +82,7 @@ COPY --from=models /models /models
 # models are in the image, so a layer that fails to load is an error, not a
 # silent fall back to L1 (GUARD_ENV=dev turns that into a warning).
 ENV MODEL_DIR=/models \
-    L2_MODEL_DIR=/models/local/guardspec-classifier-v8e \
+    L2_MODEL_DIR=/models/local/guardspec-classifier-v8g \
     L3_MODEL_DIR=/models/cache/multilingual-e5-small \
     DETECTOR_LAYERS=l1,l2,l3 \
     DETECTOR_REQUIRE_ML=true

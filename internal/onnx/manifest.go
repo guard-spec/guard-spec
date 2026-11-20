@@ -40,10 +40,15 @@ type ManifestModel struct {
 	Version string `yaml:"version"`
 	// Recommended marks the version used when only the name is given (and,
 	// for the gateway, the default model of its kind).
-	Recommended bool   `yaml:"recommended"`
-	Kind        string `yaml:"kind"` // classifier or embedder
-	Repo        string `yaml:"repo"`
-	Revision    string `yaml:"revision"`
+	Recommended bool `yaml:"recommended"`
+	// FormerDefault marks a version that was the recommended one in an
+	// earlier release (v3b, v8e). When the recommended version is not
+	// installed, the gateway falls back to an installed former default,
+	// newest first, before any other installed version (a shadow candidate).
+	FormerDefault bool   `yaml:"former_default"`
+	Kind          string `yaml:"kind"` // classifier or embedder
+	Repo          string `yaml:"repo"`
+	Revision      string `yaml:"revision"`
 	// Mirrors are fallback URL templates tried in order after Hugging Face;
 	// {file} is replaced by the file's dest name. HF_TOKEN is never sent to them.
 	Mirrors    []string       `yaml:"mirrors"`

@@ -79,7 +79,7 @@ jobs:
       # every file is checked against models/manifest.yaml.
       - name: Pull models
         run: |
-          set -- guardspec-classifier@v8e
+          set -- guardspec-classifier@v8g
           case "$LAYERS" in *l3*) set -- "$@" multilingual-e5-small ;; esac
           go run ./cmd/models pull -dir models/cache "$@"
         env:

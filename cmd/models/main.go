@@ -400,7 +400,7 @@ func usage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, `usage: models <pull|init|verify|list> [flags] [name[@version] ...]
 
   models pull                              recommended version of every non-optional model
-  models pull guardspec-classifier@v8e     one version, into <dir>/<name>/<version>/
+  models pull guardspec-classifier@v8g     one version, into <dir>/<name>/<version>/
   models init [name[@version] ...]         container entry point: pull what DETECTOR_LAYERS needs; a failure
                                            only warns unless -required (DETECTOR_REQUIRE_ML / MODELS_REQUIRED)
   models verify [name[@version] ...]       check the SHA-256 of installed files

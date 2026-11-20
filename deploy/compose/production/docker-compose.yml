@@ -291,7 +291,7 @@ services:
     logging: *logging
 
   # Other models or versions on demand (rollback, docs/upgrade.md):
-  #   docker compose --profile models run --rm models-pull guardspec-classifier@v8e
+  #   docker compose --profile models run --rm models-pull guardspec-classifier@v8g
   models-pull:
     profiles: [models]
     image: ghcr.io/guard-spec/guard-spec-gateway:${GUARDSPEC_VERSION:-0.10.2}

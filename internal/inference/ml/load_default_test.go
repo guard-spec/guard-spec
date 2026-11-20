@@ -24,9 +24,10 @@ func installModel(t *testing.T, root, sub string) string {
 	return d
 }
 
-// TestDefaultL2DirOrder: the manifest's recommended classifier first (v8e),
-// then another installed version of it (an install from before v0.9.0), then
-// the directories from before versions: v3b, v2, v1, v0.
+// TestDefaultL2DirOrder: the manifest's recommended classifier first (v8g),
+// then an installed former default, newest first (an install from before v8g
+// or v0.9.0), then another installed version, then the directories from
+// before versions: v3b, v2, v1, v0.
 func TestDefaultL2DirOrder(t *testing.T) {
 	root := t.TempDir()
 	if got := DefaultL2Dir(root); got != "" {
@@ -37,8 +38,10 @@ func TestDefaultL2DirOrder(t *testing.T) {
 		{L2DefaultV1, L2DefaultV1},
 		{L2DefaultV2, L2DefaultV2},
 		{L2DefaultV3B, L2DefaultV3B},
+		{"cache/guardspec-classifier/v8f", "cache/guardspec-classifier/v8f"},
 		{"cache/guardspec-classifier/v3b", "cache/guardspec-classifier/v3b"},
 		{"cache/guardspec-classifier/v8e", "cache/guardspec-classifier/v8e"},
+		{"cache/guardspec-classifier/v8g", "cache/guardspec-classifier/v8g"},
 	} {
 		installModel(t, root, step.install)
 		if got, want := DefaultL2Dir(root), filepath.Join(root, step.want); got != want {
@@ -62,19 +65,28 @@ func TestResolveOrder(t *testing.T) {
 
 	// Nothing installed: the error names every directory tried.
 	_, err := ResolveL2Dir(env(map[string]string{}))
-	if err == nil || !strings.Contains(err.Error(), filepath.Join(root, "cache", "guardspec-classifier", "v8e")) ||
+	if err == nil || !strings.Contains(err.Error(), filepath.Join(root, "cache", "guardspec-classifier", "v8g")) ||
 		!strings.Contains(err.Error(), filepath.Join(root, L2DefaultV0)) {
 		t.Fatalf("nothing installed: %v", err)
 	}
 
 	old := installModel(t, root, L2DefaultV3B)
-	prev := installModel(t, root, "cache/guardspec-classifier/v3b")
-	// The recommended version (v8e) is not installed yet: the version an older
-	// release pulled is used, not the pre-version layout.
-	if got, err := ResolveL2Dir(env(map[string]string{})); err != nil || got != prev {
-		t.Fatalf("recommended missing, v3b installed: got %q, %v; want %q", got, err, prev)
+	shadow := installModel(t, root, "cache/guardspec-classifier/v8f")
+	// The recommended version (v8g) is not installed yet: another installed
+	// version is used, not the pre-version layout; a former default wins over
+	// a shadow candidate, and the newest former default (v8e) over v3b.
+	if got, err := ResolveL2Dir(env(map[string]string{})); err != nil || got != shadow {
+		t.Fatalf("recommended missing, only v8f installed: got %q, %v; want %q", got, err, shadow)
 	}
-	rec := installModel(t, root, "cache/guardspec-classifier/v8e")
+	prev := installModel(t, root, "cache/guardspec-classifier/v3b")
+	if got, err := ResolveL2Dir(env(map[string]string{})); err != nil || got != prev {
+		t.Fatalf("recommended missing, v3b and v8f installed: got %q, %v; want %q", got, err, prev)
+	}
+	v8e := installModel(t, root, "cache/guardspec-classifier/v8e")
+	if got, err := ResolveL2Dir(env(map[string]string{})); err != nil || got != v8e {
+		t.Fatalf("recommended missing, v3b, v8e and v8f installed: got %q, %v; want %q", got, err, v8e)
+	}
+	rec := installModel(t, root, "cache/guardspec-classifier/v8g")
 	older := installModel(t, root, "cache/guardspec-classifier/v2")
 	oldL3 := installModel(t, root, L3DefaultSubdir)
 
@@ -86,6 +98,7 @@ func TestResolveOrder(t *testing.T) {
 		{"default is the recommended version", map[string]string{}, rec},
 		{"name@version (rollback)", map[string]string{EnvL2Model: "guardspec-classifier@v2"}, older},
 		{"name@version keeps v3b", map[string]string{EnvL2Model: "guardspec-classifier@v3b"}, prev},
+		{"name@version keeps v8e", map[string]string{EnvL2Model: "guardspec-classifier@v8e"}, v8e},
 		{"bare name is the recommended version", map[string]string{EnvL2Model: "guardspec-classifier"}, rec},
 		{"L2_MODEL_DIR wins", map[string]string{EnvL2Dir: old, EnvL2Model: "guardspec-classifier@v2"}, old},
 		// An explicit choice is not replaced by another model when missing.
@@ -125,7 +138,7 @@ func TestResolveOrder(t *testing.T) {
 }
 
 // TestShippedCalibrationFile: the calibration.json published with each
-// guardspec-classifier version of the manifest (v3b, v4, v5, v6, v8e) is the built-in
+// guardspec-classifier version of the manifest (v3b, v4, v5, v6, v8e, v8f, v8g) is the built-in
 // calibration of that version, marshalled as `cmd/calibrate fit -write` does
 // (two-space indent, trailing newline). To recreate it:
 // json.MarshalIndent(BuiltinCalibrations["guardspec-classifier-<version>"], "", "  ") + "\n".
@@ -134,7 +147,7 @@ func TestShippedCalibrationFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, version := range []string{"v3b", "v4", "v5", "v6", "v8e"} {
+	for _, version := range []string{"v3b", "v4", "v5", "v6", "v8e", "v8f", "v8g"} {
 		mod, err := m.Lookup("guardspec-classifier@" + version)
 		if err != nil {
 			t.Fatal(err)

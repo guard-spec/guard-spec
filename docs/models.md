@@ -21,8 +21,9 @@ tool, so the binary always knows its recommended models.
 | `guardspec-classifier` | `v4` | L2 | no: candidate, [compare in shadow mode](#guardspec-classifier-v4-candidate) | the GitHub Release `model-guardspec-classifier-v4` (once the owner publishes it) |
 | `guardspec-classifier` | `v5` | L2 | no: candidate for code, logs and long documents, [shadow mode first](#guardspec-classifier-v5-candidate) | Hugging Face `guard-spec/guardspec-classifier` (branch `v5`), then the GitHub Release `model-guardspec-classifier-v5` |
 | `guardspec-classifier` | `v6` | L2 | no: candidate for long documents, with an FP16 file for the GPU option, [shadow mode first](#guardspec-classifier-v6-candidate) | Hugging Face `guard-spec/guardspec-classifier` (branch `v6`), then the GitHub Release `model-guardspec-classifier-v6` |
-| `guardspec-classifier` | `v8e` | L2 | **yes, since v0.9.0** ([why](#guardspec-classifier-v8e-the-default-since-v090)), with the long-path decision in `calibration.json` and an FP16 file | Hugging Face `guard-spec/guardspec-classifier` (branches `main` and `v8e`), then the GitHub Release `model-guardspec-classifier-v8e` |
+| `guardspec-classifier` | `v8e` | L2 | no: the default from v0.9.0 to v0.10.2, kept for rollback (`L2_MODEL=guardspec-classifier@v8e`) ([why it was](#guardspec-classifier-v8e-the-default-from-v090-to-v0102)) | Hugging Face `guard-spec/guardspec-classifier` (branch `v8e`; `main` until v8g), then the GitHub Release `model-guardspec-classifier-v8e` |
 | `guardspec-classifier` | `v8f` | L2 | no: shadow-mode candidate, **not validated** ([why](#guardspec-classifier-v8f-shadow-mode-candidate)); INT8 only | Hugging Face `guard-spec/guardspec-classifier` (branch `v8f`), then the GitHub Release `model-guardspec-classifier-v8f` |
+| `guardspec-classifier` | `v8g` | L2 | **yes, from v0.11.0** ([why](#guardspec-classifier-v8g-the-default-from-v0110)), with v8e's long-path decision and an FP16 file | Hugging Face `guard-spec/guardspec-classifier` (branch `v8g`; also `main` once this release is out), then the GitHub Release `model-guardspec-classifier-v8g` |
 | `multilingual-e5-small` | `614241f` | L3 | yes | Hugging Face `intfloat/multilingual-e5-small` |
 | `protectai-deberta-v3-small-pi-v2` | `d7c8842` | baseline | optional, gated | Hugging Face |
 | `protectai-deberta-v3-base-pi-v2` | `90c9989` | baseline | optional | Hugging Face |
@@ -38,7 +39,7 @@ A version is installed in `<dir>/<name>/<version>/`; with compose,
 
 ```
 models/cache/
-  guardspec-classifier/v8e/     model_int8.onnx tokenizer.json config.json thresholds.json calibration.json
+  guardspec-classifier/v8g/     model_int8.onnx tokenizer.json config.json thresholds.json calibration.json
   multilingual-e5-small/614241f/  model.onnx tokenizer.json config.json
 ```
 
@@ -51,7 +52,7 @@ ONNX Runtime's CUDA execution provider (`train/export.py --fp16`). The
 manifest marks it `provider: cuda`: `models pull -provider cuda` (or
 `INFERENCE_PROVIDER=cuda`/`auto`, as in the GPU image) fetches it, a CPU
 install never does, and the CPU keeps loading `model_int8.onnx`. So far only
-`guardspec-classifier@v6` and `@v8e` (the default) have one; with another version (v3b
+`guardspec-classifier@v6`, `@v8e` and `@v8g` (the default) have one; with another version (v3b
 included) CUDA runs the INT8 file, slowly, and `doctor` warns.
 
 ## Pulling
@@ -59,11 +60,11 @@ included) CUDA runs the INT8 file, slowly, and `doctor` warns.
 ```bash
 # Docker: models-init does this before the gateway starts, on every `up`
 docker compose --profile models run --rm models-pull                           # recommended versions
-docker compose --profile models run --rm models-pull guardspec-classifier@v8e  # one version
+docker compose --profile models run --rm models-pull guardspec-classifier@v8g  # one version
 
 # Without Docker
 go run ./cmd/models pull                              # recommended version of every non-optional model
-go run ./cmd/models pull guardspec-classifier@v8e     # one version
+go run ./cmd/models pull guardspec-classifier@v8g     # one version
 go run ./cmd/models pull -models a,b@v1               # the older flag form still works
 go run ./cmd/models list                              # what is installed
 go run ./cmd/models list --available                  # what the manifest offers
@@ -117,7 +118,7 @@ in the image and `./models` otherwise.
 `GET /readyz` shows what loaded:
 
 ```json
-{"detector":{"layers":["l1","l2","l3"],"degraded":false,"onnx":true,"fusion":"logreg","l2_model":"guardspec-classifier@v8e"},"status":"ready","version":"0.1.0"}
+{"detector":{"layers":["l1","l2","l3"],"degraded":false,"onnx":true,"fusion":"logreg","l2_model":"guardspec-classifier@v8g"},"status":"ready","version":"0.1.0"}
 ```
 
 ## Pinning
@@ -125,7 +126,7 @@ in the image and `./models` otherwise.
 - **Images** are pinned by `GUARDSPEC_VERSION` (default `0.1.0`). Each image
   contains the manifest of its release, so the models it recommends are
   pinned with it.
-- **Models** are pinned by `L2_MODEL=guardspec-classifier@v8e` (and
+- **Models** are pinned by `L2_MODEL=guardspec-classifier@v8g` (and
   `L3_MODEL`). Set them in `.env` to keep a version across image upgrades
   that recommend a newer one; models-init still pulls the new recommended
   version, but the gateway keeps loading the pinned one.
@@ -300,10 +301,63 @@ recognises below the block threshold (`val_v5_holdout`: 0.623 vs 0.665 at
 0.85, although it ranks them far better). The selection rule, every table
 and the data are in [train/MODEL_CARD.md](../train/MODEL_CARD.md) ("v5").
 
+### guardspec-classifier v8g (the default from v0.11.0)
+
+`guardspec-classifier@v8g` is the recommended version from v0.11.0 (v8e
+before). It is round R8d's arm EPL2, seed 20261107: v8e's data plus benign
+persona and enterprise system prompts, benign windows of long technical
+documentation paired with windows of the same host carrying an attack, more
+attack windows in other technical hosts, payload-splitting attacks with their
+hard negatives, and negated or quoted overrides ("please don't ignore the
+previous instructions"). Its `calibration.json` keeps v8e's long-path decision
+(`long_doc`) and cap (`l2_untrusted_max` 0.88), and it ships
+`model_fp16.onnx` for the GPU option with its own `fp16` block
+([fp16_agreement_v8g.md](../train/reports/fp16_agreement_v8g.md)).
+
+The arm met every pre-registered criterion on every seed against v8e's seed
+band, on holdouts built and pinned before scoring and scored once
+([train/reports/r8d_report.md](../train/reports/r8d_report.md)); this seed is
+the one the pre-registered rule picks:
+
+| R8d holdouts, INT8 on the CPU | v8g | v8e |
+|---|---|---|
+| persona3: benign English persona and enterprise prompts blocked (396) | 0.3% | 1.5% |
+| persona3: benign Vietnamese ones blocked (117) | 0.9% | 1.7% |
+| long10: benign long technical documents blocked (of 52) | 1 | 4 |
+| long10: embedded attacks caught (168) | 73.8% | 79.8% |
+| split2: payload-splitting attacks, L2 only (60) | 93.3% | 70.0% |
+| split2: benign multi-turn conversations blocked, L2 only (60) | 3.3% | 1.7% |
+| `eval/data` hold-out half: TPR at FPR ≤ 1% | 0.965 | 0.960 |
+| `eval/data` hold-out half: benign rows blocked at 0.85 | 5 of 511 | 0 of 511 |
+
+What it costs:
+- **Embedded attacks in long technical documentation** are its weakest point:
+  73.8% on long10, at the pre-registered bar and below v8e.
+- **It blocks a few more benign short messages at 0.85** with L2 alone
+  (5 of 511 on the hold-out half). With every layer it blocks 0.9% of all
+  `eval/` benign rows, against 0.2% for v8e, most of them Vietnamese.
+
+Upgrading from an earlier release: `models-init` (or `models pull`) fetches
+v8g. Until it is installed, a gateway keeps using the newest installed former
+default (v8e, else v3b) and logs a warning. To keep v8e, set
+`L2_MODEL=guardspec-classifier@v8e`.
+
+**Published** on 2026-11-20: Hugging Face branch `v8g` (revision
+`16c624ba`, pinned in the manifest) and the GitHub Release
+`model-guardspec-classifier-v8g` as the mirror.
+
+```bash
+# Compare before switching: keep v8e deciding, let v8g score the same traffic.
+docker compose --profile models run --rm models-pull guardspec-classifier@v8g guardspec-classifier@v8e
+L2_MODEL=guardspec-classifier@v8e
+SHADOW_L2_MODEL=guardspec-classifier@v8g
+SHADOW_SAMPLE=1
+```
+
 ### guardspec-classifier v8f (shadow-mode candidate)
 
 `guardspec-classifier@v8f` is listed in the manifest but is **not**
-recommended and **not validated**: v8e stays the default. It is one seed
+recommended and **not validated**. It is one seed
 (20261107) of round R8c's arm EPL, which adds to v8e's data persona hard
 negatives, benign long technical-document windows paired with payload
 windows, and payload-splitting attacks with hard negatives. The arm did
@@ -415,10 +469,10 @@ detection is a little under v5's, and `val_v3_holdout` and
 `val_realistic_holdout` stay under v3b. Every table is in
 [train/MODEL_CARD.md](../train/MODEL_CARD.md) ("v6").
 
-### guardspec-classifier v8e (the default since v0.9.0)
+### guardspec-classifier v8e (the default from v0.9.0 to v0.10.2)
 
-`guardspec-classifier@v8e` is the recommended version since v0.9.0 (v3b
-before). It is round R7's arm E (v6's data plus pairs of benign and attack
+`guardspec-classifier@v8e` was the recommended version from v0.9.0 to v0.10.2
+(v3b before, v8g after); it stays pullable for rollback. It is round R7's arm E (v6's data plus pairs of benign and attack
 windows cut from the same long hosts), and its `calibration.json` carries the
 long-path decision of R8a: in a text of more than 30 windows, a window blocks
 only if an L1 rule of raw weight 0.75 or more agrees (or a floor applied) and

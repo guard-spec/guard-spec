@@ -21,8 +21,9 @@ binary luôn biết các model nó khuyến nghị.
 | `guardspec-classifier` | `v4` | L2 | không: bản ứng viên, [so sánh ở shadow mode](#guardspec-classifier-v4-bản-ứng-viên) | GitHub Release `model-guardspec-classifier-v4` (khi chủ dự án công bố) |
 | `guardspec-classifier` | `v5` | L2 | không: bản ứng viên cho code, log và tài liệu dài, [shadow mode trước](#guardspec-classifier-v5-bản-ứng-viên) | Hugging Face `guard-spec/guardspec-classifier` (nhánh `v5`), sau đó là GitHub Release `model-guardspec-classifier-v5` |
 | `guardspec-classifier` | `v6` | L2 | không: bản ứng viên cho tài liệu dài, có file FP16 cho tùy chọn GPU, [shadow mode trước](#guardspec-classifier-v6-bản-ứng-viên) | Hugging Face `guard-spec/guardspec-classifier` (nhánh `v6`), sau đó là GitHub Release `model-guardspec-classifier-v6` |
-| `guardspec-classifier` | `v8e` | L2 | **có, từ v0.9.0** ([lý do](#guardspec-classifier-v8e-mặc-định-từ-v090)), có cách quyết định trên đường dài trong `calibration.json` và file FP16 | Hugging Face `guard-spec/guardspec-classifier` (nhánh `main` và `v8e`), sau đó là GitHub Release `model-guardspec-classifier-v8e` |
+| `guardspec-classifier` | `v8e` | L2 | không: mặc định từ v0.9.0 đến v0.10.2, giữ lại để quay về (`L2_MODEL=guardspec-classifier@v8e`) ([lý do từng là mặc định](#guardspec-classifier-v8e-mặc-định-từ-v090-đến-v0102)) | Hugging Face `guard-spec/guardspec-classifier` (nhánh `v8e`; `main` cho tới v8g), sau đó là GitHub Release `model-guardspec-classifier-v8e` |
 | `guardspec-classifier` | `v8f` | L2 | không: ứng viên chạy shadow mode, **chưa đạt chuẩn** ([vì sao](#guardspec-classifier-v8f-ứng-viên-shadow-mode)); chỉ INT8 | Hugging Face `guard-spec/guardspec-classifier` (nhánh `v8f`), sau đó GitHub Release `model-guardspec-classifier-v8f` |
+| `guardspec-classifier` | `v8g` | L2 | **có, từ v0.11.0** ([lý do](#guardspec-classifier-v8g-mặc-định-từ-v0110)), giữ cách quyết định trên đường dài của v8e và có file FP16 | Hugging Face `guard-spec/guardspec-classifier` (nhánh `v8g`; cả `main` khi bản phát hành này ra), sau đó là GitHub Release `model-guardspec-classifier-v8g` |
 | `multilingual-e5-small` | `614241f` | L3 | có | Hugging Face `intfloat/multilingual-e5-small` |
 | `protectai-deberta-v3-small-pi-v2` | `d7c8842` | baseline | tùy chọn, cần xin quyền truy cập | Hugging Face |
 | `protectai-deberta-v3-base-pi-v2` | `90c9989` | baseline | tùy chọn | Hugging Face |
@@ -38,7 +39,7 @@ Mỗi phiên bản được cài vào `<dir>/<name>/<version>/`; với compose, 
 
 ```
 models/cache/
-  guardspec-classifier/v8e/     model_int8.onnx tokenizer.json config.json thresholds.json calibration.json
+  guardspec-classifier/v8g/     model_int8.onnx tokenizer.json config.json thresholds.json calibration.json
   multilingual-e5-small/614241f/  model.onnx tokenizer.json config.json
 ```
 
@@ -51,7 +52,7 @@ dạng FP16 cho CUDA execution provider của ONNX Runtime (`train/export.py
 --fp16`). Manifest đánh dấu file này `provider: cuda`: `models pull -provider
 cuda` (hoặc `INFERENCE_PROVIDER=cuda`/`auto`, như trong image GPU) sẽ tải
 nó, bản cài cho CPU không bao giờ tải, và CPU vẫn nạp `model_int8.onnx`.
-Hiện chỉ `guardspec-classifier@v6` và `@v8e` (bản mặc định) có file này; với phiên bản khác (kể cả
+Hiện chỉ `guardspec-classifier@v6`, `@v8e` và `@v8g` (bản mặc định) có file này; với phiên bản khác (kể cả
 v3b) CUDA chạy file INT8, chậm, và `doctor` cảnh báo.
 
 ## Tải model
@@ -59,11 +60,11 @@ v3b) CUDA chạy file INT8, chậm, và `doctor` cảnh báo.
 ```bash
 # Docker: models-init does this before the gateway starts, on every `up`
 docker compose --profile models run --rm models-pull                           # recommended versions
-docker compose --profile models run --rm models-pull guardspec-classifier@v8e  # one version
+docker compose --profile models run --rm models-pull guardspec-classifier@v8g  # one version
 
 # Without Docker
 go run ./cmd/models pull                              # recommended version of every non-optional model
-go run ./cmd/models pull guardspec-classifier@v8e     # one version
+go run ./cmd/models pull guardspec-classifier@v8g     # one version
 go run ./cmd/models pull -models a,b@v1               # the older flag form still works
 go run ./cmd/models list                              # what is installed
 go run ./cmd/models list --available                  # what the manifest offers
@@ -117,7 +118,7 @@ trong image và `./models` trong các trường hợp khác.
 `GET /readyz` cho biết model nào đã được nạp:
 
 ```json
-{"detector":{"layers":["l1","l2","l3"],"degraded":false,"onnx":true,"fusion":"logreg","l2_model":"guardspec-classifier@v8e"},"status":"ready","version":"0.1.0"}
+{"detector":{"layers":["l1","l2","l3"],"degraded":false,"onnx":true,"fusion":"logreg","l2_model":"guardspec-classifier@v8g"},"status":"ready","version":"0.1.0"}
 ```
 
 ## Ghim phiên bản
@@ -125,7 +126,7 @@ trong image và `./models` trong các trường hợp khác.
 - **Image** được ghim bằng `GUARDSPEC_VERSION` (mặc định `0.1.0`). Mỗi image
   chứa manifest của release đó, nên các model nó khuyến nghị cũng được ghim
   theo.
-- **Model** được ghim bằng `L2_MODEL=guardspec-classifier@v8e` (và
+- **Model** được ghim bằng `L2_MODEL=guardspec-classifier@v8g` (và
   `L3_MODEL`). Đặt chúng trong `.env` để giữ một phiên bản qua các lần nâng
   cấp image có khuyến nghị phiên bản mới hơn; models-init vẫn tải phiên bản
   khuyến nghị mới, nhưng gateway tiếp tục nạp phiên bản đã ghim.
@@ -301,10 +302,61 @@ tool, cap giữ các tấn công nhúng mà chỉ classifier nhận ra ở dư�
 tắc chọn, mọi bảng số và dữ liệu nằm trong
 [train/MODEL_CARD.md](../train/MODEL_CARD.md) (mục "v5").
 
+### guardspec-classifier v8g (mặc định từ v0.11.0)
+
+`guardspec-classifier@v8g` là phiên bản khuyến nghị từ v0.11.0 (trước đó là
+v8e). Đây là arm EPL2 của vòng R8d, seed 20261107: dữ liệu của v8e cộng thêm
+prompt persona và system prompt doanh nghiệp lành tính, cửa sổ tài liệu kỹ thuật
+dài lành tính ghép cặp với cửa sổ cùng host có chèn tấn công, thêm cửa sổ tấn công
+trong các host kỹ thuật khác, tấn công chia mảnh kèm hard negative, và các câu
+phủ định hoặc trích dẫn lệnh ghi đè ("đừng bỏ qua hướng dẫn trước đó").
+`calibration.json` giữ cách quyết định trên đường dài (`long_doc`) và cap
+(`l2_untrusted_max` 0.88) của v8e, và có `model_fp16.onnx` cho tuỳ chọn GPU với
+khối `fp16` riêng ([fp16_agreement_v8g.md](../train/reports/fp16_agreement_v8g.md)).
+
+Arm đạt mọi tiêu chí đã đăng ký trước trên cả ba seed, so với dải ba seed của
+v8e, trên các holdout dựng và ghim trước khi chấm và chỉ chấm một lần
+([train/reports/r8d_report.md](../train/reports/r8d_report.md)); seed này là
+seed mà quy tắc đăng ký trước chọn:
+
+| Holdout R8d, INT8 trên CPU | v8g | v8e |
+|---|---|---|
+| persona3: prompt persona/doanh nghiệp tiếng Anh lành bị chặn (396) | 0,3% | 1,5% |
+| persona3: prompt tiếng Việt lành bị chặn (117) | 0,9% | 1,7% |
+| long10: tài liệu kỹ thuật dài lành bị chặn (trên 52) | 1 | 4 |
+| long10: tấn công nhúng bị bắt (168) | 73,8% | 79,8% |
+| split2: tấn công chia mảnh, chỉ L2 (60) | 93,3% | 70,0% |
+| split2: hội thoại nhiều lượt lành bị chặn, chỉ L2 (60) | 3,3% | 1,7% |
+| nửa hold-out của `eval/data`: TPR ở FPR ≤ 1% | 0,965 | 0,960 |
+| nửa hold-out của `eval/data`: dòng lành bị chặn ở 0,85 | 5/511 | 0/511 |
+
+Cái giá:
+- **Tấn công nhúng trong tài liệu kỹ thuật dài** là điểm yếu nhất: 73,8% trên
+  long10, đúng ngưỡng đã đăng ký và thấp hơn v8e.
+- **Chặn nhầm nhiều tin nhắn ngắn lành hơn một chút ở 0,85** khi chỉ dùng L2
+  (5/511 trên nửa hold-out). Với đủ các lớp, nó chặn 0,9% dòng lành của `eval/`,
+  so với 0,2% của v8e, phần lớn là tiếng Việt.
+
+Nâng cấp từ bản trước: `models-init` (hoặc `models pull`) tải v8g. Trong lúc
+chưa cài, gateway dùng bản mặc định cũ mới nhất đã cài (v8e, nếu không có thì
+v3b) và ghi cảnh báo. Muốn giữ v8e, đặt `L2_MODEL=guardspec-classifier@v8e`.
+
+**Đã công bố** ngày 2026-11-20: nhánh `v8g` trên Hugging Face (revision
+`16c624ba`, ghim trong manifest) và GitHub Release
+`model-guardspec-classifier-v8g` làm bản sao dự phòng.
+
+```bash
+# So sánh trước khi chuyển: v8e vẫn quyết định, v8g chấm cùng lưu lượng.
+docker compose --profile models run --rm models-pull guardspec-classifier@v8g guardspec-classifier@v8e
+L2_MODEL=guardspec-classifier@v8e
+SHADOW_L2_MODEL=guardspec-classifier@v8g
+SHADOW_SAMPLE=1
+```
+
 ### guardspec-classifier v8f (ứng viên shadow mode)
 
 `guardspec-classifier@v8f` có trong manifest nhưng **không** được khuyến nghị
-và **chưa đạt chuẩn**: v8e vẫn là mặc định. Đây là một seed (20261107) của
+và **chưa đạt chuẩn**. Đây là một seed (20261107) của
 arm EPL trong vòng R8c. Arm này thêm vào dữ liệu của v8e các prompt persona
 lành, các cửa sổ tài liệu kỹ thuật dài ghép cặp với cửa sổ có payload, và tấn
 công chia mảnh kèm hard negative. Arm **không đạt** tiêu chí đã đăng ký trước
@@ -414,10 +466,10 @@ trên đường tool), nên chỉ là ứng viên chạy shadow
 một chút, và `val_v3_holdout` cùng `val_realistic_holdout` vẫn dưới v3b. Mọi
 bảng số nằm trong [train/MODEL_CARD.md](../train/MODEL_CARD.md) (mục "v6").
 
-### guardspec-classifier v8e (mặc định từ v0.9.0)
+### guardspec-classifier v8e (mặc định từ v0.9.0 đến v0.10.2)
 
-`guardspec-classifier@v8e` là phiên bản khuyến nghị từ v0.9.0 (trước đó là
-v3b). Đây là
+`guardspec-classifier@v8e` là phiên bản khuyến nghị từ v0.9.0 đến v0.10.2
+(trước đó là v3b, sau đó là v8g); vẫn tải được để quay về. Đây là
 nhánh E của vòng R7 (dữ liệu của v6 cộng các cặp cửa sổ vô hại và cửa sổ tấn
 công cắt từ cùng các host dài). `calibration.json` của nó mang cách quyết
 định trên đường dài của R8a: với text dài hơn 30 cửa sổ, một cửa sổ chỉ bị
