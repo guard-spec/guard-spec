@@ -1,6 +1,8 @@
 # Guard Spec
 
 [![Release](https://img.shields.io/github/v/release/guard-spec/guard-spec?sort=semver&label=release)](https://github.com/guard-spec/guard-spec/releases/latest)
+[![GitHub stars](https://img.shields.io/github/stars/guard-spec/guard-spec?logo=github)](https://github.com/guard-spec/guard-spec/stargazers)
+[![Hugging Face downloads](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fhuggingface.co%2Fapi%2Fmodels%2Fguard-spec%2Fguardspec-classifier%3Fexpand%255B%255D%3DdownloadsAllTime&query=%24.downloadsAllTime&label=HF%20downloads&logo=huggingface&logoColor=black&color=FFD21E)](https://huggingface.co/guard-spec/guardspec-classifier)
 [![License](https://img.shields.io/github/license/guard-spec/guard-spec)](LICENSE)
 [![CI](https://github.com/guard-spec/guard-spec/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/guard-spec/guard-spec/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/guard-spec/guard-spec/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/guard-spec/guard-spec/actions/workflows/codeql.yml)

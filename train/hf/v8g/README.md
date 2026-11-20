@@ -31,24 +31,26 @@ GPUs, as the same checkpoint in FP16 (235.6 MB). It is the L2 layer of
 [Guard Spec](https://github.com/guard-spec/guard-spec), a self-hosted prompt-injection guardrail gateway. It is not an
 LLM and does not generate text.
 
-**v8g is Guard Spec's default classifier from the next gateway release.** It replaces v8e, the default since v0.9.0,
+**v8g is Guard Spec's default classifier from v0.11.0.** It replaces v8e, the default since v0.9.0,
 which stays available on the [`v8e`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v8e) branch for
 rollback.
 
-## Versions and branches
+## Quick start
 
-| branch | version | status | files |
-|---|---|---|---|
-| `main`, [`v8g`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v8g) | **v8g** | **default from the next Guard Spec release** | INT8 (CPU) and FP16 (GPU) |
-| [`v8e`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v8e) | v8e | the earlier default (v0.9.0 to v0.10.x), kept for rollback | INT8 (CPU) and FP16 (GPU) |
-| [`v8f`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v8f) | v8f | shadow-mode candidate, not validated | INT8 (CPU) |
-| [`v3b`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v3b) | v3b | default before v0.9.0 | INT8 (CPU) |
-| [`v6`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v6), [`v5`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v5), [`v4`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v4) | v6, v5, v4 | earlier candidates | see each branch |
+**The whole guardrail (gateway + this model):** you need Docker with Compose v2, `curl` and `jq`. One script starts
+the released images with every detection layer; the models (this one included) are pulled and SHA-256 verified on the
+first start:
 
-`main` always holds the version Guard Spec recommends. Guard Spec pins every version by commit, so a change of
-`main` never changes a running gateway. Pin a commit (`revision=`) in your own code too.
+```bash
+git clone https://github.com/guard-spec/guard-spec.git && cd guard-spec
+scripts/quickstart.sh            # DETECTOR_LAYERS=l1,l2 scripts/quickstart.sh for a small VM
+```
 
-Download and try it:
+Then create an API key in the admin UI (or the API) and point your OpenAI-compatible client at
+`http://localhost:8080/v1` with it; injections are blocked before they reach the model. See the [Guard Spec quick start](https://github.com/guard-spec/guard-spec#quick-start) and
+[guardspec.io](https://guardspec.io/docs/).
+
+**The classifier alone, in Python:**
 
 ```python
 # pip install onnxruntime tokenizers numpy huggingface_hub
@@ -88,6 +90,19 @@ models pull guardspec-classifier@v8g                 # INT8, CPU
 models pull -provider cuda guardspec-classifier@v8g  # also the FP16 file, for the GPU image
 L2_MODEL=guardspec-classifier@v8e                    # roll back to v8e
 ```
+
+## Versions and branches
+
+| branch | version | status | files |
+|---|---|---|---|
+| `main`, [`v8g`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v8g) | **v8g** | **default from Guard Spec v0.11.0** | INT8 (CPU) and FP16 (GPU) |
+| [`v8e`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v8e) | v8e | the earlier default (v0.9.0 to v0.10.x), kept for rollback | INT8 (CPU) and FP16 (GPU) |
+| [`v8f`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v8f) | v8f | shadow-mode candidate, not validated | INT8 (CPU) |
+| [`v3b`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v3b) | v3b | default before v0.9.0 | INT8 (CPU) |
+| [`v6`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v6), [`v5`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v5), [`v4`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v4) | v6, v5, v4 | earlier candidates | see each branch |
+
+`main` always holds the version Guard Spec recommends. Guard Spec pins every version by commit, so a change of
+`main` never changes a running gateway. Pin a commit (`revision=`) in your own code too.
 
 ## What v8g changes
 
