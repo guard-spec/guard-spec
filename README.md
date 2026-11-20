@@ -248,7 +248,7 @@ What each stage does:
   attack category run on it, with suppressors for meta discussion, quoted
   examples and code literals. L1 always runs and needs no model files.
 - **L2 classifier** (`internal/inference/ml`, `internal/onnx`). Our own
-  `guardspec-classifier` v8e (the default since v0.9.0; v3b before):
+  `guardspec-classifier` v8g (the default after v0.10.2; v8e from v0.9.0, v3b before):
   `intfloat/multilingual-e5-small` fine-tuned on
   `train/` with an 8-label sigmoid head, INT8 ONNX, run in-process with ONNX
   Runtime. Risk is 1 − p(benign). Long input is scored in 256-token windows
@@ -520,7 +520,7 @@ Each `v*` tag publishes, through `.github/workflows/release.yml`:
 | Artifact | Detection layers | Notes |
 |---|---|---|
 | `ghcr.io/guard-spec/guard-spec-gateway:<version>` (and `latest`), linux/amd64 + linux/arm64 | **L1 + L2 + L3** when models are mounted | Built from `build/gateway.Dockerfile` with `-tags onnx`; ships `libonnxruntime`. Without models it runs L1 only. |
-| `ghcr.io/guard-spec/guard-spec-gateway-full:<version>` (and `latest`), linux/amd64 + linux/arm64 | **L1 + L2 + L3**, models included | For air-gapped installs: the gateway image plus `guardspec-classifier-v8e` (v3b before v0.9.0) and `multilingual-e5-small` (read-only, about 270 MB more), built from `build/gateway-full.Dockerfile`. Published once the L2 model is on Hugging Face. |
+| `ghcr.io/guard-spec/guard-spec-gateway-full:<version>` (and `latest`), linux/amd64 + linux/arm64 | **L1 + L2 + L3**, models included | For air-gapped installs: the gateway image plus `guardspec-classifier-v8g` (v8e from v0.9.0 to v0.10.2, v3b before) and `multilingual-e5-small` (read-only, about 270 MB more), built from `build/gateway-full.Dockerfile`. Published once the L2 model is on Hugging Face. |
 | `guard-spec_<version>_linux_<arch>_onnx.tar.gz` | L1 + L2 + L3 when models are present | The same gateway binary plus `lib/libonnxruntime.so` and `models`. Needs glibc 2.36 or newer (Debian 12, Ubuntu 22.10+); set `ONNXRUNTIME_LIB` and `MODEL_DIR`. |
 | `guard-spec_<version>_<os>_<arch>.tar.gz` (linux, darwin) | **L1 only** | Static binaries (`CGO_ENABLED=0`), no ONNX Runtime. |
 | `ghcr.io/guard-spec/guard-spec-control-plane:<version>` | n/a | Static, no cgo. |
@@ -556,7 +556,7 @@ see [SECURITY.md](SECURITY.md#verifying-releases).
 | Layer | Files | Where it comes from |
 |---|---|---|
 | L1 | none | built into the binary |
-| L2 | `models/cache/guardspec-classifier/v8e/` (`model_int8.onnx`, `tokenizer.json`, `config.json`, `thresholds.json`, `calibration.json`) | `models pull`: Hugging Face once published, else the GitHub Release `model-guardspec-classifier-v8e`; SHA-256 pinned in `models/manifest.yaml`. An install that only has an earlier version (`cache/guardspec-classifier/v3b/`) keeps using it, with a warning, until `models pull` fetches v8e. Older installs in `models/local/guardspec-classifier-v3b/` (then `-v2`, `-v1`, `-v0`) still load |
+| L2 | `models/cache/guardspec-classifier/v8g/` (`model_int8.onnx`, `tokenizer.json`, `config.json`, `thresholds.json`, `calibration.json`) | `models pull`: Hugging Face once published, else the GitHub Release `model-guardspec-classifier-v8g`; SHA-256 pinned in `models/manifest.yaml`. An install that only has an earlier version (`cache/guardspec-classifier/v8e/` or `v3b/`) keeps using it, the newest former default first, with a warning, until `models pull` fetches v8g. Older installs in `models/local/guardspec-classifier-v3b/` (then `-v2`, `-v1`, `-v0`) still load |
 | L3 | `models/cache/multilingual-e5-small/614241f/` (`model.onnx`, `tokenizer.json`, `config.json`) | `models pull`: Hugging Face, pinned by commit and SHA-256. The older `models/cache/multilingual-e5-small/` still loads |
 
 Compose pulls both before the gateway starts (the `models-init` service).
@@ -671,8 +671,8 @@ in a second table.
 | `OUTPUT_REASONING` | `guard` | `drop` removes `reasoning` / `reasoning_content` instead of guarding them |
 | `OUTPUT_UNKNOWN_BLOCKS` | `refuse` | `/v1/messages`: a response content block of a type the output guard does not know (a server tool other than web search and web fetch, say) is refused (502, or an error event in a stream); `/v1/responses`: likewise an output item other than `message`, `function_call`, `custom_tool_call`, `reasoning` and `web_search_call` (image generation, code interpreter, MCP, shell, computer use...), a content part, or a stream event with content of a type it does not know; `pass` passes such blocks, items and events on unchanged and unchecked |
 | `MODEL_DIR` | `./models` (`/models` in the image) | Root of the model files. `MODELS_PATH` is the older name |
-| `L2_MODEL` | the manifest's recommended classifier (`guardspec-classifier@v8e` since v0.9.0; v3b before) | Classifier as `name@version` (a bare name: its recommended version), loaded from `$MODEL_DIR/cache/<name>/<version>`. Pin or roll back with it; see [docs/models.md](docs/models.md) |
-| `L2_MODEL_DIR` | empty | Classifier directory; wins over `L2_MODEL`. With neither set: the recommended version when installed, else another installed version of it (with a warning), else `$MODEL_DIR/local/guardspec-classifier-v3b`, `-v2`, `-v1`, `-v0` |
+| `L2_MODEL` | the manifest's recommended classifier (`guardspec-classifier@v8g` after v0.10.2; v8e from v0.9.0, v3b before) | Classifier as `name@version` (a bare name: its recommended version), loaded from `$MODEL_DIR/cache/<name>/<version>`. Pin or roll back with it; see [docs/models.md](docs/models.md) |
+| `L2_MODEL_DIR` | empty | Classifier directory; wins over `L2_MODEL`. With neither set: the recommended version when installed, else another installed version of it (a former default first, newest first; with a warning), else `$MODEL_DIR/local/guardspec-classifier-v3b`, `-v2`, `-v1`, `-v0` |
 | `L3_MODEL` | the manifest's recommended embedder (`multilingual-e5-small@614241f`) | Embedding model as `name@version` |
 | `L3_MODEL_DIR` | empty | Embedding model directory; wins over `L3_MODEL`. With neither set: the recommended version when installed, else `$MODEL_DIR/cache/multilingual-e5-small` |
 | `DETECTOR_LAYERS` | `l1,l2,l3` | Layers to run; `l1,l2` is light mode, and compose's `models-init` then pulls the classifier only ([docs/sizing.md](docs/sizing.md)) |
@@ -1359,10 +1359,11 @@ English and 1,250 Vietnamese, built deterministically by
 `eval/build/build.py` (see [eval/README.md](eval/README.md)). "Block" is the
 gateway's direct-injection threshold, 0.85.
 
-Classifier v8e is the default L2 since v0.9.0, and v3b was the default before (see
-[train/MODEL_CARD.md](train/MODEL_CARD.md)); the v3b, v2 and v1 rows are kept for comparison. The v8e row was
+Classifier v8g is the default L2 after v0.10.2; v8e was the default from v0.9.0, and v3b before (see
+[train/MODEL_CARD.md](train/MODEL_CARD.md)); the v8e, v3b, v2 and v1 rows are kept for comparison. The v8e row was
 measured on 2026-11-16 with the rules of v0.9.0 (`ei.*`, the untrusted-content L1 floor and the L3 persona
-exemplars); its latency is v3b's, since the architecture is the same. Classifier v3 was measured once and
+exemplars), and the v8g row on 2026-11-19 with the rules of v0.10.2; their latency is v3b's, since the architecture
+is the same. Classifier v3 was measured once and
 not shipped (FPR 2.2%, TPR 0.915; see the model card). All model rows were measured on
 2026-11-04 with the L1 rules of this release.
 
@@ -1377,7 +1378,8 @@ not shipped (FPR 2.2%, TPR 0.915; see the model card). All model rows were measu
 | L1 + L2 + L3 (v3b), v0.2.0 | 0.986 | 0.924 | 0.932 | 1.4% | 1.7% | 1.3% | 3.5% | 0.4% | 3.7 / 11.1 ms |
 | L1 + L2 (v3b), L1 floor | 0.987 | 0.933 | 0.938 | 1.4% | 1.7% | 1.3% | 3.5% | 0.4% | 2.7 / 7.5 ms ¹ |
 | L1 + L2 + L3 (v3b), L1 floor (default with models before v0.9.0) | 0.987 | 0.934 | 0.939 | 1.4% | 1.7% | 1.3% | 3.5% | 0.4% | 3.7 / 11.1 ms ¹ |
-| **L1 + L2 + L3 (v8e), L1 floor (default with models since v0.9.0)** | 0.987 | 0.952 | 0.928 | 0.2% | 0.0% | 0.3% | 0.7% | 0.4% | as v3b |
+| L1 + L2 + L3 (v8e), L1 floor (default with models from v0.9.0 to v0.10.2) | 0.987 | 0.952 | 0.928 | 0.2% | 0.0% | 0.3% | 0.7% | 0.4% | as v3b |
+| **L1 + L2 + L3 (v8g), L1 floor (default with models after v0.10.2)** | 0.988 | 0.946 | 0.942 | 0.9% | 0.3% | 1.3% | 1.4% | 1.7% | as v3b |
 
 The two "L1 floor" rows were measured on 2026-11-07 (branch of RF-c5446336:
 the Vietnamese override rules and `FUSION_L1_FLOOR=0.985`) with the same
@@ -1415,7 +1417,13 @@ How to read them, and their limits:
   reviewed by AI agents, without a native-speaker review; teencode comes from
   rules and is stiffer than real chat. Many attack rows come from templates,
   so errors are correlated.
-- **Classifier v8e** (the default since v0.9.0) blocks 0.2% of benign rows at block (2 of 1,005; v3b 1.4%)
+- **Classifier v8g** (the default after v0.10.2) catches more at block (TPR 0.942 against v8e's 0.928) and blocks
+  more benign rows (0.9%, 9 of 1,005, against 2), most of them Vietnamese (VI 1.3%, EN 0.3%). It was chosen for
+  what `eval/` does not measure well: fewer blocked persona and role prompts (0.3% against 1.5% of fresh English
+  ones), fewer blocked benign long technical documents, and payload-splitting attacks over several turns
+  (train/reports/r8d_report.md). Embedded attacks in long technical documentation are its weakest point (73.8%
+  against v8e's 79.8% on the R8d holdout).
+- **Classifier v8e** (the default from v0.9.0 to v0.10.2) blocks 0.2% of benign rows at block (2 of 1,005; v3b 1.4%)
   with TPR at block 0.928 (v3b 0.939), and catches more at FPR ≤ 1% (0.952 vs 0.934). On tool content it
   carries a cap (`l2_untrusted_max` 0.88); the untrusted-content L1 floor and the `ei.*` rules make up for it
   (train/reports/indirect1_holdout.md).
@@ -1423,7 +1431,8 @@ How to read them, and their limits:
   the same TPR at block (0.932 vs 0.933): Vietnamese without diacritics falls
   from 3.0% to 0.4% and English from 2.2% to 1.7%, but **Vietnamese teencode
   rises from 1.4% to 3.5%**, and English leet recall falls (0.825 vs 0.875).
-  `eval/baseline-onnx.json` held the v3b run with the L1 floor until 2026-11-17; it now holds v8e, and the onnx
+  `eval/baseline-onnx.json` held the v3b run with the L1 floor until 2026-11-17, then v8e (to be refreshed
+  with v8g); the onnx
   CI job runs it (and the tool-path ONNX baselines) on every change and warns when a number moves.
 - **Vietnamese teencode and no-diacritics benign text was the known weak
   spot** of the model layers. With L1+L2+L3, classifier v2 blocks 1.4% of

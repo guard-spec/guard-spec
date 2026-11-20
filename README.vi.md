@@ -196,7 +196,7 @@ Nguồn của các sơ đồ ở [docs/diagrams/](docs/diagrams/)
 - **L1 luật**: chuẩn hoá văn bản thành "skeleton" (bỏ dấu, teencode, leet,
   homoglyph...) rồi áp luật có trọng số theo loại tấn công. Luôn chạy, không
   cần file model.
-- **L2 classifier**: `guardspec-classifier` v8e (mặc định từ v0.9.0; trước đó là v3b), fine-tune từ
+- **L2 classifier**: `guardspec-classifier` v8g (mặc định sau v0.10.2; v8e từ v0.9.0, trước đó là v3b), fine-tune từ
   `intfloat/multilingual-e5-small`, INT8 ONNX, chạy trong tiến trình.
 - **L3 tương đồng**: embedding e5 so với exemplar tấn công/lành tính có sẵn và
   exemplar riêng của từng tổ chức.
@@ -322,7 +322,7 @@ triển chưa kiểm chứng trên các nền tảng đó; rất mong bạn báo
 | Lớp | File | Lấy ở đâu |
 |---|---|---|
 | L1 | không cần | có sẵn trong binary |
-| L2 | `models/cache/guardspec-classifier/v8e/` (bản cài cũ chỉ có `v3b/` vẫn chạy kèm cảnh báo; thư mục cũ `models/local/guardspec-classifier-v3b/`, `-v2`, `-v1`, `-v0` vẫn đọc được) | `docker compose --profile models run --rm models-pull` (Hugging Face, kiểm SHA-256); giữ bản cũ bằng `L2_MODEL=guardspec-classifier@v3b` |
+| L2 | `models/cache/guardspec-classifier/v8g/` (bản cài cũ chỉ có `v8e/` hoặc `v3b/` vẫn chạy kèm cảnh báo, ưu tiên bản mặc định cũ mới nhất; thư mục cũ `models/local/guardspec-classifier-v3b/`, `-v2`, `-v1`, `-v0` vẫn đọc được) | `docker compose --profile models run --rm models-pull` (Hugging Face, kiểm SHA-256); giữ bản cũ bằng `L2_MODEL=guardspec-classifier@v8e` |
 | L3 | `models/cache/multilingual-e5-small/` | `docker compose --profile models run --rm models-pull` (tải từ Hugging Face, kiểm SHA-256) |
 
 Build classifier (xem [train/MODEL_CARD.md](train/MODEL_CARD.md)):
@@ -1086,7 +1086,14 @@ amd64 và arm64 ở mục "Độ trễ trên Linux" bên dưới. Bộ eval `eva
 | L1 + L2 | 0.985 | 0.942 | 2,6% | 3,4% | 6,3% | 3,8% | 2,7 / 7,6 ms |
 | L1 + L2 + L3 | 0.985 | 0.939 | 2,7% | 3,6% | 7,0% | 3,8% | 3,7 / 11,3 ms |
 | L1 + L2 + L3, cascade | 0.987 | 0.953 | 2,7% | 3,6% | 7,0% | 3,8% | 2,9 / 8,5 ms |
-| **L1 + L2 + L3 (v8e, mặc định từ v0.9.0), đo 2026-11-16** | 0.987 | 0.928 | 0,2% | 0,3% | 0,7% | 0,4% | như v3b |
+| L1 + L2 + L3 (v8e, mặc định từ v0.9.0 đến v0.10.2), đo 2026-11-16 | 0.987 | 0.928 | 0,2% | 0,3% | 0,7% | 0,4% | như v3b |
+| **L1 + L2 + L3 (v8g, mặc định sau v0.10.2), đo 2026-11-19** | 0.988 | 0.942 | 0,9% | 1,3% | 1,4% | 1,7% | như v3b |
+
+v8g bắt được nhiều tấn công hơn khi chặn (TPR 0.942 so với 0.928 của v8e) nhưng chặn nhầm nhiều dòng lành tính hơn
+(0,9%, 9 trên 1.005, chủ yếu tiếng Việt). Nó được chọn vì những gì `eval/` đo chưa tốt: chặn nhầm ít prompt vai trò
+và persona hơn, chặn nhầm ít tài liệu kỹ thuật dài hơn, và bắt tấn công chia nhỏ qua nhiều lượt chat
+(train/reports/r8d_report.md). Điểm yếu nhất của nó là tấn công nhúng trong tài liệu kỹ thuật dài (73,8% so với 79,8%
+của v8e trên holdout của R8d).
 
 Lệnh tái lập: `go run ./cmd/eval` (L1) và
 `go run -tags onnx ./cmd/eval -layers l1,l2,l3 [-cascade]` (xem README tiếng Anh).

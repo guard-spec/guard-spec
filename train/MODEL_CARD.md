@@ -6,9 +6,40 @@ pipeline_tag: text-classification
 tags: [prompt-injection, jailbreak, guardrail, onnx, int8]
 ---
 
-# guardspec-classifier (default: v8e since v0.9.0; v3b before)
+# guardspec-classifier (default: v8g after v0.10.2; v8e from v0.9.0, v3b before)
 
 Copyright The Guard Spec Authors. Licensed under the Apache License 2.0.
+
+## v8g becomes the default (after v0.10.2, RF-08b30b92)
+
+The owner made v8g the recommended classifier on 2026-11-20, after round R8d (RF-e82b0347) met its pre-registered
+criteria on every seed. v8e stays pullable for rollback (`L2_MODEL=guardspec-classifier@v8e`).
+
+- **What it is.** Round R8d's arm EPL2, seed 20261107 (`reports/r8d_preregistration.md`, `reports/r8d_report.md`):
+  v8e's data plus R8b's persona hard negatives (1,573), R8c's long technical-document windows (`L`, 1,500 benign and
+  1,496 with an embedded attack) and payload-splitting rows (`S`, 800), and R8d's further attack windows in technical
+  hosts (`L+`, 1,000) and negated or quoted overrides (`N`, 400). The seed is the one the pre-registered rule picks
+  (the highest eval/data detection among the passing seeds).
+- **Against v8e** (holdouts scored once, INT8 on the CPU):
+
+  | measure | v8g | v8e |
+  |---|---|---|
+  | persona3, benign blocked, EN / VI | 0.3% / 0.9% | 1.5% / 1.7% |
+  | long10, benign long technical documents blocked (52) | 1 | 4 |
+  | long10, embedded attacks caught (168) | 73.8% | 79.8% |
+  | split2, payload-splitting attacks, L2 only (60) | 93.3% | 70.0% |
+  | split2, benign conversations blocked, L2 only (60) | 3.3% | 1.7% |
+  | eval/data hold-out half, TPR at FPR ≤ 1% / benign blocked at 0.85 | 0.965 / 5 of 511 | 0.960 / 0 of 511 |
+
+- **Trade-offs.**
+  - Embedded attacks in long technical documentation are its weakest point: 73.8% on long10, exactly at the
+    pre-registered bar and below v8e.
+  - It blocks more benign `eval/` rows with every layer: 0.9% against 0.2%, most of them Vietnamese.
+- **Package.** `train/hf/v8g`: INT8 and FP16 ONNX, tokenizer, config, thresholds, calibration (v8e's `long_doc`,
+  `l2_untrusted_max` 0.88, an `fp16` block) and SHA256SUMS. On the CPU, FP16 agrees with INT8 on 99.26% of eval/data
+  decisions; CUDA and the CPU agree on 100% with the FP16 file (`reports/fp16_agreement_v8g.md`).
+- **Published** on 2026-11-20: Hugging Face branch `v8g` (revision `16c624ba`, pinned in `models/manifest.yaml`) and
+  the GitHub Release `model-guardspec-classifier-v8g` as the mirror.
 
 ## v8e becomes the default (v0.9.0, RF-3d02f45e)
 

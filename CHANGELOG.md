@@ -9,6 +9,43 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ## [Unreleased]
 
+### Upgrade notes
+
+- **The default classifier changes from v8e to v8g.**
+  - `models-init`, or `models pull`, fetches v8g.
+  - Until it is installed, a gateway keeps using the newest installed former default (v8e, else v3b) and logs a
+    warning.
+  - To stay on v8e, set `L2_MODEL=guardspec-classifier@v8e`. To compare first, run v8g in shadow mode with
+    `SHADOW_L2_MODEL=guardspec-classifier@v8g`.
+  - The `gateway-full` image carries v8g.
+  - What it trades (the v8g model card): fewer blocked persona prompts, benign long technical documents and benign
+    "don't ignore the previous instructions" messages, and more payload-splitting attacks caught; but fewer attacks
+    embedded in long technical documentation caught (73.8% against 79.8% on the R8d holdout), and with every layer
+    0.9% of `eval/`'s benign rows blocked against 0.2%, most of them Vietnamese.
+- No database migration.
+
+### Changed
+
+- **The default classifier is now `guardspec-classifier` v8g** (RF-08b30b92). It was v8e from v0.9.0.
+  - What it is: round R8d's arm EPL2, seed 20261107. v8e's data plus persona hard negatives, benign long
+    technical-document windows paired with windows carrying an attack, more attack windows in technical hosts,
+    payload-splitting attacks and negated or quoted overrides (train/reports/r8d_report.md).
+  - Why: the arm met every pre-registered criterion on every seed against v8e's three seeds. On holdouts scored once:
+    - persona prompts: 0.3% of English and 0.9% of Vietnamese benign ones blocked (v8e 1.5% and 1.7%);
+    - long technical documents: 1 of 52 benign documents blocked (v8e 4);
+    - payload splitting: 93.3% of split attacks caught by L2 on the conversation window (v8e 70.0%);
+    - user messages: on the eval/data hold-out half, TPR at FPR ≤ 1% is 0.965 (v8e 0.960).
+  - Trade-offs: embedded attacks in long technical documentation are caught less often (73.8% against 79.8%), and on
+    the eval/data hold-out half L2 alone blocks 5 of 511 benign rows at 0.85 where v8e blocks none.
+  - `models/manifest.yaml` recommends v8g, so `models-init` and `models pull` fetch it: Hugging Face branch `v8g`
+    (revision `16c624ba`), else the GitHub Release `model-guardspec-classifier-v8g`.
+  - The `gateway-full` image bakes in v8g at `/models/local/guardspec-classifier-v8g`
+    (`build/gateway-full.l2.sha256` holds its CPU files).
+  - It ships `model_fp16.onnx` for the GPU option, with its own calibration (train/reports/fp16_agreement_v8g.md).
+- **A manifest version can be marked `former_default`** (v3b, v8e). When the recommended classifier is not
+  installed, the gateway uses the newest installed former default before any other installed version, so an install
+  that pulled v8e and still has v3b or a shadow candidate keeps v8e.
+
 ### Added
 
 - **guardspec-classifier v8f, a shadow-mode candidate, not validated** (RF-408b51a6). One seed of round R8c's arm EPL

@@ -165,7 +165,7 @@ variable "detector_layers" {
 }
 
 variable "l2_model" {
-  description = "L2_MODEL as name@version, such as guardspec-classifier@v8e. Empty: the version the image recommends. It must be present in the image."
+  description = "L2_MODEL as name@version, such as guardspec-classifier@v8g. Empty: the version the image recommends. It must be present in the image."
   type        = string
   default     = ""
 }

@@ -101,6 +101,15 @@ curl -s localhost:8080/readyz | jq .detector        # 6. or https://<GATEWAY_HOS
   nó trước khi gateway khởi động (với `DETECTOR_REQUIRE_ML=true`, mặc định
   của production, một lần tải lỗi sẽ dừng `up` trước khi gateway mới khởi
   động). Khi đã ghim `L2_MODEL` / `L3_MODEL`, gateway giữ phiên bản đã ghim.
+- **Bản phát hành sau 0.10.2 đổi classifier khuyến nghị từ v8e sang v8g.**
+  - `models-init` tải v8g trước khi gateway khởi động.
+  - Gateway không chạy `models-init` vẫn dùng bản mặc định cũ mới nhất đã cài (v8e, nếu không có thì v3b), kèm cảnh
+    báo trong log, cho tới khi v8g được tải.
+  - Muốn giữ v8e, đặt `L2_MODEL=guardspec-classifier@v8e`. Muốn so sánh trước, chạy v8g ở shadow mode (bên dưới).
+  - v8g chặn nhầm ít prompt persona và tài liệu kỹ thuật dài lành tính hơn, bắt nhiều tấn công chia mảnh hơn, nhưng
+    bắt ít tấn công nhúng trong tài liệu kỹ thuật dài hơn và chặn nhầm thêm vài tin nhắn ngắn lành tính
+    ([mục v8g trong docs/models.vi.md](models.vi.md#guardspec-classifier-v8g-mặc-định-sau-v0102)).
+  - Không có migration.
 - **0.10.2 không cần migration và không đổi cấu hình.** Như mọi lần thay binary gateway, các mục của scan cache dùng
   chung do bản trước ghi sẽ không được đọc (khoá có hash của binary), nên các phiên đang chạy được quét lại một lần.
 - **0.10.0 đổi định dạng khoá của scan cache dùng chung sang `v2`.** Sau khi nâng cấp, các mục do 0.9.0 trở về trước

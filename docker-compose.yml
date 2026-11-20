@@ -264,7 +264,7 @@ services:
 
   # Pulls other models or versions on demand, such as an older version to roll
   # back to or an optional baseline:
-  #   docker compose --profile models run --rm models-pull guardspec-classifier@v8e
+  #   docker compose --profile models run --rm models-pull guardspec-classifier@v8g
   # Without arguments it does what models-init does.
   models-pull:
     profiles: [models]
