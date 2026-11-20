@@ -32,7 +32,7 @@
 # default is the signed v0.10.0 release, pinned by the digest of its index, so a
 # build without the argument never pulls a moving tag. The release workflow
 # always passes the digest of the gateway image it has just built and signed.
-ARG GATEWAY_IMAGE=ghcr.io/guard-spec/guard-spec-gateway:0.10.0@sha256:4ca3b295db5dca7da5f437f2b728c52ac3b887980540ec65585b94542f0e207d
+ARG GATEWAY_IMAGE=ghcr.io/guard-spec/guard-spec-gateway:0.10.2@sha256:d40ec249c2cfb96a4bac9e4f95ec19f363d8640002de29e07a4474304462c2a8
 
 # Default for the `l2` build context: empty, so a build without
 # --build-context l2=... stops below with a clear message.

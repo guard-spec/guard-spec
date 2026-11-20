@@ -9,6 +9,8 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-20
+
 ### Upgrade notes
 
 - **The default classifier changes from v8e to v8g.**
@@ -55,7 +57,8 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 - **guardspec-classifier v8f, a shadow-mode candidate, not validated** (RF-408b51a6). One seed of round R8c's arm EPL
   (persona hard negatives, long technical-document windows, payload-splitting attacks). The arm did not meet R8c's
   pre-registered criteria, and this seed was picked after the holdout, so it is listed in the manifest only to be run
-  next to v8e with `SHADOW_L2_MODEL=guardspec-classifier@v8f`. v8e stays the default. Hugging Face branch `v8f`
+  next to the default classifier with `SHADOW_L2_MODEL=guardspec-classifier@v8f`; v8g, from the same
+  data line, supersedes it. Hugging Face branch `v8f`
   (revision `84aa1f63`) and the GitHub Release `model-guardspec-classifier-v8f`; INT8 only.
 
 ### Fixed
@@ -1863,7 +1866,8 @@ First release.
 - List endpoints still answer the older `{"data": [...]}` shape when called
   without `limit` and `cursor`; use the paginated form.
 
-[Unreleased]: https://github.com/guard-spec/guard-spec/compare/v0.10.2...HEAD
+[Unreleased]: https://github.com/guard-spec/guard-spec/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/guard-spec/guard-spec/compare/v0.10.2...v0.11.0
 [0.10.2]: https://github.com/guard-spec/guard-spec/compare/v0.10.0...v0.10.2
 [0.10.0]: https://github.com/guard-spec/guard-spec/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/guard-spec/guard-spec/compare/v0.8.0...v0.9.0

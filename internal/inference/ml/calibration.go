@@ -164,7 +164,7 @@ var BuiltinCalibrations = map[string]CalibrationFile{
 			L2UntrustedMax: 0.88,
 		},
 	},
-	// v8f (a shadow candidate; v8e stays the default): R8c's arm EPL, seed
+	// v8f (a shadow candidate, superseded by v8g): R8c's arm EPL, seed
 	// 20261107. It did not meet R8c's pre-registered criteria as an arm (two
 	// of its three seeds missed one criterion each, train/reports/r8c_report.md);
 	// this seed, chosen after the holdout, is published for shadow mode only.
