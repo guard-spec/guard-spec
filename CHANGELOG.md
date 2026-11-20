@@ -36,12 +36,16 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
     - payload splitting: 93.3% of split attacks caught by L2 on the conversation window (v8e 70.0%);
     - user messages: on the eval/data hold-out half, TPR at FPR ≤ 1% is 0.965 (v8e 0.960).
   - Trade-offs: embedded attacks in long technical documentation are caught less often (73.8% against 79.8%), and on
-    the eval/data hold-out half L2 alone blocks 5 of 511 benign rows at 0.85 where v8e blocks none.
+    the eval/data hold-out half L2 alone blocks 5 of 511 benign rows at 0.85 where v8e blocks none. On all of
+    `eval/` through the gateway (CI runner): attacks caught 94.7% EN and 95.7% VI (v8e 92.2% and 95.6%), benign rows
+    blocked 0.3% EN and 1.2% VI (v8e 0% and 0.3%); Vietnamese tool-poisoning attacks fall from 100% to 89.2% caught.
   - `models/manifest.yaml` recommends v8g, so `models-init` and `models pull` fetch it: Hugging Face branch `v8g`
     (revision `16c624ba`), else the GitHub Release `model-guardspec-classifier-v8g`.
   - The `gateway-full` image bakes in v8g at `/models/local/guardspec-classifier-v8g`
     (`build/gateway-full.l2.sha256` holds its CPU files).
   - It ships `model_fp16.onnx` for the GPU option, with its own calibration (train/reports/fp16_agreement_v8g.md).
+- **The ONNX eval baselines hold v8g** (`eval/baseline-onnx.json`, `eval/codelog/baseline-onnx.json`,
+  `eval/embedded/baseline-onnx*.json`), taken from the CI runner's reports as for v8e.
 - **A manifest version can be marked `former_default`** (v3b, v8e). When the recommended classifier is not
   installed, the gateway uses the newest installed former default before any other installed version, so an install
   that pulled v8e and still has v3b or a shadow candidate keeps v8e.
