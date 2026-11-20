@@ -196,7 +196,7 @@ Nguồn của các sơ đồ ở [docs/diagrams/](docs/diagrams/)
 - **L1 luật**: chuẩn hoá văn bản thành "skeleton" (bỏ dấu, teencode, leet,
   homoglyph...) rồi áp luật có trọng số theo loại tấn công. Luôn chạy, không
   cần file model.
-- **L2 classifier**: `guardspec-classifier` v8g (mặc định sau v0.10.2; v8e từ v0.9.0, trước đó là v3b), fine-tune từ
+- **L2 classifier**: `guardspec-classifier` v8g (mặc định từ v0.11.0; v8e từ v0.9.0, trước đó là v3b), fine-tune từ
   `intfloat/multilingual-e5-small`, INT8 ONNX, chạy trong tiến trình.
 - **L3 tương đồng**: embedding e5 so với exemplar tấn công/lành tính có sẵn và
   exemplar riêng của từng tổ chức.
@@ -1087,7 +1087,7 @@ amd64 và arm64 ở mục "Độ trễ trên Linux" bên dưới. Bộ eval `eva
 | L1 + L2 + L3 | 0.985 | 0.939 | 2,7% | 3,6% | 7,0% | 3,8% | 3,7 / 11,3 ms |
 | L1 + L2 + L3, cascade | 0.987 | 0.953 | 2,7% | 3,6% | 7,0% | 3,8% | 2,9 / 8,5 ms |
 | L1 + L2 + L3 (v8e, mặc định từ v0.9.0 đến v0.10.2), đo 2026-11-16 | 0.987 | 0.928 | 0,2% | 0,3% | 0,7% | 0,4% | như v3b |
-| **L1 + L2 + L3 (v8g, mặc định sau v0.10.2), đo 2026-11-19** | 0.988 | 0.942 | 0,9% | 1,3% | 1,4% | 1,7% | như v3b |
+| **L1 + L2 + L3 (v8g, mặc định từ v0.11.0), đo 2026-11-19** | 0.988 | 0.942 | 0,9% | 1,3% | 1,4% | 1,7% | như v3b |
 
 v8g bắt được nhiều tấn công hơn khi chặn (TPR 0.942 so với 0.928 của v8e) nhưng chặn nhầm nhiều dòng lành tính hơn
 (0,9%, 9 trên 1.005, chủ yếu tiếng Việt). Nó được chọn vì những gì `eval/` đo chưa tốt: chặn nhầm ít prompt vai trò

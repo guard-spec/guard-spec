@@ -6,11 +6,11 @@ pipeline_tag: text-classification
 tags: [prompt-injection, jailbreak, guardrail, onnx, int8]
 ---
 
-# guardspec-classifier (default: v8g after v0.10.2; v8e from v0.9.0, v3b before)
+# guardspec-classifier (default: v8g from v0.11.0; v8e from v0.9.0, v3b before)
 
 Copyright The Guard Spec Authors. Licensed under the Apache License 2.0.
 
-## v8g becomes the default (after v0.10.2, RF-08b30b92)
+## v8g becomes the default (from v0.11.0, RF-08b30b92)
 
 The owner made v8g the recommended classifier on 2026-11-20, after round R8d (RF-e82b0347) met its pre-registered
 criteria on every seed. v8e stays pullable for rollback (`L2_MODEL=guardspec-classifier@v8e`).

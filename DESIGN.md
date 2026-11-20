@@ -79,7 +79,7 @@ client ──► gateway (Go, Fiber) ──────────────�
      teencode), weighted phrase and co-occurrence rules per category, with
      suppressors for meta discussion, quotes and code.
    - L2 classifier (`ml`, `onnx`): `guardspec-classifier` v8g (the default
-     after v0.10.2; v8e from v0.9.0, v3b before), an 8-label
+     from v0.11.0; v8e from v0.9.0, v3b before), an 8-label
      sigmoid head on `intfloat/multilingual-e5-small`, INT8 ONNX; risk is
      1 − p(benign); 256-token windows with 64-token overlap.
    - L3 similarity: e5 embeddings against built-in and per-org exemplars.

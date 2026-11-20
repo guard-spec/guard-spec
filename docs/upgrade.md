@@ -101,14 +101,14 @@ curl -s localhost:8080/readyz | jq .detector        # 6. or https://<GATEWAY_HOS
   production default, a failed pull stops `up` before the new gateway
   starts). With `L2_MODEL` / `L3_MODEL` pinned, the gateway
   keeps the pinned version.
-- **The release after 0.10.2 changes the recommended classifier from v8e to v8g.**
+- **v0.11.0 changes the recommended classifier from v8e to v8g.**
   - `models-init` pulls v8g before the gateway starts.
   - A gateway without `models-init` keeps using the newest installed former default (v8e, else v3b), with a warning
     in the log, until v8g is pulled.
   - To stay on v8e, set `L2_MODEL=guardspec-classifier@v8e`. To compare first, run v8g in shadow mode (below).
   - v8g blocks fewer persona prompts and benign long technical documents and catches more payload-splitting attacks,
     but catches fewer attacks embedded in long technical documentation and blocks a few more benign short messages
-    (the [v8g section of docs/models.md](models.md#guardspec-classifier-v8g-the-default-after-v0102)).
+    (the [v8g section of docs/models.md](models.md#guardspec-classifier-v8g-the-default-from-v0110)).
   - No migration.
 - **0.10.2 needs no migration and no configuration change.** As after any new gateway binary, the shared scan
   cache's entries of the previous release are not read (the key includes the binary's hash), so running sessions are

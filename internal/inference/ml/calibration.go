@@ -134,7 +134,7 @@ var BuiltinCalibrations = map[string]CalibrationFile{
 			L2UntrustedMax: 0.88,
 		},
 	},
-	// v8g (the default from the next gateway release; v8e becomes the earlier default): R8d's arm EPL2, seed
+	// v8g (the default from v0.11.0; v8e becomes the earlier default): R8d's arm EPL2, seed
 	// 20261107, which met R8d's pre-registered criteria on every seed (train/reports/r8d_report.md). The
 	// calibration.json of train/hf/v8g, byte for byte (TestPackagedCalibrationFiles). FP16 (the GPU option,
 	// train/reports/fp16_agreement_v8g.md) takes the top-level LongDoc (forModelFile).

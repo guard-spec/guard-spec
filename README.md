@@ -248,7 +248,7 @@ What each stage does:
   attack category run on it, with suppressors for meta discussion, quoted
   examples and code literals. L1 always runs and needs no model files.
 - **L2 classifier** (`internal/inference/ml`, `internal/onnx`). Our own
-  `guardspec-classifier` v8g (the default after v0.10.2; v8e from v0.9.0, v3b before):
+  `guardspec-classifier` v8g (the default from v0.11.0; v8e from v0.9.0, v3b before):
   `intfloat/multilingual-e5-small` fine-tuned on
   `train/` with an 8-label sigmoid head, INT8 ONNX, run in-process with ONNX
   Runtime. Risk is 1 − p(benign). Long input is scored in 256-token windows
@@ -671,7 +671,7 @@ in a second table.
 | `OUTPUT_REASONING` | `guard` | `drop` removes `reasoning` / `reasoning_content` instead of guarding them |
 | `OUTPUT_UNKNOWN_BLOCKS` | `refuse` | `/v1/messages`: a response content block of a type the output guard does not know (a server tool other than web search and web fetch, say) is refused (502, or an error event in a stream); `/v1/responses`: likewise an output item other than `message`, `function_call`, `custom_tool_call`, `reasoning` and `web_search_call` (image generation, code interpreter, MCP, shell, computer use...), a content part, or a stream event with content of a type it does not know; `pass` passes such blocks, items and events on unchanged and unchecked |
 | `MODEL_DIR` | `./models` (`/models` in the image) | Root of the model files. `MODELS_PATH` is the older name |
-| `L2_MODEL` | the manifest's recommended classifier (`guardspec-classifier@v8g` after v0.10.2; v8e from v0.9.0, v3b before) | Classifier as `name@version` (a bare name: its recommended version), loaded from `$MODEL_DIR/cache/<name>/<version>`. Pin or roll back with it; see [docs/models.md](docs/models.md) |
+| `L2_MODEL` | the manifest's recommended classifier (`guardspec-classifier@v8g` from v0.11.0; v8e from v0.9.0, v3b before) | Classifier as `name@version` (a bare name: its recommended version), loaded from `$MODEL_DIR/cache/<name>/<version>`. Pin or roll back with it; see [docs/models.md](docs/models.md) |
 | `L2_MODEL_DIR` | empty | Classifier directory; wins over `L2_MODEL`. With neither set: the recommended version when installed, else another installed version of it (a former default first, newest first; with a warning), else `$MODEL_DIR/local/guardspec-classifier-v3b`, `-v2`, `-v1`, `-v0` |
 | `L3_MODEL` | the manifest's recommended embedder (`multilingual-e5-small@614241f`) | Embedding model as `name@version` |
 | `L3_MODEL_DIR` | empty | Embedding model directory; wins over `L3_MODEL`. With neither set: the recommended version when installed, else `$MODEL_DIR/cache/multilingual-e5-small` |
@@ -1359,7 +1359,7 @@ English and 1,250 Vietnamese, built deterministically by
 `eval/build/build.py` (see [eval/README.md](eval/README.md)). "Block" is the
 gateway's direct-injection threshold, 0.85.
 
-Classifier v8g is the default L2 after v0.10.2; v8e was the default from v0.9.0, and v3b before (see
+Classifier v8g is the default L2 from v0.11.0; v8e was the default from v0.9.0, and v3b before (see
 [train/MODEL_CARD.md](train/MODEL_CARD.md)); the v8e, v3b, v2 and v1 rows are kept for comparison. The v8e row was
 measured on 2026-11-16 with the rules of v0.9.0 (`ei.*`, the untrusted-content L1 floor and the L3 persona
 exemplars), and the v8g row on 2026-11-19 with the rules of v0.10.2; their latency is v3b's, since the architecture
@@ -1379,7 +1379,7 @@ not shipped (FPR 2.2%, TPR 0.915; see the model card). All model rows were measu
 | L1 + L2 (v3b), L1 floor | 0.987 | 0.933 | 0.938 | 1.4% | 1.7% | 1.3% | 3.5% | 0.4% | 2.7 / 7.5 ms ¹ |
 | L1 + L2 + L3 (v3b), L1 floor (default with models before v0.9.0) | 0.987 | 0.934 | 0.939 | 1.4% | 1.7% | 1.3% | 3.5% | 0.4% | 3.7 / 11.1 ms ¹ |
 | L1 + L2 + L3 (v8e), L1 floor (default with models from v0.9.0 to v0.10.2) | 0.987 | 0.952 | 0.928 | 0.2% | 0.0% | 0.3% | 0.7% | 0.4% | as v3b |
-| **L1 + L2 + L3 (v8g), L1 floor (default with models after v0.10.2)** | 0.988 | 0.946 | 0.942 | 0.9% | 0.3% | 1.3% | 1.4% | 1.7% | as v3b |
+| **L1 + L2 + L3 (v8g), L1 floor (default with models from v0.11.0)** | 0.988 | 0.946 | 0.942 | 0.9% | 0.3% | 1.3% | 1.4% | 1.7% | as v3b |
 
 The two "L1 floor" rows were measured on 2026-11-07 (branch of RF-c5446336:
 the Vietnamese override rules and `FUSION_L1_FLOOR=0.985`) with the same
@@ -1417,7 +1417,7 @@ How to read them, and their limits:
   reviewed by AI agents, without a native-speaker review; teencode comes from
   rules and is stiffer than real chat. Many attack rows come from templates,
   so errors are correlated.
-- **Classifier v8g** (the default after v0.10.2) catches more at block (TPR 0.942 against v8e's 0.928) and blocks
+- **Classifier v8g** (the default from v0.11.0) catches more at block (TPR 0.942 against v8e's 0.928) and blocks
   more benign rows (0.9%, 9 of 1,005, against 2), most of them Vietnamese (VI 1.3%, EN 0.3%). It was chosen for
   what `eval/` does not measure well: fewer blocked persona and role prompts (0.3% against 1.5% of fresh English
   ones), fewer blocked benign long technical documents, and payload-splitting attacks over several turns

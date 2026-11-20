@@ -32,7 +32,7 @@ for GPUs, as the same checkpoint in FP16 (235.6 MB). It is the L2 layer of
 an LLM and does not generate text.
 
 **v8e was Guard Spec's default classifier from v0.9.0 to v0.10.2.** It replaced v3b, and
-[v8g](https://huggingface.co/guard-spec/guardspec-classifier/tree/v8g) replaces it after v0.10.2. It stays available
+[v8g](https://huggingface.co/guard-spec/guardspec-classifier/tree/v8g) replaces it from v0.11.0. It stays available
 on the [`v8e`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v8e) branch for rollback
 (`L2_MODEL=guardspec-classifier@v8e`).
 
@@ -40,7 +40,7 @@ on the [`v8e`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v8e) 
 
 | branch | version | status | files |
 |---|---|---|---|
-| `main`, [`v8g`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v8g) | v8g | **default after Guard Spec v0.10.2** | INT8 (CPU) and FP16 (GPU) |
+| `main`, [`v8g`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v8g) | v8g | **default from Guard Spec v0.11.0** | INT8 (CPU) and FP16 (GPU) |
 | [`v8e`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v8e) | **v8e** | default from v0.9.0 to v0.10.2, kept for rollback (this card) | INT8 (CPU) and FP16 (GPU) |
 | [`v3b`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v3b) | v3b | default until v0.9.0 | INT8 (CPU) |
 | [`v6`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v6), [`v5`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v5), [`v4`](https://huggingface.co/guard-spec/guardspec-classifier/tree/v4) | v6, v5, v4 | earlier candidates | see each branch |

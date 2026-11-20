@@ -23,7 +23,7 @@ tool, so the binary always knows its recommended models.
 | `guardspec-classifier` | `v6` | L2 | no: candidate for long documents, with an FP16 file for the GPU option, [shadow mode first](#guardspec-classifier-v6-candidate) | Hugging Face `guard-spec/guardspec-classifier` (branch `v6`), then the GitHub Release `model-guardspec-classifier-v6` |
 | `guardspec-classifier` | `v8e` | L2 | no: the default from v0.9.0 to v0.10.2, kept for rollback (`L2_MODEL=guardspec-classifier@v8e`) ([why it was](#guardspec-classifier-v8e-the-default-from-v090-to-v0102)) | Hugging Face `guard-spec/guardspec-classifier` (branch `v8e`; `main` until v8g), then the GitHub Release `model-guardspec-classifier-v8e` |
 | `guardspec-classifier` | `v8f` | L2 | no: shadow-mode candidate, **not validated** ([why](#guardspec-classifier-v8f-shadow-mode-candidate)); INT8 only | Hugging Face `guard-spec/guardspec-classifier` (branch `v8f`), then the GitHub Release `model-guardspec-classifier-v8f` |
-| `guardspec-classifier` | `v8g` | L2 | **yes, after v0.10.2** ([why](#guardspec-classifier-v8g-the-default-after-v0102)), with v8e's long-path decision and an FP16 file | Hugging Face `guard-spec/guardspec-classifier` (branch `v8g`; also `main` once this release is out), then the GitHub Release `model-guardspec-classifier-v8g` |
+| `guardspec-classifier` | `v8g` | L2 | **yes, from v0.11.0** ([why](#guardspec-classifier-v8g-the-default-from-v0110)), with v8e's long-path decision and an FP16 file | Hugging Face `guard-spec/guardspec-classifier` (branch `v8g`; also `main` once this release is out), then the GitHub Release `model-guardspec-classifier-v8g` |
 | `multilingual-e5-small` | `614241f` | L3 | yes | Hugging Face `intfloat/multilingual-e5-small` |
 | `protectai-deberta-v3-small-pi-v2` | `d7c8842` | baseline | optional, gated | Hugging Face |
 | `protectai-deberta-v3-base-pi-v2` | `90c9989` | baseline | optional | Hugging Face |
@@ -301,9 +301,9 @@ recognises below the block threshold (`val_v5_holdout`: 0.623 vs 0.665 at
 0.85, although it ranks them far better). The selection rule, every table
 and the data are in [train/MODEL_CARD.md](../train/MODEL_CARD.md) ("v5").
 
-### guardspec-classifier v8g (the default after v0.10.2)
+### guardspec-classifier v8g (the default from v0.11.0)
 
-`guardspec-classifier@v8g` is the recommended version after v0.10.2 (v8e
+`guardspec-classifier@v8g` is the recommended version from v0.11.0 (v8e
 before). It is round R8d's arm EPL2, seed 20261107: v8e's data plus benign
 persona and enterprise system prompts, benign windows of long technical
 documentation paired with windows of the same host carrying an attack, more

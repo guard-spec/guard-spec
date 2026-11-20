@@ -278,7 +278,7 @@ models:
         size: 994
         sha256: 665c646a38c95dbbe5d196b880a8db42d45b38fd12310dae56bbb32796178395
 
-  # v8g, the default classifier from the release after v0.10.2 (RF-08b30b92;
+  # v8g, the default classifier from v0.11.0 (RF-08b30b92;
   # v8e above stays available with L2_MODEL=guardspec-classifier@v8e). Round
   # R8d's arm EPL2, seed 20261107: v8e's data plus persona hard negatives, long
   # technical-document windows (benign and with embedded attacks), payload-
