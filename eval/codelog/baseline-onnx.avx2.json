@@ -1,0 +1,253 @@
+{
+  "detector": "fusion-ml:l1,l2,l3/logreg/tool/l2cap/l1floor",
+  "rows": 310,
+  "threshold_fpr_1pct": 0.9741,
+  "latency": {
+    "all": {
+      "p50_us": 426598.17,
+      "p95_us": 2275633.02,
+      "p99_us": 2446067.34
+    },
+    "en": {
+      "p50_us": 426598.17,
+      "p95_us": 2255745.41,
+      "p99_us": 2528060.38
+    },
+    "vi": {
+      "p50_us": 432123.04,
+      "p95_us": 2284056.58,
+      "p99_us": 2360348.35
+    }
+  },
+  "groups": {
+    "all": {
+      "n_attack": 0,
+      "n_benign": 310,
+      "at_fpr_1pct": {
+        "fpr": 0.0097
+      },
+      "at_0.85": {
+        "fpr": 0.0387
+      },
+      "at_0.60": {
+        "fpr": 0.0387
+      },
+      "gateway_rule": {
+        "fpr": 0.0387
+      },
+      "rejected": 0
+    },
+    "en": {
+      "n_attack": 0,
+      "n_benign": 263,
+      "at_fpr_1pct": {
+        "fpr": 0.0114
+      },
+      "at_0.85": {
+        "fpr": 0.0456
+      },
+      "at_0.60": {
+        "fpr": 0.0456
+      },
+      "gateway_rule": {
+        "fpr": 0.0456
+      },
+      "rejected": 0
+    },
+    "en/benign": {
+      "n_attack": 0,
+      "n_benign": 263,
+      "at_fpr_1pct": {
+        "fpr": 0.0114
+      },
+      "at_0.85": {
+        "fpr": 0.0456
+      },
+      "at_0.60": {
+        "fpr": 0.0456
+      },
+      "gateway_rule": {
+        "fpr": 0.0456
+      },
+      "rejected": 0
+    },
+    "en/variant:orig": {
+      "n_attack": 0,
+      "n_benign": 263,
+      "at_fpr_1pct": {
+        "fpr": 0.0114
+      },
+      "at_0.85": {
+        "fpr": 0.0456
+      },
+      "at_0.60": {
+        "fpr": 0.0456
+      },
+      "gateway_rule": {
+        "fpr": 0.0456
+      },
+      "rejected": 0
+    },
+    "vi": {
+      "n_attack": 0,
+      "n_benign": 47,
+      "at_fpr_1pct": {
+        "fpr": 0
+      },
+      "at_0.85": {
+        "fpr": 0
+      },
+      "at_0.60": {
+        "fpr": 0
+      },
+      "gateway_rule": {
+        "fpr": 0
+      },
+      "rejected": 0
+    },
+    "vi/benign": {
+      "n_attack": 0,
+      "n_benign": 47,
+      "at_fpr_1pct": {
+        "fpr": 0
+      },
+      "at_0.85": {
+        "fpr": 0
+      },
+      "at_0.60": {
+        "fpr": 0
+      },
+      "gateway_rule": {
+        "fpr": 0
+      },
+      "rejected": 0
+    },
+    "vi/variant:orig": {
+      "n_attack": 0,
+      "n_benign": 47,
+      "at_fpr_1pct": {
+        "fpr": 0
+      },
+      "at_0.85": {
+        "fpr": 0
+      },
+      "at_0.60": {
+        "fpr": 0
+      },
+      "gateway_rule": {
+        "fpr": 0
+      },
+      "rejected": 0
+    }
+  },
+  "slices": {
+    "dev": {
+      "n_attack": 0,
+      "n_benign": 148,
+      "at_fpr_1pct": {
+        "fpr": 0.0068
+      },
+      "at_0.85": {
+        "fpr": 0.0405
+      },
+      "at_0.60": {
+        "fpr": 0.0405
+      },
+      "gateway_rule": {
+        "fpr": 0.0405
+      },
+      "rejected": 0,
+      "threshold_fpr_1pct": 0.9741
+    },
+    "en/dev": {
+      "n_attack": 0,
+      "n_benign": 126,
+      "at_fpr_1pct": {
+        "fpr": 0.0079
+      },
+      "at_0.85": {
+        "fpr": 0.0476
+      },
+      "at_0.60": {
+        "fpr": 0.0476
+      },
+      "gateway_rule": {
+        "fpr": 0.0476
+      },
+      "rejected": 0,
+      "threshold_fpr_1pct": 0.9741
+    },
+    "en/holdout": {
+      "n_attack": 0,
+      "n_benign": 137,
+      "at_fpr_1pct": {
+        "fpr": 0.0073
+      },
+      "at_0.85": {
+        "fpr": 0.0438
+      },
+      "at_0.60": {
+        "fpr": 0.0438
+      },
+      "gateway_rule": {
+        "fpr": 0.0438
+      },
+      "rejected": 0,
+      "threshold_fpr_1pct": 0.9741
+    },
+    "holdout": {
+      "n_attack": 0,
+      "n_benign": 162,
+      "at_fpr_1pct": {
+        "fpr": 0.0062
+      },
+      "at_0.85": {
+        "fpr": 0.037
+      },
+      "at_0.60": {
+        "fpr": 0.037
+      },
+      "gateway_rule": {
+        "fpr": 0.037
+      },
+      "rejected": 0,
+      "threshold_fpr_1pct": 0.9741
+    },
+    "vi/dev": {
+      "n_attack": 0,
+      "n_benign": 22,
+      "at_fpr_1pct": {
+        "fpr": 0
+      },
+      "at_0.85": {
+        "fpr": 0
+      },
+      "at_0.60": {
+        "fpr": 0
+      },
+      "gateway_rule": {
+        "fpr": 0
+      },
+      "rejected": 0,
+      "threshold_fpr_1pct": 0.0187
+    },
+    "vi/holdout": {
+      "n_attack": 0,
+      "n_benign": 25,
+      "at_fpr_1pct": {
+        "fpr": 0
+      },
+      "at_0.85": {
+        "fpr": 0
+      },
+      "at_0.60": {
+        "fpr": 0
+      },
+      "gateway_rule": {
+        "fpr": 0
+      },
+      "rejected": 0,
+      "threshold_fpr_1pct": 0.0031
+    }
+  }
+}

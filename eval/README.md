@@ -8,7 +8,7 @@ detection number we publish should come from this set.
 - `build/build.py`: deterministic generator (pinned dependencies, fixed seed).
 - `baseline.json`: metrics of the production detector (`fusion`, L1 v2 rules today); CI fails on regressions.
 - `baseline-regex.json`: metrics of the legacy regex detector, kept for comparison.
-- `baseline-onnx.json`: metrics of `fusion-ml:l1,l2,l3/logreg` (L1 rules, L2 classifier v8e, L3 embeddings; needs `-tags onnx` and the models). The onnx CI job pulls the default models from Hugging Face (SHA-256 pinned, cached by the manifest) and runs it, with the three tool-path ONNX baselines below; it uploads its reports as the artifact `eval-onnx-reports`. A move past a baseline is a warning for now, not a failure: the same code differs by a few rows on small slices between GitHub-hosted runner CPUs.
+- `baseline-onnx.json`: metrics of `fusion-ml:l1,l2,l3/logreg` (L1 rules, L2 classifier v8g, L3 embeddings; needs `-tags onnx` and the models). The onnx CI job pulls the default models from Hugging Face (SHA-256 pinned, cached by the manifest) and runs it, with the three tool-path ONNX baselines below; it uploads its reports as the artifact `eval-onnx-reports`. A move past a baseline by more than 0.02 fails the job. See [ONNX baselines per CPU class](#onnx-baselines-per-cpu-class).
 - `fingerprints.txt`: leakage guard for training (see below).
 - `codelog/`: benign code/log tool output; `embedded/`: these rows hidden in code/log hosts (sections below).
 - `LICENSES.md`: sources, licenses and row counts (generated).
@@ -207,7 +207,7 @@ repository's own files at the commit pinned in `build.py` (`823de5b` on
 `main`; the rows are the same on every branch that carries the set), without the files
 that discuss or test prompt injection, and synthetic logs, stack traces, JSON
 and CSV; all Apache-2.0. The eval workflow checks `baseline.json` (L1 only);
-the onnx CI job runs `baseline-onnx.json` with the default models (warnings only).
+the onnx CI job runs `baseline-onnx.json` with the default models (per CPU class, below).
 
 At 0.85 on the tool path (gateway decision, dev / holdout):
 
@@ -261,7 +261,7 @@ Baselines: `baseline.json` (`fusion`, L1 only; checked by the eval
 workflow), `baseline-onnx.json` (L1+L2+L3, corroboration on) and
 `baseline-onnx-no-corroboration.json` (the same with
 `TOOL_CODE_CORROBORATION=off`), both checked by the onnx CI job with the default
-models. Code corroboration only changes chunks L2 scores, so L1 alone
+models (each with its `.avx2.json` twin, above). Code corroboration only changes chunks L2 scores, so L1 alone
 scores the same with it off and one L1 baseline covers both.
 
 At 0.85 on the tool path, v3b classifier, dev / holdout payloads (score ≥ 0.85;
@@ -318,3 +318,34 @@ are not used here and are free for training.
   deepset rows ask for offensive opinions; they are kept as published.
 - HTML comments are not used as carriers: the sanitizer removes them, so the
   model would never see the payload.
+
+## ONNX baselines per CPU class
+
+ONNX Runtime chooses its INT8 kernels from the CPU's instruction set, and the
+scores follow that choice exactly. On GitHub-hosted runners, 26 runs of the
+same code and models (2026-11-18 to 20, RF-3cfab0bd) gave exactly two reports:
+one on every runner with AVX512-VNNI (AMD EPYC 9V45 and 9V74, Intel Xeon 8573C
+and 6975P), and one on every runner without VNNI or AVX-512 (AMD EPYC 7763, and
+EPYC 9V74 runners whose VM hides VNNI). The two differ on up to 0.13 for
+`threshold_fpr_1pct` and by a few rows on small groups; within a class they are
+identical.
+
+So every ONNX baseline exists twice:
+
+| CPU class (from `/proc/cpuinfo` flags) | files |
+|---|---|
+| `avx512vnni`: `avx512_vnni` | `baseline-onnx.json`, `codelog/baseline-onnx.json`, `embedded/baseline-onnx.json`, `embedded/baseline-onnx-no-corroboration.json` |
+| `avx2`: no `avx512f`, `avx512bw` or `avx_vnni` | the same names with `.avx2.json` |
+| `other` (AVX-512 without VNNI, AVX-VNNI only) | none yet: compared with the `avx512vnni` files, warning only |
+
+The onnx CI job prints the class, writes it to `cpu-class.txt` in the
+`eval-onnx-reports` artifact, and fails on a regression past 0.02 for the two
+known classes.
+
+**Refreshing them** (a new default model, a rule change that moves scores): run
+the onnx CI job on the PR, take the artifact of a run of each class (rerun the
+job until both classes have run; a run's class is in `cpu-class.txt`), and copy
+`baseline-onnx.json`, `codelog-baseline-onnx.json`, `embedded-baseline-onnx.json`
+and `embedded-baseline-onnx-no-corroboration.json` to the files of that class.
+Never refresh them from a Mac or another CPU: an ARM or local x86 run is a third
+class.
