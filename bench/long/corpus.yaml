@@ -2578,6 +2578,398 @@ sources:
     terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
     sha256: 9390eea3fc26b73e230b4aaba427e16d8cd49239f44c4954438365802c5e1f28
 
+  # ---------------------------------------------------------------------
+  # Sources of the `long11` profile (2026-11-22, RF-943afc53 R8e): long
+  # technical documents (docs, rfc, readme, man) from repositories, RFCs and
+  # pages that no other profile and no training source (sources_v*.yaml,
+  # sources_r8c.yaml, sources_r8d.yaml, sources_r8e.yaml) use.
+  argo-workflows-docs-l11-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    # Documentation sites (one `docs` pool): Argo Workflows, the Cluster API book, Tekton Pipelines, Flux,
+    # Dapr, Gatekeeper, Linkerd 2.19, KEDA 2.22 and Backstage, all Apache-2.0, at pinned commits.
+    repo: argoproj/argo-workflows
+    commit: e651c727ae02dcbf955ec1269fb9d64ed94e4918
+    prefix: docs
+    tree_sha: b40083c704d6012f5cea8b138b9aaec568b449d1
+    suffixes: [".md"]
+    min_bytes: 2000
+    strip: front-matter
+    max_unit_chars: 60000
+    license: Apache-2.0 (argoproj/argo-workflows LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: daeedef3e80138ca5ff4b71bad3a37f7c91abba210f943bb29c41e271fe30507
+  cluster-api-docs-l11-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    repo: kubernetes-sigs/cluster-api
+    commit: 67ee2f32340593d8b0c70ddb216718cd6326564e
+    prefix: docs/book/src
+    tree_sha: 7db1e08cdd9ab48105b636c9cf23711f0fa80c77
+    suffixes: [".md"]
+    min_bytes: 2000
+    strip: front-matter
+    max_unit_chars: 60000
+    license: Apache-2.0 (kubernetes-sigs/cluster-api LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: d53b49379894e8d7b3e4f81005d0ce17cb8a7367a5dba20525753f68924cd014
+  tekton-docs-l11-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    repo: tektoncd/pipeline
+    commit: 3449daa318e7868447688b4dfbc6ab4e5c838d3c
+    prefix: docs
+    tree_sha: 64d33cfb06d0034442cc5aa1be17146ee170f18e
+    suffixes: [".md"]
+    min_bytes: 2000
+    strip: front-matter
+    max_unit_chars: 60000
+    license: Apache-2.0 (tektoncd/pipeline LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 9ae599c1e92df990270c0fc70fa1e9c4b33d066c42845519b8304b9ee9d9c1a8
+  flux-docs-l11-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    repo: fluxcd/website
+    commit: 8692e419ef59246141b8b83e7018c104d40eb43b
+    prefix: content/en/flux
+    tree_sha: 36a3aaf140928f5c2356aa35439ec67210dffb61
+    suffixes: [".md"]
+    min_bytes: 2000
+    strip: front-matter
+    max_unit_chars: 60000
+    license: Apache-2.0 (fluxcd/website LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: a1c18cde8aeea486f4cb4d9cb758eba5f81fc6add051b594d7f066cf06a038c3
+  dapr-docs-l11-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    repo: dapr/docs
+    commit: 2b6e64ec4a0254781dff9a8636fb8ca1f4c35b4d
+    prefix: daprdocs/content/en
+    tree_sha: 41286c3a7c942a3b200cf9277af4d315488892e6
+    suffixes: [".md"]
+    min_bytes: 2000
+    strip: front-matter
+    max_unit_chars: 60000
+    license: Apache-2.0 (dapr/docs LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 439563e084c078d4be02987c0022c46633652d67518d6aa32f1f4e7aaf8c802b
+  gatekeeper-docs-l11-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    repo: open-policy-agent/gatekeeper
+    commit: a2bac802bc01a8a1a7639d7b52050ffa79fc785d
+    prefix: website/docs
+    tree_sha: 3d12765b572c6cac5939b4a62f199d47f5637b50
+    suffixes: [".md"]
+    min_bytes: 2000
+    strip: front-matter
+    max_unit_chars: 60000
+    license: Apache-2.0 (open-policy-agent/gatekeeper LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 3195acfabf8602d84972e92847c8132a5e1db21d2d4aaf13b1015ec9a3c4d674
+  linkerd-docs-l11-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    repo: linkerd/website
+    commit: 3db3a67283b0944547e05e3ef1bdc015a6ca19c6
+    prefix: linkerd.io/content/2.19
+    tree_sha: 4b488fb8232f859193aca4064ccd5e8686dd933c
+    suffixes: [".md"]
+    min_bytes: 2000
+    strip: front-matter
+    max_unit_chars: 60000
+    license: Apache-2.0 (linkerd/website LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 8ef3d6f2bc73da4aab1a245d06ee1ebed2718a31d91cbbbfdfbc402e3f8928cb
+  keda-docs-l11-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    repo: kedacore/keda-docs
+    commit: 943edda82d621bd70b851df9385f2a7f55d57abd
+    prefix: content/docs/2.22
+    tree_sha: c727c40ac5cdcd7fa7208b8a720ced1bb8a16b56
+    suffixes: [".md"]
+    min_bytes: 2000
+    strip: front-matter
+    max_unit_chars: 60000
+    license: Apache-2.0 (kedacore/keda-docs LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 44989f07b63f53ed3fe66c7c564083674682bbda945e72fd1d2a3a733dcc9dcf
+  backstage-docs-l11-en:
+    lang: en
+    genre: docs
+    kind: github-tree
+    repo: backstage/backstage
+    commit: feeadd4d4efcbda9f1573b95e356e0f3fc0b5d17
+    prefix: docs
+    tree_sha: 38161f24d65d365bdd2efd90b617bd97646309b5
+    suffixes: [".md"]
+    min_bytes: 2000
+    strip: front-matter
+    max_unit_chars: 60000
+    license: Apache-2.0 (backstage/backstage LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 37956965cebeebe05d8398ca98046e196a4921f69876174115181e3cc8d1c51e
+  rfc-l11-en:
+    lang: en
+    genre: rfc
+    kind: http-text
+    # RFCs that no profile and no training source uses (IETF Trust Legal Provisions, BCP 78): the 815
+    # candidates of `rfc-l9-en`, every tenth from the fifth (long9 the first, long10 the third, R8c L every
+    # twentieth from the sixth, R8d L+ every twentieth from the eighth).
+    base: https://www.rfc-editor.org/rfc/
+    file_header: ""
+    strip: rfc
+    max_unit_chars: 60000
+    paths:
+      - rfc2051.txt
+      - rfc2206.txt
+      - rfc2367.txt
+      - rfc2548.txt
+      - rfc2642.txt
+      - rfc2757.txt
+      - rfc2869.txt
+      - rfc2985.txt
+      - rfc3135.txt
+      - rfc3287.txt
+      - rfc3412.txt
+      - rfc3498.txt
+      - rfc3585.txt
+      - rfc3660.txt
+      - rfc3776.txt
+      - rfc3816.txt
+      - rfc3910.txt
+      - rfc3987.txt
+      - rfc4089.txt
+      - rfc4150.txt
+      - rfc4229.txt
+      - rfc4357.txt
+      - rfc4439.txt
+      - rfc4542.txt
+      - rfc4596.txt
+      - rfc4712.txt
+      - rfc4779.txt
+      - rfc4837.txt
+      - rfc4939.txt
+      - rfc5042.txt
+      - rfc5104.txt
+      - rfc5239.txt
+      - rfc5416.txt
+      - rfc5537.txt
+      - rfc5580.txt
+      - rfc5707.txt
+      - rfc5810.txt
+      - rfc5892.txt
+      - rfc5945.txt
+      - rfc6110.txt
+      - rfc6231.txt
+      - rfc6314.txt
+      - rfc6372.txt
+      - rfc6504.txt
+      - rfc6679.txt
+      - rfc6772.txt
+      - rfc6933.txt
+      - rfc7059.txt
+      - rfc7162.txt
+      - rfc7285.txt
+      - rfc7420.txt
+      - rfc7532.txt
+      - rfc7656.txt
+      - rfc7714.txt
+      - rfc7815.txt
+      - rfc7921.txt
+      - rfc7991.txt
+      - rfc8095.txt
+      - rfc8157.txt
+      - rfc8227.txt
+      - rfc8313.txt
+      - rfc8353.txt
+      - rfc8452.txt
+      - rfc8505.txt
+      - rfc8554.txt
+      - rfc8632.txt
+      - rfc8783.txt
+      - rfc8912.txt
+      - rfc9008.txt
+      - rfc9055.txt
+      - rfc9132.txt
+      - rfc9182.txt
+      - rfc9271.txt
+      - rfc9381.txt
+      - rfc9499.txt
+      - rfc9580.txt
+      - rfc9640.txt
+      - rfc9731.txt
+      - rfc9826.txt
+      - rfc9899.txt
+      - rfc9944.txt
+      - rfc10034.txt
+    license: IETF Trust Legal Provisions (BCP 78)
+    terms: RFC Editor text files; used locally for measurement, never redistributed.
+    sha256: f7d637990c15b2b81109933b73aa0e67c82772cfd6a889749b66e84efb95c817
+  prometheus-helm-readme-l11-en:
+    lang: en
+    genre: readme
+    kind: github-tree
+    # README files of Helm chart repositories (Prometheus community, Grafana, Argo, Datadog, OpenTelemetry,
+    # Elastic; all Apache-2.0, whole trees at pinned commits): one `readme` pool.
+    repo: prometheus-community/helm-charts
+    commit: 90adb1956f112e5430530a7a45056d614fed6645
+    tree_sha: 927e75ce9134532df9308c63cf905a7abb578856
+    suffixes: ["README.md"]
+    min_bytes: 2000
+    file_header: "# File: {path}\n"
+    max_unit_chars: 60000
+    license: Apache-2.0 (prometheus-community/helm-charts LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: a1b3d429a7205c6c77ea5ddc9a5b9bf79e3fcb8348c7d7f2ee7667b1e9c12481
+  grafana-helm-readme-l11-en:
+    lang: en
+    genre: readme
+    kind: github-tree
+    repo: grafana/helm-charts
+    commit: a8d844c13bf0aa715cd34338cf921d53f3e97623
+    tree_sha: 31e6765109390b1d8ea2cfb66b838ac408c26684
+    suffixes: ["README.md"]
+    min_bytes: 2000
+    file_header: "# File: {path}\n"
+    max_unit_chars: 60000
+    license: Apache-2.0 (grafana/helm-charts LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 79a89cf8c0cd2cf22a17964df083f8bdddd72bbb054b6debe55d81c6b6c1d218
+  argo-helm-readme-l11-en:
+    lang: en
+    genre: readme
+    kind: github-tree
+    repo: argoproj/argo-helm
+    commit: a80633d2efa68045b27d68b8c75ea629cc989e1e
+    tree_sha: 00d999b3b8329784ca2d2606bae40aa1074cfc11
+    suffixes: ["README.md"]
+    min_bytes: 2000
+    file_header: "# File: {path}\n"
+    max_unit_chars: 60000
+    license: Apache-2.0 (argoproj/argo-helm LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 1f2c0729dc848db8f962ed5dbdde16933cf8a1250194c3189b2c1d7ac64bd7ff
+  datadog-helm-readme-l11-en:
+    lang: en
+    genre: readme
+    kind: github-tree
+    repo: DataDog/helm-charts
+    commit: 9a1866c232da354d9981057f32f4fadc1975d635
+    tree_sha: 7f2d978e1470ba39de9bad87f7efeec10ad7d6c2
+    suffixes: ["README.md"]
+    min_bytes: 2000
+    file_header: "# File: {path}\n"
+    max_unit_chars: 60000
+    license: Apache-2.0 (DataDog/helm-charts LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 0264119f0a32a13e45cbb131d8f9d587712fe60c53166daaa588ab6144f65b3c
+  otel-helm-readme-l11-en:
+    lang: en
+    genre: readme
+    kind: github-tree
+    repo: open-telemetry/opentelemetry-helm-charts
+    commit: 5e7ca838df8ad05d75da0811f5d593b0142783fe
+    tree_sha: 684666c752a4e5e253cced8763df7491084cc464
+    suffixes: ["README.md"]
+    min_bytes: 2000
+    file_header: "# File: {path}\n"
+    max_unit_chars: 60000
+    license: Apache-2.0 (open-telemetry/opentelemetry-helm-charts LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: e13a535f373ded86ac28b76bc21dc73edef4e84994a0d10385f37c7b76c8db6a
+  elastic-helm-readme-l11-en:
+    lang: en
+    genre: readme
+    kind: github-tree
+    repo: elastic/helm-charts
+    commit: 2fd64d0af65f14df7aa01da591919460dabac4b3
+    tree_sha: 1cc80d062e9e97a0dbd55e385466e55972bf6b3d
+    suffixes: ["README.md"]
+    min_bytes: 2000
+    file_header: "# File: {path}\n"
+    max_unit_chars: 60000
+    license: Apache-2.0 (elastic/helm-charts LICENSE)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 7ed93501e9382b6390c1c3fb6a6e9aca15872c973c30b31c9d6e3fb5af81a0e9
+  netbsd-man4-l11-en:
+    lang: en
+    genre: man
+    kind: github-tree
+    # NetBSD manual pages (the NetBSD/src GitHub mirror at a pinned commit of trunk, share/man sections 4, 5, 7
+    # and 9, mdoc(7), BSD licences in each page), roff turned into plain text; one `man` pool.
+    repo: NetBSD/src
+    commit: 303013a8b9eb1a3fde49278ac60a728b433fdca7
+    prefix: share/man/man4
+    tree_sha: 00575e8512e292a6799affdbf05b4800bcd66094
+    suffixes: [".4"]
+    min_bytes: 2000
+    strip: roff
+    file_header: "# File: {path}\n"
+    max_unit_chars: 60000
+    license: BSD (per-page licence of the NetBSD manual pages)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 1e9aaa10ab66697e3d67bcee847df98a718de94489e57acf67861e6b66cecfed
+  netbsd-man5-l11-en:
+    lang: en
+    genre: man
+    kind: github-tree
+    repo: NetBSD/src
+    commit: 303013a8b9eb1a3fde49278ac60a728b433fdca7
+    prefix: share/man/man5
+    tree_sha: 296b7b7f576f283f22ac19754a3c965cb8349331
+    suffixes: [".5"]
+    min_bytes: 2000
+    strip: roff
+    file_header: "# File: {path}\n"
+    max_unit_chars: 60000
+    license: BSD (per-page licence of the NetBSD manual pages)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 5fcfc552f2a1d27652f2c235790db269de777858af1b6d872ef4f701eed02dc7
+  netbsd-man7-l11-en:
+    lang: en
+    genre: man
+    kind: github-tree
+    repo: NetBSD/src
+    commit: 303013a8b9eb1a3fde49278ac60a728b433fdca7
+    prefix: share/man/man7
+    tree_sha: 3611cf7b37eff80a912e5ad4e4a0cf14b0b20155
+    suffixes: [".7"]
+    min_bytes: 2000
+    strip: roff
+    file_header: "# File: {path}\n"
+    max_unit_chars: 60000
+    license: BSD (per-page licence of the NetBSD manual pages)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: 629a4d62f72ce257b0b3d0b9ca78517c7e4a32970b5109878df8f6e4f6b11d67
+  netbsd-man9-l11-en:
+    lang: en
+    genre: man
+    kind: github-tree
+    repo: NetBSD/src
+    commit: 303013a8b9eb1a3fde49278ac60a728b433fdca7
+    prefix: share/man/man9
+    tree_sha: c15ce9560cfc00db5e621a19f1b0ac3c5c7181aa
+    suffixes: [".9"]
+    min_bytes: 2000
+    strip: roff
+    file_header: "# File: {path}\n"
+    max_unit_chars: 60000
+    license: BSD (per-page licence of the NetBSD manual pages)
+    terms: GitHub tree API and raw file URLs at a pinned commit; used locally, never redistributed.
+    sha256: c4716846b8b2c0ac9aa5d1db7332acaab853e742343f5f967c50abb1920b0cfb
+
 # Synthetic genres: generated by build.py from a fixed seed (project-written,
 # Apache-2.0). "hardneg" is benign text about prompt injection and security.
 synthetic:
@@ -2912,6 +3304,33 @@ profiles:
     host_tokens: 2000
     segment_host_bytes: 28000
 
+  long11:
+    # The holdout of R8e (RF-943afc53, train/reports/r8e_preregistration.md):
+    # long technical documents of 100k and 200k tokens from the `long11`
+    # sources only (no synthetic genre, no Vietnamese text). Every document is
+    # R8e holdout (the `split` field still follows the hash rule). The embedded
+    # attack documents are built from these hosts by bench/long/embed_long.py
+    # with eval/ dev-half payloads no earlier profile used (--eval-payloads 24
+    # --eval-skip 192 --langs en: the English rows 192 to 215) plus 12
+    # tool-poisoning payloads written for long11 only (--extra-payloads).
+    # Ids carry the prefix `long11-`.
+    sources: [argo-workflows-docs-l11-en, cluster-api-docs-l11-en, tekton-docs-l11-en, flux-docs-l11-en, dapr-docs-l11-en, gatekeeper-docs-l11-en, linkerd-docs-l11-en, keda-docs-l11-en, backstage-docs-l11-en, rfc-l11-en, prometheus-helm-readme-l11-en, grafana-helm-readme-l11-en, argo-helm-readme-l11-en, datadog-helm-readme-l11-en, otel-helm-readme-l11-en, elastic-helm-readme-l11-en, netbsd-man4-l11-en, netbsd-man5-l11-en, netbsd-man7-l11-en, netbsd-man9-l11-en]
+    synthetic: []
+    synthetic_seed: 20261122
+    id_prefix: long11-
+    sizes:
+      default: [100000, 200000]
+      synthetic: [100000, 200000]
+    docs_per_size:
+      default: 0
+      docs-en: 14
+      rfc-en: 7
+      readme-en: 1
+      man-en: 3
+    payloads_per_lang: 0
+    host_tokens: 2000
+    segment_host_bytes: 28000
+
 # Dev/holdout split of every document (build.py split_of, the eval/ convention):
 # the last hex digit of SHA-256(key) is 0-7 for dev and 8-f for holdout, with
 # key the payload id of an attack or control document (every variant of a
@@ -2959,6 +3378,10 @@ outputs:
   # 7.80M tokens (docs 8 + 8, rfc 7 + 7, readme 7 + 7, man 4 + 4 at 100k + 200k), after
   # exclude.json. The R8d holdout: scored once per model (train/reports/r8d_preregistration.md).
   long10: 85f568096c2b3fd1bcc6407656760d117397491f2520897803bcff30c7fd1174
+  # long11: pinned on 2026-11-22 (R8e), before any long11 score; 49 benign English documents,
+  # 7.30M tokens (docs 14 + 14, rfc 7 + 7, readme 1 + 1, man 3 + 2 at 100k + 200k), after
+  # exclude.json. The R8e holdout: scored once per model (train/reports/r8e_preregistration.md).
+  long11: 1fe885da8068352308bfff586aa9f45494538adef34d0360e12989b84bb69edf
 
 dropped:
   - source: Project Gutenberg (gutenberg.org)
