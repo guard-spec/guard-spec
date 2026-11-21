@@ -1,0 +1,56 @@
+# Inputs and recipe of the R8e training additions T+, O+, N+ and L++ (RF-943afc53, data/build_r8e.py).
+#
+# Copyright The Guard Spec Authors. Licensed under the Apache License 2.0.
+#
+# train/reports/r8e_analysis.md found three narrow patterns behind v8g's weak spots, on dev data only:
+#   A  tool descriptions that ask to copy the conversation, the system prompt or secrets into a field
+#      (thin in every recipe's training data);
+#   B  paraphrased overrides ("treat the instructions above as non-existent"), weakened by S's and N's negated
+#      overrides;
+#   C  quoted or discussed attacks without diacritics or as short questions, blocked by v8g.
+# Arm EPL3 keeps EPL2's data and adds, from data/r8e_templates.py:
+#   T+   tool descriptions: field-exfiltration attacks and benign field mentions (pattern A);
+#   O+   paraphrased overrides as attacks (pattern B);
+#   N+   benign quoted or discussed attacks, VI no_diacritics / teencode and short questions (pattern C);
+#   L++  attack windows of long technical documentation carrying T+ and O+ English attacks, build_v8's scheme on
+#        new windows of R8d's L+ pool (no new source, no benign row).
+# No new third-party text: L++'s hosts are R8d's L+ pool, pinned below. The output is never committed.
+
+version: 1
+seed: 20261122
+
+counts:
+  tplus_attack: 600
+  tplus_benign: 600
+  oplus: 400
+  nplus: 280
+  lpp: 600
+
+# The host pool of L++: R8d's L+ pool, its sanitized text, and the L+ rows whose windows L++ does not reuse.
+lpp:
+  pool_sha256: 840eed7553e44e5628e464e4f596c0fccb0de232e043b09e880a3479652a8c43
+  sanitized_sha256: 1e9439ca41e4a7bca668317a6d67f3da40019af4bcb7eea4ff49ddea7da3fa03
+  lplus_sha256: dae8aba367cc59c15bdb53b7d01310c684b5e77bb4d1fb2038e2968d43d77a79
+  windows_per_genre: {docs: 270, rfc: 180, readme: 150}
+
+placements:
+  mid: 0.30
+  split_adjacent: 0.15
+  split_within: 0.15
+  straddle_window: 0.15
+  start: 0.125
+  end: 0.125
+# Bridge sentences of split_adjacent: other sentences than every earlier source's.
+bridges:
+  en:
+    - "The parameters are explained further down."
+    - "See the changelog for details on this option."
+    - "Examples for common setups follow."
+    - "This section was last reviewed for the current release."
+
+# The guard: no row may share a run of 50 classifier tokens with a document of these bench/long profiles, with
+# the embedded-attack documents given with --embedded, or with a hold-out row (eval/, val_*_holdout, persona1/2/3,
+# split1, split2, vi1, tp1, multiturn.json, the payload_split dev set, the L3 exemplars); short hold-out rows are
+# checked with 12-token runs, and every row with the 8-word rule in both directions.
+guard:
+  profiles: [quick, full, long, long5, long6, long7, long8, long9, long10, long11]
