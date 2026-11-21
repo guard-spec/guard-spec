@@ -296,7 +296,7 @@
         "fpr": 0.0203
       },
       "gateway_rule": {
-        "tpr": 1.0073,
+        "tpr": 0.9573,
         "fpr": 0.0125
       },
       "rejected": 0
