@@ -88,27 +88,42 @@ jobs:
           key: ${{ steps.models-cache.outputs.cache-primary-key }}
       # Every run writes its reports (artifact eval-onnx-reports), so a
       # baseline can be refreshed from this runner's numbers. All four run.
-      # A regression is a warning, not a failure, for now (owner decision,
-      # 2026-11-18): two runs of the same code on GitHub-hosted runners
-      # differed by 2 to 5 points on small slices at the 0.60 threshold (INT8
-      # kernels differ between runner CPUs), so a hard gate failed at random.
-      # A follow-up task makes the gate robust and turns failures back on.
+      # ONNX Runtime picks its INT8 kernels from the CPU's instruction set, and
+      # the scores follow that choice exactly: 26 runs of identical code and
+      # models (2026-11-18 to 20) gave exactly two reports, one on every runner
+      # with AVX512-VNNI and one on every runner without VNNI or AVX-512
+      # (RF-3cfab0bd). So each class has its own baselines (*.json for
+      # avx512vnni, *.avx2.json for avx2) and a regression fails the job. A CPU
+      # of another class (AVX-512 without VNNI, AVX-VNNI only) has no baseline
+      # yet: it is compared with the avx512vnni files and only warns.
       - name: Detector eval with model layers vs baseline
         run: |
           grep -m1 'model name' /proc/cpuinfo || true
-          grep -m1 -o -w -E 'avx512_vnni|avx_vnni' /proc/cpuinfo || echo "no VNNI"
+          flags=$(grep -m1 '^flags' /proc/cpuinfo)
+          has() { case " $flags " in *" $1 "*) return 0 ;; esac; return 1; }
+          if has avx512_vnni; then class=avx512vnni; suffix=
+          elif ! has avx512f && ! has avx512bw && ! has avx_vnni; then class=avx2; suffix=.avx2
+          else class=other; suffix=
+          fi
+          echo "CPU class for the ONNX baselines: $class"
           mkdir -p eval-reports
+          echo "$class" > eval-reports/cpu-class.txt
           rc=0
-          go run -tags onnx ./cmd/eval -detector fusion-ml -baseline eval/baseline-onnx.json -max-regression 0.02 \
+          go run -tags onnx ./cmd/eval -detector fusion-ml -baseline eval/baseline-onnx$suffix.json -max-regression 0.02 \
             -json eval-reports/baseline-onnx.json || rc=1
-          go run -tags onnx ./cmd/eval -detector fusion-ml -data eval/codelog -path tool -baseline eval/codelog/baseline-onnx.json -max-regression 0.02 \
+          go run -tags onnx ./cmd/eval -detector fusion-ml -data eval/codelog -path tool -baseline eval/codelog/baseline-onnx$suffix.json -max-regression 0.02 \
             -json eval-reports/codelog-baseline-onnx.json || rc=1
-          go run -tags onnx ./cmd/eval -detector fusion-ml -data eval/embedded -path tool -baseline eval/embedded/baseline-onnx.json -max-regression 0.02 \
+          go run -tags onnx ./cmd/eval -detector fusion-ml -data eval/embedded -path tool -baseline eval/embedded/baseline-onnx$suffix.json -max-regression 0.02 \
             -json eval-reports/embedded-baseline-onnx.json || rc=1
-          go run -tags onnx ./cmd/eval -detector fusion-ml -data eval/embedded -path tool -corroboration off -baseline eval/embedded/baseline-onnx-no-corroboration.json -max-regression 0.02 \
+          go run -tags onnx ./cmd/eval -detector fusion-ml -data eval/embedded -path tool -corroboration off -baseline eval/embedded/baseline-onnx-no-corroboration$suffix.json -max-regression 0.02 \
             -json eval-reports/embedded-baseline-onnx-no-corroboration.json || rc=1
           if [ "$rc" != 0 ]; then
-            echo "::warning title=ONNX eval::a model-layer eval moved past its baseline by more than 0.02; see the log and the eval-onnx-reports artifact"
+            if [ "$class" = other ]; then
+              echo "::warning title=ONNX eval::a model-layer eval moved past its baseline, on a CPU class without baselines ($class); see the log and the eval-onnx-reports artifact"
+            else
+              echo "::error title=ONNX eval::a model-layer eval moved past its $class baseline by more than 0.02; see the log and the eval-onnx-reports artifact. A wanted change (new model or rule) needs both classes' baselines refreshed: eval/README.md"
+              exit 1
+            fi
           fi
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
