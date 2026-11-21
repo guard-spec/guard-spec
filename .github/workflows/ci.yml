@@ -97,8 +97,6 @@ jobs:
       # of another class (AVX-512 without VNNI, AVX-VNNI only) has no baseline
       # yet: it is compared with the avx512vnni files and only warns.
       - name: Detector eval with model layers vs baseline
-        env:
-          DETECTOR_LAYERS: l1,l3 # TEMPORARY (RF-3cfab0bd): drop L2, the gate must fail; reverted in the next commit
         run: |
           grep -m1 'model name' /proc/cpuinfo || true
           flags=$(grep -m1 '^flags' /proc/cpuinfo)
