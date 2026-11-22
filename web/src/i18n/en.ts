@@ -527,7 +527,6 @@ export const en = {
   'nav.account': 'My account',
 
   'profile.menu': 'Profile menu',
-  'profile.open': 'Profile menu for {name}',
   'profile.you': 'Your account',
   'profile.instanceAdmin': 'Instance admin',
 

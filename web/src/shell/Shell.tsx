@@ -109,7 +109,6 @@ export function Shell({
             className="brand"
             href={href('dashboard')}
             onClick={linkClick('dashboard', () => setDrawer(false))}
-            aria-label={`${t('app.title')} ${t('app.subtitle')}`}
           >
             <BrandMark />
             <span className="brand-text">
@@ -341,9 +340,11 @@ function ProfileMenu({ onNavigate }: { onNavigate: () => void }) {
         className="profile-button"
         aria-expanded={open}
         aria-controls={panelId}
-        aria-label={t('profile.open', { name })}
         onClick={() => setOpen((o) => !o)}
       >
+        {/* The name starts with the hidden "Profile menu" and then reads the visible
+            name, so the visible text is part of the accessible name (WCAG 2.5.3). */}
+        <span className="sr-only">{t('profile.menu')}: </span>
         <span className="avatar" aria-hidden="true">
           {initials(name)}
         </span>
