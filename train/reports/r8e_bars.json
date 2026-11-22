@@ -1,0 +1,57 @@
+{
+ "bars": {
+  "R1_vi1_benign_blocked_max": 0.008120649651972157,
+  "R2_tp1_vi_tpr_min": 0.8755813953488373,
+  "R2_tp1_benign_blocked_max": 0.03,
+  "R3_long11_embedded_min": 0.6903174603174603,
+  "R3_long11_benign_blocked_max": 2,
+  "R4_persona3_max": 0.02,
+  "R4_split2_tpr_min": 0.7666666666666666,
+  "R4_split2_fpr_max": 0.05,
+  "R4_c2_min": 0.915
+ },
+ "bands": {
+  "v8e": {
+   "vi1": 0.013921113689095127,
+   "tp1_vi_tpr": 0.9069767441860465,
+   "tp1_benign": 0.0,
+   "long11_benign": 1,
+   "long11_embedded": 0.7103174603174603
+  },
+  "E-s2": {
+   "vi1": 0.008120649651972157,
+   "tp1_vi_tpr": 0.7790697674418605,
+   "tp1_benign": 0.0,
+   "long11_benign": 3,
+   "long11_embedded": 0.6785714285714286
+  },
+  "E-s3": {
+   "vi1": 0.009280742459396751,
+   "tp1_vi_tpr": 0.686046511627907,
+   "tp1_benign": 0.0,
+   "long11_benign": 2,
+   "long11_embedded": 0.7103174603174603
+  },
+  "EPL2-s1": {
+   "vi1": 0.01160092807424594,
+   "tp1_vi_tpr": 0.7790697674418605,
+   "tp1_benign": 0.0,
+   "long11_benign": 2,
+   "long11_embedded": 0.6944444444444444
+  },
+  "EPL2-s2": {
+   "vi1": 0.004640371229698376,
+   "tp1_vi_tpr": 0.8255813953488372,
+   "tp1_benign": 0.0,
+   "long11_benign": 2,
+   "long11_embedded": 0.7063492063492064
+  },
+  "EPL2-s3": {
+   "vi1": 0.008120649651972157,
+   "tp1_vi_tpr": 0.686046511627907,
+   "tp1_benign": 0.0,
+   "long11_benign": 0,
+   "long11_embedded": 0.6587301587301587
+  }
+ }
+}
