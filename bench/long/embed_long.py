@@ -31,6 +31,9 @@ gateway's sanitizer rejects are left out as hosts (--exclude-hosts).
         --full $BENCH_CACHE/long/full/docs.jsonl --long $BENCH_CACHE/long/long/docs.jsonl \\
         --split dev --out <dir> [--exclude-hosts ids.txt]
 
+R8e (train/reports/r8e_preregistration.md) builds the long11 attack documents with --eval-payloads 24
+--eval-skip 192 --langs en and --extra-payloads (12 tool-poisoning payloads written for long11 only).
+
 R8c (train/reports/r8c_preregistration.md) builds the long9 attack documents with --eval-payloads 24
 --eval-skip 144 --langs en: long9 holds English documents only, so only the English payloads are used.
 
@@ -120,6 +123,8 @@ def main() -> int:
     ap.add_argument("--out", required=True)
     ap.add_argument("--exclude-hosts", help="file of host ids to leave out (one per line)")
     ap.add_argument("--tokenizer")
+    ap.add_argument("--extra-payloads", help="JSONL of further payloads {id, text, lang, category, source, license}, "
+                    "added to the eval/ ones (R8e's long11: tool-poisoning payloads written for it)")
     ap.add_argument("--langs", help="payload languages to use, comma-separated (default: all); R8c's long9 has "
                     "English hosts only (--langs en)")
     args = ap.parse_args()
@@ -158,6 +163,18 @@ def main() -> int:
                     payloads.append(d)
     else:
         raise SystemExit("--full or --eval-payloads")
+    if args.extra_payloads:
+        with open(args.extra_payloads, encoding="utf-8") as fh:
+            for line in fh:
+                r = json.loads(line)
+                if langs is not None and r["lang"] not in langs:
+                    continue
+                d = {"id": f"control-{r['id']}", "kind": "control", "lang": r["lang"], "genre": "payload",
+                     "text": r["text"], "variant": "control", "spans": [[0, len(r["text"].encode("utf-8"))]],
+                     "payload_id": r["id"], "category": r["category"], "source": r["source"], "license": r["license"]}
+                d["split"] = split_of(d)
+                if d["split"] == args.split:
+                    payloads.append(d)
     hosts: dict[str, list[dict]] = {}
     with open(args.long, encoding="utf-8") as fh:
         for line in fh:

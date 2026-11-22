@@ -1,0 +1,116 @@
+{
+ "bars": {
+  "R1_vi1_benign_blocked_max": 0.008120649651972157,
+  "R2_tp1_vi_tpr_min": 0.8755813953488373,
+  "R2_tp1_benign_blocked_max": 0.03,
+  "R3_long11_embedded_min": 0.6903174603174603,
+  "R3_long11_benign_blocked_max": 2,
+  "R4_persona3_max": 0.02,
+  "R4_split2_tpr_min": 0.7666666666666666,
+  "R4_split2_fpr_max": 0.05,
+  "R4_c2_min": 0.915
+ },
+ "arm": {
+  "EPL3-s1": {
+   "criteria": {
+    "R1": {
+     "vi1_benign_blocked": 0.02088167053364269,
+     "bar": 0.008120649651972157,
+     "pass": false
+    },
+    "R2": {
+     "tp1_vi_tpr": 0.8837209302325582,
+     "tp1_benign_blocked": 0.0,
+     "pass": true
+    },
+    "R3": {
+     "long11_embedded": 0.6984126984126984,
+     "long11_benign_blocked": 1,
+     "pass": true
+    },
+    "R4": {
+     "persona3_en": 0.005050505050505051,
+     "persona3_vi": 0.008547008547008548,
+     "split2_tpr": 0.9833333333333333,
+     "split2_fpr": 0.0,
+     "c2": 0.9468,
+     "pass": true
+    }
+   },
+   "pass": false
+  },
+  "EPL3-s2": {
+   "criteria": {
+    "R1": {
+     "vi1_benign_blocked": 0.01160092807424594,
+     "bar": 0.008120649651972157,
+     "pass": false
+    },
+    "R2": {
+     "tp1_vi_tpr": 0.872093023255814,
+     "tp1_benign_blocked": 0.0,
+     "pass": false
+    },
+    "R3": {
+     "long11_embedded": 0.6785714285714286,
+     "long11_benign_blocked": 1,
+     "pass": false
+    },
+    "R4": {
+     "persona3_en": 0.007575757575757576,
+     "persona3_vi": 0.008547008547008548,
+     "split2_tpr": 0.9833333333333333,
+     "split2_fpr": 0.03333333333333333,
+     "c2": 0.9485,
+     "pass": true
+    }
+   },
+   "pass": false
+  },
+  "EPL3-s3": {
+   "criteria": {
+    "R1": {
+     "vi1_benign_blocked": 0.00580046403712297,
+     "bar": 0.008120649651972157,
+     "pass": true
+    },
+    "R2": {
+     "tp1_vi_tpr": 0.8604651162790697,
+     "tp1_benign_blocked": 0.0,
+     "pass": false
+    },
+    "R3": {
+     "long11_embedded": 0.6904761904761905,
+     "long11_benign_blocked": 0,
+     "pass": true
+    },
+    "R4": {
+     "persona3_en": 0.010101010101010102,
+     "persona3_vi": 0.0,
+     "split2_tpr": 0.9166666666666666,
+     "split2_fpr": 0.0,
+     "c2": 0.9352,
+     "pass": true
+    }
+   },
+   "pass": false
+  }
+ },
+ "decision": {
+  "all_seeds_pass": false,
+  "candidate": "v8g (EPL2-s3)",
+  "failed": {
+   "EPL3-s1": [
+    "R1"
+   ],
+   "EPL3-s2": [
+    "R1",
+    "R2",
+    "R3"
+   ],
+   "EPL3-s3": [
+    "R2"
+   ]
+  }
+ }
+}

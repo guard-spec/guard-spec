@@ -121,6 +121,30 @@ def persona3(rows: list[dict]) -> dict:
     return out
 
 
+def vi1(rows: list[dict]) -> dict:
+    """R8e's vi1: benign rows blocked (the gateway's decision), overall and per stratum (from the id)."""
+    by = collections.defaultdict(list)
+    for r in rows:
+        by[r["id"].split("-")[1]].append(r)  # vi1-<stratum>-<hash>
+    return {"all": frac(sum(bool(r["blocked"]) for r in rows), len(rows)),
+            "by_stratum": {k: frac(sum(bool(r["blocked"]) for r in v), len(v)) for k, v in sorted(by.items())},
+            "blocked_ids": sorted(r["id"] for r in rows if r["blocked"])}
+
+
+def tp1(rows: list[dict]) -> dict:
+    """R8e's tp1: attacks caught and benign rows blocked (the gateway's decision), per language."""
+    out: dict = {}
+    for lang in ("vi", "en", "all"):
+        rs = [r for r in rows if lang == "all" or r["lang"] == lang]
+        a = [r for r in rs if r["label"] == "attack"]
+        b = [r for r in rs if r["label"] == "benign"]
+        out[lang] = {"tpr": frac(sum(bool(r["blocked"]) for r in a), len(a)),
+                     "fpr": frac(sum(bool(r["blocked"]) for r in b), len(b))}
+    out["missed_ids"] = sorted(r["id"] for r in rows if r["label"] == "attack" and not r["blocked"])
+    out["blocked_benign_ids"] = sorted(r["id"] for r in rows if r["label"] == "benign" and r["blocked"])
+    return out
+
+
 def long_docs(prefix: Path) -> list[dict]:
     rows = []
     for split in ("dev", "holdout"):
@@ -195,14 +219,21 @@ def summarize(a) -> int:
         if (d / f"{sp}.scores.jsonl").exists():
             t = d / f"{sp}_turns.scores.jsonl"
             s[sp] = split1(read_jsonl(d / f"{sp}.scores.jsonl"), read_jsonl(t) if t.exists() else None)
-    for lg in ("long9", "long10"):
+    if (d / "vi1.scores.jsonl").exists():
+        s["vi1"] = vi1(read_jsonl(d / "vi1.scores.jsonl"))
+    if (d / "tp1.scores.jsonl").exists():
+        s["tp1"] = tp1(read_jsonl(d / "tp1.scores.jsonl"))
+    for lg in ("long9", "long10", "long11"):
         bp, ap = d / f"{lg}-benign", d / f"{lg}-attack"
         if Path(f"{bp}-dev.jsonl.gz").exists() and Path(f"{ap}-dev.jsonl.gz").exists():
             s[lg] = long9(long_docs(bp), long_docs(ap))
     (d / "summary.json").write_text(json.dumps(s, indent=1) + "\n", "utf-8")
-    short = {k: v for k, v in s.items() if k not in ("persona3", "split1", "split2", "long9", "long10")}
+    short = {k: v for k, v in s.items() if k not in ("persona3", "split1", "split2", "long9", "long10", "long11", "vi1", "tp1")}
     short["persona3"] = s.get("persona3", {}).get("by_lang")
-    for lg in ("long9", "long10"):
+    for es in ("vi1", "tp1"):
+        if es in s:
+            short[es] = {k: v for k, v in s[es].items() if not k.endswith("_ids")}
+    for lg in ("long9", "long10", "long11"):
         if lg in s:
             short[lg] = {k: s[lg][k] for k in ("benign_blocked", "embedded_caught", "alone_caught")}
     for sp in ("split1", "split2"):

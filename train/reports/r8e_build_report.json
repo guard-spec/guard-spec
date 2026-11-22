@@ -1,0 +1,136 @@
+{
+ "task": "RF-943afc53 (R8e)",
+ "training_stats": {
+  "seed": 20261122,
+  "inputs": {
+   "sources_r8e_sha256": "8d7ec4c30884ce6dfb6394360ea669951fa353370b83d73ffa71cbff9515e22c",
+   "r8e_templates_sha256": "1a591d9e97a7d3a5c602f94aaa0c2a20bb41de43d7184e3cd1f8ffe92365d065",
+   "lp_pool_sha256": "840eed7553e44e5628e464e4f596c0fccb0de232e043b09e880a3479652a8c43",
+   "lp_sanitized_sha256": "1e9439ca41e4a7bca668317a6d67f3da40019af4bcb7eea4ff49ddea7da3fa03",
+   "tokenizer": "tokenizer.json",
+   "tokenizer_sha256": "0b44a9d7b51c3c62626640cda0e2c2f70fdacdc25bbbd68038369d14ebdf4c39"
+  },
+  "index_shingles": 533808878,
+  "build": {
+   "N+:rejected_overlap": 30,
+   "T+:rejected_overlap": 213,
+   "lpp:embed_failed:split_within": 9,
+   "lpp:host_skipped:docs": 34,
+   "lpp:host_skipped:readme": 19,
+   "lpp:host_skipped:rfc": 37,
+   "lpp:host_without_attack:split_within": 1,
+   "lpp:payloads": 396,
+   "lpp:taken:docs": 270,
+   "lpp:taken:readme": 150,
+   "lpp:taken:rfc": 180
+  },
+  "r8e_Tplus_train": {
+   "rows": 1200,
+   "sha256": "3ed5beef8b053a27f19d9109b0aaeab2be68005f4360cd4acd6bdfb1901b2987",
+   "by_kind_lang_variant": {
+    "r8e_tplus_attack:en:orig": 264,
+    "r8e_tplus_attack:vi:no_diacritics": 128,
+    "r8e_tplus_attack:vi:orig": 110,
+    "r8e_tplus_attack:vi:teencode": 98,
+    "r8e_tplus_benign:en:orig": 234,
+    "r8e_tplus_benign:vi:no_diacritics": 111,
+    "r8e_tplus_benign:vi:orig": 128,
+    "r8e_tplus_benign:vi:teencode": 127
+   },
+   "labels": {
+    "benign": 600,
+    "data_exfiltration+tool_poisoning": 393,
+    "prompt_extraction+tool_poisoning": 207
+   }
+  },
+  "r8e_Oplus_train": {
+   "rows": 400,
+   "sha256": "048f5b4784a72bc23ee6f048cf3b012c1a2620e762446eba13ac876189c8ddad",
+   "by_kind_lang_variant": {
+    "r8e_oplus_attack:en:orig": 132,
+    "r8e_oplus_attack:vi:no_diacritics": 88,
+    "r8e_oplus_attack:vi:orig": 88,
+    "r8e_oplus_attack:vi:teencode": 92
+   },
+   "labels": {
+    "direct_injection": 400
+   }
+  },
+  "r8e_Nplus_train": {
+   "rows": 280,
+   "sha256": "a129bad6e8adb720647e9b940718501db4cd3e50b0fd05491fb789a7b90c2065",
+   "by_kind_lang_variant": {
+    "r8e_nplus_benign:en:orig": 69,
+    "r8e_nplus_benign:vi:no_diacritics": 102,
+    "r8e_nplus_benign:vi:teencode": 109
+   },
+   "labels": {
+    "benign": 280
+   }
+  },
+  "r8e_Lpp_train": {
+   "rows": 600,
+   "sha256": "a4529e8f88c3070e1e176f91298915b41eb3f03a811d2121498bd673f50f9986",
+   "by_kind_lang_variant": {
+    "r8e_lpp_attack:en:orig": 600
+   },
+   "labels": {
+    "data_exfiltration+indirect_injection+tool_poisoning": 265,
+    "direct_injection+indirect_injection": 194,
+    "indirect_injection+prompt_extraction+tool_poisoning": 141
+   },
+   "placement": {
+    "end": 70,
+    "mid": 181,
+    "split_adjacent": 101,
+    "split_within": 84,
+    "start": 61,
+    "straddle_window": 103
+   },
+   "genre": {
+    "docs": 270,
+    "readme": 150,
+    "rfc": 180
+   },
+   "payload_uses_max": 2
+  }
+ },
+ "training_guard": {
+  "result": "clean",
+  "index_shingles": 533808878,
+  "files": {
+   "r8e_Tplus_train": {
+    "rows": 1200,
+    "rows_clean_50token": 1200,
+    "short_holdout_12token_overlap": [],
+    "word8_overlap": [],
+    "holdout_rows_contained": [],
+    "sha256": "3ed5beef8b053a27f19d9109b0aaeab2be68005f4360cd4acd6bdfb1901b2987"
+   },
+   "r8e_Oplus_train": {
+    "rows": 400,
+    "rows_clean_50token": 400,
+    "short_holdout_12token_overlap": [],
+    "word8_overlap": [],
+    "holdout_rows_contained": [],
+    "sha256": "048f5b4784a72bc23ee6f048cf3b012c1a2620e762446eba13ac876189c8ddad"
+   },
+   "r8e_Nplus_train": {
+    "rows": 280,
+    "rows_clean_50token": 280,
+    "short_holdout_12token_overlap": [],
+    "word8_overlap": [],
+    "holdout_rows_contained": [],
+    "sha256": "a129bad6e8adb720647e9b940718501db4cd3e50b0fd05491fb789a7b90c2065"
+   },
+   "r8e_Lpp_train": {
+    "rows": 600,
+    "rows_clean_50token": 600,
+    "short_holdout_12token_overlap": [],
+    "word8_overlap": [],
+    "holdout_rows_contained": [],
+    "sha256": "a4529e8f88c3070e1e176f91298915b41eb3f03a811d2121498bd673f50f9986"
+   }
+  }
+ }
+}

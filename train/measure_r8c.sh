@@ -20,7 +20,9 @@
 # ONLY (space-separated subset of: data persona3 split long), and for later rounds HOLDOUTS (the round's holdout
 # directory with its SHA256SUMS, default $R/out), P3_DIR (the persona3 holdout, default
 # $HOLDOUTS/persona3/holdout/direct), LONG (long9) and SPLIT (split1): R8d runs with R8C=.../v9/r8d LONG=long10
-# SPLIT=split2 P3_DIR=.../v9/r8c/out/persona3/holdout/direct.
+# SPLIT=split2 P3_DIR=.../v9/r8c/out/persona3/holdout/direct. EVALSETS (R8e) lists further cmd/eval holdouts as
+# name=directory pairs, scored with -path direct and selected with ONLY token "evalsets": R8e runs with
+# R8C=.../v9/r8e LONG=long11 EVALSETS="vi1=$H/vi1/holdout tp1=$H/tp1/holdout" ONLY="evalsets long".
 set -euo pipefail
 n=$1; m=$2
 R=${R8C:-$HOME/WorkingSpace/AI_R_D/guardspec-data/v9/r8c}
@@ -76,6 +78,15 @@ if want split && once "$SPLIT"; then
     -json "$O/${SPLIT}_turns.json" -scores "$O/${SPLIT}_turns.scores.jsonl" > "$O/${SPLIT}_turns.log" 2>&1
   t "$SPLIT done in $((SECONDS - s)) s"
 fi
+for es in ${EVALSETS:-}; do
+  name=${es%%=*}; dir=${es#*=}
+  if want evalsets && once "$name"; then
+    s=$SECONDS
+    L2_MODEL_DIR=$m "$B/eval" -detector fusion-ml -path direct -data "$dir" \
+      -json "$O/$name.json" -scores "$O/$name.scores.jsonl" > "$O/$name.log" 2>&1
+    t "$name done in $((SECONDS - s)) s"
+  fi
+done
 if want long && once "$LONG"; then
   for k in benign attack; do
     s=$SECONDS
