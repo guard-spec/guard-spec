@@ -336,6 +336,15 @@ What it costs:
 - **It blocks a few more benign short messages at 0.85** with L2 alone
   (5 of 511 on the hold-out half). With every layer it blocks 0.9% of all
   `eval/` benign rows, against 0.2% for v8e, most of them Vietnamese.
+- **Poisoned tool descriptions that ask to copy data into a parameter**
+  (the conversation, the system prompt or keys into `debug`, `metadata`…):
+  on the R8e holdout tp1, v8g alone catches 59 of 86 Vietnamese and 42 of 64
+  English ones, with no benign description blocked. MCP tool descriptions
+  also go through the tool-poisoning signals and the L1 rules; review
+  third-party tools before adding them, and leave `SCAN_TOOL_PREFIXES` empty
+  so every tool is checked. R8e's fix (74 to 76 of 86) did not meet its
+  criteria (train/reports/r8e_report.md); model training is paused until
+  real-traffic reports show what to fix next (2026-11-22).
 
 Upgrading from an earlier release: `models-init` (or `models pull`) fetches
 v8g. Until it is installed, a gateway keeps using the newest installed former
