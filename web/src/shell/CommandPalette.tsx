@@ -134,7 +134,6 @@ export function CommandPalette({ org, visible }: { org: Org | null; visible: (gr
         ref={button}
         type="button"
         className="btn palette-button"
-        aria-label={t('palette.open')}
         aria-keyshortcuts="Control+K Meta+K"
         aria-haspopup="dialog"
         onClick={() => setOpen(true)}

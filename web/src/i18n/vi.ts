@@ -528,7 +528,6 @@ export const vi: Messages = {
   'nav.account': 'Tài khoản của tôi',
 
   'profile.menu': 'Menu hồ sơ',
-  'profile.open': 'Menu hồ sơ của {name}',
   'profile.you': 'Tài khoản của bạn',
   'profile.instanceAdmin': 'Quản trị hệ thống',
 
