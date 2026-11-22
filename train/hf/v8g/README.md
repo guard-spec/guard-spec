@@ -264,3 +264,10 @@ Reports: `train/reports/r8d_preregistration.md`, `r8d_report.md`, `r8c_report.md
 - **FP16 differs from INT8 near the threshold** (about 1% of short-path decisions). Measure the GPU path on your own
   traffic before relying on it.
 - Synthetic data, 256-token windows, and no content moderation, as for v8e.
+- **Tool descriptions that ask to copy data into a parameter.** On the R8e holdout tp1 (2026-11-22), v8g alone
+  catches 59 of 86 Vietnamese and 42 of 64 English poisoned tool descriptions, with no benign description blocked.
+  Most misses ask the tool to put the conversation, the system prompt or keys into a field such as `debug`, `metadata`
+  or `trace`. In Guard Spec, MCP tool descriptions also go through the tool-poisoning signals and the L1 rules; review
+  third-party tools before you add them, and keep `SCAN_TOOL_PREFIXES` empty (every tool checked) unless you trust a
+  prefix. Round R8e trained a fix (74 to 76 of 86) that did not meet its pre-registered criteria, so training is
+  paused until real-traffic reports show what to fix next.

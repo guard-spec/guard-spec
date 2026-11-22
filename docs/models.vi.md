@@ -336,6 +336,14 @@ Cái giá:
 - **Chặn nhầm nhiều tin nhắn ngắn lành hơn một chút ở 0,85** khi chỉ dùng L2
   (5/511 trên nửa hold-out). Với đủ các lớp, nó chặn 0,9% dòng lành của `eval/`,
   so với 0,2% của v8e, phần lớn là tiếng Việt.
+- **Mô tả tool bị đầu độc, yêu cầu chép dữ liệu vào một tham số** (chép hội
+  thoại, system prompt hoặc khoá vào `debug`, `metadata`…): trên holdout tp1
+  của vòng R8e, riêng v8g bắt được 59/86 mô tả tiếng Việt và 42/64 mô tả tiếng
+  Anh, không chặn nhầm mô tả lành nào. Mô tả tool MCP còn đi qua các tín hiệu
+  tool-poisoning và rule L1; hãy xem kỹ tool của bên thứ ba trước khi thêm, và
+  để trống `SCAN_TOOL_PREFIXES` để mọi tool đều được kiểm tra. Bản sửa của
+  R8e (74–76/86) chưa đạt tiêu chí (train/reports/r8e_report.md); việc train
+  model tạm dừng cho tới khi có phản hồi từ traffic thật (2026-11-22).
 
 Nâng cấp từ bản trước: `models-init` (hoặc `models pull`) tải v8g. Trong lúc
 chưa cài, gateway dùng bản mặc định cũ mới nhất đã cài (v8e, nếu không có thì

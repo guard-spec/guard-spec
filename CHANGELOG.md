@@ -9,6 +9,27 @@ Before 1.0, minor versions may contain breaking changes; they are listed under
 
 ## [Unreleased]
 
+### Documentation
+
+- **v8g's limit on poisoned tool descriptions is stated** on its model card and in docs/models EN/VI (RF-943afc53):
+  on the R8e holdout tp1, v8g alone catches 59 of 86 Vietnamese and 42 of 64 English descriptions that ask a tool to
+  copy the conversation, the system prompt or keys into a parameter. Round R8e's fix did not meet its criteria, so
+  model training is paused until real-traffic reports.
+
+### Changed
+
+- **Dependencies** (RF-f5453ca5, PRs #205, #208, #209):
+  - Go modules: golang.org/x crypto v0.59.0, net v0.63.0, oauth2 v0.38.0, sync v0.25.0, text v0.44.0, sys v0.50.0;
+    fasthttp 1.79.0; pgx 5.13.0; etree 1.8.1; goldmark 1.8.7.
+  - Images: chainguard/static at a newer digest.
+  - Admin UI and TypeScript examples: npm minor and patch updates.
+  - GitHub Actions: docker/login-action v4.8.0, cosign-installer v4.1.3, codeql-action v4 at its current commit.
+
+### Fixed
+
+- **Admin UI header controls are named by their visible text** (WCAG 2.5.3, label in name; RF-f5453ca5): the brand
+  link, the search button and the profile button. axe-core 4.14 checks this.
+
 ## [0.11.0] - 2026-11-20
 
 ### Upgrade notes
