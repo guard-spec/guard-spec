@@ -47,14 +47,20 @@ The recipe is EPL2's: `train.py` defaults, 5 epochs, the epoch selected on the v
 exported to ONNX INT8 and calibrated with `cmd/calibrate fit -model-dir "$MODEL_ROOT"` on E's 12,785 validation rows.
 E's `long_doc` and `l2_untrusted_max` (0.88) are then added, exactly as for EPL and EPL2.
 
-**Launch** (`.claude/skills/colab-gpu/scripts/colab_job.py`, from the R8e worktree at the commit of this file):
+**Launch** (`.claude/skills/colab-gpu/scripts/colab_job.py`, run from the R8e worktree at the commit of this file):
+
+> **Erratum, written after the launch (2026-11-22).** As committed in `b8435f3`, this block repeated `--data` once
+> per stage directory. `colab_job.py` declares `--data` with `nargs="*"` and no append, so only the last directory
+> (`r8e`) would have been shipped. The jobs were launched with the block as it now reads: one `--data` followed by the
+> seven stage directories, and `--repo . --paths train` from the R8e worktree at `b8435f3`. The data, the command and
+> the seeds are otherwise the ones pre-registered (`colab_job.json` records the seven directories and `b8435f3`).
 
 ```bash
 J=.claude/skills/colab-gpu/scripts/colab_job.py
 S=~/WorkingSpace/AI_R_D/guardspec-data/v9/r8e/stage
 uv export --project train --no-hashes --no-emit-project --frozen -o "$SCRATCH/train-req.txt"
-python3 $J start --name r8e --gpu L4 --repo .claude/worktrees/r8e \
-  --data $S/data-v4A --data $S/out-full --data $S/v8 --data $S/r8b --data $S/r8c --data $S/r8d --data $S/r8e \
+python3 $J start --name r8e --gpu L4 --repo . --paths train \
+  --data $S/data-v4A $S/out-full $S/v8 $S/r8b $S/r8c $S/r8d $S/r8e \
   --requirements "$SCRATCH/train-req.txt" \
   -- 'nvidia-smi; cd train; for k in 1 2 3; do seed=$((20261107+k)); echo "== EPL3-s$k seed $seed $(date)"; python3 train.py --data-dir "$DATA_DIR/data-v4A" --v6-dir "$DATA_DIR/out-full" --v8-dir "$DATA_DIR/v8" --v8-file v8e_train.jsonl --extra-train "$DATA_DIR/r8b/persona_neg_train.jsonl" --extra-train "$DATA_DIR/r8c/r8c_L_train.jsonl" --extra-train "$DATA_DIR/r8c/r8c_S_train.jsonl" --extra-train "$DATA_DIR/r8d/r8d_Lplus_train.jsonl" --extra-train "$DATA_DIR/r8d/r8d_N_train.jsonl" --extra-train "$DATA_DIR/r8e/r8e_Tplus_train.jsonl" --extra-train "$DATA_DIR/r8e/r8e_Oplus_train.jsonl" --extra-train "$DATA_DIR/r8e/r8e_Nplus_train.jsonl" --extra-train "$DATA_DIR/r8e/r8e_Lpp_train.jsonl" --seed $seed --run-dir "$OUT_DIR/EPL3-s$k" || exit 1; done; echo "== done $(date)"'
 python3 $J poll --name r8e --lines 30
