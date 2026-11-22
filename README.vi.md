@@ -36,6 +36,9 @@ Trạng thái: **v0.11.0, trước 1.0.** API và schema cơ sở dữ liệu c�
 thay đổi. Hãy đọc phần [Mô hình bảo mật và giới hạn](#mô-hình-bảo-mật-và-giới-hạn)
 trước khi dùng.
 
+Câu hỏi và ý tưởng: [Discussions](https://github.com/guard-spec/guard-spec/discussions). Muốn góp sức? Bắt đầu với một
+[good first issue](https://github.com/guard-spec/guard-spec/labels/good%20first%20issue) và xem phần [Đóng góp](#đóng-góp).
+
 ## Tính năng
 
 **Phát hiện tấn công (gateway)**
@@ -1195,6 +1198,15 @@ SBOM, provenance; tiếng Anh): [docs/security/](docs/security/README.md).
 Báo lỗ hổng bảo mật một cách riêng tư theo [SECURITY.md](SECURITY.md).
 
 ## Đóng góp
+
+Mọi người đều có thể đóng góp: code, tài liệu, bản dịch, ví dụ, và báo cáo lọt lưới hoặc chặn nhầm.
+
+- **Lần đầu đóng góp:** các issue gắn nhãn [good first issue](https://github.com/guard-spec/guard-spec/labels/good%20first%20issue) và [help wanted](https://github.com/guard-spec/guard-spec/labels/help%20wanted) đã được mô tả sẵn, ví dụ
+  dịch tài liệu sang tiếng Việt, hoặc thêm ví dụ LangChain.js và Go. Comment vào issue để nhận làm.
+- **Cách làm:** fork repo, sửa trên một nhánh rồi mở pull request. Mọi commit đều cần sign-off (`git commit -s`, theo
+  [DCO](CONTRIBUTING.md#developer-certificate-of-origin-dco)).
+- **Hỏi đáp và ý tưởng:** [Discussions](https://github.com/guard-spec/guard-spec/discussions).
+- **Review:** maintainer trong [MAINTAINERS.md](MAINTAINERS.md) review từng pull request và merge khi CI xanh.
 
 Xem [CONTRIBUTING.md](CONTRIBUTING.md) (DCO sign-off, cách chạy test và eval).
 Quy tắc quan trọng nhất: **không bao giờ dùng `eval/` để tinh chỉnh**. Báo
