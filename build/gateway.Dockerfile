@@ -13,7 +13,7 @@
 # builds pass neither and download as before.
 FROM scratch AS onnx-cache
 
-FROM golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0 AS builder
+FROM golang:1.27.4-bookworm@sha256:4fa7c968ba93f1635670522dbb01a2c78150443e1385746924566079f36570ea AS builder
 ARG TARGETOS=linux
 ARG TARGETARCH
 # Release version, linked into the binaries (gateway --version).
