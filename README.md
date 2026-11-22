@@ -36,6 +36,9 @@ Status: **v0.11.0, pre-1.0.** The API and the database schema can still
 change. Read [Security model and limitations](#security-model-and-limitations)
 before you rely on it.
 
+Questions and ideas: [Discussions](https://github.com/guard-spec/guard-spec/discussions). Want to help? Start with a
+[good first issue](https://github.com/guard-spec/guard-spec/labels/good%20first%20issue) and see [Contributing](#contributing).
+
 ## Contents
 
 - [Features](#features)
@@ -57,6 +60,7 @@ before you rely on it.
 - [Security documentation](docs/security/README.md) (architecture, data flow, retention, verifying a release)
 - [Operations](#operations)
 - [Development](#development)
+- [Contributing](#contributing)
 - [License](#license)
 
 ## Features
@@ -3178,6 +3182,21 @@ Google Workspace and Keycloak is described in [docs/sso.md](docs/sso.md).
 Bypass and false-positive reports, and how they reach the training data, are
 described in [docs/red-team.md](docs/red-team.md).
 Planned work is in [ROADMAP.md](ROADMAP.md).
+
+## Contributing
+
+Contributions are welcome from anyone: code, docs, translations, examples, and reports of bypasses and false
+positives.
+
+- **First contribution:** issues labelled [good first issue](https://github.com/guard-spec/guard-spec/labels/good%20first%20issue) and [help wanted](https://github.com/guard-spec/guard-spec/labels/help%20wanted) are scoped and ready, for
+  example Vietnamese translations of the docs and new examples (LangChain.js, Go). Comment on one to take it.
+- **How:** fork the repository, make your change on a branch, and open a pull request. Every commit is signed off
+  (`git commit -s`, the [Developer Certificate of Origin](CONTRIBUTING.md#developer-certificate-of-origin-dco)).
+  [CONTRIBUTING.md](CONTRIBUTING.md) has the setup, the tests and the one rule about `eval/`.
+- **Questions and ideas:** [Discussions](https://github.com/guard-spec/guard-spec/discussions). Bugs go to issues, bypasses and false positives to their issue
+  templates, and vulnerabilities to [SECURITY.md](SECURITY.md).
+- **Review:** the maintainers in [MAINTAINERS.md](MAINTAINERS.md) review every pull request and merge it once CI is
+  green. Steady contributors can become maintainers.
 
 ## License
 
