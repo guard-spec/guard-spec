@@ -284,7 +284,7 @@ services:
   # password is required: whoever can write to it can mark content as clean.
   scan-cache:
     profiles: [scan-cache]
-    image: valkey/valkey:8.1.4-alpine@sha256:e706d1213aaba6896c162bb6a3a9e1894e1a435f28f8f856d14fab2e10aa098b
+    image: valkey/valkey:9.2.0-alpine@sha256:c8e2d17498838af5d91e12eb7c11220b3434a7b7131a333e3af52ad5e0b80882
     entrypoint:
       - /bin/sh
       - -c
