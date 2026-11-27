@@ -43,7 +43,7 @@ FROM ${GATEWAY_IMAGE} AS gateway
 # The gateway image has no shell (distroless), so the models are assembled in
 # a Debian stage that is not shipped: it runs the image's own models tool and
 # manifest, with the image's CA certificates.
-FROM debian:bookworm-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc AS models
+FROM debian:bookworm-slim@sha256:e67eeead736ff7bbe258ef088bff683635c561b1fcfefad0806c1df4ab49ce0e AS models
 WORKDIR /app
 COPY --from=gateway /app/models /app/manifest.yaml ./
 COPY --from=gateway /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
